@@ -254,8 +254,8 @@ export function useCadCore() {
       await sendCoreCommand(makeSelectEdgeCommand(edgeId, additive));
       await sendCoreCommand(makeGetViewportStateCommand());
     },
-    selectVertex: async (vertexId: string) => {
-      await sendCoreCommand(makeSelectVertexCommand(vertexId));
+    selectVertex: async (vertexId: string, additive: boolean = false) => {
+      await sendCoreCommand(makeSelectVertexCommand(vertexId, additive));
       await sendCoreCommand(makeGetViewportStateCommand());
     },
     createFillet: async (edgeIds: readonly string[], radius: number) => {

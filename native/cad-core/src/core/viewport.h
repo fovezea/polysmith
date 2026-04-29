@@ -247,6 +247,14 @@ struct ViewportEdgePrimitive {
   // Flat polyline samples in world space: x0, y0, z0, x1, y1, z1, ...
   // The renderer connects consecutive points with line segments.
   std::vector<double> points;
+  // Exact length of the edge in millimetres (the document's units).
+  // Computed by OCCT (BRepGProp::LinearProperties) so it is accurate
+  // for arcs and curves, not just the sampled polyline. Surfaced here
+  // (rather than via a separate measure IPC) because the viewport
+  // already enumerates every edge for picking — adding the length is
+  // O(1) extra work per edge and avoids a second round-trip whenever
+  // the UI wants to show "selected edge: X mm".
+  double length;
   bool is_selected;
 };
 

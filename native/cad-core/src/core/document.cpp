@@ -273,7 +273,7 @@ DocumentState DocumentManager::create_document() {
       .selected_reference_id = std::nullopt,
       .selected_face_id = std::nullopt,
       .selected_edge_ids = {},
-      .selected_vertex_id = std::nullopt,
+      .selected_vertex_ids = {},
       .active_sketch_plane_id = std::nullopt,
       .active_sketch_face_id = std::nullopt,
       .active_sketch_feature_id = std::nullopt,
@@ -583,7 +583,7 @@ DocumentState DocumentManager::select_feature(const std::string& feature_id) {
   document_->selected_reference_id = std::nullopt;
   document_->selected_face_id = std::nullopt;
   document_->selected_edge_ids.clear();
-  document_->selected_vertex_id = std::nullopt;
+  document_->selected_vertex_ids.clear();
   document_->selected_sketch_point_id = std::nullopt;
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
@@ -602,7 +602,7 @@ DocumentState DocumentManager::select_reference(const std::string& reference_id)
   document_->selected_reference_id = reference_id;
   document_->selected_face_id = std::nullopt;
   document_->selected_edge_ids.clear();
-  document_->selected_vertex_id = std::nullopt;
+  document_->selected_vertex_ids.clear();
   document_->selected_sketch_point_id = std::nullopt;
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
@@ -628,7 +628,7 @@ DocumentState DocumentManager::start_sketch_on_plane(
   document_->selected_reference_id = reference_id;
   document_->selected_face_id = std::nullopt;
   document_->selected_edge_ids.clear();
-  document_->selected_vertex_id = std::nullopt;
+  document_->selected_vertex_ids.clear();
   document_->active_sketch_plane_id = reference_id;
   document_->active_sketch_face_id = std::nullopt;
   document_->active_sketch_feature_id = sketch_feature_id;
@@ -661,7 +661,7 @@ DocumentState DocumentManager::select_face(const std::string& face_id) {
   document_->selected_reference_id = std::nullopt;
   document_->selected_face_id = face_id;
   document_->selected_edge_ids.clear();
-  document_->selected_vertex_id = std::nullopt;
+  document_->selected_vertex_ids.clear();
   document_->selected_sketch_point_id = std::nullopt;
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
@@ -715,7 +715,7 @@ DocumentState DocumentManager::select_edge(const std::string& edge_id,
   document_->selected_feature_id = feature_it->id;
   document_->selected_reference_id = std::nullopt;
   document_->selected_face_id = std::nullopt;
-  document_->selected_vertex_id = std::nullopt;
+  document_->selected_vertex_ids.clear();
   document_->selected_sketch_point_id = std::nullopt;
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
@@ -723,7 +723,8 @@ DocumentState DocumentManager::select_edge(const std::string& edge_id,
   return document_.value();
 }
 
-DocumentState DocumentManager::select_vertex(const std::string& vertex_id) {
+DocumentState DocumentManager::select_vertex(const std::string& vertex_id,
+                                              bool additive) {
   require_document();
 
   // Vertex ids are minted by the viewport as
@@ -746,11 +747,26 @@ DocumentState DocumentManager::select_vertex(const std::string& vertex_id) {
     throw std::runtime_error("Vertex owner not found: " + vertex_id);
   }
 
+  // Toggle / replace mirror of select_edge: shift-click adds or
+  // removes; plain click replaces. Two-vertex selections drive the
+  // distance readout in the UI's Selection panel.
+  if (additive) {
+    const auto existing = std::find(document_->selected_vertex_ids.begin(),
+                                    document_->selected_vertex_ids.end(),
+                                    vertex_id);
+    if (existing != document_->selected_vertex_ids.end()) {
+      document_->selected_vertex_ids.erase(existing);
+    } else {
+      document_->selected_vertex_ids.push_back(vertex_id);
+    }
+  } else {
+    document_->selected_vertex_ids = {vertex_id};
+  }
+
   document_->selected_feature_id = feature_it->id;
   document_->selected_reference_id = std::nullopt;
   document_->selected_face_id = std::nullopt;
   document_->selected_edge_ids.clear();
-  document_->selected_vertex_id = vertex_id;
   document_->selected_sketch_point_id = std::nullopt;
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
@@ -844,7 +860,7 @@ DocumentState DocumentManager::create_fillet(
   // path is responsible for clearing the selection once the user is
   // done; Cancel goes through undo() which restores the prior set.
   document_->selected_edge_ids = edge_ids;
-  document_->selected_vertex_id = std::nullopt;
+  document_->selected_vertex_ids.clear();
   document_->selected_face_id = std::nullopt;
   document_->selected_reference_id = std::nullopt;
   document_->revision += 1;
@@ -1004,7 +1020,7 @@ DocumentState DocumentManager::create_chamfer(
   // Same rationale as create_fillet: keep the chamfered edges
   // highlighted while the floating panel is open. See comment there.
   document_->selected_edge_ids = edge_ids;
-  document_->selected_vertex_id = std::nullopt;
+  document_->selected_vertex_ids.clear();
   document_->selected_face_id = std::nullopt;
   document_->selected_reference_id = std::nullopt;
   document_->revision += 1;
@@ -1973,7 +1989,7 @@ DocumentState DocumentManager::reenter_sketch(const std::string& feature_id) {
   document_->selected_reference_id = std::nullopt;
   document_->selected_face_id = std::nullopt;
   document_->selected_edge_ids.clear();
-  document_->selected_vertex_id = std::nullopt;
+  document_->selected_vertex_ids.clear();
   document_->active_sketch_plane_id = feature_it->sketch_parameters->plane_id;
   // Face id information is not preserved separately in sketch_parameters; the
   // plane_id matches the face id when the sketch was created on a face, which
@@ -2162,7 +2178,7 @@ DocumentState DocumentManager::clear_selection() {
   document_->selected_reference_id = std::nullopt;
   document_->selected_face_id = std::nullopt;
   document_->selected_edge_ids.clear();
-  document_->selected_vertex_id = std::nullopt;
+  document_->selected_vertex_ids.clear();
   document_->selected_sketch_point_id = std::nullopt;
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;

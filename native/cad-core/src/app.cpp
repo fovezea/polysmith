@@ -368,8 +368,16 @@ void CadCoreApp::handle_command_line(const std::string& line) {
   }
 
   if (command.type == "select_vertex") {
+    // `additive` toggles the vertex into the multi-select set
+    // (shift-click). Defaults to false for back-compat with payloads
+    // that only carry `vertex_id`.
+    bool additive = false;
+    if (command.payload.contains("additive") &&
+        command.payload.at("additive").is_boolean()) {
+      additive = command.payload.at("additive").get<bool>();
+    }
     const auto document = document_manager().select_vertex(
-        read_string(command.payload, "vertex_id"));
+        read_string(command.payload, "vertex_id"), additive);
 
     polysmith::protocol::write_message(
         polysmith::protocol::make_document_state_event(

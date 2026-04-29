@@ -281,12 +281,16 @@ export function makeSelectEdgeCommand(
   };
 }
 
-export function makeSelectVertexCommand(vertexId: string): CoreCommand {
+export function makeSelectVertexCommand(
+  vertexId: string,
+  additive: boolean,
+): CoreCommand {
   return {
     id: crypto.randomUUID(),
     type: "select_vertex",
     payload: {
       vertex_id: vertexId,
+      additive,
     },
   };
 }

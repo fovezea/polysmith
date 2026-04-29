@@ -26,7 +26,7 @@ export interface DocumentState {
   selected_reference_id: string | null;
   selected_face_id: string | null;
   selected_edge_ids: string[];
-  selected_vertex_id: string | null;
+  selected_vertex_ids: string[];
   active_sketch_plane_id: string | null;
   active_sketch_face_id: string | null;
   active_sketch_feature_id: string | null;
@@ -112,6 +112,10 @@ export interface ViewportEdgePrimitive {
   kind: string;
   // Flat world-space samples: x0, y0, z0, x1, y1, z1, ...
   points: number[];
+  // Exact length in millimetres, computed by OCCT in the core. Used
+  // by the bottom-right Selection readout when a single edge is
+  // selected.
+  length: number;
   is_selected: boolean;
 }
 
@@ -406,6 +410,9 @@ export interface SelectVertexCommand {
   id: string;
   type: "select_vertex";
   payload: {
+    // Mirrors SelectEdgeCommand: shift-click toggles into the
+    // multi-vertex set; plain click replaces.
+    additive: boolean;
     vertex_id: string;
   };
 }

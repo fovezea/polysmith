@@ -14,7 +14,11 @@ const documentStateSchema = z.object({
   // array. Default `[]` keeps the schema lenient for tests that
   // hand-craft document payloads without selection state.
   selected_edge_ids: z.array(z.string()).default([]),
-  selected_vertex_id: z.string().nullable().default(null),
+  // Multi-vertex selection: same shape and rationale as
+  // `selected_edge_ids`. The C++ loader migrates legacy single-id
+  // saves to the array form, so by the time we run we always see an
+  // array. Default `[]` keeps the schema lenient.
+  selected_vertex_ids: z.array(z.string()).default([]),
   active_sketch_plane_id: z.string().nullable(),
   active_sketch_face_id: z.string().nullable(),
   active_sketch_feature_id: z.string().nullable(),
@@ -476,6 +480,9 @@ const viewportStateSchema = z.object({
         owner_body_id: z.string(),
         kind: z.string(),
         points: z.array(z.number()),
+        // Default 0 so older snapshots without the field still validate;
+        // new core builds always populate it.
+        length: z.number().default(0),
         is_selected: z.boolean(),
       }),
     )

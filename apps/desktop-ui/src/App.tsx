@@ -1032,9 +1032,9 @@ function App() {
                   await selectEdge(edgeId, additive);
                 });
               }}
-              onSelectVertex={async (vertexId) => {
+              onSelectVertex={async (vertexId, additive) => {
                 await runAction(async () => {
-                  await selectVertex(vertexId);
+                  await selectVertex(vertexId, additive);
                 });
               }}
               onStartSketch={async (referenceId) => {

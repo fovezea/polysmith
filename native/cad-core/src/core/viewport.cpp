@@ -8,7 +8,9 @@
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepGProp.hxx>
 #include <BRepGProp_Face.hxx>
+#include <GProp_GProps.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRep_Tool.hxx>
 #include <GCPnts_QuasiUniformDeflection.hxx>
@@ -738,6 +740,17 @@ void enumerate_body_edges(const TopoDS_Shape& body_shape,
       // or rendered; skip them rather than emit dead entries.
       continue;
     }
+    // Exact length via OCCT mass-property integration. We swallow
+    // failures here (defaulting to 0) because a rare degenerate edge
+    // shouldn't take the whole snapshot down — the UI just shows
+    // 0 mm for that edge.
+    try {
+      GProp_GProps props;
+      BRepGProp::LinearProperties(edge, props);
+      primitive.length = props.Mass();
+    } catch (const std::exception&) {
+      primitive.length = 0.0;
+    }
     primitive.is_selected =
         std::find(selected_edge_ids.begin(),
                   selected_edge_ids.end(),
@@ -751,7 +764,7 @@ void enumerate_body_edges(const TopoDS_Shape& body_shape,
 void enumerate_body_vertices(
     const TopoDS_Shape& body_shape,
     const std::string& body_id,
-    const std::optional<std::string>& selected_vertex_id,
+    const std::vector<std::string>& selected_vertex_ids,
     std::vector<ViewportVertexPrimitive>& out) {
   if (body_shape.IsNull()) {
     return;
@@ -778,8 +791,9 @@ void enumerate_body_vertices(
     primitive.y = position.Y();
     primitive.z = position.Z();
     primitive.is_selected =
-        selected_vertex_id.has_value() &&
-        selected_vertex_id.value() == primitive.id;
+        std::find(selected_vertex_ids.begin(),
+                  selected_vertex_ids.end(),
+                  primitive.id) != selected_vertex_ids.end();
     out.push_back(std::move(primitive));
   }
 }
@@ -1268,7 +1282,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
                          edges);
     enumerate_body_vertices(body.shape,
                             body.id,
-                            document->selected_vertex_id,
+                            document->selected_vertex_ids,
                             vertices);
     // Look up the body's owning feature kind so the face's owner_kind
     // stays useful to consumers (the UI uses it to label faces).

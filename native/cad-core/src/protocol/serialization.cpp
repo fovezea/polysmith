@@ -508,10 +508,7 @@ json to_payload(const polysmith::core::DocumentState& document) {
            ? json(document.selected_face_id.value())
            : json(nullptr)},
       {"selected_edge_ids", document.selected_edge_ids},
-      {"selected_vertex_id",
-       document.selected_vertex_id.has_value()
-           ? json(document.selected_vertex_id.value())
-           : json(nullptr)},
+      {"selected_vertex_ids", document.selected_vertex_ids},
       {"active_sketch_plane_id",
        document.active_sketch_plane_id.has_value()
            ? json(document.active_sketch_plane_id.value())
@@ -1034,6 +1031,7 @@ json to_payload(const polysmith::core::ViewportState& viewport) {
                {"owner_body_id", edge.owner_body_id},
                {"kind", edge.kind},
                {"points", edge.points},
+               {"length", edge.length},
                {"is_selected", edge.is_selected},
            });
          }
@@ -1181,8 +1179,22 @@ polysmith::core::DocumentState document_from_payload(const json& payload) {
       document.selected_edge_ids.push_back(*legacy);
     }
   }
-  document.selected_vertex_id =
-      read_optional_string(payload, "selected_vertex_id");
+  // Same back-compat shape as selected_edge_ids: read the array form
+  // when present, fall back to the legacy single `selected_vertex_id`
+  // for old `.polysmith` saves.
+  if (payload.contains("selected_vertex_ids") &&
+      payload.at("selected_vertex_ids").is_array()) {
+    for (const auto& entry : payload.at("selected_vertex_ids")) {
+      if (entry.is_string()) {
+        document.selected_vertex_ids.push_back(entry.get<std::string>());
+      }
+    }
+  } else {
+    const auto legacy = read_optional_string(payload, "selected_vertex_id");
+    if (legacy.has_value()) {
+      document.selected_vertex_ids.push_back(*legacy);
+    }
+  }
   document.active_sketch_plane_id =
       read_optional_string(payload, "active_sketch_plane_id");
   document.active_sketch_face_id =

@@ -59,7 +59,11 @@ interface ViewportPanelProps {
   // replacing it. Other selection categories don't support multi
   // yet, so they keep their single-id callbacks.
   onSelectEdge: (edgeId: string, additive: boolean) => Promise<void>;
-  onSelectVertex: (vertexId: string) => Promise<void>;
+  // Same multi-select shape as `onSelectEdge`: shift-click toggles
+  // the vertex into the existing vertex set (used by the bottom-right
+  // Selection panel to show vertex-vertex distance), plain click
+  // replaces.
+  onSelectVertex: (vertexId: string, additive: boolean) => Promise<void>;
   onStartSketch: (referenceId: string) => Promise<void>;
   onStartSketchOnFace: (
     faceId: string,
@@ -275,6 +279,40 @@ export function ViewportPanel({
       ) ?? null,
     [viewport],
   );
+  // Live "quick measurement" readout for the bottom-right Selection
+  // panel, mirroring Fusion's behavior where a single edge shows its
+  // length and two vertices show their straight-line distance. Edge
+  // length is computed by the core (BRepGProp) and shipped on the
+  // viewport edge primitive; vertex distance is a trivial Euclidean
+  // calc on world-space positions the core already gave us, so we do
+  // it inline rather than round-tripping a `measure` command. Anything
+  // outside those two cases returns null so the row is hidden.
+  const measurementText = useMemo(() => {
+    if (!document || !viewport) {
+      return null;
+    }
+    if (document.selected_edge_ids.length === 1) {
+      const edge = viewport.edges.find(
+        (entry) => entry.id === document.selected_edge_ids[0],
+      );
+      if (edge) {
+        return `Length: ${edge.length.toFixed(2)} mm`;
+      }
+    }
+    if (document.selected_vertex_ids.length === 2) {
+      const [aId, bId] = document.selected_vertex_ids;
+      const a = viewport.vertices.find((entry) => entry.id === aId);
+      const b = viewport.vertices.find((entry) => entry.id === bId);
+      if (a && b) {
+        const dx = a.position.x - b.position.x;
+        const dy = a.position.y - b.position.y;
+        const dz = a.position.z - b.position.z;
+        const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        return `Distance: ${distance.toFixed(2)} mm`;
+      }
+    }
+    return null;
+  }, [document, viewport]);
   const selectedSketchDimension = useMemo(
     () =>
       document?.selected_sketch_dimension_id
@@ -1097,15 +1135,20 @@ export function ViewportPanel({
         return;
       }
 
+      // Shift, Ctrl (Win/Linux) and Cmd (mac) all toggle the picked
+      // entity into the existing multi-select set; plain click
+      // replaces. We accept all three so the additive gesture matches
+      // each OS's native file-manager / list conventions without
+      // forcing the user to learn a tool-specific modifier.
+      const additive = event.shiftKey || event.ctrlKey || event.metaKey;
+
       if (hit?.kind === "vertex") {
-        void selectVertexRef.current(hit.id);
+        void selectVertexRef.current(hit.id, additive);
         return;
       }
 
       if (hit?.kind === "edge") {
-        // Shift-click toggles the edge into the existing selection
-        // (multi-edge fillet / chamfer); plain click replaces.
-        void selectEdgeRef.current(hit.id, event.shiftKey);
+        void selectEdgeRef.current(hit.id, additive);
         return;
       }
 
@@ -1717,6 +1760,11 @@ export function ViewportPanel({
                   selectedPrimitiveLabel ??
                   "No selection"}
               </p>
+              {measurementText ? (
+                <p className="mt-1 text-sm text-primary-soft">
+                  {measurementText}
+                </p>
+              ) : null}
               <p className="mt-1 text-xs uppercase tracking-[0.14em] text-on-surface-dim">
                 {activeSketchPlaneId
                   ? `${activeSketchPlaneId} · ${activeSketchTool} · ${lineCount} line${lineCount === 1 ? "" : "s"} · ${circleCount} circle${circleCount === 1 ? "" : "s"}`

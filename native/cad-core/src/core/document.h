@@ -29,7 +29,12 @@ struct DocumentState {
   // categories remain single-id; widening them later is a small
   // change but unnecessary for current tooling.
   std::vector<std::string> selected_edge_ids;
-  std::optional<std::string> selected_vertex_id;
+  // Vertex selection is also a list (same insertion-order semantics
+  // as edges) so the UI can show "distance between two vertices" in
+  // the selection readout. Anything beyond two is permitted at the
+  // storage layer; consumers that only handle pairs (e.g. the
+  // distance display) read the first two entries.
+  std::vector<std::string> selected_vertex_ids;
   std::optional<std::string> active_sketch_plane_id;
   std::optional<std::string> active_sketch_face_id;
   std::optional<std::string> active_sketch_feature_id;
@@ -88,7 +93,10 @@ class DocumentManager {
   // always cleared, matching the single-edge legacy behavior so a new
   // edge selection doesn't leave a stale face highlight.
   DocumentState select_edge(const std::string& edge_id, bool additive);
-  DocumentState select_vertex(const std::string& vertex_id);
+  // Same toggle / replace semantics as select_edge: shift-click adds
+  // (or removes) the vertex from the current vertex selection set;
+  // plain click replaces. Other selection categories are cleared.
+  DocumentState select_vertex(const std::string& vertex_id, bool additive);
   // Create a fillet feature on one or more edges of an existing body.
   // The edge ids must already exist in the current viewport_state.edges
   // (the viewport is the source of truth for available edge ids); we
