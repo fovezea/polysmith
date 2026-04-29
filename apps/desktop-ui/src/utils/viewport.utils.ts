@@ -723,22 +723,45 @@ export function applySolidFaceVisualState(
 }
 
 export function buildSketchLineObject(line: SketchLineScene) {
-  const material = new THREE.LineBasicMaterial({
-    color: line.isSelected
-      ? themeColor("--color-primary-edge-active", "#c3f5ff")
-      : themeColor("--color-tertiary-plane-fill", "#fff7c0"),
-    transparent: true,
-    opacity: 0.98,
-    linewidth: line.isSelected ? 2 : 1,
-  });
+  // Construction lines use a dashed material to read as
+  // reference-only geometry (Fusion convention). The dash size is
+  // tuned so a typical 10mm line shows ~10 segments at default zoom;
+  // it doesn't auto-scale with camera distance, but that mirrors how
+  // edges are drawn elsewhere in the viewport so the look stays
+  // consistent across zoom levels.
+  const material = line.isConstruction
+    ? new THREE.LineDashedMaterial({
+        color: line.isSelected
+          ? themeColor("--color-primary-edge-active", "#c3f5ff")
+          : themeColor("--color-tertiary-plane-fill", "#fff7c0"),
+        transparent: true,
+        opacity: 0.85,
+        linewidth: line.isSelected ? 2 : 1,
+        dashSize: 1,
+        gapSize: 0.6,
+      })
+    : new THREE.LineBasicMaterial({
+        color: line.isSelected
+          ? themeColor("--color-primary-edge-active", "#c3f5ff")
+          : themeColor("--color-tertiary-plane-fill", "#fff7c0"),
+        transparent: true,
+        opacity: 0.98,
+        linewidth: line.isSelected ? 2 : 1,
+      });
   const points = [
     new THREE.Vector3(...line.start),
     new THREE.Vector3(...line.end),
   ];
   const geometry = new THREE.BufferGeometry().setFromPoints(points);
   const sketchLine = new THREE.Line(geometry, material);
+  // `LineDashedMaterial` requires per-vertex distance data to render
+  // the dash pattern; without this call the line renders solid.
+  if (line.isConstruction) {
+    sketchLine.computeLineDistances();
+  }
   sketchLine.userData.sketchEntityId = line.lineId;
   sketchLine.userData.sketchEntityKind = "line";
+  sketchLine.userData.sketchEntityIsConstruction = line.isConstruction;
   return sketchLine;
 }
 

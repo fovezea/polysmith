@@ -15,6 +15,13 @@ namespace {
 constexpr double kMinimumSketchDimensionValue = 0.001;
 constexpr double kCoincidentTolerance = 0.01;
 
+// Forward declaration: re-anchors every midpoint-bound point to its
+// host line's current midpoint. Defined further down (depends on
+// `propagate_connected_point_move`); called from
+// `refresh_sketch_derived_state` so every public mutator picks up
+// the enforcement automatically.
+void enforce_midpoint_anchors(SketchFeatureParameters& parameters);
+
 std::string make_parameters_summary(const SketchFeatureParameters& parameters) {
   std::ostringstream stream;
   stream << parameters.plane_id << " · " << parameters.lines.size() << " line";
@@ -164,7 +171,7 @@ void validate_constraint(const std::optional<std::string>& constraint) {
 
 void validate_tool(const std::string& tool) {
   if (tool != "select" && tool != "line" && tool != "rectangle" &&
-      tool != "circle") {
+      tool != "circle" && tool != "dimension") {
     throw std::runtime_error("Unsupported sketch tool: " + tool);
   }
 }
@@ -443,6 +450,12 @@ void refresh_sketch_derived_state(FeatureEntry& feature) {
   if (!feature.sketch_parameters.has_value()) {
     return;
   }
+
+  // Re-anchor midpoint-bound points to their host line's current
+  // midpoint before rebuilding the points list. The cascade may
+  // shift other line endpoints which `rebuild_sketch_points` then
+  // mirrors into the points vector.
+  enforce_midpoint_anchors(*feature.sketch_parameters);
 
   const std::vector<SketchPoint> previous_points = feature.sketch_parameters->points;
   rebuild_sketch_points(*feature.sketch_parameters);
@@ -892,6 +905,27 @@ void drive_line_parallel_to_reference(SketchLine& driven_line,
   }
   validate_line(
       driven_line.start_x, driven_line.start_y, driven_line.end_x, driven_line.end_y);
+}
+
+// Pull every midpoint-anchored point to its host line's current
+// midpoint, propagating the move through connected lines via the
+// existing endpoint-cascade machinery. Safe to call repeatedly:
+// when the host line itself doesn't change between calls, the
+// computed target equals the current point position so the inner
+// propagation is a no-op.
+void enforce_midpoint_anchors(SketchFeatureParameters& parameters) {
+  for (const auto& anchor : parameters.midpoint_anchors) {
+    const auto host_it = std::find_if(
+        parameters.lines.begin(),
+        parameters.lines.end(),
+        [&](const SketchLine& line) { return line.id == anchor.line_id; });
+    if (host_it == parameters.lines.end()) {
+      continue;
+    }
+    const double mid_x = (host_it->start_x + host_it->end_x) / 2.0;
+    const double mid_y = (host_it->start_y + host_it->end_y) / 2.0;
+    propagate_connected_point_move(parameters, anchor.point_id, mid_x, mid_y);
+  }
 }
 
 void enforce_perpendicular_relations(SketchFeatureParameters& parameters,
@@ -1631,7 +1665,8 @@ void add_sketch_line(FeatureEntry& feature,
                      double start_x,
                      double start_y,
                      double end_x,
-                     double end_y) {
+                     double end_y,
+                     bool is_construction) {
   if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
     throw std::runtime_error("Only sketch features can accept sketch lines");
   }
@@ -1656,17 +1691,109 @@ void add_sketch_line(FeatureEntry& feature,
       .end_x = end_x,
       .end_y = end_y,
       .constraint = infer_constraint_hint(start_x, start_y, end_x, end_y),
+      .is_construction = is_construction,
   });
   auto& line = feature.sketch_parameters->lines.back();
   apply_line_constraint(line);
   snap_line_endpoints_to_coincident_geometry(*feature.sketch_parameters, line);
   validate_line(line.start_x, line.start_y, line.end_x, line.end_y);
-  feature.sketch_parameters->dimensions.push_back(SketchDimension{
-      .id = "dim-line-" + line.id,
-      .kind = "line_length",
-      .entity_id = line.id,
-      .value = measure_line_length(line),
+  // Construction lines are reference geometry; they don't get a
+  // driving length dimension automatically. The user can still apply
+  // one explicitly via the dimension tool if they want.
+  if (!is_construction) {
+    feature.sketch_parameters->dimensions.push_back(SketchDimension{
+        .id = "dim-line-" + line.id,
+        .kind = "line_length",
+        .entity_id = line.id,
+        .value = measure_line_length(line),
+    });
+  }
+  refresh_sketch_derived_state(feature);
+}
+
+void set_sketch_line_construction(FeatureEntry& feature,
+                                  const std::string& line_id,
+                                  bool is_construction) {
+  if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+    throw std::runtime_error(
+        "Only sketch features can toggle construction lines");
+  }
+
+  auto& parameters = *feature.sketch_parameters;
+  auto& line = require_line(parameters, line_id);
+  if (line.is_construction == is_construction) {
+    return;
+  }
+  line.is_construction = is_construction;
+
+  // Keep the dimension list in sync with the new role: solid lines
+  // get a driving length dimension, construction lines lose theirs
+  // since they're reference-only. Existing user-applied dimensions
+  // on a line are preserved across role changes; we only manage the
+  // automatic "dim-line-<id>" entry created at construction time.
+  const std::string auto_dim_id = "dim-line-" + line.id;
+  const auto auto_dim_it = std::find_if(
+      parameters.dimensions.begin(),
+      parameters.dimensions.end(),
+      [&](const SketchDimension& dim) { return dim.id == auto_dim_id; });
+  if (is_construction) {
+    if (auto_dim_it != parameters.dimensions.end()) {
+      parameters.dimensions.erase(auto_dim_it);
+    }
+  } else if (auto_dim_it == parameters.dimensions.end()) {
+    parameters.dimensions.push_back(SketchDimension{
+        .id = auto_dim_id,
+        .kind = "line_length",
+        .entity_id = line.id,
+        .value = measure_line_length(line),
+    });
+  }
+
+  refresh_sketch_derived_state(feature);
+}
+
+void set_sketch_midpoint_anchor(FeatureEntry& feature,
+                                const std::string& point_id,
+                                const std::string& host_line_id) {
+  if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+    throw std::runtime_error(
+        "Only sketch features can hold midpoint anchors");
+  }
+  auto& parameters = *feature.sketch_parameters;
+
+  // Drop any pre-existing anchor for the same point so the user can
+  // re-target without leaving stale relations behind.
+  parameters.midpoint_anchors.erase(
+      std::remove_if(
+          parameters.midpoint_anchors.begin(),
+          parameters.midpoint_anchors.end(),
+          [&](const SketchMidpointAnchor& anchor) {
+            return anchor.point_id == point_id;
+          }),
+      parameters.midpoint_anchors.end());
+
+  if (host_line_id.empty()) {
+    refresh_sketch_derived_state(feature);
+    return;
+  }
+
+  const auto host_it = std::find_if(
+      parameters.lines.begin(),
+      parameters.lines.end(),
+      [&](const SketchLine& line) { return line.id == host_line_id; });
+  if (host_it == parameters.lines.end()) {
+    throw std::runtime_error(
+        "Midpoint anchor host line not found: " + host_line_id);
+  }
+
+  // Use a stable id derived from the bound point so the relation
+  // round-trips through serialization without churning.
+  parameters.midpoint_anchors.push_back(SketchMidpointAnchor{
+      .id = "midpoint-anchor-" + point_id,
+      .point_id = point_id,
+      .line_id = host_line_id,
   });
+
   refresh_sketch_derived_state(feature);
 }
 

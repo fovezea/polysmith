@@ -166,7 +166,18 @@ class DocumentManager {
   DocumentState add_sketch_line(double start_x,
                                 double start_y,
                                 double end_x,
-                                double end_y);
+                                double end_y,
+                                bool is_construction = false);
+  // Toggle the construction-line flag on an existing sketch line.
+  // Construction lines render dashed and are skipped during profile
+  // detection so they don't seal pickable faces.
+  DocumentState set_sketch_line_construction(const std::string& line_id,
+                                             bool is_construction);
+  // Bind a sketch point to the midpoint of a host line; the solver
+  // re-pulls the point on every edit. Pass an empty `host_line_id`
+  // to remove an existing anchor.
+  DocumentState set_sketch_midpoint_anchor(const std::string& point_id,
+                                           const std::string& host_line_id);
   DocumentState add_sketch_rectangle(double start_x,
                                      double start_y,
                                      double end_x,

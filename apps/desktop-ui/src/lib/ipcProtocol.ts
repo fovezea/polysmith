@@ -633,6 +633,7 @@ export function makeAddSketchLineCommand(
   startY: number,
   endX: number,
   endY: number,
+  isConstruction = false,
 ): CoreCommand {
   return {
     id: crypto.randomUUID(),
@@ -642,6 +643,35 @@ export function makeAddSketchLineCommand(
       start_y: startY,
       end_x: endX,
       end_y: endY,
+      is_construction: isConstruction,
+    },
+  };
+}
+
+export function makeSetSketchLineConstructionCommand(
+  lineId: string,
+  isConstruction: boolean,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "set_sketch_line_construction",
+    payload: {
+      line_id: lineId,
+      is_construction: isConstruction,
+    },
+  };
+}
+
+export function makeSetSketchMidpointAnchorCommand(
+  pointId: string,
+  hostLineId: string,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "set_sketch_midpoint_anchor",
+    payload: {
+      point_id: pointId,
+      host_line_id: hostLineId,
     },
   };
 }

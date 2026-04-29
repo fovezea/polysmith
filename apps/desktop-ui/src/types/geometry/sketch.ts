@@ -20,6 +20,9 @@ export interface SketchLineEntry {
   end_x: number;
   end_y: number;
   constraint: "horizontal" | "vertical" | null;
+  // Reference-only construction lines render dashed and don't seal
+  // profile loops. Defaults to false on older saves via the schema.
+  is_construction: boolean;
 }
 
 export interface SketchCircleEntry {
@@ -77,7 +80,15 @@ export interface SketchFeatureParameters {
   points: SketchPointEntry[];
   dimensions: SketchDimensionEntry[];
   line_relations: SketchLineRelationEntry[];
+  // Midpoint anchors. Empty on older saves; the schema fills in [].
+  midpoint_anchors: SketchMidpointAnchorEntry[];
   profiles: SketchProfileRegionEntry[];
+}
+
+export interface SketchMidpointAnchorEntry {
+  anchor_id: string;
+  point_id: string;
+  line_id: string;
 }
 
 export interface FilletFeatureParameters {
@@ -118,4 +129,4 @@ export interface FeatureEntry {
   chamfer_parameters: ChamferFeatureParameters | null;
 }
 
-export type SketchTool = "select" | Shape2D;
+export type SketchTool = "select" | Shape2D | "dimension";

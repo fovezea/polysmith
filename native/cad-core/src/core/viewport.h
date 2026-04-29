@@ -152,6 +152,7 @@ struct ViewportSketchLinePrimitive {
   double end_z;
   bool is_selected;
   std::optional<std::string> constraint;
+  bool is_construction = false;
 };
 
 struct ViewportSketchCirclePrimitive {

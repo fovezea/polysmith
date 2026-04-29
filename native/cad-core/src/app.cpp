@@ -704,11 +704,47 @@ void CadCoreApp::handle_command_line(const std::string& line) {
   }
 
   if (command.type == "add_sketch_line") {
+    bool is_construction = false;
+    if (command.payload.contains("is_construction") &&
+        command.payload.at("is_construction").is_boolean()) {
+      is_construction = command.payload.at("is_construction").get<bool>();
+    }
     const auto document = document_manager().add_sketch_line(
         read_dimension(command.payload, "start_x"),
         read_dimension(command.payload, "start_y"),
         read_dimension(command.payload, "end_x"),
-        read_dimension(command.payload, "end_y"));
+        read_dimension(command.payload, "end_y"),
+        is_construction);
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "set_sketch_midpoint_anchor") {
+    std::string host_line_id;
+    if (command.payload.contains("host_line_id") &&
+        command.payload.at("host_line_id").is_string()) {
+      host_line_id = command.payload.at("host_line_id").get<std::string>();
+    }
+    const auto document = document_manager().set_sketch_midpoint_anchor(
+        read_string(command.payload, "point_id"), host_line_id);
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "set_sketch_line_construction") {
+    bool is_construction = false;
+    if (command.payload.contains("is_construction") &&
+        command.payload.at("is_construction").is_boolean()) {
+      is_construction = command.payload.at("is_construction").get<bool>();
+    }
+    const auto document = document_manager().set_sketch_line_construction(
+        read_string(command.payload, "line_id"), is_construction);
 
     polysmith::protocol::write_message(
         polysmith::protocol::make_document_state_event(

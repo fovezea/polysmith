@@ -89,6 +89,12 @@ struct SketchLine {
   double end_x;
   double end_y;
   std::optional<std::string> constraint;
+  // True when the line is a "construction" line (Fusion-style
+  // dashed reference geometry). Construction lines participate in
+  // snapping and constraints, but are excluded from profile loop
+  // detection so they don't seal profiles for face picking / extrude
+  // sources. Defaults to false; older saves are loaded as solid.
+  bool is_construction = false;
 };
 
 struct SketchCircle {
@@ -111,6 +117,17 @@ struct SketchDimension {
   std::string kind;
   std::string entity_id;
   double value;
+};
+
+// A point anchored to the midpoint of a line. The anchored point is
+// also (typically) an endpoint of some other line; the solver pulls
+// that endpoint to (start+end)/2 of the host line on every edit so
+// the relation stays satisfied. Created automatically when the user
+// snaps a sketch line endpoint to a midpoint snap target.
+struct SketchMidpointAnchor {
+  std::string id;
+  std::string point_id;
+  std::string line_id;
 };
 
 struct SketchLineRelation {
@@ -156,6 +173,7 @@ struct SketchFeatureParameters {
   std::vector<SketchPoint> points;
   std::vector<SketchDimension> dimensions;
   std::vector<SketchLineRelation> line_relations;
+  std::vector<SketchMidpointAnchor> midpoint_anchors;
   std::vector<SketchProfileRegion> profiles;
 };
 

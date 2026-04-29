@@ -23,7 +23,7 @@ const documentStateSchema = z.object({
   active_sketch_face_id: z.string().nullable(),
   active_sketch_feature_id: z.string().nullable(),
   active_sketch_tool: z
-    .enum(["select", "line", "rectangle", "circle"])
+    .enum(["select", "line", "rectangle", "circle", "dimension"])
     .nullable(),
   selected_sketch_point_id: z.string().nullable(),
   selected_sketch_entity_id: z.string().nullable(),
@@ -113,7 +113,13 @@ const documentStateSchema = z.object({
               normal: z.object({ x: z.number(), y: z.number(), z: z.number() }),
             })
             .nullable(),
-          active_tool: z.enum(["select", "line", "rectangle", "circle"]),
+          active_tool: z.enum([
+            "select",
+            "line",
+            "rectangle",
+            "circle",
+            "dimension",
+          ]),
           lines: z.array(
             z.object({
               line_id: z.string(),
@@ -124,8 +130,25 @@ const documentStateSchema = z.object({
               end_x: z.number(),
               end_y: z.number(),
               constraint: z.enum(["horizontal", "vertical"]).nullable(),
+              // Reference-only construction lines render dashed and
+              // are excluded from profile detection. Optional /
+              // defaulted for back-compat with older saves.
+              is_construction: z.boolean().default(false),
             }),
           ),
+          // Midpoint anchors bind a sketch point (typically an
+          // endpoint of some other line) to the midpoint of a host
+          // line. The solver re-pulls the point on every edit so the
+          // relation persists. Defaulted to empty for older saves.
+          midpoint_anchors: z
+            .array(
+              z.object({
+                anchor_id: z.string(),
+                point_id: z.string(),
+                line_id: z.string(),
+              }),
+            )
+            .default([]),
           circles: z.array(
             z.object({
               circle_id: z.string(),
@@ -323,6 +346,7 @@ const viewportStateSchema = z.object({
       line_id: z.string(),
       start_point_id: z.string(),
       end_point_id: z.string(),
+      is_construction: z.boolean().default(false),
       plane_id: z.string(),
       start: z.object({
         x: z.number(),
@@ -411,6 +435,7 @@ const viewportStateSchema = z.object({
         "perpendicular",
         "parallel",
         "fixed",
+        "midpoint",
       ]),
       entity_id: z.string(),
       related_entity_id: z.string().nullable(),

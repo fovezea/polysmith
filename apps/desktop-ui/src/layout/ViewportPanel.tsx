@@ -76,6 +76,19 @@ interface ViewportPanelProps {
     startY: number,
     endX: number,
     endY: number,
+    isConstruction: boolean,
+  ) => Promise<void>;
+  onSetSketchLineConstruction: (
+    lineId: string,
+    isConstruction: boolean,
+  ) => Promise<void>;
+  onSetSketchMidpointAnchor: (
+    pointId: string,
+    hostLineId: string,
+  ) => Promise<void>;
+  onSetSketchPerpendicularConstraint: (
+    lineId: string,
+    otherLineId: string | null,
   ) => Promise<void>;
   onAddSketchRectangle: (
     startX: number,
@@ -131,6 +144,9 @@ export function ViewportPanel({
   onStartSketch,
   onStartSketchOnFace,
   onAddSketchLine,
+  onSetSketchLineConstruction,
+  onSetSketchMidpointAnchor,
+  onSetSketchPerpendicularConstraint,
   onAddSketchRectangle,
   onAddSketchCircle,
   onSelectSketchEntity,
@@ -150,6 +166,26 @@ export function ViewportPanel({
   const [contextMenu, setContextMenu] =
     useState<ViewportContextMenuState | null>(null);
   const [sketchSnapLabel, setSketchSnapLabel] = useState<string | null>(null);
+  // Floating constraint-preview badge tracked relative to the
+  // viewport container. Shown next to the cursor whenever the snap
+  // resolver is producing a midpoint or perpendicular snap so the
+  // user sees *which* constraint the next click would auto-create
+  // (Fusion convention). `kind` controls the glyph; `x`/`y` are
+  // container-local pixel offsets so the overlay scrolls with the
+  // viewport.
+  const [constraintPreview, setConstraintPreview] = useState<{
+    kind: "midpoint" | "perpendicular" | "on_line";
+    x: number;
+    y: number;
+  } | null>(null);
+  // Whether the next sketch line drop will be flagged as a
+  // construction line. Mirrors Fusion's "Construction" toggle in the
+  // line tool's options panel; bound to the X hotkey while the line
+  // tool is armed. Stored as state for the panel checkbox + as a ref
+  // so the pointer handler reads the latest value without forcing a
+  // re-attach of the listener.
+  const [lineToolConstruction, setLineToolConstruction] = useState(false);
+  const lineToolConstructionRef = useRef(false);
   const [dimensionDraftValue, setDimensionDraftValue] = useState("");
   const [isDimensionEditorOpen, setIsDimensionEditorOpen] = useState(false);
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -229,8 +265,56 @@ export function ViewportPanel({
   const clearSketchConstraintRef = useRef(onClearSketchConstraint);
   const activeSketchToolRef = useRef<SketchTool>("select");
   const sketchSnapCandidatesRef = useRef<
-    Array<{ local: [number, number]; label: string }>
+    Array<{
+      local: [number, number];
+      label: string;
+      kind?: "midpoint" | "endpoint";
+      hostLineId?: string;
+      endpointHostLineId?: string;
+    }>
   >([]);
+  // Track host line ids for midpoint snaps that were committed during
+  // a line draft. The first click of a line stores the start's host
+  // (if any); the second click stores the end's host. After the
+  // resulting `add_sketch_line` IPC settles, the post-add effect
+  // reads the new line's start_point_id / end_point_id and dispatches
+  // `set_sketch_midpoint_anchor` for each side that snapped to a
+  // midpoint. The line count baseline at dispatch time guards against
+  // misattributing the anchor to a later line.
+  const pendingMidpointAnchorRef = useRef<{
+    fromLineCount: number;
+    startHostLineId: string | null;
+    endHostLineId: string | null;
+  } | null>(null);
+  const draftStartMidpointHostRef = useRef<string | null>(null);
+  // Host line id under the *start* point of the active draft. When
+  // set, `resolveSnappedSketchPoint` enables perpendicular-foot snap
+  // — projecting the cursor onto the perpendicular ray from the
+  // start, in the direction normal to the host line.
+  const draftStartEndpointHostRef = useRef<string | null>(null);
+  // Pending perpendicular-constraint state, keyed against the line
+  // count baseline for the same reasons as the midpoint anchor
+  // pending state above. The post-add effect dispatches
+  // `set_sketch_perpendicular_constraint` once the new line lands.
+  const pendingPerpendicularConstraintRef = useRef<{
+    fromLineCount: number;
+    hostLineId: string;
+  } | null>(null);
+  // Latest line count for the active sketch, mirrored as a ref so the
+  // pointer handler (which captures stale closures) can baseline new
+  // lines for the post-add midpoint-anchor effect.
+  const sketchLineCountRef = useRef(0);
+  // Stable ref to `onSetSketchMidpointAnchor` so the post-add effect
+  // can issue the IPC without remounting on every re-render.
+  const setSketchMidpointAnchorRef = useRef(onSetSketchMidpointAnchor);
+  const setSketchPerpendicularConstraintRef = useRef(
+    onSetSketchPerpendicularConstraint,
+  );
+  // Snapshot of the sketch feature's lines for the post-add effect to
+  // index into. Same pattern as the count ref above.
+  const sketchLinesRef = useRef<
+    NonNullable<typeof sketchFeature>["sketch_parameters"] | null
+  >(null);
   const sceneData = useMemo(
     () =>
       viewport?.has_active_document
@@ -335,14 +419,42 @@ export function ViewportPanel({
         : null,
     [document?.selected_sketch_dimension_id, sketchFeature],
   );
+  // The currently-selected sketch line, if any. Used by the Line Tool
+  // panel to surface a "Construction" toggle for the existing line so
+  // the user can flip an already-drawn line into reference geometry
+  // (Fusion convention).
+  const selectedSketchLine = useMemo(() => {
+    if (!sketchFeature?.sketch_parameters) {
+      return null;
+    }
+    const entityId = document?.selected_sketch_entity_id;
+    if (!entityId) {
+      return null;
+    }
+    return (
+      sketchFeature.sketch_parameters.lines.find(
+        (line) => line.line_id === entityId,
+      ) ?? null
+    );
+  }, [sketchFeature, document?.selected_sketch_entity_id]);
   const sketchSnapCandidates = useMemo(() => {
     if (!sketchFeature?.sketch_parameters) {
       return [];
     }
 
-    const candidates: Array<{ local: [number, number]; label: string }> = [
-      { local: [0, 0], label: "Origin" },
-    ];
+    // Endpoint candidates carry an optional `endpointHostLineId` so
+    // the line tool can recognize when a draft started at an existing
+    // line's endpoint and arm perpendicular-snap from that line.
+    // Midpoint candidates carry `hostLineId` for the post-commit
+    // midpoint anchor IPC.
+    type Candidate = {
+      local: [number, number];
+      label: string;
+      kind?: "midpoint" | "endpoint";
+      hostLineId?: string;
+      endpointHostLineId?: string;
+    };
+    const candidates: Candidate[] = [{ local: [0, 0], label: "Origin" }];
     for (const line of sketchFeature.sketch_parameters.lines) {
       candidates.push({
         local: [line.start_x, line.start_y],
@@ -350,10 +462,25 @@ export function ViewportPanel({
           line.constraint === "horizontal" || line.constraint === "vertical"
             ? `${line.line_id} (${line.constraint})`
             : line.line_id,
+        kind: "endpoint",
+        endpointHostLineId: line.line_id,
       });
       candidates.push({
         local: [line.end_x, line.end_y],
         label: line.line_id,
+        kind: "endpoint",
+        endpointHostLineId: line.line_id,
+      });
+      // Midpoint candidate. Construction lines also expose midpoints
+      // — they're valid reference geometry to bind to.
+      candidates.push({
+        local: [
+          (line.start_x + line.end_x) / 2,
+          (line.start_y + line.end_y) / 2,
+        ],
+        label: `Midpoint of ${line.line_id}`,
+        kind: "midpoint",
+        hostLineId: line.line_id,
       });
     }
     for (const circle of sketchFeature.sketch_parameters.circles) {
@@ -397,8 +524,9 @@ export function ViewportPanel({
     local: [number, number];
     world: [number, number, number];
   }) {
-    let closestCandidate: { local: [number, number]; label: string } | null =
-      null;
+    let closestCandidate:
+      | (typeof sketchSnapCandidatesRef.current)[number]
+      | null = null;
     let closestDistance = Number.POSITIVE_INFINITY;
 
     for (const candidate of sketchSnapCandidatesRef.current) {
@@ -409,6 +537,7 @@ export function ViewportPanel({
       }
     }
 
+    // Endpoint snap (or any other static candidate) wins by default.
     if (closestCandidate && closestDistance <= SKETCH_SNAP_DISTANCE) {
       return {
         local: closestCandidate.local,
@@ -418,13 +547,133 @@ export function ViewportPanel({
           activeSketchPlaneFrame,
         ),
         snapLabel: closestCandidate.label,
+        snapMidpointHostLineId:
+          closestCandidate.kind === "midpoint"
+            ? (closestCandidate.hostLineId ?? null)
+            : null,
+        snapPerpendicularHostLineId: null,
+        snapEndpointHostLineId:
+          closestCandidate.kind === "endpoint"
+            ? (closestCandidate.endpointHostLineId ?? null)
+            : null,
       } satisfies SketchPreviewPoint;
+    }
+
+    // Dynamic perpendicular-foot snap. Active only on the second
+    // click of a line draft, when the start lay on an existing line
+    // (`draftStartEndpointHostRef` is set). Project the cursor onto
+    // the ray rooted at the start, normal to the host line. If the
+    // cursor is within snap distance of that ray, snap to the foot.
+    const startPoint = lineDraftStartRef.current;
+    const perpHostId = draftStartEndpointHostRef.current;
+    const params = sketchLinesRef.current;
+    if (startPoint && perpHostId && params) {
+      const hostLine = params.lines.find((line) => line.line_id === perpHostId);
+      if (hostLine) {
+        const dx = hostLine.end_x - hostLine.start_x;
+        const dy = hostLine.end_y - hostLine.start_y;
+        const lengthSquared = dx * dx + dy * dy;
+        if (lengthSquared > 1e-12) {
+          const length = Math.sqrt(lengthSquared);
+          // Perpendicular direction (rotate host line direction by
+          // +90°). Normalized so we can project cleanly.
+          const perpX = -dy / length;
+          const perpY = dx / length;
+          const dxFromStart = rawPoint.local[0] - startPoint[0];
+          const dyFromStart = rawPoint.local[1] - startPoint[1];
+          const t = dxFromStart * perpX + dyFromStart * perpY;
+          const footX = startPoint[0] + t * perpX;
+          const footY = startPoint[1] + t * perpY;
+          const distanceFromRay = Math.hypot(
+            rawPoint.local[0] - footX,
+            rawPoint.local[1] - footY,
+          );
+          if (distanceFromRay <= SKETCH_SNAP_DISTANCE) {
+            return {
+              local: [footX, footY] as [number, number],
+              world: toWorldPoint(
+                activeSketchPlaneId ?? "ref-plane-xy",
+                [footX, footY],
+                activeSketchPlaneFrame,
+              ),
+              snapLabel: `Perpendicular to ${perpHostId}`,
+              snapMidpointHostLineId: null,
+              snapPerpendicularHostLineId: perpHostId,
+              snapEndpointHostLineId: null,
+            } satisfies SketchPreviewPoint;
+          }
+        }
+      }
+    }
+
+    // Line-body snap: when no point candidate matched, project the
+    // cursor onto the closest sketch line segment (clamped to the
+    // segment's interior). This lets the user start or end a draft
+    // anywhere on an existing line, not just at its endpoints or
+    // midpoint. Lower priority than every point candidate above
+    // because endpoint / midpoint snaps should win when the cursor
+    // is genuinely close to those features.
+    const linesParams = sketchLinesRef.current;
+    if (linesParams) {
+      let bestLineSnap: {
+        local: [number, number];
+        distance: number;
+        lineId: string;
+      } | null = null;
+      for (const line of linesParams.lines) {
+        const dx = line.end_x - line.start_x;
+        const dy = line.end_y - line.start_y;
+        const lengthSquared = dx * dx + dy * dy;
+        if (lengthSquared <= 1e-12) {
+          continue;
+        }
+        // Parametric projection clamped to [0, 1] so we never snap
+        // past the segment's endpoints.
+        const t = Math.max(
+          0,
+          Math.min(
+            1,
+            ((rawPoint.local[0] - line.start_x) * dx +
+              (rawPoint.local[1] - line.start_y) * dy) /
+              lengthSquared,
+          ),
+        );
+        const px = line.start_x + t * dx;
+        const py = line.start_y + t * dy;
+        const distance = Math.hypot(
+          rawPoint.local[0] - px,
+          rawPoint.local[1] - py,
+        );
+        if (distance > SKETCH_SNAP_DISTANCE) {
+          continue;
+        }
+        if (!bestLineSnap || distance < bestLineSnap.distance) {
+          bestLineSnap = { local: [px, py], distance, lineId: line.line_id };
+        }
+      }
+      if (bestLineSnap) {
+        return {
+          local: bestLineSnap.local,
+          world: toWorldPoint(
+            activeSketchPlaneId ?? "ref-plane-xy",
+            bestLineSnap.local,
+            activeSketchPlaneFrame,
+          ),
+          snapLabel: `On ${bestLineSnap.lineId}`,
+          snapMidpointHostLineId: null,
+          snapPerpendicularHostLineId: null,
+          snapEndpointHostLineId: null,
+        } satisfies SketchPreviewPoint;
+      }
     }
 
     return {
       local: rawPoint.local,
       world: rawPoint.world,
       snapLabel: null,
+      snapMidpointHostLineId: null,
+      snapPerpendicularHostLineId: null,
+      snapEndpointHostLineId: null,
     } satisfies SketchPreviewPoint;
   }
 
@@ -604,6 +853,90 @@ export function ViewportPanel({
     activeSketchToolRef.current = activeSketchTool;
     sketchSnapCandidatesRef.current = sketchSnapCandidates;
   }, [activeSketchTool, sketchSnapCandidates]);
+
+  useEffect(() => {
+    setSketchMidpointAnchorRef.current = onSetSketchMidpointAnchor;
+  }, [onSetSketchMidpointAnchor]);
+
+  useEffect(() => {
+    setSketchPerpendicularConstraintRef.current =
+      onSetSketchPerpendicularConstraint;
+  }, [onSetSketchPerpendicularConstraint]);
+
+  // Post-add midpoint-anchor dispatch. When `add_sketch_line` settles
+  // and the sketch's lines vector has grown, look at the just-added
+  // (last) line and issue `set_sketch_midpoint_anchor` for whichever
+  // endpoint(s) snapped to a midpoint host. The pending state is
+  // captured at click-time (so the host id stays consistent even if
+  // intervening edits re-render) and cleared as soon as we apply it.
+  useEffect(() => {
+    const params = sketchFeature?.sketch_parameters ?? null;
+    sketchLinesRef.current = params;
+    const newCount = params?.lines.length ?? 0;
+    const previousCount = sketchLineCountRef.current;
+    sketchLineCountRef.current = newCount;
+
+    const pending = pendingMidpointAnchorRef.current;
+    const pendingPerp = pendingPerpendicularConstraintRef.current;
+    if (!params) {
+      return;
+    }
+    if (!pending && !pendingPerp) {
+      return;
+    }
+
+    // Both pending kinds use the same matching rule: the line count
+    // must have grown by exactly one past the baseline. If it
+    // didn't, drop both pendings (they're stale).
+    const baselineMidpoint = pending?.fromLineCount;
+    const baselinePerp = pendingPerp?.fromLineCount;
+    const baseline = baselineMidpoint ?? baselinePerp ?? -1;
+    if (newCount !== baseline + 1) {
+      if (newCount !== previousCount) {
+        pendingMidpointAnchorRef.current = null;
+        pendingPerpendicularConstraintRef.current = null;
+      }
+      return;
+    }
+
+    pendingMidpointAnchorRef.current = null;
+    pendingPerpendicularConstraintRef.current = null;
+    const newLine = params.lines[params.lines.length - 1];
+    if (!newLine) {
+      return;
+    }
+    if (pending?.startHostLineId) {
+      void setSketchMidpointAnchorRef.current(
+        newLine.start_point_id,
+        pending.startHostLineId,
+      );
+    }
+    if (pending?.endHostLineId) {
+      void setSketchMidpointAnchorRef.current(
+        newLine.end_point_id,
+        pending.endHostLineId,
+      );
+    }
+    if (pendingPerp) {
+      void setSketchPerpendicularConstraintRef.current(
+        newLine.line_id,
+        pendingPerp.hostLineId,
+      );
+    }
+  }, [sketchFeature]);
+
+  useEffect(() => {
+    lineToolConstructionRef.current = lineToolConstruction;
+  }, [lineToolConstruction]);
+
+  // Auto-clear the construction toggle when the user leaves the line
+  // tool (e.g. presses R or Escape). Otherwise the next time they
+  // re-enter the line tool the previous toggle would silently apply.
+  useEffect(() => {
+    if (activeSketchTool !== "line") {
+      setLineToolConstruction(false);
+    }
+  }, [activeSketchTool]);
 
   useEffect(() => {
     selectedSketchDimensionRef.current = selectedSketchDimension;
@@ -935,6 +1268,7 @@ export function ViewportPanel({
           clearPreviewLine();
           clearPreviewCircle();
           setSketchSnapLabel(null);
+          setConstraintPreview(null);
           return;
         }
 
@@ -952,6 +1286,40 @@ export function ViewportPanel({
 
         const sketchPoint = resolveSnappedSketchPoint(rawPoint);
         setSketchSnapLabel(sketchPoint.snapLabel);
+
+        // Hover-time constraint preview. The badge sits next to the
+        // cursor in viewport-local coordinates so it stays glued to
+        // the pointer regardless of canvas size or scroll. Pixel
+        // offsets are taken from `getBoundingClientRect` rather than
+        // `clientX/Y` directly because the canvas can be inset
+        // inside the viewport panel (toolbar, side panels, etc.).
+        const canvasRect = renderer.domElement.getBoundingClientRect();
+        const previewX = event.clientX - canvasRect.left;
+        const previewY = event.clientY - canvasRect.top;
+        if (sketchPoint.snapMidpointHostLineId) {
+          setConstraintPreview({
+            kind: "midpoint",
+            x: previewX,
+            y: previewY,
+          });
+        } else if (sketchPoint.snapPerpendicularHostLineId) {
+          setConstraintPreview({
+            kind: "perpendicular",
+            x: previewX,
+            y: previewY,
+          });
+        } else if (
+          sketchPoint.snapLabel &&
+          sketchPoint.snapLabel.startsWith("On ")
+        ) {
+          setConstraintPreview({
+            kind: "on_line",
+            x: previewX,
+            y: previewY,
+          });
+        } else {
+          setConstraintPreview(null);
+        }
 
         if (!draftStart) {
           setHoveredPrimitive(null);
@@ -1075,6 +1443,7 @@ export function ViewportPanel({
     function handlePointerLeave() {
       pointerDown = null;
       setSketchSnapLabel(null);
+      setConstraintPreview(null);
       if (!activeSketchPlaneId) {
         setHoveredReference(null);
         setHoveredPrimitive(null);
@@ -1150,16 +1519,41 @@ export function ViewportPanel({
           return;
         }
 
-        if (!lineDraftStartRef.current && hit?.kind === "sketch_dimension") {
-          void selectSketchDimensionRef.current(hit.id);
+        // Dimension tool: clicking a line or circle opens the editor
+        // for its driving dimension. Construction lines have no auto
+        // length dimension, so they're a no-op for now.
+        if (activeSketchToolRef.current === "dimension") {
+          if (hit?.kind === "sketch_dimension") {
+            void selectSketchDimensionRef.current(hit.id);
+            return;
+          }
+          if (hit?.kind === "sketch_entity") {
+            const dimensionId =
+              hit.entityKind === "circle"
+                ? `dim-circle-${hit.id}`
+                : `dim-line-${hit.id}`;
+            const dimensionExists =
+              sketchLinesRef.current?.dimensions.some(
+                (dim) => dim.dimension_id === dimensionId,
+              ) ?? false;
+            if (dimensionExists) {
+              void selectSketchDimensionRef.current(dimensionId);
+            } else {
+              void selectSketchEntityRef.current(hit.id);
+            }
+            return;
+          }
           return;
         }
 
-        if (!lineDraftStartRef.current && hit?.kind === "sketch_entity") {
-          void selectSketchEntityRef.current(hit.id);
-          return;
-        }
-
+        // In a draft tool (line / rectangle / circle), clicks on an
+        // existing line / dimension MUST NOT select. They should
+        // fall through to the plane-projection path so the snap
+        // resolver can use the entity as a snap source (line body,
+        // endpoint, midpoint). Selection is reserved for the select
+        // tool. Dimensions in draft mode are simply ignored — the
+        // user can press S to switch back to select if they want to
+        // edit one.
         const rawPoint = resolveSketchPlanePoint(
           event,
           renderer,
@@ -1175,6 +1569,19 @@ export function ViewportPanel({
 
         if (!lineDraftStartRef.current) {
           lineDraftStartRef.current = sketchPoint.local;
+          // Capture whether the start snapped to a midpoint so the
+          // post-add effect can attach the anchor once the IPC has
+          // settled. Reset on every fresh draft so we don't reuse a
+          // stale host id from a previous line.
+          draftStartMidpointHostRef.current =
+            sketchPoint.snapMidpointHostLineId ?? null;
+          // If the start snapped to an existing line's endpoint, arm
+          // the perpendicular-foot snap for the rest of the draft.
+          // (The midpoint and endpoint hosts are independent: a
+          // single click can only be one or the other since they
+          // come from distinct snap candidates.)
+          draftStartEndpointHostRef.current =
+            sketchPoint.snapEndpointHostLineId ?? null;
           return;
         }
 
@@ -1202,12 +1609,51 @@ export function ViewportPanel({
           return;
         }
 
+        // Capture both endpoints' midpoint hosts (if any) before the
+        // draft state advances, so the post-add effect can attach
+        // anchors to the just-created line. The baseline line count
+        // anchors the effect's match: it will fire only when the
+        // sketch's line count grows past `fromLineCount` by 1.
+        const startHostLineId = draftStartMidpointHostRef.current;
+        const endHostLineId = sketchPoint.snapMidpointHostLineId ?? null;
+        if (startHostLineId || endHostLineId) {
+          pendingMidpointAnchorRef.current = {
+            fromLineCount: sketchLineCountRef.current,
+            startHostLineId,
+            endHostLineId,
+          };
+        }
+
+        // Capture pending perpendicular constraint when the cursor
+        // committed on the perpendicular ray of the start's host
+        // line. The post-add effect dispatches the constraint once
+        // the new line lands.
+        const perpHostLineId = sketchPoint.snapPerpendicularHostLineId;
+        if (perpHostLineId) {
+          pendingPerpendicularConstraintRef.current = {
+            fromLineCount: sketchLineCountRef.current,
+            hostLineId: perpHostLineId,
+          };
+        }
+
+        // The line tool keeps drafting from the just-clicked end so
+        // the user can chain segments. Update the start-side host to
+        // the *new* draft start (= the end of the line we just
+        // committed). Keeping the host in sync avoids attributing the
+        // previous line's start anchor to the next line.
         lineDraftStartRef.current = sketchPoint.local;
+        draftStartMidpointHostRef.current = endHostLineId;
+        // Reset the perpendicular host: a fresh draft segment starts
+        // from the just-clicked end. Only set it again if that end
+        // happened to itself snap to an existing line's endpoint.
+        draftStartEndpointHostRef.current =
+          sketchPoint.snapEndpointHostLineId ?? null;
         void addSketchLineRef.current(
           startX,
           startY,
           sketchPoint.local[0],
           sketchPoint.local[1],
+          lineToolConstructionRef.current,
         );
         return;
       }
@@ -1596,6 +2042,7 @@ export function ViewportPanel({
     clearPreviewLine();
     clearPreviewCircle();
     setSketchSnapLabel(null);
+    setConstraintPreview(null);
   }, [activeSketchPlaneId, activeSketchTool]);
 
   useEffect(() => {
@@ -1624,6 +2071,7 @@ export function ViewportPanel({
         clearPreviewLine();
         clearPreviewCircle();
         setSketchSnapLabel(null);
+        setConstraintPreview(null);
         void setSketchToolRef.current("select");
         return;
       }
@@ -1647,6 +2095,25 @@ export function ViewportPanel({
       if (event.code === "KeyC") {
         event.preventDefault();
         void setSketchToolRef.current("circle");
+        return;
+      }
+
+      // X toggles the construction-line flag while the line tool is
+      // armed. Outside the line tool it's a no-op (other tools don't
+      // have an equivalent setting yet).
+      if (event.code === "KeyX" && activeSketchToolRef.current === "line") {
+        event.preventDefault();
+        setLineToolConstruction((prev) => !prev);
+        return;
+      }
+
+      // D arms the dimension tool (Fusion convention). Clicking a
+      // line or circle while armed opens its driving dimension's
+      // inline editor.
+      if (event.code === "KeyD") {
+        event.preventDefault();
+        void setSketchToolRef.current("dimension");
+        return;
       }
     }
 
@@ -1787,6 +2254,85 @@ export function ViewportPanel({
               : ""
           }`}
         />
+        {/*
+          Cursor-following constraint preview badge. Only visible
+          while a sketch tool is producing a midpoint, perpendicular,
+          or on-line snap. The badge is offset 12px down-right from
+          the cursor so it doesn't sit under the actual snap dot, and
+          is `pointer-events-none` so it never steals clicks from the
+          underlying canvas. The colors mirror the in-scene
+          constraint-badge palette to keep the language consistent.
+        */}
+        {constraintPreview ? (
+          <div
+            className="pointer-events-none absolute z-30 flex h-5 w-5 items-center justify-center rounded-full border border-cyan-300/70 bg-slate-900/85 text-[10px] font-semibold text-cyan-200 shadow-md"
+            style={{
+              left: `${constraintPreview.x + 12}px`,
+              top: `${constraintPreview.y + 12}px`,
+            }}
+          >
+            {constraintPreview.kind === "midpoint"
+              ? "M"
+              : constraintPreview.kind === "perpendicular"
+                ? "\u22a5"
+                : "/"}
+          </div>
+        ) : null}
+        {/*
+          Floating Line Tool options panel (Fusion-style). Appears
+          while the line tool is armed *or* while a sketch line is
+          selected, so the user can:
+            * Toggle the construction flag for the next line they draw
+              (line tool only). Hotkey X.
+            * Toggle the construction flag on an already-drawn line
+              (selection only).
+          Pinned top-left of the viewport so it doesn't fight with the
+          bottom-right Selection panel or the dimension editor.
+        */}
+        {activeSketchPlaneId &&
+        (activeSketchTool === "line" || selectedSketchLine) ? (
+          <div className="cad-floating-panel pointer-events-auto absolute left-4 top-4 z-20 flex flex-col gap-2 px-3 py-2 text-xs">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-on-surface-dim">
+              Line Tool
+            </p>
+            {activeSketchTool === "line" ? (
+              <label className="flex items-center gap-2 text-on-surface">
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 cursor-pointer accent-amber-400"
+                  checked={lineToolConstruction}
+                  onChange={(event) => {
+                    setLineToolConstruction(event.target.checked);
+                  }}
+                />
+                <span>
+                  Construction <span className="text-on-surface-dim">(X)</span>
+                </span>
+              </label>
+            ) : null}
+            {selectedSketchLine ? (
+              <label className="flex items-center gap-2 text-on-surface">
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 cursor-pointer accent-amber-400"
+                  checked={selectedSketchLine.is_construction}
+                  onChange={(event) => {
+                    void onSetSketchLineConstruction(
+                      selectedSketchLine.line_id,
+                      event.target.checked,
+                    );
+                  }}
+                />
+                <span>
+                  <span className="font-mono text-on-surface-muted">
+                    {selectedSketchLine.line_id}
+                  </span>{" "}
+                  is construction
+                </span>
+              </label>
+            ) : null}
+          </div>
+        ) : null}
         {selectedSketchDimension &&
         activeSketchPlaneId &&
         isDimensionEditorOpen ? (

@@ -169,6 +169,8 @@ function App() {
     updateExtrudeMode,
     updateExtrudeTargetBody,
     addSketchLine,
+    setSketchLineConstruction,
+    setSketchMidpointAnchor,
     addSketchRectangle,
     addSketchCircle,
     selectSketchPoint,
@@ -1149,9 +1151,39 @@ function App() {
                   await startSketchOnFace(faceId, toCorePlaneFrame(planeFrame));
                 });
               }}
-              onAddSketchLine={async (startX, startY, endX, endY) => {
+              onAddSketchLine={async (
+                startX,
+                startY,
+                endX,
+                endY,
+                isConstruction,
+              ) => {
                 await runAction(async () => {
-                  await addSketchLine(startX, startY, endX, endY);
+                  await addSketchLine(
+                    startX,
+                    startY,
+                    endX,
+                    endY,
+                    isConstruction,
+                  );
+                });
+              }}
+              onSetSketchLineConstruction={async (lineId, isConstruction) => {
+                await runAction(async () => {
+                  await setSketchLineConstruction(lineId, isConstruction);
+                });
+              }}
+              onSetSketchMidpointAnchor={async (pointId, hostLineId) => {
+                await runAction(async () => {
+                  await setSketchMidpointAnchor(pointId, hostLineId);
+                });
+              }}
+              onSetSketchPerpendicularConstraint={async (
+                lineId,
+                otherLineId,
+              ) => {
+                await runAction(async () => {
+                  await setSketchPerpendicularConstraint(lineId, otherLineId);
                 });
               }}
               onAddSketchRectangle={async (startX, startY, endX, endY) => {

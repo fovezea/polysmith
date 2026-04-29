@@ -145,6 +145,11 @@ sketch_parameters_from_payload(const json& payload) {
       line.end_x = read_number(line_payload, "end_x");
       line.end_y = read_number(line_payload, "end_y");
       line.constraint = read_optional_string(line_payload, "constraint");
+      // Older saves predate construction lines; default to solid.
+      if (line_payload.contains("is_construction") &&
+          line_payload.at("is_construction").is_boolean()) {
+        line.is_construction = line_payload.at("is_construction").get<bool>();
+      }
       params.lines.push_back(line);
     }
   }
@@ -187,6 +192,17 @@ sketch_parameters_from_payload(const json& payload) {
       relation.first_line_id = read_string(relation_payload, "first_line_id");
       relation.second_line_id = read_string(relation_payload, "second_line_id");
       params.line_relations.push_back(relation);
+    }
+  }
+  // Older saves predate midpoint anchors — silently default to none.
+  if (payload.contains("midpoint_anchors") &&
+      payload.at("midpoint_anchors").is_array()) {
+    for (const auto& anchor_payload : payload.at("midpoint_anchors")) {
+      polysmith::core::SketchMidpointAnchor anchor{};
+      anchor.id = read_string(anchor_payload, "anchor_id");
+      anchor.point_id = read_string(anchor_payload, "point_id");
+      anchor.line_id = read_string(anchor_payload, "line_id");
+      params.midpoint_anchors.push_back(anchor);
     }
   }
   if (payload.contains("profiles") && payload.at("profiles").is_array()) {
@@ -368,6 +384,7 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                            line.constraint.has_value()
                                ? json(line.constraint.value())
                                : json(nullptr)},
+                          {"is_construction", line.is_construction},
                       });
                     }
                     return lines;
@@ -426,6 +443,19 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                         });
                     }
                     return relations;
+                  }()},
+                 {"midpoint_anchors",
+                  [&feature]() {
+                    json anchors = json::array();
+                    for (const auto& anchor :
+                         feature.sketch_parameters->midpoint_anchors) {
+                      anchors.push_back({
+                          {"anchor_id", anchor.id},
+                          {"point_id", anchor.point_id},
+                          {"line_id", anchor.line_id},
+                      });
+                    }
+                    return anchors;
                   }()},
                  {"profiles",
                   [&feature]() {
@@ -773,6 +803,7 @@ json to_payload(const polysmith::core::ViewportSketchLinePrimitive& primitive) {
        primitive.constraint.has_value()
            ? json(primitive.constraint.value())
            : json(nullptr)},
+      {"is_construction", primitive.is_construction},
   };
 }
 

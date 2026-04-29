@@ -11,6 +11,8 @@ import {
   makeAddCylinderFeatureCommand,
   makeAddSketchCircleCommand,
   makeAddSketchLineCommand,
+  makeSetSketchLineConstructionCommand,
+  makeSetSketchMidpointAnchorCommand,
   makeAddSketchRectangleCommand,
   makeClearSelectionCommand,
   makeDeleteFeatureCommand,
@@ -404,9 +406,25 @@ export function useCadCore() {
       startY: number,
       endX: number,
       endY: number,
+      isConstruction = false,
     ) => {
       await sendCoreCommand(
-        makeAddSketchLineCommand(startX, startY, endX, endY),
+        makeAddSketchLineCommand(startX, startY, endX, endY, isConstruction),
+      );
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    setSketchLineConstruction: async (
+      lineId: string,
+      isConstruction: boolean,
+    ) => {
+      await sendCoreCommand(
+        makeSetSketchLineConstructionCommand(lineId, isConstruction),
+      );
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    setSketchMidpointAnchor: async (pointId: string, hostLineId: string) => {
+      await sendCoreCommand(
+        makeSetSketchMidpointAnchorCommand(pointId, hostLineId),
       );
       await sendCoreCommand(makeGetViewportStateCommand());
     },

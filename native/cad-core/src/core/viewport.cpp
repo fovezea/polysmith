@@ -339,6 +339,7 @@ ViewportSketchLinePrimitive make_sketch_line_primitive(const SketchLine& line,
       .end_z = end.z,
       .is_selected = is_selected,
       .constraint = line.constraint,
+      .is_construction = line.is_construction,
   };
 }
 
@@ -2386,6 +2387,29 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
                   : relation.kind == "perpendicular" ? "P" : "//",
               second_is_selected,
               relation.first_line_id));
+        }
+
+        // Midpoint anchors render a small "M" badge at the host
+        // line's midpoint so the user sees that the bound point is
+        // tracking the line's midpoint (Fusion convention).
+        for (const auto& anchor : feature.sketch_parameters->midpoint_anchors) {
+          const auto host_it = std::find_if(
+              feature.sketch_parameters->lines.begin(),
+              feature.sketch_parameters->lines.end(),
+              [&](const SketchLine& line) { return line.id == anchor.line_id; });
+          if (host_it == feature.sketch_parameters->lines.end()) {
+            continue;
+          }
+          const bool is_selected =
+              document->selected_sketch_entity_id.has_value() &&
+              document->selected_sketch_entity_id.value() == anchor.point_id;
+          sketch_constraints.push_back(make_line_constraint_primitive(
+              *host_it,
+              feature.sketch_parameters->plane_id,
+              "midpoint",
+              "M",
+              is_selected,
+              anchor.point_id));
         }
       }
 

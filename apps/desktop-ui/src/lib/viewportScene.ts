@@ -339,6 +339,7 @@ export function createViewportScene(
       end: [line.end.x, line.end.y, line.end.z] as [number, number, number],
       isSelected: line.is_selected,
       constraint: line.constraint,
+      isConstruction: line.is_construction,
     }));
   const sketchCircles = viewport.sketch_circles
     .filter((circle) => isSketchPlaneVisible(circle.plane_id))

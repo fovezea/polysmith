@@ -121,6 +121,9 @@ export interface SketchLineScene {
   end: [number, number, number];
   isSelected: boolean;
   constraint: ConstraintType | null;
+  // Reference-only construction lines render dashed and don't
+  // contribute to profile loop detection in the core.
+  isConstruction: boolean;
 }
 
 export interface SketchCircleScene {

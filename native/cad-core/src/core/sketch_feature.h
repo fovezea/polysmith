@@ -54,13 +54,28 @@ void add_sketch_line(FeatureEntry& feature,
                      double start_x,
                      double start_y,
                      double end_x,
-                     double end_y);
+                     double end_y,
+                     bool is_construction = false);
 void add_sketch_rectangle(FeatureEntry& feature,
                           int& next_line_index,
                           double start_x,
                           double start_y,
                           double end_x,
                           double end_y);
+// Toggle the construction-line flag on an existing line. Construction
+// lines render dashed in the viewport and are filtered out of profile
+// detection so they don't seal pickable faces / extrude sources.
+void set_sketch_line_construction(FeatureEntry& feature,
+                                  const std::string& line_id,
+                                  bool is_construction);
+// Bind a sketch point to the midpoint of a host line. The point is
+// pulled to the line's midpoint immediately and re-pulled on every
+// subsequent edit (via `enforce_midpoint_anchors` inside the derived
+// state refresh). Pass an empty `host_line_id` to remove an existing
+// anchor for the point.
+void set_sketch_midpoint_anchor(FeatureEntry& feature,
+                                const std::string& point_id,
+                                const std::string& host_line_id);
 void add_sketch_circle(FeatureEntry& feature,
                        int circle_index,
                        double center_x,

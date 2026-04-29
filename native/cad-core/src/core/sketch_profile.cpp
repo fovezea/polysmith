@@ -237,7 +237,19 @@ std::vector<SketchProfileRegion> build_sketch_profile_regions(
     const SketchFeatureParameters& parameters) {
   std::vector<SketchProfileRegion> profiles;
 
-  for (const auto& component : split_line_components(parameters.lines)) {
+  // Construction lines are reference geometry only — they should not
+  // close profile loops. Filter them out before component splitting
+  // so loop detection sees only the solid lines the user wants to
+  // form a face / extrude source.
+  std::vector<SketchLine> solid_lines;
+  solid_lines.reserve(parameters.lines.size());
+  for (const auto& line : parameters.lines) {
+    if (!line.is_construction) {
+      solid_lines.push_back(line);
+    }
+  }
+
+  for (const auto& component : split_line_components(solid_lines)) {
     if (const auto loop = detect_line_loop(component); loop.has_value()) {
       profiles.push_back(SketchProfileRegion{
           .id = make_polygon_profile_id(loop->line_ids),

@@ -108,6 +108,7 @@ export interface ViewportSketchLine {
   end: Vector3;
   is_selected: boolean;
   constraint: ConstraintType | null;
+  is_construction: boolean;
 }
 
 export interface ViewportSketchCircle {
@@ -235,6 +236,22 @@ export interface SketchPreviewPoint {
   local: [number, number];
   world: [number, number, number];
   snapLabel: string | null;
+  // When the resolved point snapped to a midpoint snap target, this
+  // is the host line's id; the line tool uses it to attach a midpoint
+  // anchor after the line is committed. Null for endpoint / origin /
+  // circle-center / no-snap resolutions.
+  snapMidpointHostLineId?: string | null;
+  // Set when the cursor was projected onto a perpendicular ray
+  // emanating from the line draft's start (because the start lay on
+  // an existing line). The post-commit step uses this to apply a
+  // perpendicular constraint between the new line and the host line.
+  snapPerpendicularHostLineId?: string | null;
+  // The host line id of the line whose endpoint the start of the
+  // draft snapped to. Carried on every resolved point so the pointer
+  // handler can stash it as the perpendicular reference for the
+  // remaining draft clicks. Distinct from `snapPerpendicularHostLineId`,
+  // which only lights up when the *current* cursor is on the perp ray.
+  snapEndpointHostLineId?: string | null;
 }
 
 export type SketchPlaneFrame = NonNullable<

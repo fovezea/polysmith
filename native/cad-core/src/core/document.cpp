@@ -1292,6 +1292,77 @@ DocumentState DocumentManager::set_sketch_line_constraint(
   return document_.value();
 }
 
+DocumentState DocumentManager::set_sketch_line_construction(
+    const std::string& line_id,
+    bool is_construction) {
+  require_document();
+
+  if (!document_->active_sketch_feature_id.has_value()) {
+    throw std::runtime_error("No active sketch");
+  }
+
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) {
+        return feature.id == document_->active_sketch_feature_id.value();
+      });
+
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Active sketch feature not found");
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+  polysmith::core::set_sketch_line_construction(
+      *feature_it, line_id, is_construction);
+  refresh_linked_extrudes(*document_, *feature_it);
+  document_->selected_feature_id = feature_it->id;
+  document_->selected_sketch_entity_id = line_id;
+  document_->selected_sketch_point_id = std::nullopt;
+  // The auto length-dimension is removed when toggling to
+  // construction. Clear the dimension selection if it pointed at it.
+  if (document_->selected_sketch_dimension_id.has_value() &&
+      document_->selected_sketch_dimension_id.value() ==
+          "dim-line-" + line_id &&
+      is_construction) {
+    document_->selected_sketch_dimension_id = std::nullopt;
+  }
+  document_->selected_sketch_profile_id = std::nullopt;
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::set_sketch_midpoint_anchor(
+    const std::string& point_id,
+    const std::string& host_line_id) {
+  require_document();
+
+  if (!document_->active_sketch_feature_id.has_value()) {
+    throw std::runtime_error("No active sketch");
+  }
+
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) {
+        return feature.id == document_->active_sketch_feature_id.value();
+      });
+
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Active sketch feature not found");
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+  polysmith::core::set_sketch_midpoint_anchor(
+      *feature_it, point_id, host_line_id);
+  refresh_linked_extrudes(*document_, *feature_it);
+  document_->selected_feature_id = feature_it->id;
+  bump_geometry_revision();
+  return document_.value();
+}
+
 DocumentState DocumentManager::set_sketch_equal_length_constraint(
     const std::string& line_id,
     const std::optional<std::string>& other_line_id) {
@@ -1714,7 +1785,8 @@ DocumentState DocumentManager::extrude_profile(
 DocumentState DocumentManager::add_sketch_line(double start_x,
                                                double start_y,
                                                double end_x,
-                                               double end_y) {
+                                               double end_y,
+                                               bool is_construction) {
   require_document();
 
   if (!document_->active_sketch_feature_id.has_value()) {
@@ -1734,15 +1806,31 @@ DocumentState DocumentManager::add_sketch_line(double start_x,
 
   push_undo_state();
   clear_redo_stack();
-  polysmith::core::add_sketch_line(
-      *feature_it, next_sketch_line_id_++, start_x, start_y, end_x, end_y);
+  polysmith::core::add_sketch_line(*feature_it,
+                                   next_sketch_line_id_++,
+                                   start_x,
+                                   start_y,
+                                   end_x,
+                                   end_y,
+                                   is_construction);
   refresh_linked_extrudes(*document_, *feature_it);
   document_->selected_feature_id = feature_it->id;
   document_->selected_sketch_point_id = std::nullopt;
   document_->selected_sketch_entity_id =
       feature_it->sketch_parameters->lines.back().id;
+  // Construction lines don't get an auto length dimension, so the
+  // dimension list may be unchanged. Pick the dimension only if one
+  // was actually created for this line; otherwise clear the
+  // selection so the editor doesn't open on an unrelated dimension.
+  const std::string expected_dim_id =
+      "dim-line-" + feature_it->sketch_parameters->lines.back().id;
+  const auto& dims = feature_it->sketch_parameters->dimensions;
+  const auto dim_it = std::find_if(
+      dims.begin(), dims.end(),
+      [&](const SketchDimension& dim) { return dim.id == expected_dim_id; });
   document_->selected_sketch_dimension_id =
-      feature_it->sketch_parameters->dimensions.back().id;
+      dim_it != dims.end() ? std::optional<std::string>{dim_it->id}
+                           : std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->active_sketch_tool = "line";
   bump_geometry_revision();

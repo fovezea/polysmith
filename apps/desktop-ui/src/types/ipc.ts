@@ -498,6 +498,26 @@ export interface AddSketchLineCommand {
     start_y: number;
     end_x: number;
     end_y: number;
+    is_construction: boolean;
+  };
+}
+
+export interface SetSketchLineConstructionCommand {
+  id: string;
+  type: "set_sketch_line_construction";
+  payload: {
+    line_id: string;
+    is_construction: boolean;
+  };
+}
+
+export interface SetSketchMidpointAnchorCommand {
+  id: string;
+  type: "set_sketch_midpoint_anchor";
+  payload: {
+    point_id: string;
+    // Empty string clears any existing anchor for the point.
+    host_line_id: string;
   };
 }
 
@@ -766,6 +786,8 @@ export type CoreCommand =
   | SelectSketchProfileCommand
   | ExtrudeProfileCommand
   | AddSketchLineCommand
+  | SetSketchLineConstructionCommand
+  | SetSketchMidpointAnchorCommand
   | AddSketchRectangleCommand
   | AddSketchCircleCommand
   | SelectSketchPointCommand
