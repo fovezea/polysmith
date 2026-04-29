@@ -257,6 +257,9 @@ CompiledBodies compile_bodies(const DocumentState& document) {
   // viewport. This keeps the cost path-dependent.
   bool any_boolean = false;
   for (const auto& feature : document.feature_history) {
+    if (feature.suppressed) {
+      continue;
+    }
     if (feature.kind == "extrude" &&
         feature.extrude_parameters.has_value()) {
       if (feature.extrude_parameters->mode != "new_body") {
@@ -283,6 +286,13 @@ CompiledBodies compile_bodies(const DocumentState& document) {
   }
 
   for (const auto& feature : document.feature_history) {
+    // Suppressed features participate neither in body building nor in
+    // the consumed-feature accounting downstream. The legacy primitive
+    // renderer skips them via the same flag, so a suppressed box just
+    // disappears until unsuppressed.
+    if (feature.suppressed) {
+      continue;
+    }
     // Fillet / chamfer modify an existing body in place rather than
     // emitting a new shape, so they're handled here before falling
     // through to the shape-building path used for box/cylinder/extrude.

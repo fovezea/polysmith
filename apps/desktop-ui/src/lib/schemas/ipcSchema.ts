@@ -8,7 +8,12 @@ const documentStateSchema = z.object({
   selected_feature_id: z.string().nullable(),
   selected_reference_id: z.string().nullable(),
   selected_face_id: z.string().nullable(),
-  selected_edge_id: z.string().nullable().default(null),
+  // Multi-edge selection (Phase C). Older `.polysmith` saves used a
+  // single `selected_edge_id`; the C++ loader migrates them to the
+  // new array shape, so by the time the schema runs we always see an
+  // array. Default `[]` keeps the schema lenient for tests that
+  // hand-craft document payloads without selection state.
+  selected_edge_ids: z.array(z.string()).default([]),
   selected_vertex_id: z.string().nullable().default(null),
   active_sketch_plane_id: z.string().nullable(),
   active_sketch_face_id: z.string().nullable(),
@@ -26,6 +31,7 @@ const documentStateSchema = z.object({
       kind: z.string(),
       name: z.string(),
       status: z.string(),
+      suppressed: z.boolean().default(false),
       parameters_summary: z.string(),
       box_parameters: z
         .object({

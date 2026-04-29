@@ -25,7 +25,7 @@ export interface DocumentState {
   selected_feature_id: string | null;
   selected_reference_id: string | null;
   selected_face_id: string | null;
-  selected_edge_id: string | null;
+  selected_edge_ids: string[];
   selected_vertex_id: string | null;
   active_sketch_plane_id: string | null;
   active_sketch_face_id: string | null;
@@ -309,12 +309,31 @@ export interface UpdateBoxFeatureCommand {
   };
 }
 
+export interface UpdateCylinderFeatureCommand {
+  id: string;
+  type: "update_cylinder_feature";
+  payload: {
+    feature_id: string;
+    radius: number;
+    height: number;
+  };
+}
+
 export interface UpdateExtrudeDepthCommand {
   id: string;
   type: "update_extrude_depth";
   payload: {
     feature_id: string;
     depth: number;
+  };
+}
+
+export interface SetFeatureSuppressedCommand {
+  id: string;
+  type: "set_feature_suppressed";
+  payload: {
+    feature_id: string;
+    suppressed: boolean;
   };
 }
 
@@ -376,6 +395,10 @@ export interface SelectEdgeCommand {
   type: "select_edge";
   payload: {
     edge_id: string;
+    // When true, the edge is toggled into the existing edge
+    // selection set (shift-click). When false / omitted, it replaces
+    // the previous edge selection.
+    additive: boolean;
   };
 }
 
@@ -391,7 +414,9 @@ export interface CreateFilletCommand {
   id: string;
   type: "create_fillet";
   payload: {
-    edge_id: string;
+    // One or more edges (must all share the same owner body — the
+    // core rejects mixed-body selections).
+    edge_ids: string[];
     radius: number;
   };
 }
@@ -405,11 +430,29 @@ export interface UpdateFilletRadiusCommand {
   };
 }
 
+export interface UpdateFilletEdgesCommand {
+  id: string;
+  type: "update_fillet_edges";
+  payload: {
+    feature_id: string;
+    edge_ids: string[];
+  };
+}
+
+export interface UpdateChamferEdgesCommand {
+  id: string;
+  type: "update_chamfer_edges";
+  payload: {
+    feature_id: string;
+    edge_ids: string[];
+  };
+}
+
 export interface CreateChamferCommand {
   id: string;
   type: "create_chamfer";
   payload: {
-    edge_id: string;
+    edge_ids: string[];
     distance: number;
   };
 }
@@ -680,10 +723,12 @@ export type CoreCommand =
   | AddBoxFeatureCommand
   | AddCylinderFeatureCommand
   | UpdateBoxFeatureCommand
+  | UpdateCylinderFeatureCommand
   | UpdateExtrudeDepthCommand
   | UpdateExtrudeModeCommand
   | UpdateExtrudeTargetBodyCommand
   | RenameFeatureCommand
+  | SetFeatureSuppressedCommand
   | DeleteFeatureCommand
   | UndoCommand
   | RedoCommand
@@ -694,8 +739,10 @@ export type CoreCommand =
   | SelectVertexCommand
   | CreateFilletCommand
   | UpdateFilletRadiusCommand
+  | UpdateFilletEdgesCommand
   | CreateChamferCommand
   | UpdateChamferDistanceCommand
+  | UpdateChamferEdgesCommand
   | StartSketchOnPlaneCommand
   | StartSketchOnFaceCommand
   | SetSketchToolCommand

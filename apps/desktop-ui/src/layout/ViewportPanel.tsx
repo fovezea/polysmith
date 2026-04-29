@@ -54,7 +54,11 @@ interface ViewportPanelProps {
   onSelectPrimitive: (primitiveId: string) => Promise<void>;
   onSelectReference: (referenceId: string) => Promise<void>;
   onSelectFace: (faceId: string) => Promise<void>;
-  onSelectEdge: (edgeId: string) => Promise<void>;
+  // `additive` is true when the user shift-clicked the edge: the
+  // core toggles the edge into the existing selection rather than
+  // replacing it. Other selection categories don't support multi
+  // yet, so they keep their single-id callbacks.
+  onSelectEdge: (edgeId: string, additive: boolean) => Promise<void>;
   onSelectVertex: (vertexId: string) => Promise<void>;
   onStartSketch: (referenceId: string) => Promise<void>;
   onStartSketchOnFace: (
@@ -1099,7 +1103,9 @@ export function ViewportPanel({
       }
 
       if (hit?.kind === "edge") {
-        void selectEdgeRef.current(hit.id);
+        // Shift-click toggles the edge into the existing selection
+        // (multi-edge fillet / chamfer); plain click replaces.
+        void selectEdgeRef.current(hit.id, event.shiftKey);
         return;
       }
 

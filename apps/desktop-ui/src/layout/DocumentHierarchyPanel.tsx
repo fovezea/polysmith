@@ -14,6 +14,12 @@ interface DocumentHierarchyPanelProps {
   onReenterSketch: (featureId: string) => Promise<void>;
   onRenameFeature: (featureId: string, name: string) => Promise<void>;
   onDeleteFeature: (featureId: string) => Promise<void>;
+  // Optional toggle for the persisted suppressed flag (Phase B). When
+  // omitted (e.g. read-only previews) the menu just hides the entry.
+  onSetFeatureSuppressed?: (
+    featureId: string,
+    suppressed: boolean,
+  ) => Promise<void>;
 }
 
 interface ContextMenuState {
@@ -22,6 +28,11 @@ interface ContextMenuState {
   featureId: string;
   featureName: string;
   isHidden: boolean;
+  // Mirrors the feature's persisted `suppressed` flag at the moment
+  // the menu was opened. Used to label the Suppress / Unsuppress
+  // entry; the persisted state may change after we open the menu, but
+  // re-opening rebuilds it.
+  suppressed: boolean;
 }
 
 const BODY_KINDS = new Set(["box", "cylinder", "polygon_extrude", "extrude"]);
@@ -363,6 +374,7 @@ export function DocumentHierarchyPanel({
   onReenterSketch,
   onRenameFeature,
   onDeleteFeature,
+  onSetFeatureSuppressed,
 }: DocumentHierarchyPanelProps) {
   const [openCategories, setOpenCategories] = useState<Set<CategoryId>>(
     () => new Set<CategoryId>(["origin", "sketches", "bodies"]),
@@ -447,7 +459,12 @@ export function DocumentHierarchyPanel({
   };
 
   const openContextMenu =
-    (featureId: string, featureName: string, isHidden: boolean) =>
+    (
+      featureId: string,
+      featureName: string,
+      isHidden: boolean,
+      suppressed: boolean,
+    ) =>
     (event: React.MouseEvent) => {
       event.preventDefault();
       event.stopPropagation();
@@ -457,6 +474,7 @@ export function DocumentHierarchyPanel({
         featureId,
         featureName,
         isHidden,
+        suppressed,
       });
     };
 
@@ -529,6 +547,7 @@ export function DocumentHierarchyPanel({
                 sketch.feature_id,
                 sketch.name,
                 isHidden,
+                sketch.suppressed === true,
               )}
               onRenameSubmit={(nextName) => {
                 void submitRename(sketch.feature_id, nextName);
@@ -568,6 +587,7 @@ export function DocumentHierarchyPanel({
                 body.feature_id,
                 body.name,
                 isHidden,
+                body.suppressed === true,
               )}
               onRenameSubmit={(nextName) => {
                 void submitRename(body.feature_id, nextName);
@@ -614,6 +634,19 @@ export function DocumentHierarchyPanel({
               >
                 {contextMenu.isHidden ? "Show" : "Hide"}
               </button>
+              {onSetFeatureSuppressed ? (
+                <button
+                  type="button"
+                  className="flex w-full items-center rounded-lg px-3 py-1.5 text-left text-sm text-on-surface transition-colors hover:bg-white/10"
+                  onClick={() => {
+                    const { featureId, suppressed } = contextMenu;
+                    setContextMenu(null);
+                    void onSetFeatureSuppressed(featureId, !suppressed);
+                  }}
+                >
+                  {contextMenu.suppressed ? "Unsuppress" : "Suppress"}
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="flex w-full items-center rounded-lg px-3 py-1.5 text-left text-sm text-red-300 transition-colors hover:bg-red-500/15"

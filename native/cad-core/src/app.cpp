@@ -244,6 +244,20 @@ void CadCoreApp::handle_command_line(const std::string& line) {
     return;
   }
 
+  if (command.type == "update_cylinder_feature") {
+    const auto document = document_manager().update_cylinder_feature(
+        read_string(command.payload, "feature_id"),
+        CylinderFeatureParameters{
+            .radius = read_dimension(command.payload, "radius"),
+            .height = read_dimension(command.payload, "height"),
+        });
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
   if (command.type == "update_extrude_depth") {
     const auto document = document_manager().update_extrude_depth(
         read_string(command.payload, "feature_id"),
@@ -259,6 +273,17 @@ void CadCoreApp::handle_command_line(const std::string& line) {
     const auto document = document_manager().rename_feature(
         read_string(command.payload, "feature_id"),
         read_string(command.payload, "name"));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "set_feature_suppressed") {
+    const auto document = document_manager().set_feature_suppressed(
+        read_string(command.payload, "feature_id"),
+        command.payload.at("suppressed").get<bool>());
 
     polysmith::protocol::write_message(
         polysmith::protocol::make_document_state_event(
@@ -325,8 +350,16 @@ void CadCoreApp::handle_command_line(const std::string& line) {
   }
 
   if (command.type == "select_edge") {
-    const auto document =
-        document_manager().select_edge(read_string(command.payload, "edge_id"));
+    // `additive` toggles the edge into / out of the multi-select set
+    // (shift-click). It defaults to false so old payloads (which only
+    // sent `edge_id`) keep behaving as a plain replace-style select.
+    bool additive = false;
+    if (command.payload.contains("additive") &&
+        command.payload.at("additive").is_boolean()) {
+      additive = command.payload.at("additive").get<bool>();
+    }
+    const auto document = document_manager().select_edge(
+        read_string(command.payload, "edge_id"), additive);
 
     polysmith::protocol::write_message(
         polysmith::protocol::make_document_state_event(
@@ -345,9 +378,41 @@ void CadCoreApp::handle_command_line(const std::string& line) {
   }
 
   if (command.type == "create_fillet") {
+    // Accept either a single `edge_id` (legacy single-edge payload)
+    // or an `edge_ids` array (multi-select). Reading both so old
+    // clients that haven't migrated still work.
+    std::vector<std::string> edge_ids;
+    if (command.payload.contains("edge_ids") &&
+        command.payload.at("edge_ids").is_array()) {
+      for (const auto& entry : command.payload.at("edge_ids")) {
+        if (entry.is_string()) {
+          edge_ids.push_back(entry.get<std::string>());
+        }
+      }
+    } else {
+      edge_ids.push_back(read_string(command.payload, "edge_id"));
+    }
     const auto document = document_manager().create_fillet(
-        read_string(command.payload, "edge_id"),
-        read_dimension(command.payload, "radius"));
+        edge_ids, read_dimension(command.payload, "radius"));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "update_fillet_edges") {
+    std::vector<std::string> edge_ids;
+    if (command.payload.contains("edge_ids") &&
+        command.payload.at("edge_ids").is_array()) {
+      for (const auto& entry : command.payload.at("edge_ids")) {
+        if (entry.is_string()) {
+          edge_ids.push_back(entry.get<std::string>());
+        }
+      }
+    }
+    const auto document = document_manager().update_fillet_edges(
+        read_string(command.payload, "feature_id"), edge_ids);
 
     polysmith::protocol::write_message(
         polysmith::protocol::make_document_state_event(
@@ -367,9 +432,39 @@ void CadCoreApp::handle_command_line(const std::string& line) {
   }
 
   if (command.type == "create_chamfer") {
+    // Same dual-payload handling as create_fillet — see comment there.
+    std::vector<std::string> edge_ids;
+    if (command.payload.contains("edge_ids") &&
+        command.payload.at("edge_ids").is_array()) {
+      for (const auto& entry : command.payload.at("edge_ids")) {
+        if (entry.is_string()) {
+          edge_ids.push_back(entry.get<std::string>());
+        }
+      }
+    } else {
+      edge_ids.push_back(read_string(command.payload, "edge_id"));
+    }
     const auto document = document_manager().create_chamfer(
-        read_string(command.payload, "edge_id"),
-        read_dimension(command.payload, "distance"));
+        edge_ids, read_dimension(command.payload, "distance"));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "update_chamfer_edges") {
+    std::vector<std::string> edge_ids;
+    if (command.payload.contains("edge_ids") &&
+        command.payload.at("edge_ids").is_array()) {
+      for (const auto& entry : command.payload.at("edge_ids")) {
+        if (entry.is_string()) {
+          edge_ids.push_back(entry.get<std::string>());
+        }
+      }
+    }
+    const auto document = document_manager().update_chamfer_edges(
+        read_string(command.payload, "feature_id"), edge_ids);
 
     polysmith::protocol::write_message(
         polysmith::protocol::make_document_state_event(

@@ -97,6 +97,12 @@ export interface FeatureEntry {
   kind: string;
   name: string;
   status: string;
+  // Optional in serialized form for forward-compat with older
+  // documents; the schema defaults missing values to false. When the
+  // flag is true the feature is hidden from the viewport but still
+  // shown in the timeline / hierarchy (dimmed) so the user can
+  // unsuppress it.
+  suppressed?: boolean;
   parameters_summary: string;
   box_parameters: BoxFeatureParameters | null;
   cylinder_parameters: CylinderFeatureParameters | null;

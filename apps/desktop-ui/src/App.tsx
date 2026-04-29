@@ -2,8 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { awaitDocumentChange, useCadCoreStore } from "./state";
 import { useCadCore } from "./hooks";
+import { findDependents } from "./lib";
 import {
   AppHeader,
+  BoxFeatureForm,
+  CylinderFeatureForm,
   DocumentHierarchyPanel,
   EdgeOpPreviewPanel,
   ExtrudePreviewPanel,
@@ -52,6 +55,12 @@ function App() {
   const [edgeOpAction, setEdgeOpAction] = useState<ActiveEdgeOpAction | null>(
     null,
   );
+  // Identifies which feature (if any) is being edited via the floating
+  // edit panel. The panel itself reads the feature's parameters
+  // directly from `document.feature_history`, so we only need the id
+  // here. `null` means the panel is closed. Triggered by a
+  // double-click in the timeline (see `onEditFeature` below).
+  const [editingFeatureId, setEditingFeatureId] = useState<string | null>(null);
   const [hiddenFeatureIds, setHiddenFeatureIds] = useState<Set<string>>(
     () => new Set<string>(),
   );
@@ -120,8 +129,11 @@ function App() {
     projectFaceIntoSketch,
     addBoxFeature,
     addCylinderFeature,
+    updateBoxFeature,
+    updateCylinderFeature,
     updateExtrudeDepth,
     renameFeature,
+    setFeatureSuppressed,
     deleteFeature,
     undo,
     redo,
@@ -132,8 +144,10 @@ function App() {
     selectVertex,
     createFillet,
     updateFilletRadius,
+    updateFilletEdges,
     createChamfer,
     updateChamferDistance,
+    updateChamferEdges,
     startSketchOnPlane,
     startSketchOnFace,
     setSketchTool,
@@ -366,8 +380,13 @@ function App() {
     if (extrudeAction || edgeOpAction) {
       return;
     }
-    const edgeId = document?.selected_edge_id ?? null;
-    if (!edgeId) {
+    // Multi-edge: snapshot the entire selection set at the moment the
+    // hotkey fires. If the user shift-clicked three edges, we send all
+    // three to create_fillet / create_chamfer in one feature. Snapshot
+    // up-front because the core's create_* call clears the selection
+    // before we can read it again.
+    const edgeIds = document?.selected_edge_ids ?? [];
+    if (edgeIds.length === 0) {
       return;
     }
 
@@ -394,9 +413,9 @@ function App() {
 
     await runAction(async () => {
       if (kind === "fillet") {
-        await createFillet(edgeId, initialValue);
+        await createFillet(edgeIds, initialValue);
       } else {
-        await createChamfer(edgeId, initialValue);
+        await createChamfer(edgeIds, initialValue);
       }
       try {
         const nextDocument = await documentPromise;
@@ -490,7 +509,7 @@ function App() {
       // otherwise — silently, so a stray F or C keystroke doesn't
       // surprise the user with an error toast.
       if (event.code === "KeyF") {
-        if (!document?.selected_edge_id) {
+        if ((document?.selected_edge_ids.length ?? 0) === 0) {
           return;
         }
         event.preventDefault();
@@ -499,7 +518,7 @@ function App() {
       }
 
       if (event.code === "KeyC") {
-        if (!document?.selected_edge_id) {
+        if ((document?.selected_edge_ids.length ?? 0) === 0) {
           return;
         }
         event.preventDefault();
@@ -516,7 +535,7 @@ function App() {
     selectedSketchProfile,
     extrudeAction,
     edgeOpAction,
-    document?.selected_edge_id,
+    document?.selected_edge_ids,
     document?.selected_face_id,
     viewport?.solid_faces,
     session?.can_undo,
@@ -713,6 +732,35 @@ function App() {
     } catch (error) {
       addMessage(`action error: ${String(error)}`);
     }
+  }
+
+  // Shared delete handler used by both the timeline and hierarchy
+  // context menus. Walks the dependency graph and prompts the user
+  // when downstream features would be broken; silently deletes when
+  // the feature is a leaf. Also closes the edit panel if the
+  // deleted feature was being edited.
+  function confirmAndDeleteFeature(featureId: string) {
+    if (!document) {
+      return;
+    }
+    const dependents = findDependents(document, featureId);
+    if (dependents.length > 0) {
+      const names = dependents
+        .map((entry) => entry.name || entry.kind)
+        .join(", ");
+      const confirmed = window.confirm(
+        `Deleting this feature will break ${dependents.length} downstream feature(s): ${names}. Delete anyway?`,
+      );
+      if (!confirmed) {
+        return;
+      }
+    }
+    void runAction(async () => {
+      await deleteFeature(featureId);
+      setEditingFeatureId((current) =>
+        current === featureId ? null : current,
+      );
+    });
   }
 
   return (
@@ -914,8 +962,11 @@ function App() {
                   });
                 }}
                 onDeleteFeature={async (featureId) => {
+                  confirmAndDeleteFeature(featureId);
+                }}
+                onSetFeatureSuppressed={async (featureId, suppressed) => {
                   await runAction(async () => {
-                    await deleteFeature(featureId);
+                    await setFeatureSuppressed(featureId, suppressed);
                   });
                 }}
               />
@@ -942,9 +993,43 @@ function App() {
                   await selectFace(faceId);
                 });
               }}
-              onSelectEdge={async (edgeId) => {
+              onSelectEdge={async (edgeId, additive) => {
+                // While a fillet / chamfer floating panel is open the
+                // user is in "pick edges" mode: every edge click
+                // toggles that edge in the feature's edge_ids set
+                // rather than the document selection. The body
+                // recompiles live so the user sees the fillet grow /
+                // shrink as they pick. We ignore `additive` here —
+                // toggle is the only meaningful gesture during edit.
+                if (edgeOpAction && document) {
+                  const feature = document.feature_history.find(
+                    (entry) => entry.feature_id === edgeOpAction.featureId,
+                  );
+                  const current =
+                    feature?.fillet_parameters?.edge_ids ??
+                    feature?.chamfer_parameters?.edge_ids ??
+                    [];
+                  const isMember = current.includes(edgeId);
+                  const next = isMember
+                    ? current.filter((id) => id !== edgeId)
+                    : [...current, edgeId];
+                  if (next.length === 0) {
+                    // Last edge: refusing the toggle keeps the feature
+                    // valid (the core requires at least one edge). The
+                    // user can Cancel the panel to undo entirely.
+                    return;
+                  }
+                  await runAction(async () => {
+                    if (edgeOpAction.kind === "fillet") {
+                      await updateFilletEdges(edgeOpAction.featureId, next);
+                    } else {
+                      await updateChamferEdges(edgeOpAction.featureId, next);
+                    }
+                  });
+                  return;
+                }
                 await runAction(async () => {
-                  await selectEdge(edgeId);
+                  await selectEdge(edgeId, additive);
                 });
               }}
               onSelectVertex={async (vertexId) => {
@@ -1165,6 +1250,82 @@ function App() {
                     );
                   })()
                 : null}
+              {editingFeatureId
+                ? (() => {
+                    // Resolve the feature being edited from the live
+                    // document so the form always reflects the latest
+                    // server-confirmed values (relevant if the user
+                    // undid a change while the panel was open).
+                    const editing = document?.feature_history.find(
+                      (entry) => entry.feature_id === editingFeatureId,
+                    );
+                    if (!editing) {
+                      // Feature was deleted (e.g. via the hierarchy
+                      // panel). Close the editor on next render — we
+                      // can't call setState during render, so we use a
+                      // microtask. Returning null keeps the previous
+                      // panel chrome from flashing.
+                      queueMicrotask(() => setEditingFeatureId(null));
+                      return null;
+                    }
+                    if (editing.kind === "box" && editing.box_parameters) {
+                      return (
+                        <div className="cad-toolbar-popover pointer-events-auto">
+                          <BoxFeatureForm
+                            disabled={status !== "connected"}
+                            mode="edit"
+                            initialValues={{
+                              width: editing.box_parameters.width,
+                              height: editing.box_parameters.height,
+                              depth: editing.box_parameters.depth,
+                            }}
+                            variant="toolbar"
+                            onSubmit={async (width, height, depth) => {
+                              await runAction(async () => {
+                                await updateBoxFeature(
+                                  editingFeatureId,
+                                  width,
+                                  height,
+                                  depth,
+                                );
+                              });
+                              setEditingFeatureId(null);
+                            }}
+                          />
+                        </div>
+                      );
+                    }
+                    if (
+                      editing.kind === "cylinder" &&
+                      editing.cylinder_parameters
+                    ) {
+                      return (
+                        <div className="cad-toolbar-popover pointer-events-auto">
+                          <CylinderFeatureForm
+                            disabled={status !== "connected"}
+                            mode="edit"
+                            initialValues={{
+                              radius: editing.cylinder_parameters.radius,
+                              height: editing.cylinder_parameters.height,
+                            }}
+                            variant="toolbar"
+                            onSubmit={async (radius, height) => {
+                              await runAction(async () => {
+                                await updateCylinderFeature(
+                                  editingFeatureId,
+                                  radius,
+                                  height,
+                                );
+                              });
+                              setEditingFeatureId(null);
+                            }}
+                          />
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()
+                : null}
               {edgeOpAction ? (
                 <EdgeOpPreviewPanel
                   title={edgeOpAction.kind === "fillet" ? "Fillet" : "Chamfer"}
@@ -1175,6 +1336,18 @@ function App() {
                   }
                   initialValue={edgeOpAction.initialValue}
                   disabled={status !== "connected"}
+                  edgeCount={(() => {
+                    // Source the count off the live document so it
+                    // updates the moment update_*_edges round-trips.
+                    const feature = document?.feature_history.find(
+                      (entry) => entry.feature_id === edgeOpAction.featureId,
+                    );
+                    return (
+                      feature?.fillet_parameters?.edge_ids.length ??
+                      feature?.chamfer_parameters?.edge_ids.length ??
+                      0
+                    );
+                  })()}
                   onPreviewValue={async (value) => {
                     await runAction(async () => {
                       if (edgeOpAction.kind === "fillet") {
@@ -1187,7 +1360,16 @@ function App() {
                       }
                     });
                   }}
-                  onConfirm={() => {
+                  onConfirm={async () => {
+                    // Core keeps the feature's edges in
+                    // `selected_edge_ids` while the panel is open so
+                    // the highlight tracks live edits. On Confirm we
+                    // explicitly clear selection so the user is left
+                    // looking at a clean filleted body, not yellow
+                    // highlights on the just-confirmed edges.
+                    await runAction(async () => {
+                      await clearSelection();
+                    });
                     setEdgeOpAction(null);
                   }}
                   onCancel={async () => {
@@ -1211,6 +1393,31 @@ function App() {
             await runAction(async () => {
               await selectFeature(featureId);
             });
+          }}
+          onEditFeature={(featureId) => {
+            // Edit only fires for kinds we have a panel for; the
+            // timeline's double-click handler already filters to
+            // editable kinds, but we double-check here so non-editable
+            // kinds (root_part, sketch, extrude, etc.) silently no-op
+            // rather than mounting a blank panel.
+            const feature = document?.feature_history.find(
+              (entry) => entry.feature_id === featureId,
+            );
+            if (!feature) {
+              return;
+            }
+            if (feature.kind !== "box" && feature.kind !== "cylinder") {
+              return;
+            }
+            setEditingFeatureId(featureId);
+          }}
+          onSuppressFeature={(featureId, suppressed) => {
+            void runAction(async () => {
+              await setFeatureSuppressed(featureId, suppressed);
+            });
+          }}
+          onDeleteFeature={(featureId) => {
+            confirmAndDeleteFeature(featureId);
           }}
         />
       </div>

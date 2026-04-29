@@ -234,6 +234,7 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
       {"kind", feature.kind},
       {"name", feature.name},
       {"status", feature.status},
+      {"suppressed", feature.suppressed},
       {"parameters_summary", feature.parameters_summary},
       {"box_parameters",
        feature.box_parameters.has_value()
@@ -506,10 +507,7 @@ json to_payload(const polysmith::core::DocumentState& document) {
        document.selected_face_id.has_value()
            ? json(document.selected_face_id.value())
            : json(nullptr)},
-      {"selected_edge_id",
-       document.selected_edge_id.has_value()
-           ? json(document.selected_edge_id.value())
-           : json(nullptr)},
+      {"selected_edge_ids", document.selected_edge_ids},
       {"selected_vertex_id",
        document.selected_vertex_id.has_value()
            ? json(document.selected_vertex_id.value())
@@ -1087,6 +1085,11 @@ polysmith::core::FeatureEntry feature_entry_from_payload(const json& payload) {
   feature.name = read_string(payload, "name");
   feature.status = read_string(payload, "status");
   feature.parameters_summary = read_string(payload, "parameters_summary");
+  // Older `.polysmith` files predate the `suppressed` flag — treat
+  // missing/non-bool fields as false so loading them is non-fatal.
+  if (payload.contains("suppressed") && payload.at("suppressed").is_boolean()) {
+    feature.suppressed = payload.at("suppressed").get<bool>();
+  }
 
   if (payload.contains("box_parameters") &&
       !payload.at("box_parameters").is_null()) {
@@ -1161,7 +1164,23 @@ polysmith::core::DocumentState document_from_payload(const json& payload) {
   document.selected_reference_id =
       read_optional_string(payload, "selected_reference_id");
   document.selected_face_id = read_optional_string(payload, "selected_face_id");
-  document.selected_edge_id = read_optional_string(payload, "selected_edge_id");
+  // Backward compat: pre-multi-select saves used a single
+  // `selected_edge_id` (string|null). New saves use an array
+  // `selected_edge_ids`. Read whichever is present so older `.polysmith`
+  // files keep loading.
+  if (payload.contains("selected_edge_ids") &&
+      payload.at("selected_edge_ids").is_array()) {
+    for (const auto& entry : payload.at("selected_edge_ids")) {
+      if (entry.is_string()) {
+        document.selected_edge_ids.push_back(entry.get<std::string>());
+      }
+    }
+  } else {
+    const auto legacy = read_optional_string(payload, "selected_edge_id");
+    if (legacy.has_value()) {
+      document.selected_edge_ids.push_back(*legacy);
+    }
+  }
   document.selected_vertex_id =
       read_optional_string(payload, "selected_vertex_id");
   document.active_sketch_plane_id =

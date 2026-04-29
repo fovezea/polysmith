@@ -272,7 +272,7 @@ DocumentState DocumentManager::create_document() {
       .selected_feature_id = std::nullopt,
       .selected_reference_id = std::nullopt,
       .selected_face_id = std::nullopt,
-      .selected_edge_id = std::nullopt,
+      .selected_edge_ids = {},
       .selected_vertex_id = std::nullopt,
       .active_sketch_plane_id = std::nullopt,
       .active_sketch_face_id = std::nullopt,
@@ -332,6 +332,27 @@ DocumentState DocumentManager::update_box_feature(
   push_undo_state();
   clear_redo_stack();
   polysmith::core::update_box_feature(*feature_it, parameters);
+  document_->revision += 1;
+  return document_.value();
+}
+
+DocumentState DocumentManager::update_cylinder_feature(
+    const std::string& feature_id,
+    const CylinderFeatureParameters& parameters) {
+  require_document();
+
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Feature not found: " + feature_id);
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+  polysmith::core::update_cylinder_feature(*feature_it, parameters);
   document_->revision += 1;
   return document_.value();
 }
@@ -459,6 +480,36 @@ DocumentState DocumentManager::rename_feature(const std::string& feature_id,
   return document_.value();
 }
 
+DocumentState DocumentManager::set_feature_suppressed(
+    const std::string& feature_id, bool suppressed) {
+  require_document();
+
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Feature not found: " + feature_id);
+  }
+
+  if (feature_it->kind == "root_part") {
+    throw std::runtime_error("The root feature cannot be suppressed");
+  }
+
+  // No-op early exit so we don't pollute undo with a redundant entry
+  // when the UI's "Suppress" button is double-clicked.
+  if (feature_it->suppressed == suppressed) {
+    return document_.value();
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+  feature_it->suppressed = suppressed;
+  document_->revision += 1;
+  return document_.value();
+}
+
 DocumentState DocumentManager::delete_feature(const std::string& feature_id) {
   require_document();
 
@@ -531,7 +582,7 @@ DocumentState DocumentManager::select_feature(const std::string& feature_id) {
   document_->selected_feature_id = feature_id;
   document_->selected_reference_id = std::nullopt;
   document_->selected_face_id = std::nullopt;
-  document_->selected_edge_id = std::nullopt;
+  document_->selected_edge_ids.clear();
   document_->selected_vertex_id = std::nullopt;
   document_->selected_sketch_point_id = std::nullopt;
   document_->selected_sketch_entity_id = std::nullopt;
@@ -550,7 +601,7 @@ DocumentState DocumentManager::select_reference(const std::string& reference_id)
   document_->selected_feature_id = std::nullopt;
   document_->selected_reference_id = reference_id;
   document_->selected_face_id = std::nullopt;
-  document_->selected_edge_id = std::nullopt;
+  document_->selected_edge_ids.clear();
   document_->selected_vertex_id = std::nullopt;
   document_->selected_sketch_point_id = std::nullopt;
   document_->selected_sketch_entity_id = std::nullopt;
@@ -576,7 +627,7 @@ DocumentState DocumentManager::start_sketch_on_plane(
   document_->selected_feature_id = std::nullopt;
   document_->selected_reference_id = reference_id;
   document_->selected_face_id = std::nullopt;
-  document_->selected_edge_id = std::nullopt;
+  document_->selected_edge_ids.clear();
   document_->selected_vertex_id = std::nullopt;
   document_->active_sketch_plane_id = reference_id;
   document_->active_sketch_face_id = std::nullopt;
@@ -609,7 +660,7 @@ DocumentState DocumentManager::select_face(const std::string& face_id) {
   document_->selected_feature_id = feature_it->id;
   document_->selected_reference_id = std::nullopt;
   document_->selected_face_id = face_id;
-  document_->selected_edge_id = std::nullopt;
+  document_->selected_edge_ids.clear();
   document_->selected_vertex_id = std::nullopt;
   document_->selected_sketch_point_id = std::nullopt;
   document_->selected_sketch_entity_id = std::nullopt;
@@ -618,7 +669,8 @@ DocumentState DocumentManager::select_face(const std::string& face_id) {
   return document_.value();
 }
 
-DocumentState DocumentManager::select_edge(const std::string& edge_id) {
+DocumentState DocumentManager::select_edge(const std::string& edge_id,
+                                            bool additive) {
   require_document();
 
   // Edge ids are minted by the viewport as "<owner_body_id>:edge:<index>".
@@ -641,10 +693,28 @@ DocumentState DocumentManager::select_edge(const std::string& edge_id) {
     throw std::runtime_error("Edge owner not found: " + edge_id);
   }
 
+  // Multi-select semantics: shift-click toggles, plain click replaces.
+  // Toggling preserves the rest of the selection so users can build up
+  // a multi-edge set incrementally for fillet / chamfer. Adding an
+  // edge from a different body is allowed at the storage layer; the
+  // fillet / chamfer creators are the ones that reject mixed-body
+  // selections, since OCCT expects a single target body per feature.
+  if (additive) {
+    const auto existing = std::find(document_->selected_edge_ids.begin(),
+                                    document_->selected_edge_ids.end(),
+                                    edge_id);
+    if (existing != document_->selected_edge_ids.end()) {
+      document_->selected_edge_ids.erase(existing);
+    } else {
+      document_->selected_edge_ids.push_back(edge_id);
+    }
+  } else {
+    document_->selected_edge_ids = {edge_id};
+  }
+
   document_->selected_feature_id = feature_it->id;
   document_->selected_reference_id = std::nullopt;
   document_->selected_face_id = std::nullopt;
-  document_->selected_edge_id = edge_id;
   document_->selected_vertex_id = std::nullopt;
   document_->selected_sketch_point_id = std::nullopt;
   document_->selected_sketch_entity_id = std::nullopt;
@@ -679,7 +749,7 @@ DocumentState DocumentManager::select_vertex(const std::string& vertex_id) {
   document_->selected_feature_id = feature_it->id;
   document_->selected_reference_id = std::nullopt;
   document_->selected_face_id = std::nullopt;
-  document_->selected_edge_id = std::nullopt;
+  document_->selected_edge_ids.clear();
   document_->selected_vertex_id = vertex_id;
   document_->selected_sketch_point_id = std::nullopt;
   document_->selected_sketch_entity_id = std::nullopt;
@@ -700,17 +770,35 @@ std::string edge_owner_id(const std::string& edge_id) {
 
 }  // namespace
 
-DocumentState DocumentManager::create_fillet(const std::string& edge_id,
-                                             double radius) {
+DocumentState DocumentManager::create_fillet(
+    const std::vector<std::string>& edge_ids, double radius) {
   require_document();
 
   if (radius <= 0.0) {
     throw std::runtime_error("Fillet radius must be greater than zero");
   }
+  if (edge_ids.empty()) {
+    throw std::runtime_error("Fillet requires at least one edge");
+  }
 
-  const std::string owner_id = edge_owner_id(edge_id);
+  // Validate every edge is well-formed and that all share the same
+  // owner body — OCCT's fillet builder operates on a single shape, so
+  // mixing edges from multiple bodies has no well-defined semantics.
+  // We surface this as an error rather than silently slicing the
+  // selection.
+  const std::string owner_id = edge_owner_id(edge_ids.front());
   if (owner_id.empty()) {
-    throw std::runtime_error("Malformed edge id: " + edge_id);
+    throw std::runtime_error("Malformed edge id: " + edge_ids.front());
+  }
+  for (const auto& edge_id : edge_ids) {
+    const std::string id_owner = edge_owner_id(edge_id);
+    if (id_owner.empty()) {
+      throw std::runtime_error("Malformed edge id: " + edge_id);
+    }
+    if (id_owner != owner_id) {
+      throw std::runtime_error(
+          "Fillet edges must all belong to the same body");
+    }
   }
 
   const auto feature_it = std::find_if(
@@ -718,7 +806,7 @@ DocumentState DocumentManager::create_fillet(const std::string& edge_id,
       document_->feature_history.end(),
       [&](const FeatureEntry& feature) { return feature.id == owner_id; });
   if (feature_it == document_->feature_history.end()) {
-    throw std::runtime_error("Edge owner not found: " + edge_id);
+    throw std::runtime_error("Edge owner not found: " + owner_id);
   }
 
   push_undo_state();
@@ -726,11 +814,13 @@ DocumentState DocumentManager::create_fillet(const std::string& edge_id,
 
   FilletFeatureParameters params{};
   params.target_body_id = owner_id;
-  params.edge_ids = {edge_id};
+  params.edge_ids = edge_ids;
   params.radius = radius;
 
   std::ostringstream summary;
-  summary << "1 edge · " << radius << " mm";
+  summary << edge_ids.size() << " edge"
+          << (edge_ids.size() == 1 ? "" : "s") << " · " << radius
+          << " mm";
 
   FeatureEntry feature{
       .id = "feature-" + std::to_string(next_feature_id_++),
@@ -747,10 +837,70 @@ DocumentState DocumentManager::create_fillet(const std::string& edge_id,
   };
   document_->feature_history.push_back(std::move(feature));
   document_->selected_feature_id = document_->feature_history.back().id;
-  document_->selected_edge_id = std::nullopt;
+  // Keep the picked edges highlighted while the floating panel is
+  // open: the body_compiler highlights edges that are in
+  // selected_edge_ids, and the panel's "edit edges" interaction
+  // (update_fillet_edges) keeps this set in sync. The UI's Confirm
+  // path is responsible for clearing the selection once the user is
+  // done; Cancel goes through undo() which restores the prior set.
+  document_->selected_edge_ids = edge_ids;
   document_->selected_vertex_id = std::nullopt;
   document_->selected_face_id = std::nullopt;
   document_->selected_reference_id = std::nullopt;
+  document_->revision += 1;
+  return document_.value();
+}
+
+DocumentState DocumentManager::update_fillet_edges(
+    const std::string& feature_id,
+    const std::vector<std::string>& edge_ids) {
+  require_document();
+
+  if (edge_ids.empty()) {
+    throw std::runtime_error("Fillet must keep at least one edge");
+  }
+
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Feature not found: " + feature_id);
+  }
+  if (feature_it->kind != "fillet" ||
+      !feature_it->fillet_parameters.has_value()) {
+    throw std::runtime_error(
+        "update_fillet_edges requires a fillet feature: " + feature_id);
+  }
+
+  // Every new edge must belong to the feature's existing target body
+  // — see create_fillet for why mixed-body sets aren't representable.
+  // We compare against the stored target_body_id rather than parsing
+  // the first edge's owner so the feature's body identity stays
+  // authoritative across edge swaps.
+  const std::string& target = feature_it->fillet_parameters->target_body_id;
+  for (const auto& edge_id : edge_ids) {
+    const auto separator = edge_id.find(":edge:");
+    if (separator == std::string::npos || separator == 0) {
+      throw std::runtime_error("Malformed edge id: " + edge_id);
+    }
+    if (edge_id.substr(0, separator) != target) {
+      throw std::runtime_error(
+          "Fillet edges must all belong to the same body");
+    }
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+  feature_it->fillet_parameters->edge_ids = edge_ids;
+  std::ostringstream summary;
+  summary << edge_ids.size() << " edge"
+          << (edge_ids.size() == 1 ? "" : "s") << " · "
+          << feature_it->fillet_parameters->radius << " mm";
+  feature_it->parameters_summary = summary.str();
+  // Keep the highlight in sync with the live edge set so the user
+  // sees what's being filleted while picking.
+  document_->selected_edge_ids = edge_ids;
   document_->revision += 1;
   return document_.value();
 }
@@ -787,17 +937,32 @@ DocumentState DocumentManager::update_fillet_radius(
   return document_.value();
 }
 
-DocumentState DocumentManager::create_chamfer(const std::string& edge_id,
-                                              double distance) {
+DocumentState DocumentManager::create_chamfer(
+    const std::vector<std::string>& edge_ids, double distance) {
   require_document();
 
   if (distance <= 0.0) {
     throw std::runtime_error("Chamfer distance must be greater than zero");
   }
+  if (edge_ids.empty()) {
+    throw std::runtime_error("Chamfer requires at least one edge");
+  }
 
-  const std::string owner_id = edge_owner_id(edge_id);
+  // Same single-body validation as create_fillet — see comment there
+  // for why mixed-body selections aren't representable.
+  const std::string owner_id = edge_owner_id(edge_ids.front());
   if (owner_id.empty()) {
-    throw std::runtime_error("Malformed edge id: " + edge_id);
+    throw std::runtime_error("Malformed edge id: " + edge_ids.front());
+  }
+  for (const auto& edge_id : edge_ids) {
+    const std::string id_owner = edge_owner_id(edge_id);
+    if (id_owner.empty()) {
+      throw std::runtime_error("Malformed edge id: " + edge_id);
+    }
+    if (id_owner != owner_id) {
+      throw std::runtime_error(
+          "Chamfer edges must all belong to the same body");
+    }
   }
 
   const auto feature_it = std::find_if(
@@ -805,7 +970,7 @@ DocumentState DocumentManager::create_chamfer(const std::string& edge_id,
       document_->feature_history.end(),
       [&](const FeatureEntry& feature) { return feature.id == owner_id; });
   if (feature_it == document_->feature_history.end()) {
-    throw std::runtime_error("Edge owner not found: " + edge_id);
+    throw std::runtime_error("Edge owner not found: " + owner_id);
   }
 
   push_undo_state();
@@ -813,11 +978,13 @@ DocumentState DocumentManager::create_chamfer(const std::string& edge_id,
 
   ChamferFeatureParameters params{};
   params.target_body_id = owner_id;
-  params.edge_ids = {edge_id};
+  params.edge_ids = edge_ids;
   params.distance = distance;
 
   std::ostringstream summary;
-  summary << "1 edge · " << distance << " mm";
+  summary << edge_ids.size() << " edge"
+          << (edge_ids.size() == 1 ? "" : "s") << " · " << distance
+          << " mm";
 
   FeatureEntry feature{
       .id = "feature-" + std::to_string(next_feature_id_++),
@@ -834,10 +1001,60 @@ DocumentState DocumentManager::create_chamfer(const std::string& edge_id,
   };
   document_->feature_history.push_back(std::move(feature));
   document_->selected_feature_id = document_->feature_history.back().id;
-  document_->selected_edge_id = std::nullopt;
+  // Same rationale as create_fillet: keep the chamfered edges
+  // highlighted while the floating panel is open. See comment there.
+  document_->selected_edge_ids = edge_ids;
   document_->selected_vertex_id = std::nullopt;
   document_->selected_face_id = std::nullopt;
   document_->selected_reference_id = std::nullopt;
+  document_->revision += 1;
+  return document_.value();
+}
+
+DocumentState DocumentManager::update_chamfer_edges(
+    const std::string& feature_id,
+    const std::vector<std::string>& edge_ids) {
+  require_document();
+
+  if (edge_ids.empty()) {
+    throw std::runtime_error("Chamfer must keep at least one edge");
+  }
+
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Feature not found: " + feature_id);
+  }
+  if (feature_it->kind != "chamfer" ||
+      !feature_it->chamfer_parameters.has_value()) {
+    throw std::runtime_error(
+        "update_chamfer_edges requires a chamfer feature: " + feature_id);
+  }
+
+  // See update_fillet_edges for the same-body invariant rationale.
+  const std::string& target = feature_it->chamfer_parameters->target_body_id;
+  for (const auto& edge_id : edge_ids) {
+    const auto separator = edge_id.find(":edge:");
+    if (separator == std::string::npos || separator == 0) {
+      throw std::runtime_error("Malformed edge id: " + edge_id);
+    }
+    if (edge_id.substr(0, separator) != target) {
+      throw std::runtime_error(
+          "Chamfer edges must all belong to the same body");
+    }
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+  feature_it->chamfer_parameters->edge_ids = edge_ids;
+  std::ostringstream summary;
+  summary << edge_ids.size() << " edge"
+          << (edge_ids.size() == 1 ? "" : "s") << " · "
+          << feature_it->chamfer_parameters->distance << " mm";
+  feature_it->parameters_summary = summary.str();
+  document_->selected_edge_ids = edge_ids;
   document_->revision += 1;
   return document_.value();
 }
@@ -1755,7 +1972,7 @@ DocumentState DocumentManager::reenter_sketch(const std::string& feature_id) {
   document_->selected_feature_id = std::nullopt;
   document_->selected_reference_id = std::nullopt;
   document_->selected_face_id = std::nullopt;
-  document_->selected_edge_id = std::nullopt;
+  document_->selected_edge_ids.clear();
   document_->selected_vertex_id = std::nullopt;
   document_->active_sketch_plane_id = feature_it->sketch_parameters->plane_id;
   // Face id information is not preserved separately in sketch_parameters; the
@@ -1944,7 +2161,7 @@ DocumentState DocumentManager::clear_selection() {
   document_->selected_feature_id = std::nullopt;
   document_->selected_reference_id = std::nullopt;
   document_->selected_face_id = std::nullopt;
-  document_->selected_edge_id = std::nullopt;
+  document_->selected_edge_ids.clear();
   document_->selected_vertex_id = std::nullopt;
   document_->selected_sketch_point_id = std::nullopt;
   document_->selected_sketch_entity_id = std::nullopt;

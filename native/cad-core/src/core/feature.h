@@ -165,6 +165,13 @@ struct FeatureEntry {
   std::string name;
   std::string status;
   std::string parameters_summary;
+  // When true, the feature is excluded from body compilation and from
+  // legacy primitive emission. The feature still appears in the
+  // timeline / hierarchy (rendered dimmed by the UI) and can be
+  // unsuppressed later. Downstream features that reference a
+  // suppressed parent (e.g. an extrude whose sketch is suppressed)
+  // silently no-op via the existing "missing input" fallbacks.
+  bool suppressed = false;
   std::optional<BoxFeatureParameters> box_parameters;
   std::optional<CylinderFeatureParameters> cylinder_parameters;
   std::optional<ExtrudeFeatureParameters> extrude_parameters;

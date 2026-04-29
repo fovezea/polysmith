@@ -153,6 +153,36 @@ export function makeUpdateBoxFeatureCommand(
   };
 }
 
+export function makeUpdateCylinderFeatureCommand(
+  featureId: string,
+  radius: number,
+  height: number,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_cylinder_feature",
+    payload: {
+      feature_id: featureId,
+      radius,
+      height,
+    },
+  };
+}
+
+export function makeSetFeatureSuppressedCommand(
+  featureId: string,
+  suppressed: boolean,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "set_feature_suppressed",
+    payload: {
+      feature_id: featureId,
+      suppressed,
+    },
+  };
+}
+
 export function makeUpdateExtrudeDepthCommand(
   featureId: string,
   depth: number,
@@ -237,12 +267,16 @@ export function makeSelectFaceCommand(faceId: string): CoreCommand {
   };
 }
 
-export function makeSelectEdgeCommand(edgeId: string): CoreCommand {
+export function makeSelectEdgeCommand(
+  edgeId: string,
+  additive: boolean,
+): CoreCommand {
   return {
     id: crypto.randomUUID(),
     type: "select_edge",
     payload: {
       edge_id: edgeId,
+      additive,
     },
   };
 }
@@ -258,15 +292,43 @@ export function makeSelectVertexCommand(vertexId: string): CoreCommand {
 }
 
 export function makeCreateFilletCommand(
-  edgeId: string,
+  edgeIds: readonly string[],
   radius: number,
 ): CoreCommand {
   return {
     id: crypto.randomUUID(),
     type: "create_fillet",
     payload: {
-      edge_id: edgeId,
+      edge_ids: [...edgeIds],
       radius,
+    },
+  };
+}
+
+export function makeUpdateFilletEdgesCommand(
+  featureId: string,
+  edgeIds: readonly string[],
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_fillet_edges",
+    payload: {
+      feature_id: featureId,
+      edge_ids: [...edgeIds],
+    },
+  };
+}
+
+export function makeUpdateChamferEdgesCommand(
+  featureId: string,
+  edgeIds: readonly string[],
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_chamfer_edges",
+    payload: {
+      feature_id: featureId,
+      edge_ids: [...edgeIds],
     },
   };
 }
@@ -286,14 +348,14 @@ export function makeUpdateFilletRadiusCommand(
 }
 
 export function makeCreateChamferCommand(
-  edgeId: string,
+  edgeIds: readonly string[],
   distance: number,
 ): CoreCommand {
   return {
     id: crypto.randomUUID(),
     type: "create_chamfer",
     payload: {
-      edge_id: edgeId,
+      edge_ids: [...edgeIds],
       distance,
     },
   };

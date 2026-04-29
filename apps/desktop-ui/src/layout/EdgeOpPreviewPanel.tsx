@@ -10,8 +10,12 @@ interface EdgeOpPreviewPanelProps {
   valueLabel: string;
   initialValue: number;
   disabled: boolean;
+  // Live count of edges currently in the feature, so the user sees
+  // the picker react as they shift-click in the viewport. The panel
+  // doesn't drive the count itself — it just reflects the document.
+  edgeCount: number;
   onPreviewValue: (value: number) => Promise<void>;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
   onCancel: () => Promise<void>;
 }
 
@@ -25,6 +29,7 @@ export function EdgeOpPreviewPanel({
   valueLabel,
   initialValue,
   disabled,
+  edgeCount,
   onPreviewValue,
   onConfirm,
   onCancel,
@@ -95,13 +100,17 @@ export function EdgeOpPreviewPanel({
 
   async function handleConfirm() {
     await flushPendingValue();
-    onConfirm();
+    await onConfirm();
   }
 
   return (
     <section className="pointer-events-auto cad-floating-panel px-5 py-5">
       <p className="cad-kicker">Action</p>
       <h2 className="cad-title mt-2">{title}</h2>
+      <p className="mt-1 text-xs text-on-surface-muted">
+        {edgeCount} edge{edgeCount === 1 ? "" : "s"} · click an edge to add /
+        remove
+      </p>
       <form
         className="mt-4 space-y-4"
         onSubmit={(event) => {

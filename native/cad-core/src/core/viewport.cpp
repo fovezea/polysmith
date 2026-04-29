@@ -711,9 +711,14 @@ void sample_edge(const TopoDS_Edge& edge,
 
 // Append every unique edge of `body_shape` to `out`, owned by `body_id`.
 // Edge ids match the format expected by DocumentManager::select_edge.
+// `selected_edge_ids` carries the multi-edge selection set; an edge is
+// flagged selected iff its id appears anywhere in the set. We accept a
+// vector rather than a hash set because edge selections are O(N <= ~20)
+// in practice — the linear scan is cheaper than building a hash set
+// per body.
 void enumerate_body_edges(const TopoDS_Shape& body_shape,
                           const std::string& body_id,
-                          const std::optional<std::string>& selected_edge_id,
+                          const std::vector<std::string>& selected_edge_ids,
                           std::vector<ViewportEdgePrimitive>& out) {
   if (body_shape.IsNull()) {
     return;
@@ -734,7 +739,9 @@ void enumerate_body_edges(const TopoDS_Shape& body_shape,
       continue;
     }
     primitive.is_selected =
-        selected_edge_id.has_value() && selected_edge_id.value() == primitive.id;
+        std::find(selected_edge_ids.begin(),
+                  selected_edge_ids.end(),
+                  primitive.id) != selected_edge_ids.end();
     out.push_back(std::move(primitive));
   }
 }
@@ -1257,7 +1264,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
     bodies.push_back(ViewportBodySummary{.id = body.id, .label = label});
     enumerate_body_edges(body.shape,
                          body.id,
-                         document->selected_edge_id,
+                         document->selected_edge_ids,
                          edges);
     enumerate_body_vertices(body.shape,
                             body.id,
@@ -1287,6 +1294,13 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
   }
 
   for (const auto& feature : document->feature_history) {
+    // Suppressed features are excluded from every viewport-visible
+    // emission path: legacy primitives, sketch overlays, body-derived
+    // faces (already excluded via body_compiler skipping them). The UI
+    // still shows the feature in the timeline / hierarchy, just dimmed.
+    if (feature.suppressed) {
+      continue;
+    }
     const bool is_selected =
         document->selected_feature_id.has_value() &&
         document->selected_feature_id.value() == feature.id;

@@ -31,13 +31,16 @@ import {
   makeSelectSketchEntityCommand,
   makeSelectSketchPointCommand,
   makeRenameFeatureCommand,
+  makeSetFeatureSuppressedCommand,
   makeSelectFeatureCommand,
   makeSelectReferenceCommand,
   makeSelectFaceCommand,
   makeSelectEdgeCommand,
   makeSelectVertexCommand,
   makeCreateFilletCommand,
+  makeUpdateFilletEdgesCommand,
   makeUpdateFilletRadiusCommand,
+  makeUpdateChamferEdgesCommand,
   makeCreateChamferCommand,
   makeUpdateChamferDistanceCommand,
   makeSetSketchCoincidentConstraintCommand,
@@ -56,6 +59,7 @@ import {
   makeUpdateSketchLineCommand,
   makeUpdateSketchPointCommand,
   makeUpdateBoxFeatureCommand,
+  makeUpdateCylinderFeatureCommand,
   makeUpdateExtrudeDepthCommand,
   makeUpdateExtrudeModeCommand,
   makeUpdateExtrudeTargetBodyCommand,
@@ -191,6 +195,17 @@ export function useCadCore() {
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());
     },
+    updateCylinderFeature: async (
+      featureId: string,
+      radius: number,
+      height: number,
+    ) => {
+      await sendCoreCommand(
+        makeUpdateCylinderFeatureCommand(featureId, radius, height),
+      );
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
     updateExtrudeDepth: async (featureId: string, depth: number) => {
       await sendCoreCommand(makeUpdateExtrudeDepthCommand(featureId, depth));
       await sendCoreCommand(makeGetSessionStateCommand());
@@ -198,6 +213,13 @@ export function useCadCore() {
     },
     renameFeature: async (featureId: string, name: string) => {
       await sendCoreCommand(makeRenameFeatureCommand(featureId, name));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    setFeatureSuppressed: async (featureId: string, suppressed: boolean) => {
+      await sendCoreCommand(
+        makeSetFeatureSuppressedCommand(featureId, suppressed),
+      );
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());
     },
@@ -228,16 +250,16 @@ export function useCadCore() {
       await sendCoreCommand(makeSelectFaceCommand(faceId));
       await sendCoreCommand(makeGetViewportStateCommand());
     },
-    selectEdge: async (edgeId: string) => {
-      await sendCoreCommand(makeSelectEdgeCommand(edgeId));
+    selectEdge: async (edgeId: string, additive: boolean = false) => {
+      await sendCoreCommand(makeSelectEdgeCommand(edgeId, additive));
       await sendCoreCommand(makeGetViewportStateCommand());
     },
     selectVertex: async (vertexId: string) => {
       await sendCoreCommand(makeSelectVertexCommand(vertexId));
       await sendCoreCommand(makeGetViewportStateCommand());
     },
-    createFillet: async (edgeId: string, radius: number) => {
-      await sendCoreCommand(makeCreateFilletCommand(edgeId, radius));
+    createFillet: async (edgeIds: readonly string[], radius: number) => {
+      await sendCoreCommand(makeCreateFilletCommand(edgeIds, radius));
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());
     },
@@ -246,8 +268,16 @@ export function useCadCore() {
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());
     },
-    createChamfer: async (edgeId: string, distance: number) => {
-      await sendCoreCommand(makeCreateChamferCommand(edgeId, distance));
+    updateFilletEdges: async (
+      featureId: string,
+      edgeIds: readonly string[],
+    ) => {
+      await sendCoreCommand(makeUpdateFilletEdgesCommand(featureId, edgeIds));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    createChamfer: async (edgeIds: readonly string[], distance: number) => {
+      await sendCoreCommand(makeCreateChamferCommand(edgeIds, distance));
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());
     },
@@ -255,6 +285,14 @@ export function useCadCore() {
       await sendCoreCommand(
         makeUpdateChamferDistanceCommand(featureId, distance),
       );
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateChamferEdges: async (
+      featureId: string,
+      edgeIds: readonly string[],
+    ) => {
+      await sendCoreCommand(makeUpdateChamferEdgesCommand(featureId, edgeIds));
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());
     },

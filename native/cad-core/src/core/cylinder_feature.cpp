@@ -51,4 +51,18 @@ FeatureEntry create_cylinder_feature(
   };
 }
 
+void update_cylinder_feature(FeatureEntry& feature,
+                             const CylinderFeatureParameters& parameters) {
+  if (feature.kind != "cylinder") {
+    throw std::runtime_error(
+        "Only cylinder features can be updated with cylinder parameters");
+  }
+
+  validate_dimensions(parameters);
+  validate_occt_cylinder(parameters);
+
+  feature.parameters_summary = make_parameters_summary(parameters);
+  feature.cylinder_parameters = parameters;
+}
+
 }  // namespace polysmith::core

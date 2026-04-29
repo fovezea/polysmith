@@ -22,7 +22,13 @@ struct DocumentState {
   std::optional<std::string> selected_feature_id;
   std::optional<std::string> selected_reference_id;
   std::optional<std::string> selected_face_id;
-  std::optional<std::string> selected_edge_id;
+  // Edge selection is a (possibly empty) ordered list rather than a
+  // single optional id, so multi-edge fillet / chamfer selection is
+  // first-class. Order is insertion order: the most recent click is
+  // appended (or removed, when toggling). All other selection
+  // categories remain single-id; widening them later is a small
+  // change but unnecessary for current tooling.
+  std::vector<std::string> selected_edge_ids;
   std::optional<std::string> selected_vertex_id;
   std::optional<std::string> active_sketch_plane_id;
   std::optional<std::string> active_sketch_face_id;
@@ -49,6 +55,9 @@ class DocumentManager {
   DocumentState add_cylinder_feature(const CylinderFeatureParameters& parameters);
   DocumentState update_box_feature(const std::string& feature_id,
                                    const BoxFeatureParameters& parameters);
+  DocumentState update_cylinder_feature(
+      const std::string& feature_id,
+      const CylinderFeatureParameters& parameters);
   DocumentState update_extrude_depth(const std::string& feature_id,
                                      double depth);
   DocumentState update_extrude_mode(const std::string& feature_id,
@@ -58,25 +67,53 @@ class DocumentManager {
       const std::optional<std::string>& target_body_id);
   DocumentState rename_feature(const std::string& feature_id,
                                const std::string& name);
+  // Toggle a feature's suppressed flag. Suppressed features are
+  // excluded from body compilation (see body_compiler.cpp) and legacy
+  // primitive emission (viewport.cpp), but remain in feature_history
+  // so they can be reactivated. Throws if the id doesn't exist or
+  // refers to the root feature, which can't be suppressed.
+  DocumentState set_feature_suppressed(const std::string& feature_id,
+                                       bool suppressed);
   DocumentState delete_feature(const std::string& feature_id);
   DocumentState undo();
   DocumentState redo();
   DocumentState select_feature(const std::string& feature_id);
   DocumentState select_reference(const std::string& reference_id);
   DocumentState select_face(const std::string& face_id);
-  DocumentState select_edge(const std::string& edge_id);
+  // Select an edge. When `additive` is false the edge replaces the
+  // current edge selection (the typical click). When true, the edge
+  // is toggled into the current selection set (shift-click): if it's
+  // already selected it is removed, otherwise appended. Other
+  // selection categories (face / vertex / reference / feature) are
+  // always cleared, matching the single-edge legacy behavior so a new
+  // edge selection doesn't leave a stale face highlight.
+  DocumentState select_edge(const std::string& edge_id, bool additive);
   DocumentState select_vertex(const std::string& vertex_id);
-  // Create a fillet feature on a single edge of an existing body. The
-  // edge id must already exist in the current viewport_state.edges (the
-  // viewport is the source of truth for available edge ids); we parse
-  // the body owner out of the edge id. Default radius 1.0mm — the UI
-  // panel updates it via update_fillet_radius for live preview.
-  DocumentState create_fillet(const std::string& edge_id, double radius);
+  // Create a fillet feature on one or more edges of an existing body.
+  // The edge ids must already exist in the current viewport_state.edges
+  // (the viewport is the source of truth for available edge ids); we
+  // parse the body owner out of the first edge id and require every
+  // edge to share the same owner. Default radius 1.0mm — the UI panel
+  // updates it via update_fillet_radius for live preview.
+  DocumentState create_fillet(const std::vector<std::string>& edge_ids,
+                              double radius);
   DocumentState update_fillet_radius(const std::string& feature_id,
                                      double radius);
-  DocumentState create_chamfer(const std::string& edge_id, double distance);
+  // Replace the edge set on an existing fillet feature. Used by the
+  // floating panel's "edit edges" interaction: the user clicks edges
+  // in the viewport while the panel is open and the UI re-issues the
+  // full set on each toggle. The new set must be non-empty and every
+  // edge must belong to the feature's existing target body — adding
+  // edges from a different body has no well-defined fillet semantics.
+  DocumentState update_fillet_edges(const std::string& feature_id,
+                                    const std::vector<std::string>& edge_ids);
+  DocumentState create_chamfer(const std::vector<std::string>& edge_ids,
+                               double distance);
   DocumentState update_chamfer_distance(const std::string& feature_id,
                                         double distance);
+  DocumentState update_chamfer_edges(
+      const std::string& feature_id,
+      const std::vector<std::string>& edge_ids);
   DocumentState start_sketch_on_plane(const std::string& reference_id);
   DocumentState start_sketch_on_face(
       const std::string& face_id,
