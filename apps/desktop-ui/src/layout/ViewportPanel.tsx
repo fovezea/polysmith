@@ -747,6 +747,26 @@ export function ViewportPanel({
         }
       }
 
+      // Outside sketch mode, sketch profiles are still pickable so the
+      // user can re-select a closed profile (e.g. after exiting sketch
+      // mode) and run Extrude on it. We check profiles BEFORE the
+      // body-side hits because a profile usually sits on a sketch plane
+      // that may coincide with a body face, and the user's intent in
+      // clicking a profile-tinted region is overwhelmingly "extrude
+      // this", not "select the underlying face". Profiles whose owning
+      // sketch was hidden (e.g. auto-hide-after-extrude) won't have a
+      // mesh in the ref array, so they naturally drop out of the pick.
+      {
+        const [profileHit] = raycaster.intersectObjects(
+          sketchProfileMeshesRef.current,
+          false,
+        );
+        const profileId = profileHit?.object.userData.sketchProfileId;
+        if (typeof profileId === "string") {
+          return { kind: "sketch_profile" as const, id: profileId };
+        }
+      }
+
       const [referenceHit] = raycaster.intersectObjects(
         referencePlaneMeshesRef.current,
         false,
@@ -1058,6 +1078,16 @@ export function ViewportPanel({
       }
 
       const hit = intersectSceneTargets(event);
+      if (hit?.kind === "sketch_profile") {
+        // Profiles are pickable outside sketch mode so the user can
+        // run Extrude on a closed profile without re-entering its
+        // sketch (Fusion-style). Selection is a no-op on the core's
+        // body picking path; the floating Extrude action consumes
+        // `selected_sketch_profile_id` directly.
+        void selectSketchProfileRef.current(hit.id);
+        return;
+      }
+
       if (hit?.kind === "reference") {
         void selectReferenceRef.current(hit.id);
         return;

@@ -14,7 +14,7 @@ import {
 } from "./layout";
 import type { CategoryId } from "./layout";
 import { ArmedSketchConstraint } from "./types";
-import type { ExtrudeMode } from "./types";
+import type { ExtrudeMode, ViewportSolidFace } from "./types";
 
 const DEFAULT_EXTRUDE_DEPTH = 20;
 const DEFAULT_FILLET_RADIUS = 1;
@@ -156,6 +156,7 @@ function App() {
     selectSketchDimension,
     finishSketch,
     reenterSketch,
+    clearSelection,
   } = useCadCore();
 
   useEffect(() => {
@@ -211,16 +212,100 @@ function App() {
     return result;
   }, [document, effectiveHiddenFeatureIds]);
 
+  // Orchestrates the face → sketch → projected outline → profile pipeline
+  // so the user can press Extrude on a planar face of an existing body.
+  // Returns the new profile id (which the surrounding `triggerExtrudeAction`
+  // then feeds to `extrudeProfile`), or throws on failure.
+  //
+  // We rely on `awaitDocumentChange` between steps because each IPC
+  // command is fire-and-forget — the hook helpers `await` only the
+  // command being WRITTEN to cad_core stdin, not the document_state
+  // event that follows. Reading state directly out of the store after
+  // an `await` would race the event loop.
+  async function extrudeFromFace(
+    faceId: string,
+    planeFrame: ViewportSolidFace["plane_frame"],
+  ): Promise<string> {
+    const sketchActivePromise = awaitDocumentChange(
+      (next) =>
+        next.active_sketch_feature_id !== null &&
+        next.active_sketch_face_id === faceId,
+    );
+    await startSketchOnFace(faceId, planeFrame);
+    const documentWithSketch = await sketchActivePromise;
+    const sketchFeatureId = documentWithSketch.active_sketch_feature_id;
+    if (!sketchFeatureId) {
+      throw new Error(
+        "face extrude: sketch did not become active after start_sketch_on_face",
+      );
+    }
+
+    const profileReadyPromise = awaitDocumentChange((next) => {
+      const sketch = next.feature_history.find(
+        (entry) => entry.feature_id === sketchFeatureId,
+      );
+      return (sketch?.sketch_parameters?.profiles.length ?? 0) > 0;
+    });
+    await projectFaceIntoSketch(faceId);
+    const documentWithProfile = await profileReadyPromise;
+    const sketchWithProfile = documentWithProfile.feature_history.find(
+      (entry) => entry.feature_id === sketchFeatureId,
+    );
+    const newProfileId =
+      sketchWithProfile?.sketch_parameters?.profiles[0]?.profile_id ?? null;
+    if (!newProfileId) {
+      throw new Error(
+        "face extrude: no closed profile detected after projecting face",
+      );
+    }
+
+    const sketchExitedPromise = awaitDocumentChange(
+      (next) => next.active_sketch_feature_id === null,
+    );
+    await finishSketch();
+    await sketchExitedPromise;
+
+    return newProfileId;
+  }
+
   async function triggerExtrudeAction() {
     if (extrudeAction) {
       return;
     }
 
-    if (!selectedSketchProfile) {
-      return;
+    // Fusion-style: Extrude can take either a closed sketch profile OR
+    // a planar face on an existing body. The face path orchestrates
+    // [start_sketch_on_face → project_face_into_sketch → finish_sketch
+    // → extrude_profile] using existing IPC primitives, so the user
+    // sees one button click that produces an extrude whose source is
+    // the selected face's outline. The intermediate sketch shows up in
+    // the timeline (and gets auto-hidden by the post-confirm hook
+    // below), keeping the feature graph reproducible.
+    let profileId = selectedSketchProfile?.profile_id ?? null;
+    if (!profileId) {
+      const faceId = document?.selected_face_id ?? null;
+      const face = faceId
+        ? (viewport?.solid_faces.find((entry) => entry.face_id === faceId) ??
+          null)
+        : null;
+      if (
+        faceId &&
+        face &&
+        face.sketchability === "planar" &&
+        face.plane_frame
+      ) {
+        try {
+          profileId = await extrudeFromFace(faceId, face.plane_frame);
+        } catch (error) {
+          addMessage(`face extrude error: ${String(error)}`);
+          return;
+        }
+      }
     }
 
-    const profileId = selectedSketchProfile.profile_id;
+    if (!profileId) {
+      return;
+    }
 
     // Snapshot whether the document already contains a solid body before
     // we issue the extrude. Cut/Join target the most recent existing body,
@@ -377,7 +462,23 @@ function App() {
       }
 
       if (event.code === "KeyE") {
-        if (!selectedSketchProfile) {
+        // Extrude accepts either a selected closed profile or a
+        // selected planar face on an existing body. The face branch
+        // is handled inside triggerExtrudeAction by orchestrating
+        // sketch creation + face projection. We still gate the
+        // hotkey so an empty E press doesn't no-op silently when
+        // nothing is selected.
+        const hasFaceCandidate = (() => {
+          const faceId = document?.selected_face_id ?? null;
+          if (!faceId) {
+            return false;
+          }
+          const face = viewport?.solid_faces.find(
+            (entry) => entry.face_id === faceId,
+          );
+          return Boolean(face && face.sketchability === "planar");
+        })();
+        if (!selectedSketchProfile && !hasFaceCandidate) {
           return;
         }
         event.preventDefault();
@@ -416,6 +517,8 @@ function App() {
     extrudeAction,
     edgeOpAction,
     document?.selected_edge_id,
+    document?.selected_face_id,
+    viewport?.solid_faces,
     session?.can_undo,
     session?.can_redo,
   ]);
@@ -998,8 +1101,45 @@ function App() {
                             );
                           });
                         }}
-                        onConfirm={() => {
+                        onConfirm={async () => {
+                          // Look up the just-confirmed extrude in the
+                          // current document so we can apply Fusion-
+                          // style post-confirm UX without round-
+                          // tripping new state through the core:
+                          //   - hide the source sketch (the user is
+                          //     done with it; leaving it visible
+                          //     clutters the body they just created)
+                          //   - if the extrude was a cut, drop the
+                          //     selection so the floating panel
+                          //     doesn't reopen and the user is left
+                          //     looking at the resulting body, not
+                          //     the cutter feature itself
+                          const confirmedFeature =
+                            document?.feature_history.find(
+                              (entry) =>
+                                entry.feature_id === extrudeAction.featureId,
+                            ) ?? null;
+                          const sketchFeatureId =
+                            confirmedFeature?.extrude_parameters
+                              ?.sketch_feature_id ?? null;
+                          const confirmedMode =
+                            confirmedFeature?.extrude_parameters?.mode ?? null;
+                          if (sketchFeatureId) {
+                            setHiddenFeatureIds((current) => {
+                              if (current.has(sketchFeatureId)) {
+                                return current;
+                              }
+                              const next = new Set(current);
+                              next.add(sketchFeatureId);
+                              return next;
+                            });
+                          }
                           setExtrudeAction(null);
+                          if (confirmedMode === "cut") {
+                            await runAction(async () => {
+                              await clearSelection();
+                            });
+                          }
                         }}
                         onCancel={async () => {
                           await runAction(async () => {

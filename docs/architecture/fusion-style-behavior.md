@@ -29,30 +29,28 @@ For any non-trivial modeling feature (Extrude, Fillet, Pattern, Hole, ...):
      `selected_sketch_profile_id`, `selected_face_id`, ...).
    - Hover feedback is a UI-only highlight; selection is owned by the core.
 
-2. **Invoke the action.**
-   - The user clicks an action button or presses its hotkey.
-   - The UI sends an IPC command that creates the feature in the core with
-     **default parameters**.
-   - The core performs a real recompute and the viewport renders the result.
-
-3. **Show a floating context panel.**
+2. **Show a floating context panel.**
    - A small panel appears near the action source (header, sidebar slot, or
      near the cursor) showing only the parameters relevant to that action.
    - The panel must be subtle: it should not occupy the main inspector
      real estate or block the model.
 
-4. **Live preview while editing.**
+3. **Live preview while editing.**
    - Every parameter edit dispatches an IPC update command (e.g.
      `update_extrude_depth`).
    - The viewport snapshot updates from the core. There are **no fake
      previews built only in React**.
 
-5. **Confirm or cancel.**
+4. **Confirm or cancel.**
    - **Confirm** (Enter or button): close the panel. The feature stays in
      the document with its current parameters.
    - **Cancel** (Escape or button): call `undo` to remove the in-progress
      edit/feature, then close the panel. The user must always be able to
      back out cleanly.
+
+Notes:
+
+- For extrude, the user selects a face first, then the extrude action is invoked, then the user can adjust the depth in the floating panel. But for Fillet or Chamfer, the user selects the action then he can chose to select edges or vertices.
 
 ## Selection feedback rules
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { DocumentState } from "@/types";
 
 export type CategoryId = "origin" | "sketches" | "bodies";
@@ -577,46 +578,57 @@ export function DocumentHierarchyPanel({
         })}
       </Category>
 
-      {contextMenu ? (
-        <div
-          className="cad-context-menu fixed z-30 min-w-[140px] rounded-xl p-1 shadow-[0_8px_24px_rgba(0,0,0,0.5)] backdrop-blur-xl"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-          // Stop propagation so the global dismiss listener does not close
-          // the menu before the click on a button is handled.
-          onClick={(event) => event.stopPropagation()}
-        >
-          <button
-            type="button"
-            className="flex w-full items-center rounded-lg px-3 py-1.5 text-left text-sm text-on-surface transition-colors hover:bg-white/10"
-            onClick={() => {
-              startRename(contextMenu.featureId);
-            }}
-          >
-            Rename
-          </button>
-          <button
-            type="button"
-            className="flex w-full items-center rounded-lg px-3 py-1.5 text-left text-sm text-on-surface transition-colors hover:bg-white/10"
-            onClick={() => {
-              onToggleFeatureVisibility(contextMenu.featureId);
-              setContextMenu(null);
-            }}
-          >
-            {contextMenu.isHidden ? "Show" : "Hide"}
-          </button>
-          <button
-            type="button"
-            className="flex w-full items-center rounded-lg px-3 py-1.5 text-left text-sm text-red-300 transition-colors hover:bg-red-500/15"
-            onClick={() => {
-              const id = contextMenu.featureId;
-              setContextMenu(null);
-              void onDeleteFeature(id);
-            }}
-          >
-            Delete
-          </button>
-        </div>
-      ) : null}
+      {contextMenu
+        ? createPortal(
+            <div
+              // Portaled to document.body so the menu's `position: fixed`
+              // resolves against the viewport. Without the portal it lives
+              // inside `.cad-sidebar`, which has `backdrop-filter` set —
+              // and per CSS spec any element with a non-`none`
+              // `backdrop-filter` becomes the containing block for fixed-
+              // position descendants. That made the menu appear shifted
+              // down by the sidebar's `top` offset (i.e. "far below the
+              // cursor").
+              className="cad-context-menu fixed z-30 min-w-[140px] rounded-xl p-1 shadow-[0_8px_24px_rgba(0,0,0,0.5)] backdrop-blur-xl"
+              style={{ left: contextMenu.x, top: contextMenu.y }}
+              // Stop propagation so the global dismiss listener does not close
+              // the menu before the click on a button is handled.
+              onClick={(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                className="flex w-full items-center rounded-lg px-3 py-1.5 text-left text-sm text-on-surface transition-colors hover:bg-white/10"
+                onClick={() => {
+                  startRename(contextMenu.featureId);
+                }}
+              >
+                Rename
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center rounded-lg px-3 py-1.5 text-left text-sm text-on-surface transition-colors hover:bg-white/10"
+                onClick={() => {
+                  onToggleFeatureVisibility(contextMenu.featureId);
+                  setContextMenu(null);
+                }}
+              >
+                {contextMenu.isHidden ? "Show" : "Hide"}
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center rounded-lg px-3 py-1.5 text-left text-sm text-red-300 transition-colors hover:bg-red-500/15"
+                onClick={() => {
+                  const id = contextMenu.featureId;
+                  setContextMenu(null);
+                  void onDeleteFeature(id);
+                }}
+              >
+                Delete
+              </button>
+            </div>,
+            window.document.body,
+          )
+        : null}
     </section>
   );
 }
