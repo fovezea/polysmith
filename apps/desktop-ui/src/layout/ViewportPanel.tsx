@@ -35,6 +35,8 @@ import {
   buildCutPreviewObject,
   buildSceneEdgeObject,
   buildSceneVertexObject,
+  applyEdgeVisualColor,
+  applyVertexVisualColor,
   disposeGroup,
   disposeMaterial,
   distanceBetweenPoints,
@@ -500,6 +502,43 @@ export function ViewportPanel({
     }
   }
 
+  // Hover state for body edges / vertices. Unlike face / primitive
+  // hover (which keeps a per-object state map and re-runs the visual
+  // helper en masse), edges and vertices are simple THREE objects
+  // built once per geometry rebuild — so we recolor materials in
+  // place. `userData.isSelected` was stashed at build time so we can
+  // resolve the (selected, hovered) tuple per object without reading
+  // the document state here.
+  const hoveredEdgeIdRef = useRef<string | null>(null);
+  function setHoveredEdge(edgeId: string | null) {
+    if (hoveredEdgeIdRef.current === edgeId) {
+      return;
+    }
+    hoveredEdgeIdRef.current = edgeId;
+    for (const line of edgeLineObjectsRef.current) {
+      const id = line.userData.edgeId as string | undefined;
+      const isSelected = line.userData.isSelected === true;
+      const isHovered = id !== undefined && id === edgeId;
+      const material = line.material as THREE.LineBasicMaterial;
+      applyEdgeVisualColor(material, { isSelected, isHovered });
+    }
+  }
+
+  const hoveredVertexIdRef = useRef<string | null>(null);
+  function setHoveredVertex(vertexId: string | null) {
+    if (hoveredVertexIdRef.current === vertexId) {
+      return;
+    }
+    hoveredVertexIdRef.current = vertexId;
+    for (const mesh of vertexObjectsRef.current) {
+      const id = mesh.userData.vertexId as string | undefined;
+      const isSelected = mesh.userData.isSelected === true;
+      const isHovered = id !== undefined && id === vertexId;
+      const material = mesh.material as THREE.MeshBasicMaterial;
+      applyVertexVisualColor(material, { isSelected, isHovered });
+    }
+  }
+
   function setHoveredReference(referenceId: string | null) {
     let changed = false;
 
@@ -638,26 +677,20 @@ export function ViewportPanel({
     scene.add(contentGroup);
     scene.add(referenceGroup);
     scene.add(sketchGroup);
-    scene.add(
-      new THREE.AmbientLight(
-        themeColor("--color-primary-soft", "#8defff"),
-        1.15,
-      ),
-    );
+    // Neutral studio lighting so MeshStandardMaterial bodies render as
+    // true Fusion-style gray. The previous cyan-tinted ambient + key
+    // + rim lights were leaking cyan into the body fill, which made
+    // the new gray material look like the old translucent cyan even
+    // after the material itself was switched to opaque.
+    scene.add(new THREE.AmbientLight(0xffffff, 0.85));
 
-    const keyLight = new THREE.DirectionalLight(
-      themeColor("--color-primary-edge-active", "#d8fbff"),
-      1.35,
-    );
+    const keyLight = new THREE.DirectionalLight(0xffffff, 0.95);
     keyLight.position.set(1.2, 1.8, 1.4);
     scene.add(keyLight);
 
-    const rimLight = new THREE.DirectionalLight(
-      themeColor("--color-primary-fixed-dim", "#00d8f1"),
-      0.8,
-    );
-    rimLight.position.set(-1.5, 0.8, -1.1);
-    scene.add(rimLight);
+    const fillLight = new THREE.DirectionalLight(0xffffff, 0.45);
+    fillLight.position.set(-1.5, 0.8, -1.1);
+    scene.add(fillLight);
 
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
@@ -832,13 +865,14 @@ export function ViewportPanel({
       }
 
       // Edges are checked before faces because they sit ON the faces
-      // and would be hidden by the face fill if checked after. The
-      // configured Line threshold gives ~0.4mm of pick tolerance,
-      // which feels comparable to face picking without making it hard
-      // to grab the face under the edge.
+      // and would be hidden by the face fill if checked after.
       const previousLineThreshold = raycaster.params.Line?.threshold ?? 1;
       if (raycaster.params.Line) {
-        raycaster.params.Line.threshold = 0.4;
+        // Generous pick tolerance so hover lights up edges without
+        // the user having to land on a pixel-perfect line. Click
+        // accuracy isn't hurt here because edges are checked before
+        // faces in this same chain — if both hit, edge wins.
+        raycaster.params.Line.threshold = 1.2;
       }
       const [edgeHit] = raycaster.intersectObjects(
         edgeLineObjectsRef.current,
@@ -971,10 +1005,17 @@ export function ViewportPanel({
         setHoveredReference(null);
         setHoveredPrimitive(null);
         setHoveredFace(null);
+        setHoveredEdge(null);
+        setHoveredVertex(null);
         return;
       }
       setHoveredReference(hit?.kind === "reference" ? hit.id : null);
       setHoveredFace(hit?.kind === "face" ? hit.id : null);
+      // Edges and vertices are mutually exclusive with each other (the
+      // raycaster prioritizes vertex over edge over face), so only one
+      // of these will resolve to a real id at a time.
+      setHoveredEdge(hit?.kind === "edge" ? hit.id : null);
+      setHoveredVertex(hit?.kind === "vertex" ? hit.id : null);
       // Suppress primitive hover while a face under the same primitive is
       // hovered so the visual highlight reads as a face hover, not a body
       // hover.
@@ -988,6 +1029,8 @@ export function ViewportPanel({
         setHoveredReference(null);
         setHoveredPrimitive(null);
         setHoveredFace(null);
+        setHoveredEdge(null);
+        setHoveredVertex(null);
       }
     }
 
@@ -1317,6 +1360,10 @@ export function ViewportPanel({
     edgeLineObjectsRef.current = [];
     vertexObjectsRef.current = [];
     cutPreviewObjectsRef.current = [];
+    // Hovered ids reference disposed THREE objects after a rebuild;
+    // null them out so the next pointermove cleanly re-applies hover.
+    hoveredEdgeIdRef.current = null;
+    hoveredVertexIdRef.current = null;
     previewLineRef.current = null;
     previewCircleRef.current = null;
 
@@ -1333,11 +1380,13 @@ export function ViewportPanel({
       return;
     }
 
+    // Neutral gray grid (axis line slightly lighter) so the floor reads
+    // as professional CAD chrome rather than the previous cyan glow.
     const nextGrid = new THREE.GridHelper(
       Math.max(sceneData.bounds.maxDimension * 2, 200),
       20,
-      themeColor("--color-primary-fixed-dim", "#00d8f1"),
-      themeColor("--color-primary-emissive-hover", "#214147"),
+      themeColor("--color-cad-grid-axis", "#7a7a7c"),
+      themeColor("--color-cad-grid", "#5a5a5c"),
     );
     nextGrid.position.set(
       sceneData.bounds.center[0],

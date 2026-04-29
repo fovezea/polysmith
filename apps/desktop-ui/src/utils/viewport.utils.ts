@@ -74,47 +74,85 @@ export function disposeGroup(group: THREE.Group) {
   }
 }
 
+// Visual state for body primitives. Bodies render as solid Fusion-
+// style gray (opaque, no transparency) so the model reads like a real
+// CAD surface. Hover lifts the body slightly toward white; selection
+// is signaled mostly via the body's own edges (see
+// `applyEdgeVisualColor` below) plus a small whitening of the face
+// fill so highlighted geometry never disappears against the gray.
 export function applyPrimitiveVisualState(
   visual: PrimitiveVisual,
   state: PrimitiveInteractionState,
 ) {
+  visual.baseMaterial.transparent = false;
+  visual.baseMaterial.opacity = 1;
+  visual.baseMaterial.emissive.set(
+    themeColor("--color-cad-body-emissive", "#1a1a1c"),
+  );
+  visual.baseMaterial.emissiveIntensity = 0.05;
+
   if (state.isSelected) {
     visual.baseMaterial.color.set(
-      themeColor("--color-primary-bright", "#4be7ff"),
+      themeColor("--color-cad-body-selected", "#d0d0d4"),
     );
-    visual.baseMaterial.emissive.set(
-      themeColor("--color-primary-emissive-active", "#0b5963"),
-    );
-    visual.baseMaterial.emissiveIntensity = 0.65;
-    visual.baseMaterial.opacity = 0.92;
     visual.edgeMaterial.color.set(
-      themeColor("--color-primary-edge-active", "#c3f5ff"),
+      themeColor("--color-cad-edge-selected", "#ff9a3c"),
     );
     return;
   }
 
   if (state.isHovered) {
     visual.baseMaterial.color.set(
-      themeColor("--color-primary-hover", "#86f4ff"),
+      themeColor("--color-cad-body-hover", "#c8c8cc"),
     );
-    visual.baseMaterial.emissive.set(
-      themeColor("--color-primary-emissive-hover", "#0a4149"),
-    );
-    visual.baseMaterial.emissiveIntensity = 0.35;
-    visual.baseMaterial.opacity = 0.82;
     visual.edgeMaterial.color.set(
-      themeColor("--color-primary-edge-hover", "#b8fbff"),
+      themeColor("--color-cad-edge-hover", "#3da9ff"),
     );
     return;
   }
 
-  visual.baseMaterial.color.set(themeColor("--color-primary-glow", "#6de3ef"));
-  visual.baseMaterial.emissive.set(
-    themeColor("--color-primary-emissive", "#042329"),
-  );
-  visual.baseMaterial.emissiveIntensity = 0.2;
-  visual.baseMaterial.opacity = 0.72;
-  visual.edgeMaterial.color.set(themeColor("--color-primary-edge", "#91f2ff"));
+  visual.baseMaterial.color.set(themeColor("--color-cad-body", "#b8b8b8"));
+  visual.edgeMaterial.color.set(themeColor("--color-cad-edge", "#2a2a2c"));
+}
+
+// Three-state color helpers used by the viewport panel to recolor
+// per-edge / per-vertex materials in response to hover changes
+// without rebuilding the scene. Kept here next to the build* helpers
+// so the palette decisions live in one file.
+export function applyEdgeVisualColor(
+  material: THREE.LineBasicMaterial,
+  state: { isSelected: boolean; isHovered: boolean },
+) {
+  if (state.isSelected) {
+    material.color.set(themeColor("--color-cad-edge-selected", "#ff9a3c"));
+    material.opacity = 1;
+    return;
+  }
+  if (state.isHovered) {
+    material.color.set(themeColor("--color-cad-edge-hover", "#3da9ff"));
+    material.opacity = 1;
+    return;
+  }
+  material.color.set(themeColor("--color-cad-edge", "#2a2a2c"));
+  material.opacity = 0.85;
+}
+
+export function applyVertexVisualColor(
+  material: THREE.MeshBasicMaterial,
+  state: { isSelected: boolean; isHovered: boolean },
+) {
+  if (state.isSelected) {
+    material.color.set(themeColor("--color-cad-vertex-selected", "#ff9a3c"));
+    material.opacity = 1;
+    return;
+  }
+  if (state.isHovered) {
+    material.color.set(themeColor("--color-cad-vertex-hover", "#3da9ff"));
+    material.opacity = 1;
+    return;
+  }
+  material.color.set(themeColor("--color-cad-vertex", "#1c1c1e"));
+  material.opacity = 0.95;
 }
 
 export function applyReferencePlaneVisualState(
@@ -164,17 +202,22 @@ export function applyReferencePlaneVisualState(
 }
 
 export function buildPrimitiveObject(primitive: ScenePrimitive) {
+  // Solid Fusion-style gray at construction time. Previous defaults
+  // were `transparent: true, opacity: 0.72` (the cyan look) and were
+  // only flipped to opaque when `applyPrimitiveVisualState` ran from
+  // hover / selection — which meant freshly-built bodies always
+  // looked translucent on first render until the user interacted.
   const baseMaterial = new THREE.MeshStandardMaterial({
-    color: themeColor("--color-primary-glow", "#6de3ef"),
-    emissive: themeColor("--color-primary-emissive", "#042329"),
-    emissiveIntensity: 0.2,
+    color: themeColor("--color-cad-body", "#b8b8b8"),
+    emissive: themeColor("--color-cad-body-emissive", "#1a1a1c"),
+    emissiveIntensity: 0.05,
     metalness: 0.1,
-    roughness: 0.48,
-    transparent: true,
-    opacity: 0.72,
+    roughness: 0.55,
+    transparent: false,
+    opacity: 1,
   });
   const edgeMaterial = new THREE.LineBasicMaterial({
-    color: themeColor("--color-primary-edge", "#91f2ff"),
+    color: themeColor("--color-cad-edge", "#2a2a2c"),
     transparent: true,
     opacity: 0.9,
   });
@@ -483,23 +526,35 @@ export function buildReferenceAxisObject(axis: ReferenceAxisScene) {
 // Build a pickable polyline for a body edge. The line carries the edge id
 // in `userData.edgeId` for the raycaster, and `renderOrder = 1` plus
 // `depthTest = false` keep the highlight readable on top of the body's
-// face fills (which sit at `renderOrder = 0`).
+// face fills (which sit at `renderOrder = 0`). `userData.isSelected`
+// is stashed so the viewport panel's hover handler can recompute the
+// material color without re-reading the document state.
 export function buildSceneEdgeObject(edge: SceneEdge): THREE.Line {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(edge.points, 3));
 
   const material = new THREE.LineBasicMaterial({
-    color: edge.isSelected
-      ? themeColor("--color-primary-glow", "#6de3ef")
-      : themeColor("--color-primary-edge", "#91f2ff"),
     transparent: true,
-    opacity: edge.isSelected ? 1 : 0.55,
     linewidth: 1, // most browsers ignore this; selection still reads via color
-    depthTest: false,
+    // depthTest stays ON so edges on the far side of an opaque body
+    // are occluded by the surface, matching Fusion. With it off, the
+    // wireframe shows through the body and reads as transparency.
+    // `polygonOffset` plus a small `polygonOffsetUnits` keeps the line
+    // visually on top of the face fill at the same depth (otherwise
+    // edges z-fight with the surface they sit on).
+    depthTest: true,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+  });
+  applyEdgeVisualColor(material, {
+    isSelected: edge.isSelected,
+    isHovered: false,
   });
 
   const line = new THREE.Line(geometry, material);
   line.userData.edgeId = edge.edgeId;
+  line.userData.isSelected = edge.isSelected;
   line.renderOrder = 1;
   return line;
 }
@@ -548,16 +603,19 @@ export function buildCutPreviewObject(preview: CutPreviewScene): THREE.Mesh {
 export function buildSceneVertexObject(vertex: SceneVertex): THREE.Mesh {
   const geometry = new THREE.SphereGeometry(VERTEX_RADIUS, 12, 8);
   const material = new THREE.MeshBasicMaterial({
-    color: vertex.isSelected
-      ? themeColor("--color-primary-glow", "#6de3ef")
-      : themeColor("--color-primary-edge", "#91f2ff"),
     transparent: true,
-    opacity: vertex.isSelected ? 1 : 0.85,
-    depthTest: false,
+    // Same reasoning as edges: keep depthTest on so back-side vertices
+    // hide behind the opaque body fill instead of bleeding through.
+    depthTest: true,
+  });
+  applyVertexVisualColor(material, {
+    isSelected: vertex.isSelected,
+    isHovered: false,
   });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.position.set(vertex.position[0], vertex.position[1], vertex.position[2]);
   mesh.userData.vertexId = vertex.vertexId;
+  mesh.userData.isSelected = vertex.isSelected;
   mesh.renderOrder = 2;
   return mesh;
 }

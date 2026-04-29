@@ -44,6 +44,24 @@
   --color-tertiary-plane-edge-active: #fff4b8;
   --color-tertiary-plane-edge-selected: #ffe99a;
   --color-tertiary-plane-edge-hover: #fff2b2;
+
+  /* Fusion-style neutral palette for the 3D viewport. The cyan
+   * primary palette above still drives the chrome / hover effects in
+   * the rest of the UI; the viewport itself uses these grays + a
+   * single warm selection accent so the model reads like a real CAD
+   * surface and selection state is unmistakable. */
+  --color-cad-body: #b8b8b8;
+  --color-cad-body-hover: #c8c8cc;
+  --color-cad-body-selected: #d0d0d4;
+  --color-cad-body-emissive: #1a1a1c;
+  --color-cad-edge: #2a2a2c;
+  --color-cad-edge-hover: #3da9ff;
+  --color-cad-edge-selected: #ff9a3c;
+  --color-cad-vertex: #1c1c1e;
+  --color-cad-vertex-hover: #3da9ff;
+  --color-cad-vertex-selected: #ff9a3c;
+  --color-cad-grid: #5a5a5c;
+  --color-cad-grid-axis: #7a7a7c;
 }
 
 :root {
