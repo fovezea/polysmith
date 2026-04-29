@@ -796,6 +796,20 @@ function App() {
               await addCylinderFeature(radius, height);
             });
           }}
+          canExtrude={(() => {
+            if (selectedSketchProfile) {
+              return true;
+            }
+            const faceId = document?.selected_face_id ?? null;
+            if (!faceId) {
+              return false;
+            }
+            const face = viewport?.solid_faces.find(
+              (entry) => entry.face_id === faceId,
+            );
+            return Boolean(face && face.sketchability === "planar");
+          })()}
+          onExtrude={triggerExtrudeAction}
           onStartSketch={async () => {
             if (!selectedReference) {
               return;

@@ -228,6 +228,210 @@ export function SketchToolIcon({ tool }: { tool: SketchTool }) {
   }
 }
 
+// 3D primitive / modeling icons. Drawn as flat-stroke SVGs in the same
+// 24×24 grid as the sketch icons so they line up inside the shared
+// `cad-icon-button` chrome. Isometric projection (cos30 ≈ 0.866,
+// sin30 = 0.5) so the cube/cylinder/etc. read as 3D in the toolbar.
+
+export const BoxIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-4 w-4"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M12 4 4 8v8l8 4 8-4V8Z" />
+    <path d="m4 8 8 4 8-4" />
+    <path d="M12 12v8" />
+  </svg>
+);
+
+export const CylinderIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-4 w-4"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <ellipse cx="12" cy="6" rx="6" ry="2.4" />
+    <path d="M6 6v12" />
+    <path d="M18 6v12" />
+    <path d="M6 18a6 2.4 0 0 0 12 0" />
+  </svg>
+);
+
+export const SphereIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-4 w-4"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <circle cx="12" cy="12" r="7.5" />
+    <ellipse cx="12" cy="12" rx="7.5" ry="3" />
+  </svg>
+);
+
+// Fusion-style Extrude icon: small isometric cube on the left with a
+// vertical arrow pointing up to its right, conveying "push profile up
+// to make a body".
+export const ExtrudeIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-4 w-4"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M8 8 4 10v6l4 2 4-2v-6Z" />
+    <path d="m4 10 4 2 4-2" />
+    <path d="M8 12v6" />
+    <path d="M17 18V7" />
+    <path d="m14 10 3-3 3 3" />
+  </svg>
+);
+
+export const LoftIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-4 w-4"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <rect x="4" y="14" width="8" height="6" rx="1" />
+    <circle cx="17" cy="7" r="3" />
+    <path d="m12 14 5-4" />
+    <path d="m4 14 11-7" />
+  </svg>
+);
+
+export const PatternIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-4 w-4"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <rect x="4" y="4" width="6" height="6" rx="1" />
+    <rect x="14" y="4" width="6" height="6" rx="1" />
+    <rect x="4" y="14" width="6" height="6" rx="1" />
+    <rect x="14" y="14" width="6" height="6" rx="1" />
+  </svg>
+);
+
+export const SketchIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-4 w-4"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M4 20 6 14 16 4l4 4L10 18Z" />
+    <path d="m14 6 4 4" />
+  </svg>
+);
+
+export const FilletIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-4 w-4"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M5 19V12a7 7 0 0 1 7-7h7" />
+    <path d="M5 19h14" />
+  </svg>
+);
+
+export const ChamferIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-4 w-4"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M5 19V10l5-5h9" />
+    <path d="M5 19h14" />
+  </svg>
+);
+
+// Generic fallback used by the feature timeline for the synthetic
+// "root" entry and any future feature kinds we haven't drawn yet.
+export const FeatureGenericIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-4 w-4"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+
+export function FeatureKindIcon({ kind }: { kind: string }) {
+  switch (kind) {
+    case "box":
+      return <BoxIcon />;
+    case "cylinder":
+      return <CylinderIcon />;
+    case "extrude":
+      return <ExtrudeIcon />;
+    case "sphere":
+      return <SphereIcon />;
+    case "loft":
+      return <LoftIcon />;
+    case "pattern":
+      return <PatternIcon />;
+    case "sketch":
+      return <SketchIcon />;
+    case "fillet":
+      return <FilletIcon />;
+    case "chamfer":
+      return <ChamferIcon />;
+    default:
+      return <FeatureGenericIcon />;
+  }
+}
+
 export function ConstraintIcon({ kind }: { kind: ConstraintType }) {
   switch (kind) {
     case "horizontal":

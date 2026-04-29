@@ -110,6 +110,12 @@ interface AppHeaderProps {
     depth: number,
   ) => Promise<void>;
   onAddCylinderFeature: (radius: number, height: number) => Promise<void>;
+  // Extrude lives in the Create ribbon next to Box/Cylinder. The
+  // parent owns the gating (a closed profile or planar face must be
+  // selected) and the action itself, which is shared with the E
+  // hotkey path in App.tsx.
+  canExtrude: boolean;
+  onExtrude: () => Promise<void>;
   onStartSketch: () => Promise<void>;
   onFinishSketch: () => Promise<void>;
   onSetSketchTool: (tool: SketchTool) => Promise<void>;
@@ -139,6 +145,8 @@ export function AppHeader({
   onRedo,
   onAddBoxFeature,
   onAddCylinderFeature,
+  canExtrude,
+  onExtrude,
   onStartSketch,
   onFinishSketch,
   onSetSketchTool,
@@ -256,6 +264,8 @@ export function AppHeader({
               setOpenMenu={setOpenMenu}
               onAddBoxFeature={onAddBoxFeature}
               onAddCylinderFeature={onAddCylinderFeature}
+              canExtrude={canExtrude}
+              onExtrude={onExtrude}
             />
           ) : null}
 
