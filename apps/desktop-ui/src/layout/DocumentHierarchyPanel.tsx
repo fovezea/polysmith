@@ -97,20 +97,25 @@ function ChevronIcon({ open }: { open: boolean }) {
   );
 }
 
+// Pencil icon, matches the sketch glyph used in the feature timeline
+// (`SketchIcon` in `header/ToolBarIcons.tsx`). Drawn here at 12x12 for
+// the hierarchy row's tighter vertical rhythm rather than reusing the
+// h-5 toolbar version directly.
 function SketchIcon() {
   return (
     <svg
-      viewBox="0 0 16 16"
+      viewBox="0 0 24 24"
       width="12"
       height="12"
       aria-hidden="true"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.4"
+      strokeWidth="1.6"
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <path d="M2.5 13.5l3-9 3 4 2-2 3 7" />
+      <path d="M4 20 6 14 16 4l4 4L10 18Z" />
+      <path d="m14 6 4 4" />
     </svg>
   );
 }

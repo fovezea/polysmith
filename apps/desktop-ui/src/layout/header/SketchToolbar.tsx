@@ -72,15 +72,11 @@ export function SketchToolbar({
           key={tool.id}
           className={
             activeSketchPlaneId && activeSketchTool === tool.id
-              ? "cad-icon-button cad-tool-button cad-tool-button-active h-9 w-9 px-0"
-              : "cad-icon-button cad-tool-button h-9 w-9 px-0"
+              ? "cad-icon-button cad-icon-tool cad-icon-tool-active h-9 w-9 p-0"
+              : "cad-icon-button cad-icon-tool h-9 w-9 p-0"
           }
-          data-tooltip={
-            tool.shortcut ? `${tool.label} (${tool.shortcut})` : tool.label
-          }
-          aria-label={
-            tool.shortcut ? `${tool.label} (${tool.shortcut})` : tool.label
-          }
+          data-tooltip={tool.label}
+          aria-label={tool.label}
           disabled={!activeSketchPlaneId || !tool.enabled}
           onClick={() => {
             if (
@@ -106,8 +102,8 @@ export function SketchToolbar({
       <button
         className={
           activeSketchPlaneId && armedSketchConstraint?.kind === "horizontal"
-            ? "cad-icon-button cad-tool-button cad-tool-button-active h-9 w-9 px-0"
-            : "cad-icon-button cad-tool-button h-9 w-9 px-0"
+            ? "cad-icon-button cad-icon-tool cad-icon-tool-active h-9 w-9 p-0"
+            : "cad-icon-button cad-icon-tool h-9 w-9 p-0"
         }
         data-tooltip="Horizontal"
         aria-label="Horizontal"
@@ -121,8 +117,8 @@ export function SketchToolbar({
       <button
         className={
           activeSketchPlaneId && armedSketchConstraint?.kind === "vertical"
-            ? "cad-icon-button cad-tool-button cad-tool-button-active h-9 w-9 px-0"
-            : "cad-icon-button cad-tool-button h-9 w-9 px-0"
+            ? "cad-icon-button cad-icon-tool cad-icon-tool-active h-9 w-9 p-0"
+            : "cad-icon-button cad-icon-tool h-9 w-9 p-0"
         }
         data-tooltip="Vertical"
         aria-label="Vertical"
@@ -136,10 +132,10 @@ export function SketchToolbar({
       <button
         className={
           activeSketchPlaneId && armedSketchConstraint?.kind === "clear"
-            ? "cad-icon-button cad-tool-button cad-tool-button-active h-9 w-9 px-0"
-            : "cad-icon-button cad-tool-button h-9 w-9 px-0"
+            ? "cad-icon-button cad-icon-tool cad-icon-tool-active h-9 w-9 p-0"
+            : "cad-icon-button cad-icon-tool h-9 w-9 p-0"
         }
-        data-tooltip="Clear Constraint"
+        data-tooltip="Clear"
         aria-label="Clear Constraint"
         disabled={!activeSketchPlaneId}
         onClick={() => {
@@ -151,8 +147,8 @@ export function SketchToolbar({
       <button
         className={
           activeSketchPlaneId && armedSketchConstraint?.kind === "coincident"
-            ? "cad-icon-button cad-tool-button cad-tool-button-active h-9 w-9 px-0"
-            : "cad-icon-button cad-tool-button h-9 w-9 px-0"
+            ? "cad-icon-button cad-icon-tool cad-icon-tool-active h-9 w-9 p-0"
+            : "cad-icon-button cad-icon-tool h-9 w-9 p-0"
         }
         data-tooltip="Coincident"
         aria-label="Coincident"
@@ -166,8 +162,8 @@ export function SketchToolbar({
       <button
         className={
           activeSketchPlaneId && armedSketchConstraint?.kind === "equal_length"
-            ? "cad-icon-button cad-tool-button cad-tool-button-active h-9 w-9 px-0"
-            : "cad-icon-button cad-tool-button h-9 w-9 px-0"
+            ? "cad-icon-button cad-icon-tool cad-icon-tool-active h-9 w-9 p-0"
+            : "cad-icon-button cad-icon-tool h-9 w-9 p-0"
         }
         data-tooltip="Equal Length"
         aria-label="Equal Length"
@@ -181,8 +177,8 @@ export function SketchToolbar({
       <button
         className={
           activeSketchPlaneId && armedSketchConstraint?.kind === "perpendicular"
-            ? "cad-icon-button cad-tool-button cad-tool-button-active h-9 w-9 px-0"
-            : "cad-icon-button cad-tool-button h-9 w-9 px-0"
+            ? "cad-icon-button cad-icon-tool cad-icon-tool-active h-9 w-9 p-0"
+            : "cad-icon-button cad-icon-tool h-9 w-9 p-0"
         }
         data-tooltip="Perpendicular"
         aria-label="Perpendicular"
@@ -196,8 +192,8 @@ export function SketchToolbar({
       <button
         className={
           activeSketchPlaneId && armedSketchConstraint?.kind === "parallel"
-            ? "cad-icon-button cad-tool-button cad-tool-button-active h-9 w-9 px-0"
-            : "cad-icon-button cad-tool-button h-9 w-9 px-0"
+            ? "cad-icon-button cad-icon-tool cad-icon-tool-active h-9 w-9 p-0"
+            : "cad-icon-button cad-icon-tool h-9 w-9 p-0"
         }
         data-tooltip="Parallel"
         aria-label="Parallel"

@@ -83,54 +83,61 @@ export function FeatureTimeline({
   return (
     <div className="cad-timeline pointer-events-auto px-4 py-2.5">
       <div className="cad-scrollbar flex items-center gap-1 overflow-x-auto pb-1">
-        {document.feature_history.map((feature) => {
-          const active = feature.feature_id === document.selected_feature_id;
-          const suppressed = feature.suppressed === true;
-          // Tooltip carries both the human-readable name (e.g. "Box 2")
-          // and the kind, plus a (suppressed) suffix so the user knows
-          // why the feature is missing from the viewport.
-          const baseTooltip =
-            feature.name && feature.name !== feature.kind
-              ? `${feature.name} (${feature.kind})`
-              : feature.kind;
-          const tooltip = suppressed
-            ? `${baseTooltip} — suppressed`
-            : baseTooltip;
-          return (
-            <button
-              key={feature.feature_id}
-              type="button"
-              onClick={() => {
-                void onSelectFeature(feature.feature_id);
-              }}
-              onDoubleClick={() => {
-                onEditFeature?.(feature.feature_id);
-              }}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                setContextMenu({
-                  x: event.clientX,
-                  y: event.clientY,
-                  featureId: feature.feature_id,
-                  featureName: feature.name,
-                  kind: feature.kind,
-                  suppressed,
-                });
-              }}
-              className={
-                (active
-                  ? "cad-icon-button cad-tool-button cad-tool-button-active h-8 w-8 px-0"
-                  : "cad-icon-button cad-tool-button h-8 w-8 px-0") +
-                (suppressed ? " opacity-40" : "")
-              }
-              data-tooltip={tooltip}
-              aria-label={tooltip}
-            >
-              <FeatureKindIcon kind={feature.kind} />
-            </button>
-          );
-        })}
+        {document.feature_history
+          // The synthetic `root_part` entry exists in the document so
+          // every other feature has a parent to chain off of, but it
+          // isn't user-actionable (can't be edited / suppressed /
+          // deleted) so showing it just adds visual noise. Hide it
+          // here while keeping it in the document model.
+          .filter((feature) => feature.kind !== "root_part")
+          .map((feature) => {
+            const active = feature.feature_id === document.selected_feature_id;
+            const suppressed = feature.suppressed === true;
+            // Tooltip carries both the human-readable name (e.g. "Box 2")
+            // and the kind, plus a (suppressed) suffix so the user knows
+            // why the feature is missing from the viewport.
+            const baseTooltip =
+              feature.name && feature.name !== feature.kind
+                ? `${feature.name} (${feature.kind})`
+                : feature.kind;
+            const tooltip = suppressed
+              ? `${baseTooltip} — suppressed`
+              : baseTooltip;
+            return (
+              <button
+                key={feature.feature_id}
+                type="button"
+                onClick={() => {
+                  void onSelectFeature(feature.feature_id);
+                }}
+                onDoubleClick={() => {
+                  onEditFeature?.(feature.feature_id);
+                }}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setContextMenu({
+                    x: event.clientX,
+                    y: event.clientY,
+                    featureId: feature.feature_id,
+                    featureName: feature.name,
+                    kind: feature.kind,
+                    suppressed,
+                  });
+                }}
+                className={
+                  (active
+                    ? "cad-icon-button cad-icon-tool cad-icon-tool-active h-9 w-9 p-0"
+                    : "cad-icon-button cad-icon-tool h-9 w-9 p-0") +
+                  (suppressed ? " opacity-40" : "")
+                }
+                data-tooltip={tooltip}
+                aria-label={tooltip}
+              >
+                <FeatureKindIcon kind={feature.kind} />
+              </button>
+            );
+          })}
       </div>
       {contextMenu
         ? createPortal(

@@ -179,6 +179,22 @@ function App() {
     }
   }, [activeSketchPlaneId]);
 
+  // Auto-startup: launch the native core as soon as the UI mounts and,
+  // once the core is connected, create an empty document so the user
+  // lands on a working canvas instead of an "offline" splash. Both
+  // calls are gated by status so a failed start (status === "error")
+  // doesn't loop, and the document creation only fires on the
+  // idle -> connected transition.
+  useEffect(() => {
+    if (status === "idle") {
+      void start();
+      return;
+    }
+    if (status === "connected" && document === null) {
+      void createDocument();
+    }
+  }, [status, document, start, createDocument]);
+
   // UI-only visibility: combine per-feature hides with category hides into
   // sets the viewport can use to filter primitives, sketch entities, and
   // reference geometry. Sketch entities are filtered by plane id since the

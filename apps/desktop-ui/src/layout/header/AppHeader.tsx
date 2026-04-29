@@ -169,10 +169,10 @@ export function AppHeader({
 
   return (
     <header className="cad-ribbon relative z-20">
-      <div className="flex items-center justify-between gap-5 px-5 py-2">
-        <div className="flex items-center gap-8">
+      <div className="flex items-center justify-between gap-5 px-5 py-1">
+        <div className="flex items-center gap-6">
           <div>
-            <p className="font-display text-[1.35rem] font-bold uppercase tracking-[0.08em] text-primary-glow">
+            <p className="font-display text-[1.05rem] font-bold uppercase tracking-[0.08em] text-primary-glow">
               PolySmith
             </p>
           </div>
@@ -196,7 +196,13 @@ export function AppHeader({
         </div>
 
         <div className="flex items-center gap-2">
-          {status !== "connected" ? (
+          {status !== "connected" && status !== "starting" ? (
+            // Hidden while the core is mid-launch so a double-click
+            // can't kick off a second `start()` (which would race the
+            // first one's status-pill flip and confuse the auto-doc
+            // effect in App.tsx). The status pill below still shows
+            // "Core Offline" so the user has feedback during the few
+            // hundred ms it takes the native process to come up.
             <button
               className="cad-ribbon-action cad-ribbon-action-primary"
               onClick={() => void onStart()}
@@ -253,7 +259,7 @@ export function AppHeader({
       </div>
 
       <div
-        className="flex items-center justify-between gap-5 px-5 py-2"
+        className="flex items-center justify-between gap-3 px-4 py-1"
         style={{ borderTop: "1px solid var(--cad-panel-soft-border)" }}
       >
         <div className="flex min-w-0 items-center gap-3">

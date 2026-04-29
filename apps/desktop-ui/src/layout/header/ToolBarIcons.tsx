@@ -3,7 +3,7 @@ import { ConstraintType, SketchTool } from "@/types";
 export const SelectIcon = () => (
   <svg
     viewBox="0 0 24 24"
-    className="h-4 w-4"
+    className="h-7 w-7"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.8"
@@ -18,7 +18,7 @@ export const SelectIcon = () => (
 export const LineIcon = () => (
   <svg
     viewBox="0 0 24 24"
-    className="h-4 w-4"
+    className="h-7 w-7"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.8"
@@ -35,7 +35,7 @@ export const LineIcon = () => (
 export const RectangleIcon = () => (
   <svg
     viewBox="0 0 24 24"
-    className="h-4 w-4"
+    className="h-7 w-7"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.8"
@@ -50,7 +50,7 @@ export const RectangleIcon = () => (
 export const CircleIcon = () => (
   <svg
     viewBox="0 0 24 24"
-    className="h-4 w-4"
+    className="h-7 w-7"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.8"
@@ -65,7 +65,7 @@ export const CircleIcon = () => (
 export const ArcIcon = () => (
   <svg
     viewBox="0 0 24 24"
-    className="h-4 w-4"
+    className="h-7 w-7"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.8"
@@ -82,7 +82,7 @@ export const ArcIcon = () => (
 export const TrimIcon = () => (
   <svg
     viewBox="0 0 24 24"
-    className="h-4 w-4"
+    className="h-7 w-7"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.8"
@@ -98,7 +98,7 @@ export const TrimIcon = () => (
 export const HorizontalConstraintIcon = () => (
   <svg
     viewBox="0 0 24 24"
-    className="h-4 w-4"
+    className="h-7 w-7"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.8"
@@ -115,7 +115,7 @@ export const HorizontalConstraintIcon = () => (
 export const VerticalConstraintIcon = () => (
   <svg
     viewBox="0 0 24 24"
-    className="h-4 w-4"
+    className="h-7 w-7"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.8"
@@ -132,7 +132,7 @@ export const VerticalConstraintIcon = () => (
 export const PerpendicularConstraintIcon = () => (
   <svg
     viewBox="0 0 24 24"
-    className="h-4 w-4"
+    className="h-7 w-7"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.8"
@@ -148,7 +148,7 @@ export const PerpendicularConstraintIcon = () => (
 export const CoincidentConstraintIcon = () => (
   <svg
     viewBox="0 0 24 24"
-    className="h-4 w-4"
+    className="h-7 w-7"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.8"
@@ -164,7 +164,7 @@ export const CoincidentConstraintIcon = () => (
 export const ParallelConstraintIcon = () => (
   <svg
     viewBox="0 0 24 24"
-    className="h-4 w-4"
+    className="h-7 w-7"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.8"
@@ -182,7 +182,7 @@ export const ParallelConstraintIcon = () => (
 export const EqualLengthConstraintIcon = () => (
   <svg
     viewBox="0 0 24 24"
-    className="h-4 w-4"
+    className="h-7 w-7"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.8"
@@ -198,7 +198,7 @@ export const EqualLengthConstraintIcon = () => (
 export const ClearConstraintIcon = () => (
   <svg
     viewBox="0 0 24 24"
-    className="h-4 w-4"
+    className="h-7 w-7"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.8"
@@ -236,7 +236,7 @@ export function SketchToolIcon({ tool }: { tool: SketchTool }) {
 export const BoxIcon = () => (
   <svg
     viewBox="0 0 24 24"
-    className="h-4 w-4"
+    className="h-7 w-7"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.6"
@@ -253,7 +253,7 @@ export const BoxIcon = () => (
 export const CylinderIcon = () => (
   <svg
     viewBox="0 0 24 24"
-    className="h-4 w-4"
+    className="h-7 w-7"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.6"
@@ -271,7 +271,7 @@ export const CylinderIcon = () => (
 export const SphereIcon = () => (
   <svg
     viewBox="0 0 24 24"
-    className="h-4 w-4"
+    className="h-7 w-7"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.6"
@@ -284,13 +284,15 @@ export const SphereIcon = () => (
   </svg>
 );
 
-// Fusion-style Extrude icon: small isometric cube on the left with a
-// vertical arrow pointing up to its right, conveying "push profile up
-// to make a body".
+// Fusion-style Extrude icon: dominant isometric cube taking most of
+// the viewbox, with a small vertical arrow tucked into the upper-right
+// corner. The size ratio (cube ~12 units wide vs. arrow ~4 units) is
+// what reads "push the profile *up* to make this body" rather than
+// "two equal symbols side by side".
 export const ExtrudeIcon = () => (
   <svg
     viewBox="0 0 24 24"
-    className="h-4 w-4"
+    className="h-7 w-7"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.6"
@@ -298,18 +300,21 @@ export const ExtrudeIcon = () => (
     strokeLinejoin="round"
     aria-hidden="true"
   >
-    <path d="M8 8 4 10v6l4 2 4-2v-6Z" />
-    <path d="m4 10 4 2 4-2" />
-    <path d="M8 12v6" />
-    <path d="M17 18V7" />
-    <path d="m14 10 3-3 3 3" />
+    {/* Cube: front silhouette + top face + center vertical edge,
+        spanning x=2..14, y=5..21. */}
+    <path d="M8 5 2 8v10l6 3 6-3V8Z" />
+    <path d="m2 8 6 3 6-3" />
+    <path d="M8 11v10" />
+    {/* Small upward arrow on the right, half the cube's height. */}
+    <path d="M19 17v-7" />
+    <path d="m17 12 2-2 2 2" />
   </svg>
 );
 
 export const LoftIcon = () => (
   <svg
     viewBox="0 0 24 24"
-    className="h-4 w-4"
+    className="h-7 w-7"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.6"
@@ -327,7 +332,7 @@ export const LoftIcon = () => (
 export const PatternIcon = () => (
   <svg
     viewBox="0 0 24 24"
-    className="h-4 w-4"
+    className="h-7 w-7"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.6"
@@ -345,7 +350,7 @@ export const PatternIcon = () => (
 export const SketchIcon = () => (
   <svg
     viewBox="0 0 24 24"
-    className="h-4 w-4"
+    className="h-7 w-7"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.6"
@@ -361,7 +366,7 @@ export const SketchIcon = () => (
 export const FilletIcon = () => (
   <svg
     viewBox="0 0 24 24"
-    className="h-4 w-4"
+    className="h-7 w-7"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.6"
@@ -377,7 +382,7 @@ export const FilletIcon = () => (
 export const ChamferIcon = () => (
   <svg
     viewBox="0 0 24 24"
-    className="h-4 w-4"
+    className="h-7 w-7"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.6"
@@ -395,7 +400,7 @@ export const ChamferIcon = () => (
 export const FeatureGenericIcon = () => (
   <svg
     viewBox="0 0 24 24"
-    className="h-4 w-4"
+    className="h-7 w-7"
     fill="none"
     stroke="currentColor"
     strokeWidth="1.6"

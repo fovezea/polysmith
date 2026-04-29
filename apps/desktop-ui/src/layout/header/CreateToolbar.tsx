@@ -1,13 +1,6 @@
 import { BoxFeatureForm } from "../BoxFeatureForm";
 import { CylinderFeatureForm } from "../CylinderFeatureForm";
-import {
-  BoxIcon,
-  CylinderIcon,
-  ExtrudeIcon,
-  LoftIcon,
-  PatternIcon,
-  SphereIcon,
-} from "./ToolBarIcons";
+import { BoxIcon, CylinderIcon, ExtrudeIcon } from "./ToolBarIcons";
 
 export interface CreateToolbarProps {
   openMenu: "box" | "cylinder" | null;
@@ -27,12 +20,14 @@ export interface CreateToolbarProps {
   onExtrude: () => Promise<void>;
 }
 
-// Square icon button used for every primitive / action in the Create
-// ribbon. Keeps the look consistent with the sketch toolbar (h-9 w-9
-// chrome + tooltip via `data-tooltip`).
-const ICON_BUTTON_BASE = "cad-icon-button cad-tool-button h-9 w-9 px-0";
+// Flat icon-only button shared by every action in the Create ribbon.
+// Bigger glyph + chromeless rest state matches the sketch toolbar so
+// the user can scan tools at a glance; hover / active reveal the
+// button-like surface. Tooltip is just the tool name (set via
+// `data-tooltip`) — no shortcut suffixes.
+const ICON_BUTTON_BASE = "cad-icon-button cad-icon-tool h-9 w-9 p-0";
 const ICON_BUTTON_ACTIVE =
-  "cad-icon-button cad-tool-button cad-tool-button-active h-9 w-9 px-0";
+  "cad-icon-button cad-icon-tool cad-icon-tool-active h-9 w-9 p-0";
 
 export function CreateToolbar({
   openMenu,
@@ -74,11 +69,7 @@ export function CreateToolbar({
         </button>
         <button
           className={ICON_BUTTON_BASE}
-          data-tooltip={
-            canExtrude
-              ? "Extrude (E)"
-              : "Extrude (E) — select a closed profile or planar face"
-          }
+          data-tooltip="Extrude"
           aria-label="Extrude"
           onClick={() => {
             void onExtrude();
@@ -112,31 +103,6 @@ export function CreateToolbar({
           </div>
         ) : null}
       </div>
-      <div className="cad-tool-group-label">Primitives</div>
-      <button
-        className={ICON_BUTTON_BASE}
-        data-tooltip="Sphere"
-        aria-label="Sphere"
-        disabled
-      >
-        <SphereIcon />
-      </button>
-      <button
-        className={ICON_BUTTON_BASE}
-        data-tooltip="Loft"
-        aria-label="Loft"
-        disabled
-      >
-        <LoftIcon />
-      </button>
-      <button
-        className={ICON_BUTTON_BASE}
-        data-tooltip="Pattern"
-        aria-label="Pattern"
-        disabled
-      >
-        <PatternIcon />
-      </button>
     </>
   );
 }
