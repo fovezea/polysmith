@@ -172,6 +172,18 @@ struct FeatureEntry {
   // suppressed parent (e.g. an extrude whose sketch is suppressed)
   // silently no-op via the existing "missing input" fallbacks.
   bool suppressed = false;
+  // Set by `refresh_history_dependencies` when this feature references
+  // upstream geometry (a face-based sketch plane, an extrude on a
+  // sketch, etc.) that can no longer be resolved against the current
+  // document state — e.g. the original face was consumed by a later
+  // boolean cut. The frame stays at its last-known value so the UI
+  // still has something to render; the timeline surfaces the warning
+  // via this flag plus the message below.
+  bool dependency_broken = false;
+  // Human-readable explanation of the broken dependency (shown as the
+  // tooltip on the warning-coloured timeline button). Empty when
+  // `dependency_broken` is false.
+  std::string dependency_warning;
   std::optional<BoxFeatureParameters> box_parameters;
   std::optional<CylinderFeatureParameters> cylinder_parameters;
   std::optional<ExtrudeFeatureParameters> extrude_parameters;

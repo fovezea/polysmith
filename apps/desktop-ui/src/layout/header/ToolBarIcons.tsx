@@ -363,6 +363,26 @@ export const SketchIcon = () => (
   </svg>
 );
 
+// "Project face" glyph: a planar face being dropped onto the active
+// sketch plane. Reads as "stamp this face onto the sketch grid".
+export const ProjectFaceIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-7 w-7"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M5 16h14" />
+    <path d="M7 16l3-3h7l-3 3" />
+    <rect x="8" y="5" width="8" height="6" rx="1" />
+    <path d="M12 11v2" />
+  </svg>
+);
+
 export const FilletIcon = () => (
   <svg
     viewBox="0 0 24 24"

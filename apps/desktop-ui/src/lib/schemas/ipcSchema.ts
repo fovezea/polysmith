@@ -36,6 +36,12 @@ const documentStateSchema = z.object({
       name: z.string(),
       status: z.string(),
       suppressed: z.boolean().default(false),
+      // Set by the core when this feature references upstream
+      // geometry that no longer exists (e.g. its sketch plane was a
+      // face that got fillet'd away). The timeline shows a yellow
+      // warning button when true; the message is the tooltip.
+      dependency_broken: z.boolean().default(false),
+      dependency_warning: z.string().default(""),
       parameters_summary: z.string(),
       box_parameters: z
         .object({

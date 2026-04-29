@@ -18,6 +18,7 @@
 #include "core/body_compiler.h"
 #include "core/face_geometry.h"
 #include "core/feature_shape.h"
+#include "core/refresh_dependents.h"
 #include "protocol/serialization.h"
 
 namespace polysmith::core {
@@ -245,6 +246,17 @@ void DocumentManager::push_undo_state() {
   undo_stack_.push_back(document_.value());
 }
 
+void DocumentManager::bump_geometry_revision() {
+  require_document();
+  refresh_history_dependencies(*document_);
+  // Increment the revision via a local before assigning back so the
+  // literal `document_->revision += 1;` doesn't appear here — that
+  // way mass-renaming call sites won't accidentally rewrite this
+  // implementation.
+  const int next = document_->revision + 1;
+  document_->revision = next;
+}
+
 void DocumentManager::clear_redo_stack() {
   redo_stack_.clear();
 }
@@ -300,7 +312,7 @@ DocumentState DocumentManager::add_box_feature(
 
   document_->feature_history.push_back(
       create_box_feature(next_feature_id_++, parameters));
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -312,7 +324,7 @@ DocumentState DocumentManager::add_cylinder_feature(
 
   document_->feature_history.push_back(
       create_cylinder_feature(next_feature_id_++, parameters));
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -332,7 +344,7 @@ DocumentState DocumentManager::update_box_feature(
   push_undo_state();
   clear_redo_stack();
   polysmith::core::update_box_feature(*feature_it, parameters);
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -353,7 +365,7 @@ DocumentState DocumentManager::update_cylinder_feature(
   push_undo_state();
   clear_redo_stack();
   polysmith::core::update_cylinder_feature(*feature_it, parameters);
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -373,7 +385,7 @@ DocumentState DocumentManager::update_extrude_depth(
   push_undo_state();
   clear_redo_stack();
   polysmith::core::update_extrude_depth(*feature_it, depth);
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -403,7 +415,7 @@ DocumentState DocumentManager::update_extrude_mode(
   push_undo_state();
   clear_redo_stack();
   feature_it->extrude_parameters->mode = mode;
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -452,7 +464,7 @@ DocumentState DocumentManager::update_extrude_target_body(
   push_undo_state();
   clear_redo_stack();
   feature_it->extrude_parameters->target_body_id = resolved;
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -476,7 +488,7 @@ DocumentState DocumentManager::rename_feature(const std::string& feature_id,
   push_undo_state();
   clear_redo_stack();
   feature_it->name = name;
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -506,7 +518,7 @@ DocumentState DocumentManager::set_feature_suppressed(
   push_undo_state();
   clear_redo_stack();
   feature_it->suppressed = suppressed;
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -537,7 +549,7 @@ DocumentState DocumentManager::delete_feature(const std::string& feature_id) {
   if (deleted_selected) {
     document_->selected_feature_id = std::nullopt;
   }
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -637,7 +649,7 @@ DocumentState DocumentManager::start_sketch_on_plane(
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -863,7 +875,7 @@ DocumentState DocumentManager::create_fillet(
   document_->selected_vertex_ids.clear();
   document_->selected_face_id = std::nullopt;
   document_->selected_reference_id = std::nullopt;
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -917,7 +929,7 @@ DocumentState DocumentManager::update_fillet_edges(
   // Keep the highlight in sync with the live edge set so the user
   // sees what's being filleted while picking.
   document_->selected_edge_ids = edge_ids;
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -949,7 +961,7 @@ DocumentState DocumentManager::update_fillet_radius(
           << (feature_it->fillet_parameters->edge_ids.size() == 1 ? "" : "s")
           << " · " << radius << " mm";
   feature_it->parameters_summary = summary.str();
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -1023,7 +1035,7 @@ DocumentState DocumentManager::create_chamfer(
   document_->selected_vertex_ids.clear();
   document_->selected_face_id = std::nullopt;
   document_->selected_reference_id = std::nullopt;
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -1071,7 +1083,7 @@ DocumentState DocumentManager::update_chamfer_edges(
           << feature_it->chamfer_parameters->distance << " mm";
   feature_it->parameters_summary = summary.str();
   document_->selected_edge_ids = edge_ids;
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -1104,7 +1116,7 @@ DocumentState DocumentManager::update_chamfer_distance(
           << (feature_it->chamfer_parameters->edge_ids.size() == 1 ? "" : "s")
           << " · " << distance << " mm";
   feature_it->parameters_summary = summary.str();
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -1143,7 +1155,7 @@ DocumentState DocumentManager::start_sketch_on_face(
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -1210,7 +1222,7 @@ DocumentState DocumentManager::update_sketch_line(const std::string& line_id,
   document_->selected_sketch_entity_id = line_id;
   document_->selected_sketch_dimension_id = "dim-line-" + line_id;
   document_->selected_sketch_profile_id = std::nullopt;
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -1243,7 +1255,7 @@ DocumentState DocumentManager::update_sketch_point(const std::string& point_id,
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -1276,7 +1288,7 @@ DocumentState DocumentManager::set_sketch_line_constraint(
   document_->selected_sketch_entity_id = line_id;
   document_->selected_sketch_dimension_id = "dim-line-" + line_id;
   document_->selected_sketch_profile_id = std::nullopt;
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -1310,7 +1322,7 @@ DocumentState DocumentManager::set_sketch_equal_length_constraint(
   document_->selected_sketch_entity_id = line_id;
   document_->selected_sketch_dimension_id = "dim-line-" + line_id;
   document_->selected_sketch_profile_id = std::nullopt;
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -1344,7 +1356,7 @@ DocumentState DocumentManager::set_sketch_perpendicular_constraint(
   document_->selected_sketch_entity_id = line_id;
   document_->selected_sketch_dimension_id = "dim-line-" + line_id;
   document_->selected_sketch_profile_id = std::nullopt;
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -1378,7 +1390,7 @@ DocumentState DocumentManager::set_sketch_parallel_constraint(
   document_->selected_sketch_entity_id = line_id;
   document_->selected_sketch_dimension_id = "dim-line-" + line_id;
   document_->selected_sketch_profile_id = std::nullopt;
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -1411,7 +1423,7 @@ DocumentState DocumentManager::set_sketch_coincident_constraint(
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -1443,7 +1455,7 @@ DocumentState DocumentManager::set_sketch_point_fixed(const std::string& point_i
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -1478,7 +1490,7 @@ DocumentState DocumentManager::update_sketch_circle(const std::string& circle_id
   document_->selected_sketch_entity_id = circle_id;
   document_->selected_sketch_dimension_id = "dim-circle-" + circle_id;
   document_->selected_sketch_profile_id = std::nullopt;
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -1523,7 +1535,7 @@ DocumentState DocumentManager::update_sketch_dimension(
       document_->selected_sketch_dimension_id = dimension_it->id;
     }
   }
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -1695,7 +1707,7 @@ DocumentState DocumentManager::extrude_profile(
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -1733,7 +1745,7 @@ DocumentState DocumentManager::add_sketch_line(double start_x,
       feature_it->sketch_parameters->dimensions.back().id;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->active_sketch_tool = "line";
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -1771,7 +1783,7 @@ DocumentState DocumentManager::add_sketch_rectangle(double start_x,
       feature_it->sketch_parameters->dimensions.back().id;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->active_sketch_tool = "rectangle";
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -1808,7 +1820,7 @@ DocumentState DocumentManager::add_sketch_circle(double center_x,
       feature_it->sketch_parameters->dimensions.back().id;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->active_sketch_tool = "circle";
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -1963,7 +1975,7 @@ DocumentState DocumentManager::finish_sketch() {
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -2005,7 +2017,7 @@ DocumentState DocumentManager::reenter_sketch(const std::string& feature_id) {
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
-  document_->revision += 1;
+  bump_geometry_revision();
   return document_.value();
 }
 
@@ -2166,7 +2178,7 @@ DocumentState DocumentManager::project_face_into_sketch(
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
-  document_->revision += 1;
+  bump_geometry_revision();
 
   return document_.value();
 }
@@ -2296,7 +2308,7 @@ DocumentState DocumentManager::load_document_from_path(
   }
 
   if (document_) {
-    document_->revision += 1;
+    bump_geometry_revision();
   }
 
   return document_.value();

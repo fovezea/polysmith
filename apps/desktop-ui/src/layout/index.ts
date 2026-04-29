@@ -7,5 +7,4 @@ export * from "./FeatureTimeline";
 export * from "./MessageLog";
 export * from "./ExtrudePreviewPanel";
 export * from "./EdgeOpPreviewPanel";
-export * from "./SketchToolPanel";
 export * from "./ViewportPanel";

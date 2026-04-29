@@ -1,14 +1,16 @@
 import { ConstraintType, SketchTool, ArmedSketchConstraint } from "@/types";
-import { ConstraintIcon, SketchToolIcon } from "./ToolBarIcons";
+import {
+  ConstraintIcon,
+  ProjectFaceIcon,
+  SketchToolIcon,
+} from "./ToolBarIcons";
 
 interface SketchToolbarProps {
   disabled?: boolean;
   activeSketchPlaneId: string | null;
   activeSketchTool: SketchTool | null;
   selectedReferenceId: string | null;
-  selectedReferenceLabel: string | null;
-  sketchLineCount: number;
-  sketchCircleCount: number;
+  selectedFaceId: string | null;
   armedSketchConstraint: ArmedSketchConstraint;
 
   onStartSketch: () => Promise<void>;
@@ -16,6 +18,7 @@ interface SketchToolbarProps {
   onCancelSketchConstraint: () => void;
   onSetSketchTool: (tool: SketchTool) => Promise<void>;
   onArmSketchConstraint: (constraint: ConstraintType) => Promise<void>;
+  onProjectFace: () => Promise<void>;
 }
 
 const sketchTools: Array<{
@@ -37,16 +40,17 @@ export function SketchToolbar({
   activeSketchPlaneId,
   activeSketchTool,
   selectedReferenceId,
-  selectedReferenceLabel,
-  sketchLineCount,
-  sketchCircleCount,
+  selectedFaceId,
   armedSketchConstraint,
   onStartSketch,
   onFinishSketch,
   onCancelSketchConstraint,
   onSetSketchTool,
   onArmSketchConstraint,
+  onProjectFace,
 }: SketchToolbarProps) {
+  const canProjectFace =
+    Boolean(activeSketchPlaneId) && Boolean(selectedFaceId);
   return (
     <>
       <button
@@ -62,11 +66,6 @@ export function SketchToolbar({
       >
         {activeSketchPlaneId ? "Finish Sketch" : "Start Sketch"}
       </button>
-      <div className="cad-tool-group-label">
-        {activeSketchPlaneId
-          ? `${activeSketchPlaneId} · ${sketchLineCount} line${sketchLineCount === 1 ? "" : "s"} · ${sketchCircleCount} circle${sketchCircleCount === 1 ? "" : "s"}`
-          : (selectedReferenceLabel ?? "Select a plane to sketch")}
-      </div>
       {sketchTools.map((tool) => (
         <button
           key={tool.id}
@@ -97,6 +96,18 @@ export function SketchToolbar({
           <SketchToolIcon tool={tool.id} />
         </button>
       ))}
+      <div className="h-8 w-px bg-white/10" />
+      <button
+        className="cad-icon-button cad-icon-tool h-9 w-9 p-0"
+        data-tooltip="Project Face (P)"
+        aria-label="Project Face"
+        disabled={!canProjectFace}
+        onClick={() => {
+          void onProjectFace();
+        }}
+      >
+        <ProjectFaceIcon />
+      </button>
       <div className="h-8 w-px bg-white/10" />
       <div className="cad-tool-group-label">Constraints</div>
       <button

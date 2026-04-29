@@ -193,6 +193,13 @@ class DocumentManager {
   void require_document() const;
   void push_undo_state();
   void clear_redo_stack();
+  // Re-resolve face-based plane frames, propagate broken-dependency
+  // state, and bump the document revision. Use this from any mutator
+  // that can affect upstream body geometry (extrudes, fillets/chamfers,
+  // suppress, delete, undo/redo, sketch profile edits, etc.). Pure
+  // selection mutators stick with the plain revision bump because the
+  // refresh would be a no-op.
+  void bump_geometry_revision();
 
   int next_document_id_ = 1;
   int next_feature_id_ = 1;

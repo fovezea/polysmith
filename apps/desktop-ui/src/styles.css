@@ -296,6 +296,62 @@ button:not(:disabled),
     background: var(--cad-sidebar-bg);
   }
 
+  /* Drag handle on the sidebar's right edge. Sits flush with the
+   * border so the user can grab the seam between hierarchy and
+   * viewport without needing a visible affordance at rest. */
+  .cad-sidebar-resizer {
+    position: absolute;
+    top: 0;
+    right: -3px;
+    bottom: 0;
+    width: 6px;
+    cursor: col-resize;
+    z-index: 5;
+    transition: background-color 140ms var(--cad-ease);
+  }
+
+  .cad-sidebar-resizer:hover,
+  .cad-sidebar-resizer:active {
+    background-color: var(--cad-accent-outline-strong);
+  }
+
+  /* Thin vertical bar shown in place of the sidebar when the user
+   * collapses it. Clicking anywhere on it expands the panel back. */
+  .cad-sidebar-collapsed {
+    @apply backdrop-blur-lg;
+    width: 28px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--cad-panel-soft-border);
+    background: var(--cad-sidebar-bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background-color 140ms var(--cad-ease);
+  }
+
+  .cad-sidebar-collapsed:hover {
+    background: var(--cad-subtle-surface-strong);
+  }
+
+  .cad-sidebar-collapsed-label {
+    @apply font-display text-[11px] uppercase tracking-[0.22em] text-primary-glow;
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    user-select: none;
+  }
+
+  .cad-sidebar-collapse-button {
+    @apply inline-flex h-6 w-6 items-center justify-center rounded-md text-on-surface-dim transition-colors;
+    background: transparent;
+    font-size: 11px;
+  }
+
+  .cad-sidebar-collapse-button:hover {
+    background: var(--cad-subtle-surface-strong);
+    color: var(--color-on-surface);
+  }
+
   .cad-timeline {
     @apply backdrop-blur-xl;
     border-top: 1px solid var(--cad-panel-soft-border);

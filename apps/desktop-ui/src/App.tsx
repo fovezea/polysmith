@@ -12,7 +12,6 @@ import {
   ExtrudePreviewPanel,
   FeatureTimeline,
   MessageLog,
-  SketchToolPanel,
   ViewportPanel,
 } from "./layout";
 import type { CategoryId } from "./layout";
@@ -77,6 +76,12 @@ function App() {
   const [hiddenCategories, setHiddenCategories] = useState<Set<CategoryId>>(
     () => new Set<CategoryId>(),
   );
+  // Hierarchy sidebar layout. Collapsed: shown as a thin vertical bar
+  // labelled "Hierarchy" on the left edge. Width is user-resizable
+  // via a drag handle on the sidebar's right edge.
+  const [isHierarchyCollapsed, setIsHierarchyCollapsed] =
+    useState<boolean>(false);
+  const [hierarchyWidth, setHierarchyWidth] = useState<number>(320);
   const status = useCadCoreStore((state) => state.status);
   const messages = useCadCoreStore((state) => state.messages);
   const document = useCadCoreStore((state) => state.document);
@@ -91,15 +96,6 @@ function App() {
     viewport?.sketch_profiles.find((profile) => profile.is_selected) ?? null;
   const activeSketchPlaneId = document?.active_sketch_plane_id ?? null;
   const activeSketchTool = document?.active_sketch_tool ?? null;
-  const activeSketchFeature =
-    document?.feature_history.find(
-      (feature) => feature.feature_id === document.active_sketch_feature_id,
-    ) ?? null;
-  const sketchLineCount =
-    activeSketchFeature?.sketch_parameters?.lines.length ?? 0;
-  const sketchCircleCount =
-    activeSketchFeature?.sketch_parameters?.circles.length ?? 0;
-
   function toCorePlaneFrame(planeFrame: {
     origin: [number, number, number];
     xAxis: [number, number, number];
@@ -553,6 +549,24 @@ function App() {
         void triggerEdgeOpAction("chamfer");
         return;
       }
+
+      // P: Project the currently-selected face into the active
+      // sketch. No-op outside sketch mode or when no face is
+      // selected, matching the toolbar button's enabled state.
+      if (event.code === "KeyP") {
+        if (!activeSketchPlaneId) {
+          return;
+        }
+        const faceId = document?.selected_face_id ?? null;
+        if (!faceId) {
+          return;
+        }
+        event.preventDefault();
+        void runAction(async () => {
+          await projectFaceIntoSketch(faceId);
+        });
+        return;
+      }
     }
 
     window.addEventListener("keydown", handleKeyDown);
@@ -563,6 +577,7 @@ function App() {
     selectedSketchProfile,
     extrudeAction,
     edgeOpAction,
+    activeSketchPlaneId,
     document?.selected_edge_ids,
     document?.selected_face_id,
     viewport?.solid_faces,
@@ -802,9 +817,7 @@ function App() {
           activeSketchPlaneId={activeSketchPlaneId}
           activeSketchTool={activeSketchTool}
           selectedReferenceId={selectedReference?.reference_id ?? null}
-          selectedReferenceLabel={selectedReference?.label ?? null}
-          sketchLineCount={sketchLineCount}
-          sketchCircleCount={sketchCircleCount}
+          selectedFaceId={document?.selected_face_id ?? null}
           armedSketchConstraint={armedSketchConstraint}
           onStart={async () => {
             await runAction(start);
@@ -943,65 +956,126 @@ function App() {
             }
           }}
           onCancelSketchConstraint={clearArmedSketchConstraint}
+          onProjectFace={async () => {
+            const faceId = document?.selected_face_id ?? null;
+            if (!faceId) {
+              return;
+            }
+            await runAction(async () => {
+              await projectFaceIntoSketch(faceId);
+            });
+          }}
         />
 
-        <div className="grid min-h-0 min-w-0 grid-cols-[320px_minmax(0,1fr)]">
-          <aside className="cad-sidebar min-h-0">
-            <div className="flex h-full min-h-0 flex-col">
-              <DocumentHierarchyPanel
-                document={document}
-                hiddenFeatureIds={hiddenFeatureIds}
-                hiddenCategories={hiddenCategories}
-                onToggleFeatureVisibility={(featureId) => {
-                  setHiddenFeatureIds((current) => {
-                    const next = new Set(current);
-                    if (next.has(featureId)) {
-                      next.delete(featureId);
-                    } else {
-                      next.add(featureId);
-                    }
-                    return next;
-                  });
-                }}
-                onToggleCategoryVisibility={(category) => {
-                  setHiddenCategories((current) => {
-                    const next = new Set(current);
-                    if (next.has(category)) {
-                      next.delete(category);
-                    } else {
-                      next.add(category);
-                    }
-                    return next;
-                  });
-                }}
-                onSelectFeature={async (featureId) => {
-                  await runAction(async () => {
-                    await selectFeature(featureId);
-                  });
-                }}
-                onReenterSketch={async (featureId) => {
-                  await runAction(async () => {
-                    await reenterSketch(featureId);
-                  });
-                }}
-                onRenameFeature={async (featureId, name) => {
-                  await runAction(async () => {
-                    await renameFeature(featureId, name);
-                  });
-                }}
-                onDeleteFeature={async (featureId) => {
-                  confirmAndDeleteFeature(featureId);
-                }}
-                onSetFeatureSuppressed={async (featureId, suppressed) => {
-                  await runAction(async () => {
-                    await setFeatureSuppressed(featureId, suppressed);
-                  });
+        <div className="flex min-h-0 min-w-0">
+          {isHierarchyCollapsed ? (
+            <button
+              type="button"
+              className="cad-sidebar-collapsed"
+              onClick={() => setIsHierarchyCollapsed(false)}
+              aria-label="Expand hierarchy panel"
+              title="Expand hierarchy"
+            >
+              <span className="cad-sidebar-collapsed-label">Hierarchy</span>
+            </button>
+          ) : (
+            <aside
+              className="cad-sidebar relative min-h-0 flex-shrink-0"
+              style={{ width: hierarchyWidth }}
+            >
+              <div className="flex h-full min-h-0 flex-col">
+                <div className="flex items-center justify-between gap-2 px-3 pt-2">
+                  <span className="cad-kicker">Hierarchy</span>
+                  <button
+                    type="button"
+                    className="cad-sidebar-collapse-button"
+                    onClick={() => setIsHierarchyCollapsed(true)}
+                    aria-label="Collapse hierarchy panel"
+                    title="Collapse"
+                  >
+                    ◀
+                  </button>
+                </div>
+                <DocumentHierarchyPanel
+                  document={document}
+                  hiddenFeatureIds={hiddenFeatureIds}
+                  hiddenCategories={hiddenCategories}
+                  onToggleFeatureVisibility={(featureId) => {
+                    setHiddenFeatureIds((current) => {
+                      const next = new Set(current);
+                      if (next.has(featureId)) {
+                        next.delete(featureId);
+                      } else {
+                        next.add(featureId);
+                      }
+                      return next;
+                    });
+                  }}
+                  onToggleCategoryVisibility={(category) => {
+                    setHiddenCategories((current) => {
+                      const next = new Set(current);
+                      if (next.has(category)) {
+                        next.delete(category);
+                      } else {
+                        next.add(category);
+                      }
+                      return next;
+                    });
+                  }}
+                  onSelectFeature={async (featureId) => {
+                    await runAction(async () => {
+                      await selectFeature(featureId);
+                    });
+                  }}
+                  onReenterSketch={async (featureId) => {
+                    await runAction(async () => {
+                      await reenterSketch(featureId);
+                    });
+                  }}
+                  onRenameFeature={async (featureId, name) => {
+                    await runAction(async () => {
+                      await renameFeature(featureId, name);
+                    });
+                  }}
+                  onDeleteFeature={async (featureId) => {
+                    confirmAndDeleteFeature(featureId);
+                  }}
+                  onSetFeatureSuppressed={async (featureId, suppressed) => {
+                    await runAction(async () => {
+                      await setFeatureSuppressed(featureId, suppressed);
+                    });
+                  }}
+                />
+              </div>
+              <div
+                className="cad-sidebar-resizer"
+                onPointerDown={(event) => {
+                  // Pointer-driven drag: capture the start position
+                  // and width, then update on every move until the
+                  // user releases. Width is clamped to keep the
+                  // panel usable.
+                  event.preventDefault();
+                  const startX = event.clientX;
+                  const startWidth = hierarchyWidth;
+                  const onMove = (moveEvent: PointerEvent) => {
+                    const next = Math.max(
+                      220,
+                      Math.min(640, startWidth + (moveEvent.clientX - startX)),
+                    );
+                    setHierarchyWidth(next);
+                  };
+                  const onUp = () => {
+                    window.removeEventListener("pointermove", onMove);
+                    window.removeEventListener("pointerup", onUp);
+                  };
+                  window.addEventListener("pointermove", onMove);
+                  window.addEventListener("pointerup", onUp);
                 }}
               />
-            </div>
-          </aside>
+            </aside>
+          )}
 
-          <section className="relative min-h-0 min-w-0">
+          <section className="relative min-h-0 min-w-0 flex-1">
             <ViewportPanel
               status={status}
               document={document}
@@ -1158,31 +1232,6 @@ function App() {
             />
 
             <div className="pointer-events-none absolute right-4 top-4 z-10 flex max-h-[calc(100%-1rem)] w-[340px] flex-col gap-3">
-              {activeSketchPlaneId && activeSketchTool ? (
-                <SketchToolPanel
-                  activeSketchPlaneId={activeSketchPlaneId}
-                  activeSketchTool={activeSketchTool}
-                  selectedSketchPointId={
-                    document?.selected_sketch_point_id ?? null
-                  }
-                  selectedSketchEntityId={
-                    document?.selected_sketch_entity_id ?? null
-                  }
-                  selectedSketchProfileId={
-                    document?.selected_sketch_profile_id ?? null
-                  }
-                  selectedFaceId={document?.selected_face_id ?? null}
-                  onProjectFace={async () => {
-                    const faceId = document?.selected_face_id ?? null;
-                    if (!faceId) {
-                      return;
-                    }
-                    await runAction(async () => {
-                      await projectFaceIntoSketch(faceId);
-                    });
-                  }}
-                />
-              ) : null}
               {extrudeAction
                 ? (() => {
                     // Bodies that the in-progress extrude can target. We

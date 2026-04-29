@@ -92,9 +92,7 @@ interface AppHeaderProps {
   activeSketchPlaneId: string | null;
   activeSketchTool: SketchTool | null;
   selectedReferenceId: string | null;
-  selectedReferenceLabel: string | null;
-  sketchLineCount: number;
-  sketchCircleCount: number;
+  selectedFaceId: string | null;
   armedSketchConstraint: ArmedSketchConstraint;
   onStart: () => Promise<void>;
   onCreateDocument: () => Promise<void>;
@@ -121,6 +119,7 @@ interface AppHeaderProps {
   onSetSketchTool: (tool: SketchTool) => Promise<void>;
   onArmSketchConstraint: (constraint: ConstraintType) => Promise<void>;
   onCancelSketchConstraint: () => void;
+  onProjectFace: () => Promise<void>;
 }
 
 export function AppHeader({
@@ -131,9 +130,7 @@ export function AppHeader({
   activeSketchPlaneId,
   activeSketchTool,
   selectedReferenceId,
-  selectedReferenceLabel,
-  sketchLineCount,
-  sketchCircleCount,
+  selectedFaceId,
   armedSketchConstraint,
   onStart,
   onCreateDocument,
@@ -152,6 +149,7 @@ export function AppHeader({
   onSetSketchTool,
   onArmSketchConstraint,
   onCancelSketchConstraint,
+  onProjectFace,
 }: AppHeaderProps) {
   const [activeWorkspace, setActiveWorkspace] =
     useState<(typeof workspaces)[number]>("Create");
@@ -284,15 +282,14 @@ export function AppHeader({
               activeSketchPlaneId={activeSketchPlaneId}
               activeSketchTool={activeSketchTool}
               selectedReferenceId={selectedReferenceId}
-              selectedReferenceLabel={selectedReferenceLabel}
-              sketchLineCount={sketchLineCount}
-              sketchCircleCount={sketchCircleCount}
+              selectedFaceId={selectedFaceId}
               armedSketchConstraint={armedSketchConstraint}
               onStartSketch={onStartSketch}
               onFinishSketch={onFinishSketch}
               onCancelSketchConstraint={onCancelSketchConstraint}
               onSetSketchTool={onSetSketchTool}
               onArmSketchConstraint={onArmSketchConstraint}
+              onProjectFace={onProjectFace}
             />
           ) : null}
         </div>

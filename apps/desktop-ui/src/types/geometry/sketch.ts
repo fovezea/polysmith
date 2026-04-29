@@ -103,6 +103,12 @@ export interface FeatureEntry {
   // shown in the timeline / hierarchy (dimmed) so the user can
   // unsuppress it.
   suppressed?: boolean;
+  // True when an upstream reference (face-based sketch plane, etc.)
+  // can no longer be resolved. Defaults to false so older saves and
+  // freshly-built features behave normally.
+  dependency_broken?: boolean;
+  // Human-readable explanation, surfaced as the timeline tooltip.
+  dependency_warning?: string;
   parameters_summary: string;
   box_parameters: BoxFeatureParameters | null;
   cylinder_parameters: CylinderFeatureParameters | null;

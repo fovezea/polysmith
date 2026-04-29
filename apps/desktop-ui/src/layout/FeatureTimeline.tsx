@@ -159,16 +159,25 @@ export function FeatureTimeline({
           .map((feature) => {
             const active = feature.feature_id === document.selected_feature_id;
             const suppressed = feature.suppressed === true;
+            const dependencyBroken = feature.dependency_broken === true;
             // Tooltip carries both the human-readable name (e.g. "Box 2")
             // and the kind, plus a (suppressed) suffix so the user knows
-            // why the feature is missing from the viewport.
+            // why the feature is missing from the viewport. When a
+            // dependency is broken we surface the warning text from the
+            // core verbatim — that's the signal that lets the user fix
+            // it (e.g. "Sketch plane references a face that no longer
+            // exists on body 'feature-2'.").
             const baseTooltip =
               feature.name && feature.name !== feature.kind
                 ? `${feature.name} (${feature.kind})`
                 : feature.kind;
-            const tooltip = suppressed
-              ? `${baseTooltip} — suppressed`
-              : baseTooltip;
+            let tooltip = baseTooltip;
+            if (suppressed) {
+              tooltip = `${tooltip} — suppressed`;
+            }
+            if (dependencyBroken && feature.dependency_warning) {
+              tooltip = `${tooltip}\n⚠ ${feature.dependency_warning}`;
+            }
             return (
               <button
                 key={feature.feature_id}
@@ -195,7 +204,16 @@ export function FeatureTimeline({
                   (active
                     ? "cad-icon-button cad-icon-tool cad-icon-tool-active h-9 w-9 p-0"
                     : "cad-icon-button cad-icon-tool h-9 w-9 p-0") +
-                  (suppressed ? " opacity-40" : "")
+                  (suppressed ? " opacity-40" : "") +
+                  // Warning ring + yellow tint when an upstream
+                  // reference is broken. Tailwind's amber palette
+                  // reads as the conventional "needs attention"
+                  // colour without competing with the orange
+                  // selection accent we already use elsewhere in the
+                  // viewport.
+                  (dependencyBroken && !suppressed
+                    ? " ring-2 ring-amber-400/80 text-amber-300"
+                    : "")
                 }
                 data-tooltip={tooltip}
                 aria-label={tooltip}

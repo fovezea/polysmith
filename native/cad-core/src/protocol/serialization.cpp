@@ -235,6 +235,12 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
       {"name", feature.name},
       {"status", feature.status},
       {"suppressed", feature.suppressed},
+      // Surface broken-dependency state to the UI so the timeline can
+      // render the warning. The frame on the feature itself stays at
+      // its last-known value; this flag is the only signal that the
+      // upstream face it referenced is gone.
+      {"dependency_broken", feature.dependency_broken},
+      {"dependency_warning", feature.dependency_warning},
       {"parameters_summary", feature.parameters_summary},
       {"box_parameters",
        feature.box_parameters.has_value()
@@ -1087,6 +1093,18 @@ polysmith::core::FeatureEntry feature_entry_from_payload(const json& payload) {
   // missing/non-bool fields as false so loading them is non-fatal.
   if (payload.contains("suppressed") && payload.at("suppressed").is_boolean()) {
     feature.suppressed = payload.at("suppressed").get<bool>();
+  }
+  // Older saves predate dependency tracking — default to clean state.
+  // The first geometry mutation after load will recompute the flag
+  // anyway via `refresh_history_dependencies`.
+  if (payload.contains("dependency_broken") &&
+      payload.at("dependency_broken").is_boolean()) {
+    feature.dependency_broken = payload.at("dependency_broken").get<bool>();
+  }
+  if (payload.contains("dependency_warning") &&
+      payload.at("dependency_warning").is_string()) {
+    feature.dependency_warning =
+        payload.at("dependency_warning").get<std::string>();
   }
 
   if (payload.contains("box_parameters") &&
