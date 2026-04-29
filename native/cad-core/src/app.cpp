@@ -324,6 +324,70 @@ void CadCoreApp::handle_command_line(const std::string& line) {
     return;
   }
 
+  if (command.type == "select_edge") {
+    const auto document =
+        document_manager().select_edge(read_string(command.payload, "edge_id"));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "select_vertex") {
+    const auto document = document_manager().select_vertex(
+        read_string(command.payload, "vertex_id"));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "create_fillet") {
+    const auto document = document_manager().create_fillet(
+        read_string(command.payload, "edge_id"),
+        read_dimension(command.payload, "radius"));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "update_fillet_radius") {
+    const auto document = document_manager().update_fillet_radius(
+        read_string(command.payload, "feature_id"),
+        read_dimension(command.payload, "radius"));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "create_chamfer") {
+    const auto document = document_manager().create_chamfer(
+        read_string(command.payload, "edge_id"),
+        read_dimension(command.payload, "distance"));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "update_chamfer_distance") {
+    const auto document = document_manager().update_chamfer_distance(
+        read_string(command.payload, "feature_id"),
+        read_dimension(command.payload, "distance"));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
   if (command.type == "start_sketch_on_plane") {
     const auto document = document_manager().start_sketch_on_plane(
         read_string(command.payload, "reference_id"));
@@ -482,9 +546,53 @@ void CadCoreApp::handle_command_line(const std::string& line) {
   }
 
   if (command.type == "extrude_profile") {
+    // Optional `mode` payload field selects boolean composition behavior;
+    // defaults to "new_body" when absent so existing UI flows keep working.
+    // Optional `target_body_id` picks which existing body cut/join targets;
+    // when absent the body compiler falls back to the most recent body.
+    std::string mode = "new_body";
+    if (command.payload.contains("mode") &&
+        command.payload.at("mode").is_string()) {
+      mode = command.payload.at("mode").get<std::string>();
+    }
+    std::optional<std::string> target_body_id;
+    if (command.payload.contains("target_body_id") &&
+        command.payload.at("target_body_id").is_string()) {
+      target_body_id =
+          command.payload.at("target_body_id").get<std::string>();
+    }
     const auto document = document_manager().extrude_profile(
         read_string(command.payload, "profile_id"),
-        read_dimension(command.payload, "depth"));
+        read_dimension(command.payload, "depth"),
+        mode,
+        target_body_id);
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "update_extrude_mode") {
+    const auto document = document_manager().update_extrude_mode(
+        read_string(command.payload, "feature_id"),
+        read_string(command.payload, "mode"));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "update_extrude_target_body") {
+    std::optional<std::string> target_body_id;
+    if (command.payload.contains("target_body_id") &&
+        command.payload.at("target_body_id").is_string()) {
+      target_body_id =
+          command.payload.at("target_body_id").get<std::string>();
+    }
+    const auto document = document_manager().update_extrude_target_body(
+        read_string(command.payload, "feature_id"), target_body_id);
 
     polysmith::protocol::write_message(
         polysmith::protocol::make_document_state_event(

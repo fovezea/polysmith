@@ -12,6 +12,9 @@ import {
   SketchConstraintScene,
   SketchDimensionScene,
   SketchLineScene,
+  SceneEdge,
+  SceneVertex,
+  CutPreviewScene,
   SketchPlaneFrame,
   SketchPointScene,
   SketchProfileScene,
@@ -187,7 +190,7 @@ export function buildPrimitiveObject(primitive: ScenePrimitive) {
       primitive.height,
       48,
     );
-  } else {
+  } else if (primitive.kind === "polygon_extrude") {
     const shape = new THREE.Shape();
     primitive.profilePoints.forEach((point, index) => {
       if (index === 0) {
@@ -208,10 +211,28 @@ export function buildPrimitiveObject(primitive: ScenePrimitive) {
         ? makePlaneTransformMatrixFromFrame(primitive.planeFrame)
         : makePlaneTransformMatrix(primitive.planeId),
     );
+  } else {
+    // Boolean'd body tessellated by the native core. Vertices are already
+    // in world space, so no extra transform is needed.
+    const meshGeometry = new THREE.BufferGeometry();
+    meshGeometry.setAttribute(
+      "position",
+      new THREE.BufferAttribute(primitive.positions, 3),
+    );
+    if (primitive.normals.length === primitive.positions.length) {
+      meshGeometry.setAttribute(
+        "normal",
+        new THREE.BufferAttribute(primitive.normals, 3),
+      );
+    } else {
+      meshGeometry.computeVertexNormals();
+    }
+    meshGeometry.setIndex(new THREE.BufferAttribute(primitive.indices, 1));
+    geometry = meshGeometry;
   }
 
   const mesh = new THREE.Mesh(geometry, baseMaterial);
-  if (primitive.kind !== "polygon_extrude") {
+  if (primitive.kind === "box" || primitive.kind === "cylinder") {
     mesh.position.set(...primitive.position);
   }
   mesh.userData.primitiveId = primitive.primitiveId;
@@ -220,7 +241,7 @@ export function buildPrimitiveObject(primitive: ScenePrimitive) {
     new THREE.EdgesGeometry(geometry),
     edgeMaterial,
   );
-  if (primitive.kind !== "polygon_extrude") {
+  if (primitive.kind === "box" || primitive.kind === "cylinder") {
     edges.position.copy(mesh.position);
   }
 
@@ -459,6 +480,88 @@ export function buildReferenceAxisObject(axis: ReferenceAxisScene) {
   return { line };
 }
 
+// Build a pickable polyline for a body edge. The line carries the edge id
+// in `userData.edgeId` for the raycaster, and `renderOrder = 1` plus
+// `depthTest = false` keep the highlight readable on top of the body's
+// face fills (which sit at `renderOrder = 0`).
+export function buildSceneEdgeObject(edge: SceneEdge): THREE.Line {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(edge.points, 3));
+
+  const material = new THREE.LineBasicMaterial({
+    color: edge.isSelected
+      ? themeColor("--color-primary-glow", "#6de3ef")
+      : themeColor("--color-primary-edge", "#91f2ff"),
+    transparent: true,
+    opacity: edge.isSelected ? 1 : 0.55,
+    linewidth: 1, // most browsers ignore this; selection still reads via color
+    depthTest: false,
+  });
+
+  const line = new THREE.Line(geometry, material);
+  line.userData.edgeId = edge.edgeId;
+  line.renderOrder = 1;
+  return line;
+}
+
+// Build a pickable vertex marker. We use a small sphere mesh rather than
+// THREE.Points so the pick is consistent across DPI / camera distances —
+// a sphere has a real bounding volume the raycaster can hit reliably.
+// The marker sits on top of edges/faces via `renderOrder = 2` and
+// `depthTest = false` so it's never occluded.
+const VERTEX_RADIUS = 0.6;
+// Build the translucent red overlay mesh for a cut preview. The overlay
+// is non-pickable (`raycast = no-op`) so the user keeps picking the
+// underlying booleaned body's faces and edges, not this preview.
+export function buildCutPreviewObject(preview: CutPreviewScene): THREE.Mesh {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new THREE.BufferAttribute(preview.positions, 3),
+  );
+  if (preview.normals.length === preview.positions.length) {
+    geometry.setAttribute(
+      "normal",
+      new THREE.BufferAttribute(preview.normals, 3),
+    );
+  }
+  geometry.setIndex(new THREE.BufferAttribute(preview.indices, 1));
+  // Solid red translucent so the user reads it as "this volume is being
+  // removed". We render with depthWrite off and a higher renderOrder so
+  // the overlay always reads through other geometry, matching Fusion's
+  // preview behavior.
+  const material = new THREE.MeshBasicMaterial({
+    color: 0xff3344,
+    transparent: true,
+    opacity: 0.35,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.renderOrder = 5;
+  // Preview is purely visual — never participate in raycasting.
+  mesh.raycast = () => {};
+  mesh.userData.cutPreviewId = preview.id;
+  return mesh;
+}
+
+export function buildSceneVertexObject(vertex: SceneVertex): THREE.Mesh {
+  const geometry = new THREE.SphereGeometry(VERTEX_RADIUS, 12, 8);
+  const material = new THREE.MeshBasicMaterial({
+    color: vertex.isSelected
+      ? themeColor("--color-primary-glow", "#6de3ef")
+      : themeColor("--color-primary-edge", "#91f2ff"),
+    transparent: true,
+    opacity: vertex.isSelected ? 1 : 0.85,
+    depthTest: false,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.set(vertex.position[0], vertex.position[1], vertex.position[2]);
+  mesh.userData.vertexId = vertex.vertexId;
+  mesh.renderOrder = 2;
+  return mesh;
+}
+
 export function orientFaceMesh(mesh: THREE.Object3D, face: SolidFaceScene) {
   if (Math.abs(face.normal[1]) > 0.5) {
     mesh.rotation.x = -Math.PI / 2;
@@ -478,12 +581,34 @@ export function buildSolidFaceObject(face: SolidFaceScene) {
     side: THREE.DoubleSide,
     depthWrite: false,
   });
-  const geometry = new THREE.PlaneGeometry(
-    Math.max(face.size.width || face.size.radius * 2 || 1, 1),
-    Math.max(face.size.height || face.size.radius * 2 || 1, 1),
-  );
+
+  // Body-derived faces ship a real triangulation in world space —
+  // build a BufferGeometry directly so picking and visuals match the
+  // actual face shape (booleaned, filleted, plane-frame-rotated, etc.).
+  // Legacy analytical faces (no triangulation) fall back to the old
+  // PlaneGeometry transformed into the face's plane frame.
+  let geometry: THREE.BufferGeometry;
+  let appliesPlaneTransform: boolean;
+  if (face.trianglePositions.length > 0 && face.triangleIndices.length > 0) {
+    geometry = new THREE.BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new THREE.BufferAttribute(face.trianglePositions, 3),
+    );
+    geometry.setIndex(new THREE.BufferAttribute(face.triangleIndices, 1));
+    appliesPlaneTransform = false;
+  } else {
+    geometry = new THREE.PlaneGeometry(
+      Math.max(face.size.width || face.size.radius * 2 || 1, 1),
+      Math.max(face.size.height || face.size.radius * 2 || 1, 1),
+    );
+    appliesPlaneTransform = true;
+  }
+
   const mesh = new THREE.Mesh(geometry, fillMaterial);
-  mesh.applyMatrix4(makePlaneTransformMatrixFromFrame(face.planeFrame));
+  if (appliesPlaneTransform) {
+    mesh.applyMatrix4(makePlaneTransformMatrixFromFrame(face.planeFrame));
+  }
   mesh.userData.faceId = face.faceId;
   mesh.renderOrder = 4;
   return {

@@ -9,6 +9,9 @@ import type {
   PlaneFrame,
   SceneBounds,
   ScenePrimitive,
+  SceneEdge,
+  SceneVertex,
+  CutPreviewScene,
   SolidFaceScene,
   SceneReference,
   SketchLineScene,
@@ -70,6 +73,11 @@ export interface ViewportSolidFace {
     height: number;
     radius: number;
   };
+  // Body-derived faces carry triangulation arrays; legacy analytical
+  // faces leave these empty and the UI builds a pick mesh from
+  // (size, plane_frame) instead.
+  triangle_positions: number[];
+  triangle_indices: number[];
   is_selected: boolean;
 }
 
@@ -168,6 +176,9 @@ export interface ViewportScene {
   bounds: SceneBounds;
   primitives: ScenePrimitive[];
   solidFaces: SolidFaceScene[];
+  edges: SceneEdge[];
+  vertices: SceneVertex[];
+  cutPreviews: CutPreviewScene[];
   references: SceneReference[];
   sketchLines: SketchLineScene[];
   sketchCircles: SketchCircleScene[];

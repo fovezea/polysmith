@@ -8,6 +8,8 @@ const documentStateSchema = z.object({
   selected_feature_id: z.string().nullable(),
   selected_reference_id: z.string().nullable(),
   selected_face_id: z.string().nullable(),
+  selected_edge_id: z.string().nullable().default(null),
+  selected_vertex_id: z.string().nullable().default(null),
   active_sketch_plane_id: z.string().nullable(),
   active_sketch_face_id: z.string().nullable(),
   active_sketch_feature_id: z.string().nullable(),
@@ -64,8 +66,26 @@ const documentStateSchema = z.object({
             }),
           ),
           depth: z.number(),
+          mode: z.enum(["new_body", "join", "cut"]).default("new_body"),
+          target_body_id: z.string().nullable().default(null),
         })
         .nullable(),
+      fillet_parameters: z
+        .object({
+          target_body_id: z.string(),
+          edge_ids: z.array(z.string()),
+          radius: z.number(),
+        })
+        .nullable()
+        .default(null),
+      chamfer_parameters: z
+        .object({
+          target_body_id: z.string(),
+          edge_ids: z.array(z.string()),
+          distance: z.number(),
+        })
+        .nullable()
+        .default(null),
       sketch_parameters: z
         .object({
           plane_id: z.string(),
@@ -239,6 +259,11 @@ const viewportStateSchema = z.object({
         height: z.number(),
         radius: z.number(),
       }),
+      // Body-derived faces carry per-face triangulation; legacy
+      // analytical faces leave these empty and rely on (size, plane_frame)
+      // for the UI's pick mesh.
+      triangle_positions: z.array(z.number()).default([]),
+      triangle_indices: z.array(z.number()).default([]),
       is_selected: z.boolean(),
     }),
   ),
@@ -409,6 +434,56 @@ const viewportStateSchema = z.object({
       is_selected: z.boolean(),
     }),
   ),
+  meshes: z
+    .array(
+      z.object({
+        primitive_id: z.string(),
+        positions: z.array(z.number()),
+        normals: z.array(z.number()),
+        indices: z.array(z.number()),
+        is_selected: z.boolean(),
+      }),
+    )
+    .default([]),
+  cut_previews: z
+    .array(
+      z.object({
+        id: z.string(),
+        positions: z.array(z.number()),
+        normals: z.array(z.number()),
+        indices: z.array(z.number()),
+      }),
+    )
+    .default([]),
+  bodies: z
+    .array(
+      z.object({
+        id: z.string(),
+        label: z.string(),
+      }),
+    )
+    .default([]),
+  edges: z
+    .array(
+      z.object({
+        id: z.string(),
+        owner_body_id: z.string(),
+        kind: z.string(),
+        points: z.array(z.number()),
+        is_selected: z.boolean(),
+      }),
+    )
+    .default([]),
+  vertices: z
+    .array(
+      z.object({
+        id: z.string(),
+        owner_body_id: z.string(),
+        position: z.object({ x: z.number(), y: z.number(), z: z.number() }),
+        is_selected: z.boolean(),
+      }),
+    )
+    .default([]),
   scene_width: z.number(),
   scene_height: z.number(),
   scene_depth: z.number(),

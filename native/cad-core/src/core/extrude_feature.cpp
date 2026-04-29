@@ -1,5 +1,6 @@
 #include "core/extrude_feature.h"
 
+#include <cmath>
 #include <sstream>
 #include <stdexcept>
 
@@ -16,8 +17,12 @@ namespace polysmith::core {
 namespace {
 
 void validate_parameters(const ExtrudeFeatureParameters& parameters) {
-  if (parameters.depth <= 0.0) {
-    throw std::runtime_error("Extrude depth must be greater than zero");
+  // Depth may be positive (extrude in +normal direction) or negative
+  // (extrude in -normal direction). Zero depth is rejected because it
+  // would build a degenerate face-only shape with no volume to boolean
+  // against.
+  if (parameters.depth == 0.0) {
+    throw std::runtime_error("Extrude depth must be non-zero");
   }
 
   if (parameters.profile_kind == "rectangle") {
@@ -45,13 +50,19 @@ void validate_parameters(const ExtrudeFeatureParameters& parameters) {
 }
 
 void validate_occt_shape(const ExtrudeFeatureParameters& parameters) {
+  // Validation only checks that OCCT can build *some* shape with these
+  // parameters; it doesn't have to match the world-space shape that
+  // build_extrude_shape produces. Negative depths are validated via
+  // abs(depth) on the legacy primitives below since BRepPrimAPI_MakeBox
+  // and BRepPrimAPI_MakeCylinder reject non-positive dimensions.
+  const double abs_depth = std::abs(parameters.depth);
   TopoDS_Shape shape;
   if (parameters.profile_kind == "rectangle") {
     shape = BRepPrimAPI_MakeBox(
-                parameters.width, parameters.depth, parameters.height)
+                parameters.width, abs_depth, parameters.height)
                 .Shape();
   } else if (parameters.profile_kind == "circle") {
-    shape = BRepPrimAPI_MakeCylinder(parameters.radius, parameters.depth).Shape();
+    shape = BRepPrimAPI_MakeCylinder(parameters.radius, abs_depth).Shape();
   } else {
     BRepBuilderAPI_MakePolygon polygon_builder;
     for (const auto& point : parameters.profile_points) {
@@ -65,6 +76,9 @@ void validate_occt_shape(const ExtrudeFeatureParameters& parameters) {
 
     const TopoDS_Shape face =
         BRepBuilderAPI_MakeFace(polygon_builder.Wire()).Shape();
+    // gp_Vec is happy with signed components, so the polygon prism
+    // path doesn't need abs(depth) — extruding by a negative vector
+    // produces a valid solid in the -z direction.
     shape = BRepPrimAPI_MakePrism(face, gp_Vec(0.0, 0.0, parameters.depth)).Shape();
   }
 

@@ -1,6 +1,7 @@
 import type {
   ViewportBoxPrimitive,
   ViewportCylinderPrimitive,
+  ViewportMeshPrimitive,
   ViewportPolygonExtrudePrimitive,
   ViewportSolidFace,
   ViewportReferenceAxis,
@@ -12,6 +13,7 @@ import type {
   ViewportState,
   BoxScenePrimitive,
   CylinderScenePrimitive,
+  MeshScenePrimitive,
   PolygonExtrudeScenePrimitive,
   ReferencePlaneScene,
   ReferenceAxisScene,
@@ -21,6 +23,9 @@ import type {
   SketchPointScene,
   SketchProfileScene,
   SolidFaceScene,
+  SceneEdge,
+  SceneVertex,
+  CutPreviewScene,
   ViewportScene,
 } from "@/types";
 
@@ -50,6 +55,23 @@ function makeCylinderPrimitive(
     height: cylinder.height,
     position: [cylinder.center.x, cylinder.center.y, cylinder.center.z],
     isSelected: cylinder.is_selected,
+  };
+}
+
+function makeMeshPrimitive(
+  primitive: ViewportMeshPrimitive,
+): MeshScenePrimitive {
+  // Wire format uses plain number[] arrays. We materialize typed arrays
+  // here so the renderer can hand them straight to BufferGeometry without
+  // an extra copy on every frame the scene rebuilds.
+  return {
+    kind: "mesh",
+    primitiveId: primitive.primitive_id,
+    label: primitive.primitive_id,
+    positions: Float32Array.from(primitive.positions),
+    normals: Float32Array.from(primitive.normals),
+    indices: Uint32Array.from(primitive.indices),
+    isSelected: primitive.is_selected,
   };
 }
 
@@ -258,6 +280,10 @@ function makeSolidFace(face: ViewportSolidFace): SolidFaceScene {
       ],
     },
     size: face.size,
+    // Materialize typed arrays up-front so the renderer hands them
+    // straight to a BufferAttribute without re-allocating per frame.
+    trianglePositions: Float32Array.from(face.triangle_positions ?? []),
+    triangleIndices: Uint32Array.from(face.triangle_indices ?? []),
     isSelected: face.is_selected,
   };
 }
@@ -287,6 +313,7 @@ export function createViewportScene(
     ...viewport.boxes.map(makeBoxPrimitive),
     ...viewport.cylinders.map(makeCylinderPrimitive),
     ...viewport.polygon_extrudes.map(makePolygonExtrudePrimitive),
+    ...viewport.meshes.map(makeMeshPrimitive),
   ].filter((primitive) => !hiddenFeatureIds.has(primitive.primitiveId));
   const references = hideReferences
     ? []
@@ -341,6 +368,36 @@ export function createViewportScene(
   const solidFaces = viewport.solid_faces
     .filter((face) => !hiddenFeatureIds.has(face.owner_id))
     .map(makeSolidFace);
+  const edges: SceneEdge[] = viewport.edges
+    .filter((edge) => !hiddenFeatureIds.has(edge.owner_body_id))
+    .map((edge) => ({
+      edgeId: edge.id,
+      ownerBodyId: edge.owner_body_id,
+      kind:
+        edge.kind === "line" || edge.kind === "circle" ? edge.kind : "curve",
+      // Materialize a typed array up-front so the renderer can hand it
+      // straight to a BufferAttribute without re-allocating per frame.
+      points: Float32Array.from(edge.points),
+      isSelected: edge.is_selected,
+    }));
+  const vertices: SceneVertex[] = viewport.vertices
+    .filter((vertex) => !hiddenFeatureIds.has(vertex.owner_body_id))
+    .map((vertex) => ({
+      vertexId: vertex.id,
+      ownerBodyId: vertex.owner_body_id,
+      position: [vertex.position.x, vertex.position.y, vertex.position.z],
+      isSelected: vertex.is_selected,
+    }));
+  const cutPreviews: CutPreviewScene[] = (viewport.cut_previews ?? []).map(
+    (preview) => ({
+      id: preview.id,
+      // Materialize typed arrays up-front so the renderer hands them
+      // straight to a BufferAttribute without re-allocating per frame.
+      positions: Float32Array.from(preview.positions),
+      normals: Float32Array.from(preview.normals),
+      indices: Uint32Array.from(preview.indices),
+    }),
+  );
 
   return {
     bounds: {
@@ -359,6 +416,9 @@ export function createViewportScene(
     primitives,
     references,
     solidFaces,
+    edges,
+    vertices,
+    cutPreviews,
     sketchLines,
     sketchCircles,
     sketchDimensions,
@@ -366,13 +426,20 @@ export function createViewportScene(
     sketchPoints,
     sketchProfiles,
     geometryKey: primitives
-      .map((primitive) =>
-        primitive.kind === "box"
-          ? `box:${primitive.primitiveId}:${primitive.size.join(":")}:${primitive.position.join(":")}`
-          : primitive.kind === "cylinder"
-            ? `cyl:${primitive.primitiveId}:${primitive.radius}:${primitive.height}:${primitive.position.join(":")}`
-            : `poly-extrude:${primitive.primitiveId}:${primitive.planeId}:${primitive.depth}:${primitive.profilePoints.map((point) => point.join(":")).join("|")}`,
-      )
+      .map((primitive) => {
+        // TS narrows better in a switch than a deeply nested ternary,
+        // particularly with the recently-added `mesh` variant.
+        switch (primitive.kind) {
+          case "box":
+            return `box:${primitive.primitiveId}:${primitive.size.join(":")}:${primitive.position.join(":")}`;
+          case "cylinder":
+            return `cyl:${primitive.primitiveId}:${primitive.radius}:${primitive.height}:${primitive.position.join(":")}`;
+          case "polygon_extrude":
+            return `poly-extrude:${primitive.primitiveId}:${primitive.planeId}:${primitive.depth}:${primitive.profilePoints.map((point) => point.join(":")).join("|")}`;
+          case "mesh":
+            return `mesh:${primitive.primitiveId}:${primitive.positions.length}:${primitive.indices.length}`;
+        }
+      })
       .concat(
         references.map((reference) =>
           reference.kind === "reference_plane"
@@ -382,8 +449,38 @@ export function createViewportScene(
       )
       .concat(
         solidFaces.map(
+          // Include triangulation lengths so the rebuild fires whenever
+          // a body's topology (and thus its per-face triangulation)
+          // changes — e.g. after a fillet/chamfer/cut. Otherwise the
+          // pick mesh would stay frozen on the prior topology.
           (face) =>
-            `solid-face:${face.faceId}:${face.ownerId}:${face.sketchability}:${face.center.join(":")}:${face.isSelected}`,
+            `solid-face:${face.faceId}:${face.ownerId}:${face.sketchability}:${face.center.join(":")}:${face.trianglePositions.length}:${face.triangleIndices.length}:${face.isSelected}`,
+        ),
+      )
+      .concat(
+        edges.map(
+          // Include `points.length` so the geometry key flips whenever
+          // the body's edge topology changes (Cut/Join produces a new
+          // edge count). Selection state is also part of the key so the
+          // visual rebuild picks up highlight changes.
+          (edge) =>
+            `edge:${edge.edgeId}:${edge.points.length}:${edge.isSelected}`,
+        ),
+      )
+      .concat(
+        vertices.map(
+          (vertex) =>
+            `vertex:${vertex.vertexId}:${vertex.position.join(":")}:${vertex.isSelected}`,
+        ),
+      )
+      .concat(
+        cutPreviews.map(
+          // Include the buffer lengths so the rebuild fires as the user
+          // tweaks depth in the floating panel and the cutter shape's
+          // tessellation flips. The id is feature-stable so we can't
+          // rely on it alone.
+          (preview) =>
+            `cut-preview:${preview.id}:${preview.positions.length}:${preview.indices.length}`,
         ),
       )
       .concat(

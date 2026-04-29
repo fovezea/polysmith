@@ -1,4 +1,9 @@
-import type { SketchProfilePoint, Shape2D, PlaneFrame } from "@/types";
+import type {
+  ExtrudeMode,
+  SketchProfilePoint,
+  Shape2D,
+  PlaneFrame,
+} from "@/types";
 
 export interface BoxFeatureParameters {
   width: number;
@@ -24,4 +29,6 @@ export interface ExtrudeFeatureParameters {
   radius: number;
   profile_points: SketchProfilePoint[];
   depth: number;
+  mode: ExtrudeMode;
+  target_body_id: string | null;
 }

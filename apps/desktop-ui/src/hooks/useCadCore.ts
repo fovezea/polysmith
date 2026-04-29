@@ -34,6 +34,12 @@ import {
   makeSelectFeatureCommand,
   makeSelectReferenceCommand,
   makeSelectFaceCommand,
+  makeSelectEdgeCommand,
+  makeSelectVertexCommand,
+  makeCreateFilletCommand,
+  makeUpdateFilletRadiusCommand,
+  makeCreateChamferCommand,
+  makeUpdateChamferDistanceCommand,
   makeSetSketchCoincidentConstraintCommand,
   makeSetSketchEqualLengthConstraintCommand,
   makeSetSketchParallelConstraintCommand,
@@ -51,8 +57,11 @@ import {
   makeUpdateSketchPointCommand,
   makeUpdateBoxFeatureCommand,
   makeUpdateExtrudeDepthCommand,
+  makeUpdateExtrudeModeCommand,
+  makeUpdateExtrudeTargetBodyCommand,
   parseCoreMessage,
 } from "@/lib";
+import type { ExtrudeMode } from "@/types";
 
 import { useCadCoreStore } from "@/state";
 import { SketchTool } from "@/types";
@@ -219,6 +228,36 @@ export function useCadCore() {
       await sendCoreCommand(makeSelectFaceCommand(faceId));
       await sendCoreCommand(makeGetViewportStateCommand());
     },
+    selectEdge: async (edgeId: string) => {
+      await sendCoreCommand(makeSelectEdgeCommand(edgeId));
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    selectVertex: async (vertexId: string) => {
+      await sendCoreCommand(makeSelectVertexCommand(vertexId));
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    createFillet: async (edgeId: string, radius: number) => {
+      await sendCoreCommand(makeCreateFilletCommand(edgeId, radius));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateFilletRadius: async (featureId: string, radius: number) => {
+      await sendCoreCommand(makeUpdateFilletRadiusCommand(featureId, radius));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    createChamfer: async (edgeId: string, distance: number) => {
+      await sendCoreCommand(makeCreateChamferCommand(edgeId, distance));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateChamferDistance: async (featureId: string, distance: number) => {
+      await sendCoreCommand(
+        makeUpdateChamferDistanceCommand(featureId, distance),
+      );
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
     startSketchOnPlane: async (referenceId: string) => {
       await sendCoreCommand(makeStartSketchOnPlaneCommand(referenceId));
       await sendCoreCommand(makeGetViewportStateCommand());
@@ -370,8 +409,30 @@ export function useCadCore() {
       await sendCoreCommand(makeSelectSketchProfileCommand(profileId));
       await sendCoreCommand(makeGetViewportStateCommand());
     },
-    extrudeProfile: async (profileId: string, depth: number) => {
-      await sendCoreCommand(makeExtrudeProfileCommand(profileId, depth));
+    extrudeProfile: async (
+      profileId: string,
+      depth: number,
+      mode: ExtrudeMode = "new_body",
+      targetBodyId: string | null = null,
+    ) => {
+      await sendCoreCommand(
+        makeExtrudeProfileCommand(profileId, depth, mode, targetBodyId),
+      );
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateExtrudeMode: async (featureId: string, mode: ExtrudeMode) => {
+      await sendCoreCommand(makeUpdateExtrudeModeCommand(featureId, mode));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateExtrudeTargetBody: async (
+      featureId: string,
+      targetBodyId: string | null,
+    ) => {
+      await sendCoreCommand(
+        makeUpdateExtrudeTargetBodyCommand(featureId, targetBodyId),
+      );
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());
     },

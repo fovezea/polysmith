@@ -32,6 +32,9 @@ import {
   buildSketchPointObject,
   buildSketchProfileObject,
   buildSolidFaceObject,
+  buildCutPreviewObject,
+  buildSceneEdgeObject,
+  buildSceneVertexObject,
   disposeGroup,
   disposeMaterial,
   distanceBetweenPoints,
@@ -51,6 +54,8 @@ interface ViewportPanelProps {
   onSelectPrimitive: (primitiveId: string) => Promise<void>;
   onSelectReference: (referenceId: string) => Promise<void>;
   onSelectFace: (faceId: string) => Promise<void>;
+  onSelectEdge: (edgeId: string) => Promise<void>;
+  onSelectVertex: (vertexId: string) => Promise<void>;
   onStartSketch: (referenceId: string) => Promise<void>;
   onStartSketchOnFace: (
     faceId: string,
@@ -111,6 +116,8 @@ export function ViewportPanel({
   onSelectPrimitive,
   onSelectReference,
   onSelectFace,
+  onSelectEdge,
+  onSelectVertex,
   onStartSketch,
   onStartSketchOnFace,
   onAddSketchLine,
@@ -173,10 +180,24 @@ export function ViewportPanel({
   const sketchPointObjectsRef = useRef<THREE.Mesh[]>([]);
   const sketchProfileMeshesRef = useRef<THREE.Mesh[]>([]);
   const faceMeshesRef = useRef<THREE.Mesh[]>([]);
+  // Body edges materialized as THREE.Line objects. Raycasting against
+  // these (with a small `params.Line.threshold`) drives edge picking
+  // for the upcoming fillet/chamfer features. Edges are checked before
+  // faces in the pick chain because they sit ON the faces and would
+  // otherwise be visually occluded.
+  const edgeLineObjectsRef = useRef<THREE.Line[]>([]);
+  // Body vertices materialized as small sphere meshes. Raycast first so
+  // a vertex picks ahead of any edge or face that lies underneath.
+  const vertexObjectsRef = useRef<THREE.Mesh[]>([]);
+  // Translucent red overlay meshes for in-progress cut extrudes. Built
+  // from `cut_previews` and rendered without participating in raycasts.
+  const cutPreviewObjectsRef = useRef<THREE.Mesh[]>([]);
   const lastGeometryKeyRef = useRef("");
   const selectPrimitiveRef = useRef(onSelectPrimitive);
   const selectReferenceRef = useRef(onSelectReference);
   const selectFaceRef = useRef(onSelectFace);
+  const selectEdgeRef = useRef(onSelectEdge);
+  const selectVertexRef = useRef(onSelectVertex);
   const startSketchRef = useRef(onStartSketch);
   const startSketchOnFaceRef = useRef(onStartSketchOnFace);
   const addSketchLineRef = useRef(onAddSketchLine);
@@ -460,6 +481,8 @@ export function ViewportPanel({
     selectPrimitiveRef.current = onSelectPrimitive;
     selectReferenceRef.current = onSelectReference;
     selectFaceRef.current = onSelectFace;
+    selectEdgeRef.current = onSelectEdge;
+    selectVertexRef.current = onSelectVertex;
     startSketchRef.current = onStartSketch;
     startSketchOnFaceRef.current = onStartSketchOnFace;
     addSketchLineRef.current = onAddSketchLine;
@@ -478,6 +501,8 @@ export function ViewportPanel({
     onSelectPrimitive,
     onSelectReference,
     onSelectFace,
+    onSelectEdge,
+    onSelectVertex,
     onStartSketch,
     onStartSketchOnFace,
     onAddSketchLine,
@@ -729,6 +754,40 @@ export function ViewportPanel({
       const referenceId = referenceHit?.object.userData.referenceId;
       if (typeof referenceId === "string") {
         return { kind: "reference" as const, id: referenceId };
+      }
+
+      // Vertices are checked first: they're the smallest pick targets
+      // but always visible (renderOrder = 2, depthTest = false), and
+      // they sit on top of every edge / face, so prioritizing them
+      // matches the visual stacking the user sees.
+      const [vertexHit] = raycaster.intersectObjects(
+        vertexObjectsRef.current,
+        false,
+      );
+      const vertexId = vertexHit?.object.userData.vertexId;
+      if (typeof vertexId === "string") {
+        return { kind: "vertex" as const, id: vertexId };
+      }
+
+      // Edges are checked before faces because they sit ON the faces
+      // and would be hidden by the face fill if checked after. The
+      // configured Line threshold gives ~0.4mm of pick tolerance,
+      // which feels comparable to face picking without making it hard
+      // to grab the face under the edge.
+      const previousLineThreshold = raycaster.params.Line?.threshold ?? 1;
+      if (raycaster.params.Line) {
+        raycaster.params.Line.threshold = 0.4;
+      }
+      const [edgeHit] = raycaster.intersectObjects(
+        edgeLineObjectsRef.current,
+        false,
+      );
+      if (raycaster.params.Line) {
+        raycaster.params.Line.threshold = previousLineThreshold;
+      }
+      const edgeId = edgeHit?.object.userData.edgeId;
+      if (typeof edgeId === "string") {
+        return { kind: "edge" as const, id: edgeId };
       }
 
       const [faceHit] = raycaster.intersectObjects(
@@ -1004,6 +1063,16 @@ export function ViewportPanel({
         return;
       }
 
+      if (hit?.kind === "vertex") {
+        void selectVertexRef.current(hit.id);
+        return;
+      }
+
+      if (hit?.kind === "edge") {
+        void selectEdgeRef.current(hit.id);
+        return;
+      }
+
       if (hit?.kind === "face") {
         void selectFaceRef.current(hit.id);
         return;
@@ -1119,6 +1188,9 @@ export function ViewportPanel({
       sketchProfileMeshesRef.current = [];
       meshesRef.current = [];
       faceMeshesRef.current = [];
+      edgeLineObjectsRef.current = [];
+      vertexObjectsRef.current = [];
+      cutPreviewObjectsRef.current = [];
       gridRef.current = null;
       previewLineRef.current = null;
       previewCircleRef.current = null;
@@ -1163,6 +1235,9 @@ export function ViewportPanel({
     sketchProfileMeshesRef.current = [];
     meshesRef.current = [];
     faceMeshesRef.current = [];
+    edgeLineObjectsRef.current = [];
+    vertexObjectsRef.current = [];
+    cutPreviewObjectsRef.current = [];
     previewLineRef.current = null;
     previewCircleRef.current = null;
 
@@ -1242,6 +1317,24 @@ export function ViewportPanel({
       contentGroup.add(faceObject.mesh);
     }
 
+    for (const edge of sceneData.edges) {
+      const edgeLine = buildSceneEdgeObject(edge);
+      edgeLineObjectsRef.current.push(edgeLine);
+      contentGroup.add(edgeLine);
+    }
+
+    for (const vertex of sceneData.vertices) {
+      const vertexMesh = buildSceneVertexObject(vertex);
+      vertexObjectsRef.current.push(vertexMesh);
+      contentGroup.add(vertexMesh);
+    }
+
+    for (const preview of sceneData.cutPreviews) {
+      const cutPreviewMesh = buildCutPreviewObject(preview);
+      cutPreviewObjectsRef.current.push(cutPreviewMesh);
+      contentGroup.add(cutPreviewMesh);
+    }
+
     for (const sketchLine of sceneData.sketchLines) {
       const sketchLineObject = buildSketchLineObject(sketchLine);
       sketchEntityObjectsRef.current.push(sketchLineObject);
@@ -1286,7 +1379,17 @@ export function ViewportPanel({
     syncSolidFaceVisuals();
 
     if (sceneData.geometryKey !== lastGeometryKeyRef.current) {
-      if (!activeSketchPlaneId) {
+      // Auto-frame the camera ONLY on the very first scene load (when
+      // we haven't recorded any prior geometry key yet). On subsequent
+      // rebuilds the geometry key flips for many reasons that have
+      // nothing to do with the user's intended view — selection
+      // state, hover/select highlight rebuilds, depth-preview ticks
+      // during an extrude edit, etc. — so re-fitting every time
+      // would yank the camera back to its initial pose any time the
+      // user clicks a face. Sketch-mode framing is handled by a
+      // separate effect (frameCameraToSketchPlane).
+      const isFirstSceneLoad = lastGeometryKeyRef.current === "";
+      if (isFirstSceneLoad && !activeSketchPlaneId) {
         frameCamera(
           camera,
           controls,

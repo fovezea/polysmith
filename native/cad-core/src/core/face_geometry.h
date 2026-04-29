@@ -17,13 +17,19 @@ struct FaceOutlinePoint {
 };
 
 struct FaceOutline {
-  // "rectangle" or "circle". Polygon top/bottom and polygon-side faces
-  // are not yet supported by the projection helper and produce nullopt.
+  // "rectangle", "circle", or "polygon". Polygon outlines come from
+  // body-derived faces (numeric face ids) where we walked the outer
+  // wire and collected the line-segment endpoints in order.
   std::string kind;
 
   // Populated when kind == "rectangle". Four world-space corners in
   // outline order (closed loop).
   std::vector<FaceOutlinePoint> rectangle_corners;
+
+  // Populated when kind == "polygon". World-space corners in outline
+  // order (open list — the projector closes the loop by drawing back
+  // to corner[0]).
+  std::vector<FaceOutlinePoint> polygon_corners;
 
   // Populated when kind == "circle".
   FaceOutlinePoint circle_center;

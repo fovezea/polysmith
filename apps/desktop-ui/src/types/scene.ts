@@ -41,10 +41,54 @@ export interface PolygonExtrudeScenePrimitive {
   isSelected: boolean;
 }
 
+// World-space polyline for a body edge; the renderer turns this into a
+// THREE.Line and raycasts against it for picking.
+export interface SceneEdge {
+  edgeId: string;
+  ownerBodyId: string;
+  kind: "line" | "circle" | "curve";
+  points: Float32Array;
+  isSelected: boolean;
+}
+
+// World-space vertex of a body. The renderer materializes these as
+// small THREE.Points / sphere meshes and raycasts against them ahead
+// of edges so vertices are reliably grabbable.
+export interface SceneVertex {
+  vertexId: string;
+  ownerBodyId: string;
+  position: [number, number, number];
+  isSelected: boolean;
+}
+
+export interface MeshScenePrimitive {
+  kind: "mesh";
+  primitiveId: string;
+  label: string;
+  // Flat triangle list ready for THREE.BufferGeometry, in world space.
+  positions: Float32Array;
+  normals: Float32Array;
+  indices: Uint32Array;
+  isSelected: boolean;
+}
+
+// Translucent red overlay rendered on top of the booleaned body while
+// the user is editing a cut extrude. Mirrors the Fusion-style "you're
+// about to remove this volume" feedback. The renderer keeps the
+// material non-pickable (the user picks the booleaned body's faces,
+// not this overlay).
+export interface CutPreviewScene {
+  id: string;
+  positions: Float32Array;
+  normals: Float32Array;
+  indices: Uint32Array;
+}
+
 export type ScenePrimitive =
   | BoxScenePrimitive
   | CylinderScenePrimitive
-  | PolygonExtrudeScenePrimitive;
+  | PolygonExtrudeScenePrimitive
+  | MeshScenePrimitive;
 
 export interface ReferencePlaneScene {
   kind: "reference_plane";
@@ -153,5 +197,13 @@ export interface SolidFaceScene {
     normal: [number, number, number];
   };
   size: { width: number; height: number; radius: number };
+  // Body-derived faces ship a real per-face triangulation in world
+  // space. The renderer turns this into a THREE.BufferGeometry so the
+  // user picks the actual face shape (matters for booleaned, filleted,
+  // and plane-frame-rotated faces). Empty for legacy analytical faces;
+  // the renderer falls back to a (size, planeFrame) THREE.PlaneGeometry
+  // in that case.
+  trianglePositions: Float32Array;
+  triangleIndices: Uint32Array;
   isSelected: boolean;
 }

@@ -73,10 +73,19 @@ struct ViewportSolidFace {
     double normal_z;
   };
 
+  // owner_id is the body id that owns this face. For body-derived faces
+  // (the only kind today) face_id is "<owner_id>:face:<index>" where the
+  // index comes from TopExp::MapShapes(TopAbs_FACE) on the body shape, so
+  // ids are stable as long as topology is unchanged.
   std::string face_id;
   std::string owner_id;
   std::string owner_kind;
   std::string label;
+  // "planar" -> the underlying surface is a plane; sketch-on-face is
+  // allowed and `plane_frame` is meaningful.
+  // "non-planar" -> curved surface (fillet, cylinder side, etc.);
+  // sketch-on-face is rejected; `plane_frame` is a representative frame
+  // (face center + a derived normal) and shouldn't drive sketching.
   std::string sketchability;
   double center_x;
   double center_y;
@@ -85,9 +94,23 @@ struct ViewportSolidFace {
   double normal_y;
   double normal_z;
   PlaneFrame plane_frame;
+  // Legacy analytical face dimensions. Used by per-feature analytical
+  // face emission for legacy box/cylinder primitives that aren't
+  // body-derived. Body-derived faces leave these at 0 and rely on the
+  // triangulation arrays below.
   double width;
   double height;
   double radius;
+  // World-space triangulation of the actual face. The UI uses this to
+  // build a real BufferGeometry per face, which is both visually
+  // accurate and gives precise raycasting (the picker hits the face
+  // shape, not an analytical bounding rectangle). Empty for legacy
+  // analytical faces — those still build their pick mesh from
+  // (width, height, radius) + plane_frame on the UI side.
+  // Layout: positions are flat x0,y0,z0,x1,y1,z1,...; indices are
+  // triangle vertex indices into positions.
+  std::vector<double> triangle_positions;
+  std::vector<int> triangle_indices;
   bool is_selected;
 };
 
@@ -203,6 +226,70 @@ struct ViewportSketchProfilePrimitive {
   bool is_selected;
 };
 
+struct ViewportBodySummary {
+  std::string id;
+  std::string label;
+};
+
+struct ViewportEdgePrimitive {
+  // Stable across viewport snapshots when body topology is unchanged:
+  // "<owner_body_id>:edge:<index>" where index is the position in
+  // TopExp::MapShapes(TopAbs_EDGE) for the body. Selection state is
+  // therefore preserved across mode/depth tweaks even when the user
+  // hasn't changed which edges exist.
+  std::string id;
+  std::string owner_body_id;
+  // "line" for straight segments (2 sample points), "circle" for full
+  // circles, "curve" for everything else (general curve sampled to a
+  // polyline). Drives nothing in the core but lets the renderer pick a
+  // tighter tessellation budget if it wants to.
+  std::string kind;
+  // Flat polyline samples in world space: x0, y0, z0, x1, y1, z1, ...
+  // The renderer connects consecutive points with line segments.
+  std::vector<double> points;
+  bool is_selected;
+};
+
+struct ViewportVertexPrimitive {
+  // "<owner_body_id>:vertex:<index>" where index is the 0-based position
+  // in TopExp::MapShapes(TopAbs_VERTEX) for the body. Stable across
+  // viewport snapshots when body topology is unchanged.
+  std::string id;
+  std::string owner_body_id;
+  // World-space position of the vertex.
+  double x;
+  double y;
+  double z;
+  bool is_selected;
+};
+
+struct ViewportMeshPrimitive {
+  std::string id;
+  // Triangulated body geometry in world space.
+  // Layout matches three.js BufferGeometry attributes: each vertex
+  // takes three consecutive entries in `positions` and `normals`,
+  // and `indices` is a flat list of triangle vertex indices.
+  std::vector<double> positions;
+  std::vector<double> normals;
+  std::vector<int> indices;
+  bool is_selected;
+};
+
+// Translucent red preview of the cutter volume for an in-progress cut
+// extrude. Emitted only while the cut feature is the currently selected
+// feature (i.e. the user is editing it via the floating panel). The UI
+// renders this in red so the user can see exactly which volume is
+// about to be removed, mirroring Fusion's cut preview.
+struct ViewportCutPreview {
+  // The feature id of the cut extrude this preview belongs to.
+  std::string id;
+  // World-space triangulation of the cutter shape. Same layout as
+  // ViewportMeshPrimitive.
+  std::vector<double> positions;
+  std::vector<double> normals;
+  std::vector<int> indices;
+};
+
 struct ViewportSceneBounds {
   double center_x;
   double center_y;
@@ -227,6 +314,21 @@ struct ViewportState {
   std::vector<ViewportSketchDimensionPrimitive> sketch_dimensions;
   std::vector<ViewportSketchConstraintPrimitive> sketch_constraints;
   std::vector<ViewportSketchProfilePrimitive> sketch_profiles;
+  std::vector<ViewportMeshPrimitive> meshes;
+  std::vector<ViewportCutPreview> cut_previews;
+  // Available bodies (in document order) that boolean-mode extrudes can
+  // target. Each entry's `id` is the root feature id of the body, and
+  // `label` mirrors the human-readable feature name.
+  std::vector<ViewportBodySummary> bodies;
+  // Selectable edges (one entry per unique edge of every compiled body).
+  // The renderer materializes these as line objects, raycasts against
+  // them for picking, and calls `select_edge` with the entry's `id`.
+  std::vector<ViewportEdgePrimitive> edges;
+  // Selectable vertices (one entry per unique vertex of every compiled
+  // body). Picked first in the raycast chain so they sit on top of edges
+  // and faces. Empty when the document contains no boolean / fillet /
+  // chamfer features (legacy primitive renderers don't emit vertices).
+  std::vector<ViewportVertexPrimitive> vertices;
   double scene_width;
   double scene_height;
   double scene_depth;

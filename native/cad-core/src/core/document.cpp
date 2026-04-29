@@ -11,7 +11,13 @@
 
 #include <nlohmann/json.hpp>
 
+#include <BRepAlgoAPI_Common.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopoDS_Shape.hxx>
+
+#include "core/body_compiler.h"
 #include "core/face_geometry.h"
+#include "core/feature_shape.h"
 #include "protocol/serialization.h"
 
 namespace polysmith::core {
@@ -20,6 +26,66 @@ namespace {
 bool is_origin_plane_reference(const std::string& reference_id) {
   return reference_id == "ref-plane-xy" || reference_id == "ref-plane-yz" ||
          reference_id == "ref-plane-xz";
+}
+
+// Test whether two solid shapes intersect with non-zero volume. Used by
+// the auto-cut detector at extrude-creation time so a new_body extrude
+// that overlaps an existing body is silently promoted to a cut.
+bool shapes_intersect_with_volume(const TopoDS_Shape& a,
+                                  const TopoDS_Shape& b) {
+  if (a.IsNull() || b.IsNull()) {
+    return false;
+  }
+  try {
+    BRepAlgoAPI_Common common(a, b);
+    common.Build();
+    if (!common.IsDone()) {
+      return false;
+    }
+    const TopoDS_Shape result = common.Shape();
+    if (result.IsNull()) {
+      return false;
+    }
+    // Any solid in the result -> the inputs share volume. We don't
+    // dilute to TopAbs_FACE because two adjacent (touching but not
+    // overlapping) solids share faces without sharing volume, and
+    // promoting that to a cut would surprise the user.
+    TopExp_Explorer explorer(result, TopAbs_SOLID);
+    return explorer.More();
+  } catch (const std::exception&) {
+    return false;
+  }
+}
+
+// Check whether a candidate extrude (built from `parameters`) would
+// overlap any existing body in `document`. Returns the body id of the
+// first such body, or nullopt when no intersection is found. Bodies
+// derived from features after the candidate (in feature_history order)
+// are excluded — we only want to detect overlap with bodies that exist
+// "now" from the user's point of view.
+std::optional<std::string> find_intersecting_body_for_extrude(
+    const DocumentState& document,
+    const ExtrudeFeatureParameters& parameters) {
+  TopoDS_Shape candidate;
+  try {
+    candidate = build_extrude_shape(parameters);
+  } catch (const std::exception&) {
+    return std::nullopt;
+  }
+  if (candidate.IsNull()) {
+    return std::nullopt;
+  }
+
+  const CompiledBodies compiled = compile_bodies(document);
+  for (const auto& body : compiled.bodies) {
+    if (body.shape.IsNull()) {
+      continue;
+    }
+    if (shapes_intersect_with_volume(body.shape, candidate)) {
+      return body.id;
+    }
+  }
+  return std::nullopt;
 }
 
 std::string face_owner_id(const std::string& face_id) {
@@ -206,6 +272,8 @@ DocumentState DocumentManager::create_document() {
       .selected_feature_id = std::nullopt,
       .selected_reference_id = std::nullopt,
       .selected_face_id = std::nullopt,
+      .selected_edge_id = std::nullopt,
+      .selected_vertex_id = std::nullopt,
       .active_sketch_plane_id = std::nullopt,
       .active_sketch_face_id = std::nullopt,
       .active_sketch_feature_id = std::nullopt,
@@ -284,6 +352,85 @@ DocumentState DocumentManager::update_extrude_depth(
   push_undo_state();
   clear_redo_stack();
   polysmith::core::update_extrude_depth(*feature_it, depth);
+  document_->revision += 1;
+  return document_.value();
+}
+
+DocumentState DocumentManager::update_extrude_mode(
+    const std::string& feature_id, const std::string& mode) {
+  require_document();
+
+  if (mode != "new_body" && mode != "join" && mode != "cut") {
+    throw std::runtime_error("Unsupported extrude mode: " + mode);
+  }
+
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Feature not found: " + feature_id);
+  }
+
+  if (feature_it->kind != "extrude" ||
+      !feature_it->extrude_parameters.has_value()) {
+    throw std::runtime_error(
+        "update_extrude_mode requires an extrude feature: " + feature_id);
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+  feature_it->extrude_parameters->mode = mode;
+  document_->revision += 1;
+  return document_.value();
+}
+
+DocumentState DocumentManager::update_extrude_target_body(
+    const std::string& feature_id,
+    const std::optional<std::string>& target_body_id) {
+  require_document();
+
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Feature not found: " + feature_id);
+  }
+
+  if (feature_it->kind != "extrude" ||
+      !feature_it->extrude_parameters.has_value()) {
+    throw std::runtime_error(
+        "update_extrude_target_body requires an extrude feature: " +
+        feature_id);
+  }
+
+  // Target ids that point at the extrude itself (or at a feature that
+  // does not exist) are silently coerced to nullopt so the body compiler
+  // simply falls back to "most recent body".
+  std::optional<std::string> resolved = target_body_id;
+  if (resolved.has_value()) {
+    if (resolved.value() == feature_id) {
+      resolved = std::nullopt;
+    } else {
+      bool exists = false;
+      for (const auto& other : document_->feature_history) {
+        if (other.id == resolved.value()) {
+          exists = true;
+          break;
+        }
+      }
+      if (!exists) {
+        resolved = std::nullopt;
+      }
+    }
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+  feature_it->extrude_parameters->target_body_id = resolved;
   document_->revision += 1;
   return document_.value();
 }
@@ -384,6 +531,8 @@ DocumentState DocumentManager::select_feature(const std::string& feature_id) {
   document_->selected_feature_id = feature_id;
   document_->selected_reference_id = std::nullopt;
   document_->selected_face_id = std::nullopt;
+  document_->selected_edge_id = std::nullopt;
+  document_->selected_vertex_id = std::nullopt;
   document_->selected_sketch_point_id = std::nullopt;
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
@@ -401,6 +550,8 @@ DocumentState DocumentManager::select_reference(const std::string& reference_id)
   document_->selected_feature_id = std::nullopt;
   document_->selected_reference_id = reference_id;
   document_->selected_face_id = std::nullopt;
+  document_->selected_edge_id = std::nullopt;
+  document_->selected_vertex_id = std::nullopt;
   document_->selected_sketch_point_id = std::nullopt;
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
@@ -425,6 +576,8 @@ DocumentState DocumentManager::start_sketch_on_plane(
   document_->selected_feature_id = std::nullopt;
   document_->selected_reference_id = reference_id;
   document_->selected_face_id = std::nullopt;
+  document_->selected_edge_id = std::nullopt;
+  document_->selected_vertex_id = std::nullopt;
   document_->active_sketch_plane_id = reference_id;
   document_->active_sketch_face_id = std::nullopt;
   document_->active_sketch_feature_id = sketch_feature_id;
@@ -456,10 +609,269 @@ DocumentState DocumentManager::select_face(const std::string& face_id) {
   document_->selected_feature_id = feature_it->id;
   document_->selected_reference_id = std::nullopt;
   document_->selected_face_id = face_id;
+  document_->selected_edge_id = std::nullopt;
+  document_->selected_vertex_id = std::nullopt;
   document_->selected_sketch_point_id = std::nullopt;
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
+  return document_.value();
+}
+
+DocumentState DocumentManager::select_edge(const std::string& edge_id) {
+  require_document();
+
+  // Edge ids are minted by the viewport as "<owner_body_id>:edge:<index>".
+  // We don't validate the index — the body's edge enumeration may shift
+  // by topology so a stale id from the UI just becomes a no-op highlight.
+  // The owner body id, however, must point at a real feature so we can
+  // also bring the body into focus (selected_feature_id) for the
+  // hierarchy panel and downstream actions like fillet/chamfer.
+  const auto separator = edge_id.find(":edge:");
+  if (separator == std::string::npos || separator == 0) {
+    throw std::runtime_error("Malformed edge id: " + edge_id);
+  }
+  const std::string owner_id = edge_id.substr(0, separator);
+
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == owner_id; });
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Edge owner not found: " + edge_id);
+  }
+
+  document_->selected_feature_id = feature_it->id;
+  document_->selected_reference_id = std::nullopt;
+  document_->selected_face_id = std::nullopt;
+  document_->selected_edge_id = edge_id;
+  document_->selected_vertex_id = std::nullopt;
+  document_->selected_sketch_point_id = std::nullopt;
+  document_->selected_sketch_entity_id = std::nullopt;
+  document_->selected_sketch_dimension_id = std::nullopt;
+  document_->selected_sketch_profile_id = std::nullopt;
+  return document_.value();
+}
+
+DocumentState DocumentManager::select_vertex(const std::string& vertex_id) {
+  require_document();
+
+  // Vertex ids are minted by the viewport as
+  // "<owner_body_id>:vertex:<index>". Same lenience as select_edge:
+  // we don't validate the index since topology can shift, but the
+  // owner body id must point at a real feature so the hierarchy
+  // panel highlights the correct body and downstream actions can
+  // resolve the body via selected_feature_id.
+  const auto separator = vertex_id.find(":vertex:");
+  if (separator == std::string::npos || separator == 0) {
+    throw std::runtime_error("Malformed vertex id: " + vertex_id);
+  }
+  const std::string owner_id = vertex_id.substr(0, separator);
+
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == owner_id; });
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Vertex owner not found: " + vertex_id);
+  }
+
+  document_->selected_feature_id = feature_it->id;
+  document_->selected_reference_id = std::nullopt;
+  document_->selected_face_id = std::nullopt;
+  document_->selected_edge_id = std::nullopt;
+  document_->selected_vertex_id = vertex_id;
+  document_->selected_sketch_point_id = std::nullopt;
+  document_->selected_sketch_entity_id = std::nullopt;
+  document_->selected_sketch_dimension_id = std::nullopt;
+  document_->selected_sketch_profile_id = std::nullopt;
+  return document_.value();
+}
+
+namespace {
+
+std::string edge_owner_id(const std::string& edge_id) {
+  const auto separator = edge_id.find(":edge:");
+  if (separator == std::string::npos) {
+    return "";
+  }
+  return edge_id.substr(0, separator);
+}
+
+}  // namespace
+
+DocumentState DocumentManager::create_fillet(const std::string& edge_id,
+                                             double radius) {
+  require_document();
+
+  if (radius <= 0.0) {
+    throw std::runtime_error("Fillet radius must be greater than zero");
+  }
+
+  const std::string owner_id = edge_owner_id(edge_id);
+  if (owner_id.empty()) {
+    throw std::runtime_error("Malformed edge id: " + edge_id);
+  }
+
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == owner_id; });
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Edge owner not found: " + edge_id);
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+
+  FilletFeatureParameters params{};
+  params.target_body_id = owner_id;
+  params.edge_ids = {edge_id};
+  params.radius = radius;
+
+  std::ostringstream summary;
+  summary << "1 edge · " << radius << " mm";
+
+  FeatureEntry feature{
+      .id = "feature-" + std::to_string(next_feature_id_++),
+      .kind = "fillet",
+      .name = "Fillet",
+      .status = "healthy",
+      .parameters_summary = summary.str(),
+      .box_parameters = std::nullopt,
+      .cylinder_parameters = std::nullopt,
+      .extrude_parameters = std::nullopt,
+      .sketch_parameters = std::nullopt,
+      .fillet_parameters = params,
+      .chamfer_parameters = std::nullopt,
+  };
+  document_->feature_history.push_back(std::move(feature));
+  document_->selected_feature_id = document_->feature_history.back().id;
+  document_->selected_edge_id = std::nullopt;
+  document_->selected_vertex_id = std::nullopt;
+  document_->selected_face_id = std::nullopt;
+  document_->selected_reference_id = std::nullopt;
+  document_->revision += 1;
+  return document_.value();
+}
+
+DocumentState DocumentManager::update_fillet_radius(
+    const std::string& feature_id, double radius) {
+  require_document();
+
+  if (radius <= 0.0) {
+    throw std::runtime_error("Fillet radius must be greater than zero");
+  }
+
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Feature not found: " + feature_id);
+  }
+  if (feature_it->kind != "fillet" || !feature_it->fillet_parameters.has_value()) {
+    throw std::runtime_error(
+        "update_fillet_radius requires a fillet feature: " + feature_id);
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+  feature_it->fillet_parameters->radius = radius;
+  std::ostringstream summary;
+  summary << feature_it->fillet_parameters->edge_ids.size() << " edge"
+          << (feature_it->fillet_parameters->edge_ids.size() == 1 ? "" : "s")
+          << " · " << radius << " mm";
+  feature_it->parameters_summary = summary.str();
+  document_->revision += 1;
+  return document_.value();
+}
+
+DocumentState DocumentManager::create_chamfer(const std::string& edge_id,
+                                              double distance) {
+  require_document();
+
+  if (distance <= 0.0) {
+    throw std::runtime_error("Chamfer distance must be greater than zero");
+  }
+
+  const std::string owner_id = edge_owner_id(edge_id);
+  if (owner_id.empty()) {
+    throw std::runtime_error("Malformed edge id: " + edge_id);
+  }
+
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == owner_id; });
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Edge owner not found: " + edge_id);
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+
+  ChamferFeatureParameters params{};
+  params.target_body_id = owner_id;
+  params.edge_ids = {edge_id};
+  params.distance = distance;
+
+  std::ostringstream summary;
+  summary << "1 edge · " << distance << " mm";
+
+  FeatureEntry feature{
+      .id = "feature-" + std::to_string(next_feature_id_++),
+      .kind = "chamfer",
+      .name = "Chamfer",
+      .status = "healthy",
+      .parameters_summary = summary.str(),
+      .box_parameters = std::nullopt,
+      .cylinder_parameters = std::nullopt,
+      .extrude_parameters = std::nullopt,
+      .sketch_parameters = std::nullopt,
+      .fillet_parameters = std::nullopt,
+      .chamfer_parameters = params,
+  };
+  document_->feature_history.push_back(std::move(feature));
+  document_->selected_feature_id = document_->feature_history.back().id;
+  document_->selected_edge_id = std::nullopt;
+  document_->selected_vertex_id = std::nullopt;
+  document_->selected_face_id = std::nullopt;
+  document_->selected_reference_id = std::nullopt;
+  document_->revision += 1;
+  return document_.value();
+}
+
+DocumentState DocumentManager::update_chamfer_distance(
+    const std::string& feature_id, double distance) {
+  require_document();
+
+  if (distance <= 0.0) {
+    throw std::runtime_error("Chamfer distance must be greater than zero");
+  }
+
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Feature not found: " + feature_id);
+  }
+  if (feature_it->kind != "chamfer" ||
+      !feature_it->chamfer_parameters.has_value()) {
+    throw std::runtime_error(
+        "update_chamfer_distance requires a chamfer feature: " + feature_id);
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+  feature_it->chamfer_parameters->distance = distance;
+  std::ostringstream summary;
+  summary << feature_it->chamfer_parameters->edge_ids.size() << " edge"
+          << (feature_it->chamfer_parameters->edge_ids.size() == 1 ? "" : "s")
+          << " · " << distance << " mm";
+  feature_it->parameters_summary = summary.str();
+  document_->revision += 1;
   return document_.value();
 }
 
@@ -931,8 +1343,11 @@ DocumentState DocumentManager::select_sketch_profile(const std::string& profile_
   return document_.value();
 }
 
-DocumentState DocumentManager::extrude_profile(const std::string& profile_id,
-                                               double depth) {
+DocumentState DocumentManager::extrude_profile(
+    const std::string& profile_id,
+    double depth,
+    const std::string& mode,
+    const std::optional<std::string>& target_body_id) {
   require_document();
 
   // Extrusion runs on any sketch profile in the document, even if its parent
@@ -971,6 +1386,8 @@ DocumentState DocumentManager::extrude_profile(const std::string& profile_id,
         .radius = 0.0,
         .profile_points = profile.points,
         .depth = depth,
+        .mode = mode,
+        .target_body_id = target_body_id,
     };
     break;
   }
@@ -1001,6 +1418,8 @@ DocumentState DocumentManager::extrude_profile(const std::string& profile_id,
           .radius = profile.radius,
           .profile_points = {},
           .depth = depth,
+          .mode = mode,
+          .target_body_id = target_body_id,
       };
 
       if (feature_it->sketch_parameters->plane_id != "ref-plane-xy") {
@@ -1013,6 +1432,21 @@ DocumentState DocumentManager::extrude_profile(const std::string& profile_id,
 
   if (!extrude_parameters.has_value()) {
     throw std::runtime_error("Sketch profile not found: " + profile_id);
+  }
+
+  // Auto-cut detection (Fusion-style): when the user invokes a default
+  // new_body extrude on a profile whose swept volume overlaps an
+  // existing body, silently promote the feature to a cut against that
+  // body. Explicit modes (the user picked join/cut) are honored as-is.
+  if (extrude_parameters->mode == "new_body" &&
+      !extrude_parameters->target_body_id.has_value()) {
+    const auto intersected =
+        find_intersecting_body_for_extrude(*document_,
+                                           extrude_parameters.value());
+    if (intersected.has_value()) {
+      extrude_parameters->mode = "cut";
+      extrude_parameters->target_body_id = intersected;
+    }
   }
 
   push_undo_state();
@@ -1321,6 +1755,8 @@ DocumentState DocumentManager::reenter_sketch(const std::string& feature_id) {
   document_->selected_feature_id = std::nullopt;
   document_->selected_reference_id = std::nullopt;
   document_->selected_face_id = std::nullopt;
+  document_->selected_edge_id = std::nullopt;
+  document_->selected_vertex_id = std::nullopt;
   document_->active_sketch_plane_id = feature_it->sketch_parameters->plane_id;
   // Face id information is not preserved separately in sketch_parameters; the
   // plane_id matches the face id when the sketch was created on a face, which
@@ -1451,6 +1887,42 @@ DocumentState DocumentManager::project_face_into_sketch(
                                        center_local.first,
                                        center_local.second,
                                        outline->circle_radius);
+  } else if (outline->kind == "polygon") {
+    if (outline->polygon_corners.size() < 3) {
+      throw std::runtime_error("Polygon outline must have at least 3 corners");
+    }
+
+    // Project every corner first, then add closed-loop sketch lines.
+    std::vector<std::pair<double, double>> local;
+    local.reserve(outline->polygon_corners.size());
+    for (const auto& corner : outline->polygon_corners) {
+      local.push_back(project_to_sketch_local(corner));
+    }
+
+    const size_t lines_before = sketch_it->sketch_parameters->lines.size();
+    for (size_t i = 0; i < local.size(); ++i) {
+      const auto& a = local[i];
+      const auto& b = local[(i + 1) % local.size()];
+      polysmith::core::add_sketch_line(*sketch_it,
+                                       next_sketch_line_id_++,
+                                       a.first,
+                                       a.second,
+                                       b.first,
+                                       b.second);
+    }
+
+    // Lock every endpoint of the projected lines (same Fusion-like
+    // "derived geometry" lock as the rectangle path).
+    for (size_t i = lines_before; i < sketch_it->sketch_parameters->lines.size();
+         ++i) {
+      const auto& line = sketch_it->sketch_parameters->lines[i];
+      polysmith::core::set_sketch_point_fixed(*sketch_it,
+                                              line.start_point_id,
+                                              true);
+      polysmith::core::set_sketch_point_fixed(*sketch_it,
+                                              line.end_point_id,
+                                              true);
+    }
   } else {
     throw std::runtime_error("Unsupported projected face kind: " + outline->kind);
   }
@@ -1472,6 +1944,8 @@ DocumentState DocumentManager::clear_selection() {
   document_->selected_feature_id = std::nullopt;
   document_->selected_reference_id = std::nullopt;
   document_->selected_face_id = std::nullopt;
+  document_->selected_edge_id = std::nullopt;
+  document_->selected_vertex_id = std::nullopt;
   document_->selected_sketch_point_id = std::nullopt;
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;

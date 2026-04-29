@@ -1,0 +1,456 @@
+#include "core/body_compiler.h"
+
+#include <array>
+#include <cmath>
+#include <stdexcept>
+#include <unordered_map>
+#include <utility>
+
+#include <BRepAlgoAPI_Cut.hxx>
+#include <BRepAlgoAPI_Fuse.hxx>
+#include <BRepFilletAPI_MakeChamfer.hxx>
+#include <BRepFilletAPI_MakeFillet.hxx>
+#include <BRepMesh_IncrementalMesh.hxx>
+#include <BRep_Tool.hxx>
+#include <Poly_Triangulation.hxx>
+#include <TopAbs_Orientation.hxx>
+#include <TopExp.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopLoc_Location.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
+#include <TopoDS.hxx>
+#include <TopoDS_Edge.hxx>
+#include <TopoDS_Face.hxx>
+#include <gp_Pnt.hxx>
+
+#include "core/document.h"
+#include "core/feature_shape.h"
+
+namespace polysmith::core {
+namespace {
+
+constexpr double kLinearDeflection = 0.1;
+constexpr double kAngularDeflection = 0.5;
+
+// Triangulate `shape` and accumulate world-space vertices/indices/normals
+// into `out`. Each face is processed independently so we get per-face
+// flat normals which read well as a default "matte solid" look in the
+// viewport.
+void tessellate_shape(const TopoDS_Shape& shape, BodyMesh& out) {
+  if (shape.IsNull()) {
+    return;
+  }
+
+  BRepMesh_IncrementalMesh mesher(shape,
+                                  kLinearDeflection,
+                                  /*isRelative=*/false,
+                                  kAngularDeflection,
+                                  /*isInParallel=*/true);
+  if (!mesher.IsDone()) {
+    throw std::runtime_error("BRepMesh_IncrementalMesh failed");
+  }
+
+  for (TopExp_Explorer face_explorer(shape, TopAbs_FACE);
+       face_explorer.More();
+       face_explorer.Next()) {
+    const TopoDS_Face& face = TopoDS::Face(face_explorer.Current());
+    TopLoc_Location location;
+    const Handle(Poly_Triangulation) triangulation =
+        BRep_Tool::Triangulation(face, location);
+    if (triangulation.IsNull()) {
+      continue;
+    }
+
+    const gp_Trsf transform = location.Transformation();
+    const bool reversed = face.Orientation() == TopAbs_REVERSED;
+    const int base_index = static_cast<int>(out.vertices.size() / 3);
+    const int node_count = triangulation->NbNodes();
+
+    // Append every node of the face's triangulation, transformed into
+    // world space.
+    for (int node_index = 1; node_index <= node_count; ++node_index) {
+      gp_Pnt node = triangulation->Node(node_index);
+      node.Transform(transform);
+      out.vertices.push_back(node.X());
+      out.vertices.push_back(node.Y());
+      out.vertices.push_back(node.Z());
+    }
+
+    // Append placeholder normals; we'll fill them in below per triangle.
+    for (int node_index = 1; node_index <= node_count; ++node_index) {
+      out.normals.push_back(0.0);
+      out.normals.push_back(0.0);
+      out.normals.push_back(0.0);
+    }
+
+    const int triangle_count = triangulation->NbTriangles();
+    for (int tri_index = 1; tri_index <= triangle_count; ++tri_index) {
+      const Poly_Triangle& triangle = triangulation->Triangle(tri_index);
+      int n1 = 0;
+      int n2 = 0;
+      int n3 = 0;
+      triangle.Get(n1, n2, n3);
+      if (reversed) {
+        std::swap(n2, n3);
+      }
+      const int i1 = base_index + (n1 - 1);
+      const int i2 = base_index + (n2 - 1);
+      const int i3 = base_index + (n3 - 1);
+      out.indices.push_back(i1);
+      out.indices.push_back(i2);
+      out.indices.push_back(i3);
+
+      // Compute a per-triangle normal and accumulate onto each vertex
+      // of the triangle. After processing all triangles we leave the
+      // normals un-renormalized; three.js's flat shading material works
+      // either way and the magnitudes don't drive lighting anyway.
+      const auto get = [&](int vertex_index) {
+        return std::array<double, 3>{
+            out.vertices[3 * vertex_index + 0],
+            out.vertices[3 * vertex_index + 1],
+            out.vertices[3 * vertex_index + 2],
+        };
+      };
+      const auto a = get(i1);
+      const auto b = get(i2);
+      const auto c = get(i3);
+      const double ux = b[0] - a[0];
+      const double uy = b[1] - a[1];
+      const double uz = b[2] - a[2];
+      const double vx = c[0] - a[0];
+      const double vy = c[1] - a[1];
+      const double vz = c[2] - a[2];
+      const double nx = uy * vz - uz * vy;
+      const double ny = uz * vx - ux * vz;
+      const double nz = ux * vy - uy * vx;
+      const double length = std::sqrt(nx * nx + ny * ny + nz * nz);
+      const double inv = length > 0.0 ? 1.0 / length : 0.0;
+      const double normalized_x = nx * inv;
+      const double normalized_y = ny * inv;
+      const double normalized_z = nz * inv;
+      for (int vi : {i1, i2, i3}) {
+        out.normals[3 * vi + 0] += normalized_x;
+        out.normals[3 * vi + 1] += normalized_y;
+        out.normals[3 * vi + 2] += normalized_z;
+      }
+    }
+  }
+}
+
+// Parse the trailing index out of an edge id formatted as
+// "<owner_body_id>:edge:<index>". Returns -1 if the id doesn't match the
+// expected shape — callers treat that as "skip this edge" rather than
+// erroring out so a stale id from the UI degrades gracefully into a no-op.
+int parse_edge_index(const std::string& edge_id) {
+  const std::string marker = ":edge:";
+  const auto pos = edge_id.rfind(marker);
+  if (pos == std::string::npos) {
+    return -1;
+  }
+  try {
+    return std::stoi(edge_id.substr(pos + marker.size()));
+  } catch (const std::exception&) {
+    return -1;
+  }
+}
+
+// Apply a fillet feature onto an existing body shape. Returns the new
+// shape on success, or `body_shape` unchanged on any failure (missing
+// edges, OCCT failure, etc.) so the document keeps rendering.
+TopoDS_Shape apply_fillet(const TopoDS_Shape& body_shape,
+                          const FilletFeatureParameters& params) {
+  if (body_shape.IsNull() || params.edge_ids.empty() || params.radius <= 0.0) {
+    return body_shape;
+  }
+
+  TopTools_IndexedMapOfShape edge_map;
+  TopExp::MapShapes(body_shape, TopAbs_EDGE, edge_map);
+
+  try {
+    BRepFilletAPI_MakeFillet maker(body_shape);
+    bool any_added = false;
+    for (const std::string& edge_id : params.edge_ids) {
+      const int zero_based = parse_edge_index(edge_id);
+      const int one_based = zero_based + 1;
+      if (zero_based < 0 || one_based < 1 || one_based > edge_map.Extent()) {
+        continue;
+      }
+      const TopoDS_Edge edge = TopoDS::Edge(edge_map(one_based));
+      maker.Add(params.radius, edge);
+      any_added = true;
+    }
+    if (!any_added) {
+      return body_shape;
+    }
+    maker.Build();
+    if (!maker.IsDone()) {
+      return body_shape;
+    }
+    const TopoDS_Shape result = maker.Shape();
+    if (result.IsNull()) {
+      return body_shape;
+    }
+    return result;
+  } catch (const std::exception&) {
+    return body_shape;
+  }
+}
+
+TopoDS_Shape apply_chamfer(const TopoDS_Shape& body_shape,
+                           const ChamferFeatureParameters& params) {
+  if (body_shape.IsNull() || params.edge_ids.empty() ||
+      params.distance <= 0.0) {
+    return body_shape;
+  }
+
+  TopTools_IndexedMapOfShape edge_map;
+  TopExp::MapShapes(body_shape, TopAbs_EDGE, edge_map);
+
+  try {
+    BRepFilletAPI_MakeChamfer maker(body_shape);
+    bool any_added = false;
+    for (const std::string& edge_id : params.edge_ids) {
+      const int zero_based = parse_edge_index(edge_id);
+      const int one_based = zero_based + 1;
+      if (zero_based < 0 || one_based < 1 || one_based > edge_map.Extent()) {
+        continue;
+      }
+      const TopoDS_Edge edge = TopoDS::Edge(edge_map(one_based));
+      // Symmetric chamfer: same distance on both adjacent faces. The
+      // single-arg Add overload uses the edge's first adjacent face,
+      // which is fine for symmetric chamfers.
+      maker.Add(params.distance, edge);
+      any_added = true;
+    }
+    if (!any_added) {
+      return body_shape;
+    }
+    maker.Build();
+    if (!maker.IsDone()) {
+      return body_shape;
+    }
+    const TopoDS_Shape result = maker.Shape();
+    if (result.IsNull()) {
+      return body_shape;
+    }
+    return result;
+  } catch (const std::exception&) {
+    return body_shape;
+  }
+}
+
+}  // namespace
+
+CompiledBodies compile_bodies(const DocumentState& document) {
+  CompiledBodies result;
+
+  // Body root id, in insertion order. We use a parallel vector instead of
+  // an ordered map because we need stable "most recent body" semantics:
+  // when an extrude is in cut/join mode it targets the body that was the
+  // most-recently created or modified.
+  std::vector<std::string> body_order;
+  std::unordered_map<std::string, TopoDS_Shape> body_shapes;
+
+  // First pass: detect whether ANY extrude uses a non-default mode. If
+  // not we still need per-body shapes for downstream callers (export),
+  // but we skip tessellation since legacy primitives will render the
+  // viewport. This keeps the cost path-dependent.
+  bool any_boolean = false;
+  for (const auto& feature : document.feature_history) {
+    if (feature.kind == "extrude" &&
+        feature.extrude_parameters.has_value()) {
+      if (feature.extrude_parameters->mode != "new_body") {
+        any_boolean = true;
+        break;
+      }
+      // Negative-depth extrudes also force the mesh path: the legacy
+      // polygon-extrude primitive renderer assumes a positive depth in
+      // the +normal direction, so a negative depth would render in the
+      // wrong place. The body_compiler always produces the right body
+      // shape regardless of sign.
+      if (feature.extrude_parameters->depth < 0.0) {
+        any_boolean = true;
+        break;
+      }
+    }
+    if (feature.kind == "fillet" || feature.kind == "chamfer") {
+      // Fillet & chamfer always produce a mesh body (they modify an
+      // existing OCCT shape in ways the legacy primitive renderers
+      // can't replicate), so they always trigger the mesh path.
+      any_boolean = true;
+      break;
+    }
+  }
+
+  for (const auto& feature : document.feature_history) {
+    // Fillet / chamfer modify an existing body in place rather than
+    // emitting a new shape, so they're handled here before falling
+    // through to the shape-building path used for box/cylinder/extrude.
+    if (feature.kind == "fillet" && feature.fillet_parameters.has_value()) {
+      const auto& params = feature.fillet_parameters.value();
+      // Resolve target body: prefer the explicit target, otherwise fall
+      // back to the most recent body. If neither resolves to an existing
+      // body the feature is a no-op (the user likely deleted the body).
+      std::string target_id;
+      if (!params.target_body_id.empty() &&
+          body_shapes.find(params.target_body_id) != body_shapes.end()) {
+        target_id = params.target_body_id;
+      } else if (!body_order.empty()) {
+        target_id = body_order.back();
+      } else {
+        continue;
+      }
+      const TopoDS_Shape next =
+          apply_fillet(body_shapes[target_id], params);
+      body_shapes[target_id] = next;
+      result.consumed_feature_ids.insert(feature.id);
+      // Refresh "most recent body" so subsequent boolean ops target the
+      // post-fillet shape.
+      if (!body_order.empty() && body_order.back() != target_id) {
+        for (auto it = body_order.begin(); it != body_order.end(); ++it) {
+          if (*it == target_id) {
+            body_order.erase(it);
+            break;
+          }
+        }
+        body_order.push_back(target_id);
+      }
+      continue;
+    }
+    if (feature.kind == "chamfer" && feature.chamfer_parameters.has_value()) {
+      const auto& params = feature.chamfer_parameters.value();
+      std::string target_id;
+      if (!params.target_body_id.empty() &&
+          body_shapes.find(params.target_body_id) != body_shapes.end()) {
+        target_id = params.target_body_id;
+      } else if (!body_order.empty()) {
+        target_id = body_order.back();
+      } else {
+        continue;
+      }
+      const TopoDS_Shape next =
+          apply_chamfer(body_shapes[target_id], params);
+      body_shapes[target_id] = next;
+      result.consumed_feature_ids.insert(feature.id);
+      if (!body_order.empty() && body_order.back() != target_id) {
+        for (auto it = body_order.begin(); it != body_order.end(); ++it) {
+          if (*it == target_id) {
+            body_order.erase(it);
+            break;
+          }
+        }
+        body_order.push_back(target_id);
+      }
+      continue;
+    }
+
+    const TopoDS_Shape shape = build_feature_shape(feature);
+    if (shape.IsNull()) {
+      continue;
+    }
+
+    std::string mode = "new_body";
+    if (feature.kind == "extrude" && feature.extrude_parameters.has_value()) {
+      mode = feature.extrude_parameters->mode;
+    }
+
+    if (mode != "new_body" && !body_order.empty()) {
+      // Honor an explicit target_body_id when set and still present in
+      // the current body set; otherwise fall back to the most recent
+      // body. This keeps boolean ops well-defined even when prior body
+      // roots were consumed by a more recent boolean further upstream.
+      std::string target_id = body_order.back();
+      if (feature.kind == "extrude" &&
+          feature.extrude_parameters.has_value() &&
+          feature.extrude_parameters->target_body_id.has_value()) {
+        const std::string& requested =
+            feature.extrude_parameters->target_body_id.value();
+        if (body_shapes.find(requested) != body_shapes.end()) {
+          target_id = requested;
+        }
+      }
+      const TopoDS_Shape target_shape = body_shapes[target_id];
+
+      TopoDS_Shape combined;
+      try {
+        if (mode == "join") {
+          combined = BRepAlgoAPI_Fuse(target_shape, shape).Shape();
+        } else if (mode == "cut") {
+          combined = BRepAlgoAPI_Cut(target_shape, shape).Shape();
+        } else {
+          throw std::runtime_error("Unknown extrude mode: " + mode);
+        }
+      } catch (const std::exception&) {
+        // Swallow boolean failures — fall back to a fresh body so the
+        // user still sees their geometry instead of an opaque error.
+        combined = shape;
+      }
+
+      if (combined.IsNull()) {
+        // Boolean failure: degrade to an independent body so the user
+        // still sees the new geometry.
+        body_shapes[feature.id] = shape;
+        body_order.push_back(feature.id);
+        continue;
+      }
+
+      body_shapes[target_id] = combined;
+      result.consumed_feature_ids.insert(feature.id);
+      result.consumed_feature_ids.insert(target_id);
+      // The combined body is now the most recent body for the purpose
+      // of "most recent" fallbacks downstream — bring its id to the
+      // back of body_order if it's not already there.
+      if (!body_order.empty() && body_order.back() != target_id) {
+        for (auto it = body_order.begin(); it != body_order.end(); ++it) {
+          if (*it == target_id) {
+            body_order.erase(it);
+            break;
+          }
+        }
+        body_order.push_back(target_id);
+      }
+    } else {
+      body_shapes[feature.id] = shape;
+      body_order.push_back(feature.id);
+    }
+  }
+
+  for (const auto& body_id : body_order) {
+    CompiledBody body{};
+    body.id = body_id;
+    body.shape = body_shapes[body_id];
+    result.bodies.push_back(body);
+  }
+
+  if (!any_boolean) {
+    return result;
+  }
+
+  // Tessellate every body — including independent ones — so the viewport
+  // can render them all consistently when at least one boolean op is in
+  // play. (Mixing legacy primitives and meshes for the same scene is
+  // jarring, and the cost is dominated by the boolean op anyway.)
+  for (const auto& body : result.bodies) {
+    BodyMesh mesh{};
+    mesh.body_id = body.id;
+    try {
+      tessellate_shape(body.shape, mesh);
+    } catch (const std::exception&) {
+      // Skip the failing body rather than aborting the whole viewport
+      // build; users will see other bodies render correctly.
+      mesh.vertices.clear();
+      mesh.indices.clear();
+      mesh.normals.clear();
+    }
+    if (!mesh.vertices.empty() && !mesh.indices.empty()) {
+      result.meshes.push_back(std::move(mesh));
+      // Once a mesh exists for this body, suppress the legacy primitive
+      // for its root feature so we don't double-render.
+      result.consumed_feature_ids.insert(body.id);
+    }
+  }
+
+  return result;
+}
+
+}  // namespace polysmith::core

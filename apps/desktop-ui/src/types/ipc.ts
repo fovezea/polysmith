@@ -25,6 +25,8 @@ export interface DocumentState {
   selected_feature_id: string | null;
   selected_reference_id: string | null;
   selected_face_id: string | null;
+  selected_edge_id: string | null;
+  selected_vertex_id: string | null;
   active_sketch_plane_id: string | null;
   active_sketch_face_id: string | null;
   active_sketch_feature_id: string | null;
@@ -58,10 +60,67 @@ export interface ViewportState {
   sketch_dimensions: ViewportSketchDimension[];
   sketch_constraints: ViewportSketchConstraint[];
   sketch_profiles: ViewportSketchProfile[];
+  meshes: ViewportMeshPrimitive[];
+  cut_previews: ViewportCutPreview[];
+  bodies: ViewportBodySummary[];
+  edges: ViewportEdgePrimitive[];
+  vertices: ViewportVertexPrimitive[];
   scene_width: number;
   scene_height: number;
   scene_depth: number;
   scene_bounds: ViewportSceneBounds;
+}
+
+export interface ViewportMeshPrimitive {
+  primitive_id: string;
+  // Triangulated body geometry in world space, laid out as flat arrays
+  // for direct upload to a three.js BufferGeometry.
+  positions: number[];
+  normals: number[];
+  indices: number[];
+  is_selected: boolean;
+}
+
+// Translucent red preview of the cutter volume for the currently-edited
+// cut extrude. Emitted by the core only while the user is editing the
+// cut (i.e. the corresponding feature is selected). Renders as a red
+// translucent overlay so the user sees exactly which volume is about
+// to be removed, mirroring Fusion's behavior.
+export interface ViewportCutPreview {
+  id: string;
+  positions: number[];
+  normals: number[];
+  indices: number[];
+}
+
+// Lightweight summary of every body present in the current document, in
+// document order. Used by the extrude panel to populate the cut/join
+// target picker with stable ids and human-readable labels.
+export interface ViewportBodySummary {
+  id: string;
+  label: string;
+}
+
+// Selectable edge of a body, expressed as a flat polyline that the
+// renderer can hand straight to a THREE.Line. Edge ids are stable for
+// a given body's topology so selection survives mode/depth tweaks.
+export interface ViewportEdgePrimitive {
+  id: string;
+  owner_body_id: string;
+  // "line" | "circle" | "curve" — informational only, the renderer
+  // treats them all as polylines.
+  kind: string;
+  // Flat world-space samples: x0, y0, z0, x1, y1, z1, ...
+  points: number[];
+  is_selected: boolean;
+}
+
+// Selectable vertex of a body. Same id stability story as edges.
+export interface ViewportVertexPrimitive {
+  id: string;
+  owner_body_id: string;
+  position: { x: number; y: number; z: number };
+  is_selected: boolean;
 }
 
 export interface DocumentExportResult {
@@ -312,6 +371,58 @@ export interface SelectFaceCommand {
   };
 }
 
+export interface SelectEdgeCommand {
+  id: string;
+  type: "select_edge";
+  payload: {
+    edge_id: string;
+  };
+}
+
+export interface SelectVertexCommand {
+  id: string;
+  type: "select_vertex";
+  payload: {
+    vertex_id: string;
+  };
+}
+
+export interface CreateFilletCommand {
+  id: string;
+  type: "create_fillet";
+  payload: {
+    edge_id: string;
+    radius: number;
+  };
+}
+
+export interface UpdateFilletRadiusCommand {
+  id: string;
+  type: "update_fillet_radius";
+  payload: {
+    feature_id: string;
+    radius: number;
+  };
+}
+
+export interface CreateChamferCommand {
+  id: string;
+  type: "create_chamfer";
+  payload: {
+    edge_id: string;
+    distance: number;
+  };
+}
+
+export interface UpdateChamferDistanceCommand {
+  id: string;
+  type: "update_chamfer_distance";
+  payload: {
+    feature_id: string;
+    distance: number;
+  };
+}
+
 export interface StartSketchOnPlaneCommand {
   id: string;
   type: "start_sketch_on_plane";
@@ -473,12 +584,36 @@ export interface SelectSketchProfileCommand {
   };
 }
 
+export type ExtrudeMode = "new_body" | "join" | "cut";
+
 export interface ExtrudeProfileCommand {
   id: string;
   type: "extrude_profile";
   payload: {
     profile_id: string;
     depth: number;
+    mode?: ExtrudeMode;
+    target_body_id?: string;
+  };
+}
+
+export interface UpdateExtrudeModeCommand {
+  id: string;
+  type: "update_extrude_mode";
+  payload: {
+    feature_id: string;
+    mode: ExtrudeMode;
+  };
+}
+
+export interface UpdateExtrudeTargetBodyCommand {
+  id: string;
+  type: "update_extrude_target_body";
+  payload: {
+    feature_id: string;
+    // Omit (or set undefined) to clear the explicit target and fall back
+    // to the most recent body.
+    target_body_id?: string;
   };
 }
 
@@ -546,6 +681,8 @@ export type CoreCommand =
   | AddCylinderFeatureCommand
   | UpdateBoxFeatureCommand
   | UpdateExtrudeDepthCommand
+  | UpdateExtrudeModeCommand
+  | UpdateExtrudeTargetBodyCommand
   | RenameFeatureCommand
   | DeleteFeatureCommand
   | UndoCommand
@@ -553,6 +690,12 @@ export type CoreCommand =
   | SelectFeatureCommand
   | SelectReferenceCommand
   | SelectFaceCommand
+  | SelectEdgeCommand
+  | SelectVertexCommand
+  | CreateFilletCommand
+  | UpdateFilletRadiusCommand
+  | CreateChamferCommand
+  | UpdateChamferDistanceCommand
   | StartSketchOnPlaneCommand
   | StartSketchOnFaceCommand
   | SetSketchToolCommand

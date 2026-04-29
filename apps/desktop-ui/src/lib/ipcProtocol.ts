@@ -5,6 +5,7 @@ import type {
   DocumentState,
   DocumentExportResult,
   ErrorEvent,
+  ExtrudeMode,
   ViewportState,
 } from "@/types";
 
@@ -236,6 +237,82 @@ export function makeSelectFaceCommand(faceId: string): CoreCommand {
   };
 }
 
+export function makeSelectEdgeCommand(edgeId: string): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "select_edge",
+    payload: {
+      edge_id: edgeId,
+    },
+  };
+}
+
+export function makeSelectVertexCommand(vertexId: string): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "select_vertex",
+    payload: {
+      vertex_id: vertexId,
+    },
+  };
+}
+
+export function makeCreateFilletCommand(
+  edgeId: string,
+  radius: number,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "create_fillet",
+    payload: {
+      edge_id: edgeId,
+      radius,
+    },
+  };
+}
+
+export function makeUpdateFilletRadiusCommand(
+  featureId: string,
+  radius: number,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_fillet_radius",
+    payload: {
+      feature_id: featureId,
+      radius,
+    },
+  };
+}
+
+export function makeCreateChamferCommand(
+  edgeId: string,
+  distance: number,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "create_chamfer",
+    payload: {
+      edge_id: edgeId,
+      distance,
+    },
+  };
+}
+
+export function makeUpdateChamferDistanceCommand(
+  featureId: string,
+  distance: number,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_chamfer_distance",
+    payload: {
+      feature_id: featureId,
+      distance,
+    },
+  };
+}
+
 export function makeStartSketchOnPlaneCommand(
   referenceId: string,
 ): CoreCommand {
@@ -442,6 +519,8 @@ export function makeSelectSketchProfileCommand(profileId: string): CoreCommand {
 export function makeExtrudeProfileCommand(
   profileId: string,
   depth: number,
+  mode: ExtrudeMode = "new_body",
+  targetBodyId: string | null = null,
 ): CoreCommand {
   return {
     id: crypto.randomUUID(),
@@ -449,6 +528,36 @@ export function makeExtrudeProfileCommand(
     payload: {
       profile_id: profileId,
       depth,
+      mode,
+      ...(targetBodyId ? { target_body_id: targetBodyId } : {}),
+    },
+  };
+}
+
+export function makeUpdateExtrudeModeCommand(
+  featureId: string,
+  mode: ExtrudeMode,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_extrude_mode",
+    payload: {
+      feature_id: featureId,
+      mode,
+    },
+  };
+}
+
+export function makeUpdateExtrudeTargetBodyCommand(
+  featureId: string,
+  targetBodyId: string | null,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_extrude_target_body",
+    payload: {
+      feature_id: featureId,
+      ...(targetBodyId ? { target_body_id: targetBodyId } : {}),
     },
   };
 }

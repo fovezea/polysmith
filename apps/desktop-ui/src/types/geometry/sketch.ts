@@ -80,6 +80,18 @@ export interface SketchFeatureParameters {
   profiles: SketchProfileRegionEntry[];
 }
 
+export interface FilletFeatureParameters {
+  target_body_id: string;
+  edge_ids: string[];
+  radius: number;
+}
+
+export interface ChamferFeatureParameters {
+  target_body_id: string;
+  edge_ids: string[];
+  distance: number;
+}
+
 export interface FeatureEntry {
   feature_id: string;
   kind: string;
@@ -90,6 +102,8 @@ export interface FeatureEntry {
   cylinder_parameters: CylinderFeatureParameters | null;
   extrude_parameters: ExtrudeFeatureParameters | null;
   sketch_parameters: SketchFeatureParameters | null;
+  fillet_parameters: FilletFeatureParameters | null;
+  chamfer_parameters: ChamferFeatureParameters | null;
 }
 
 export type SketchTool = "select" | Shape2D;

@@ -3,7 +3,34 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <set>
+#include <utility>
 
+#include <BRepAdaptor_Curve.hxx>
+#include <BRepAdaptor_Surface.hxx>
+#include <BRepGProp_Face.hxx>
+#include <BRepMesh_IncrementalMesh.hxx>
+#include <BRep_Tool.hxx>
+#include <GCPnts_QuasiUniformDeflection.hxx>
+#include <GeomAbs_CurveType.hxx>
+#include <GeomAbs_SurfaceType.hxx>
+#include <Poly_Triangulation.hxx>
+#include <TopAbs_Orientation.hxx>
+#include <TopExp.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopLoc_Location.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
+#include <TopoDS.hxx>
+#include <TopoDS_Edge.hxx>
+#include <TopoDS_Face.hxx>
+#include <TopoDS_Vertex.hxx>
+#include <gp_Dir.hxx>
+#include <gp_Pln.hxx>
+#include <gp_Pnt.hxx>
+#include <gp_Vec.hxx>
+
+#include "core/body_compiler.h"
+#include "core/feature_shape.h"
 #include "core/sketch_profile.h"
 
 namespace polysmith::core {
@@ -607,6 +634,492 @@ void include_world_point_for_frame(
   include_point(end.x, end.y, end.z);
 }
 
+// Sample a single OCCT edge into a flat polyline (x0, y0, z0, x1, ...).
+// Straight segments stay 2-point; everything else uses
+// GCPnts_QuasiUniformDeflection with a small fixed deflection so curves
+// look smooth in the viewport without ballooning the wire payload.
+void sample_edge(const TopoDS_Edge& edge,
+                 std::vector<double>& points,
+                 std::string& kind) {
+  points.clear();
+  kind = "curve";
+
+  if (edge.IsNull()) {
+    return;
+  }
+
+  // BRepAdaptor_Curve internally pulls the curve from the edge and
+  // applies the edge's location, so the sampled points are already in
+  // world space relative to the body.
+  BRepAdaptor_Curve adaptor;
+  try {
+    adaptor.Initialize(edge);
+  } catch (const std::exception&) {
+    return;
+  }
+
+  const GeomAbs_CurveType curve_type = adaptor.GetType();
+  if (curve_type == GeomAbs_Line) {
+    kind = "line";
+    const double first = adaptor.FirstParameter();
+    const double last = adaptor.LastParameter();
+    const gp_Pnt start = adaptor.Value(first);
+    const gp_Pnt end = adaptor.Value(last);
+    points.push_back(start.X());
+    points.push_back(start.Y());
+    points.push_back(start.Z());
+    points.push_back(end.X());
+    points.push_back(end.Y());
+    points.push_back(end.Z());
+    return;
+  }
+
+  if (curve_type == GeomAbs_Circle) {
+    kind = "circle";
+  }
+
+  // Generic curve sampler. The deflection of 0.05mm matches the
+  // body_compiler tessellation budget closely enough that selectable
+  // edges hug the rendered solid surface.
+  try {
+    GCPnts_QuasiUniformDeflection sampler(adaptor, /*Deflection=*/0.05);
+    if (!sampler.IsDone() || sampler.NbPoints() < 2) {
+      // Fall back to the curve's parametric endpoints so the edge is
+      // at least pickable as a chord.
+      const double first = adaptor.FirstParameter();
+      const double last = adaptor.LastParameter();
+      const gp_Pnt start = adaptor.Value(first);
+      const gp_Pnt end = adaptor.Value(last);
+      points.push_back(start.X());
+      points.push_back(start.Y());
+      points.push_back(start.Z());
+      points.push_back(end.X());
+      points.push_back(end.Y());
+      points.push_back(end.Z());
+      return;
+    }
+    for (int i = 1; i <= sampler.NbPoints(); ++i) {
+      const gp_Pnt p = sampler.Value(i);
+      points.push_back(p.X());
+      points.push_back(p.Y());
+      points.push_back(p.Z());
+    }
+  } catch (const std::exception&) {
+    points.clear();
+  }
+}
+
+// Append every unique edge of `body_shape` to `out`, owned by `body_id`.
+// Edge ids match the format expected by DocumentManager::select_edge.
+void enumerate_body_edges(const TopoDS_Shape& body_shape,
+                          const std::string& body_id,
+                          const std::optional<std::string>& selected_edge_id,
+                          std::vector<ViewportEdgePrimitive>& out) {
+  if (body_shape.IsNull()) {
+    return;
+  }
+
+  TopTools_IndexedMapOfShape edge_map;
+  TopExp::MapShapes(body_shape, TopAbs_EDGE, edge_map);
+
+  for (int i = 1; i <= edge_map.Extent(); ++i) {
+    const TopoDS_Edge edge = TopoDS::Edge(edge_map(i));
+    ViewportEdgePrimitive primitive{};
+    primitive.id = body_id + ":edge:" + std::to_string(i - 1);
+    primitive.owner_body_id = body_id;
+    sample_edge(edge, primitive.points, primitive.kind);
+    if (primitive.points.size() < 6) {
+      // Degenerate edges (fewer than 2 sample points) cannot be picked
+      // or rendered; skip them rather than emit dead entries.
+      continue;
+    }
+    primitive.is_selected =
+        selected_edge_id.has_value() && selected_edge_id.value() == primitive.id;
+    out.push_back(std::move(primitive));
+  }
+}
+
+// Append every unique vertex of `body_shape` to `out`, owned by `body_id`.
+// Vertex ids match the format expected by DocumentManager::select_vertex.
+void enumerate_body_vertices(
+    const TopoDS_Shape& body_shape,
+    const std::string& body_id,
+    const std::optional<std::string>& selected_vertex_id,
+    std::vector<ViewportVertexPrimitive>& out) {
+  if (body_shape.IsNull()) {
+    return;
+  }
+
+  TopTools_IndexedMapOfShape vertex_map;
+  TopExp::MapShapes(body_shape, TopAbs_VERTEX, vertex_map);
+
+  for (int i = 1; i <= vertex_map.Extent(); ++i) {
+    const TopoDS_Vertex vertex = TopoDS::Vertex(vertex_map(i));
+    if (vertex.IsNull()) {
+      continue;
+    }
+    gp_Pnt position;
+    try {
+      position = BRep_Tool::Pnt(vertex);
+    } catch (const std::exception&) {
+      continue;
+    }
+    ViewportVertexPrimitive primitive{};
+    primitive.id = body_id + ":vertex:" + std::to_string(i - 1);
+    primitive.owner_body_id = body_id;
+    primitive.x = position.X();
+    primitive.y = position.Y();
+    primitive.z = position.Z();
+    primitive.is_selected =
+        selected_vertex_id.has_value() &&
+        selected_vertex_id.value() == primitive.id;
+    out.push_back(std::move(primitive));
+  }
+}
+
+// Build a plane frame for `face` by reading the underlying surface's plane
+// (when planar) and the face center. For non-planar faces, return a
+// representative frame oriented around the face center + face normal at
+// that point — picking still works, sketch-on-face is rejected via the
+// returned `is_planar` flag.
+struct FaceFrameInfo {
+  ViewportSolidFace::PlaneFrame frame;
+  double center_x;
+  double center_y;
+  double center_z;
+  double normal_x;
+  double normal_y;
+  double normal_z;
+  bool is_planar;
+};
+
+FaceFrameInfo derive_face_frame(const TopoDS_Face& face) {
+  FaceFrameInfo info{};
+  info.is_planar = false;
+  // Sensible defaults; these are overwritten below.
+  info.frame = ViewportSolidFace::PlaneFrame{
+      .origin_x = 0.0, .origin_y = 0.0, .origin_z = 0.0,
+      .x_axis_x = 1.0, .x_axis_y = 0.0, .x_axis_z = 0.0,
+      .y_axis_x = 0.0, .y_axis_y = 1.0, .y_axis_z = 0.0,
+      .normal_x = 0.0, .normal_y = 0.0, .normal_z = 1.0,
+  };
+
+  try {
+    BRepAdaptor_Surface surface(face);
+    const GeomAbs_SurfaceType type = surface.GetType();
+
+    // Compute the face's parametric mid-point so we can sample a
+    // representative (point, normal) regardless of surface type.
+    const double u_mid = 0.5 * (surface.FirstUParameter() + surface.LastUParameter());
+    const double v_mid = 0.5 * (surface.FirstVParameter() + surface.LastVParameter());
+
+    BRepGProp_Face prop(face);
+    gp_Pnt center;
+    gp_Vec normal;
+    prop.Normal(u_mid, v_mid, center, normal);
+    if (normal.Magnitude() > 0.0) {
+      normal.Normalize();
+    } else {
+      normal = gp_Vec(0.0, 0.0, 1.0);
+    }
+    // Honor the face's orientation flag so the emitted normal is the
+    // outward-pointing one consumers expect.
+    if (face.Orientation() == TopAbs_REVERSED) {
+      normal.Reverse();
+    }
+
+    info.center_x = center.X();
+    info.center_y = center.Y();
+    info.center_z = center.Z();
+    info.normal_x = normal.X();
+    info.normal_y = normal.Y();
+    info.normal_z = normal.Z();
+
+    if (type == GeomAbs_Plane) {
+      info.is_planar = true;
+      const gp_Pln plane = surface.Plane();
+      const gp_Ax3 ax = plane.Position();
+      const gp_Pnt origin = ax.Location();
+      gp_Dir x_axis = ax.XDirection();
+      gp_Dir y_axis = ax.YDirection();
+      gp_Dir z_axis = ax.Direction();
+      // Mirror the orientation flag onto the plane axes too — a reversed
+      // face has its "outward" normal flipped, and the y-axis is flipped
+      // to keep the frame right-handed.
+      if (face.Orientation() == TopAbs_REVERSED) {
+        z_axis.Reverse();
+        y_axis.Reverse();
+      }
+      info.frame = ViewportSolidFace::PlaneFrame{
+          .origin_x = origin.X(),
+          .origin_y = origin.Y(),
+          .origin_z = origin.Z(),
+          .x_axis_x = x_axis.X(),
+          .x_axis_y = x_axis.Y(),
+          .x_axis_z = x_axis.Z(),
+          .y_axis_x = y_axis.X(),
+          .y_axis_y = y_axis.Y(),
+          .y_axis_z = y_axis.Z(),
+          .normal_x = z_axis.X(),
+          .normal_y = z_axis.Y(),
+          .normal_z = z_axis.Z(),
+      };
+      // Override center/normal with the plane axes for consistency.
+      info.normal_x = z_axis.X();
+      info.normal_y = z_axis.Y();
+      info.normal_z = z_axis.Z();
+    } else {
+      // Non-planar face: synthesize a frame at the sampled center with
+      // the sampled normal so the UI can still place a label / preview
+      // marker. Sketch-on-face is rejected via `is_planar = false`.
+      gp_Vec arbitrary = std::abs(normal.X()) < 0.9
+                             ? gp_Vec(1.0, 0.0, 0.0)
+                             : gp_Vec(0.0, 1.0, 0.0);
+      gp_Vec x_axis = arbitrary.Crossed(normal);
+      if (x_axis.Magnitude() > 0.0) {
+        x_axis.Normalize();
+      }
+      gp_Vec y_axis = normal.Crossed(x_axis);
+      if (y_axis.Magnitude() > 0.0) {
+        y_axis.Normalize();
+      }
+      info.frame = ViewportSolidFace::PlaneFrame{
+          .origin_x = center.X(),
+          .origin_y = center.Y(),
+          .origin_z = center.Z(),
+          .x_axis_x = x_axis.X(),
+          .x_axis_y = x_axis.Y(),
+          .x_axis_z = x_axis.Z(),
+          .y_axis_x = y_axis.X(),
+          .y_axis_y = y_axis.Y(),
+          .y_axis_z = y_axis.Z(),
+          .normal_x = normal.X(),
+          .normal_y = normal.Y(),
+          .normal_z = normal.Z(),
+      };
+    }
+  } catch (const std::exception&) {
+    // Bad surface: leave defaults, mark non-planar.
+    info.is_planar = false;
+  }
+
+  return info;
+}
+
+// Append every unique face of `body_shape` to `out`, owned by `body_id`.
+// Each face is fully tessellated in world space so the UI can build a
+// real BufferGeometry and the picker hits the actual face geometry.
+// Face ids match the format expected by DocumentManager::select_face
+// ("<owner_id>:face:<index>"), with index coming from
+// TopExp::MapShapes(TopAbs_FACE).
+void enumerate_body_faces(const TopoDS_Shape& body_shape,
+                          const std::string& body_id,
+                          const std::string& body_kind,
+                          const std::optional<std::string>& selected_face_id,
+                          std::vector<ViewportSolidFace>& out) {
+  if (body_shape.IsNull()) {
+    return;
+  }
+
+  // BRepMesh_IncrementalMesh deflection mirrors body_compiler so the
+  // face triangulation matches the body mesh that's already on screen.
+  // Skipping this would leave faces without per-face triangulation when
+  // body_compiler hasn't tessellated this body (legacy non-boolean path).
+  try {
+    BRepMesh_IncrementalMesh mesher(body_shape,
+                                    /*deflection=*/0.1,
+                                    /*isRelative=*/false,
+                                    /*angularDeflection=*/0.5,
+                                    /*isInParallel=*/true);
+    if (!mesher.IsDone()) {
+      return;
+    }
+  } catch (const std::exception&) {
+    return;
+  }
+
+  TopTools_IndexedMapOfShape face_map;
+  TopExp::MapShapes(body_shape, TopAbs_FACE, face_map);
+
+  for (int i = 1; i <= face_map.Extent(); ++i) {
+    const TopoDS_Face face = TopoDS::Face(face_map(i));
+    if (face.IsNull()) {
+      continue;
+    }
+
+    const std::string face_id =
+        body_id + ":face:" + std::to_string(i - 1);
+
+    TopLoc_Location location;
+    const Handle(Poly_Triangulation) triangulation =
+        BRep_Tool::Triangulation(face, location);
+    if (triangulation.IsNull()) {
+      // No tessellation for this face — skip rather than emit a face
+      // that can't be picked or rendered.
+      continue;
+    }
+
+    const FaceFrameInfo frame_info = derive_face_frame(face);
+
+    ViewportSolidFace primitive{};
+    primitive.face_id = face_id;
+    primitive.owner_id = body_id;
+    primitive.owner_kind = body_kind;
+    primitive.label = "Face " + std::to_string(i);
+    primitive.sketchability = frame_info.is_planar ? "planar" : "non-planar";
+    primitive.center_x = frame_info.center_x;
+    primitive.center_y = frame_info.center_y;
+    primitive.center_z = frame_info.center_z;
+    primitive.normal_x = frame_info.normal_x;
+    primitive.normal_y = frame_info.normal_y;
+    primitive.normal_z = frame_info.normal_z;
+    primitive.plane_frame = frame_info.frame;
+    primitive.is_selected = selected_face_id.has_value() &&
+                            selected_face_id.value() == face_id;
+
+    // Append per-face triangulation (positions in world space, indices
+    // local to this face's positions array).
+    const gp_Trsf transform = location.Transformation();
+    const bool reversed = face.Orientation() == TopAbs_REVERSED;
+    const int node_count = triangulation->NbNodes();
+    primitive.triangle_positions.reserve(static_cast<size_t>(node_count) * 3);
+    for (int node_index = 1; node_index <= node_count; ++node_index) {
+      gp_Pnt node = triangulation->Node(node_index);
+      node.Transform(transform);
+      primitive.triangle_positions.push_back(node.X());
+      primitive.triangle_positions.push_back(node.Y());
+      primitive.triangle_positions.push_back(node.Z());
+    }
+
+    const int triangle_count = triangulation->NbTriangles();
+    primitive.triangle_indices.reserve(static_cast<size_t>(triangle_count) * 3);
+    for (int tri_index = 1; tri_index <= triangle_count; ++tri_index) {
+      const Poly_Triangle& triangle = triangulation->Triangle(tri_index);
+      int n1 = 0;
+      int n2 = 0;
+      int n3 = 0;
+      triangle.Get(n1, n2, n3);
+      if (reversed) {
+        std::swap(n2, n3);
+      }
+      primitive.triangle_indices.push_back(n1 - 1);
+      primitive.triangle_indices.push_back(n2 - 1);
+      primitive.triangle_indices.push_back(n3 - 1);
+    }
+
+    if (primitive.triangle_positions.empty() ||
+        primitive.triangle_indices.empty()) {
+      continue;
+    }
+
+    out.push_back(std::move(primitive));
+  }
+}
+
+// Tessellate `shape` into flat positions/normals/indices arrays. Used
+// for the cut-preview emission below, which renders a translucent
+// "this is what's about to be cut" volume so the user can see exactly
+// which material the cut extrude will remove.
+//
+// The output is intentionally minimal compared to body_compiler's
+// tessellate_shape: per-vertex normals are computed in a single pass
+// (one normal per vertex, summed across triangles) without seam-
+// splitting. The cut preview is a UI overlay so visual fidelity is
+// less important than getting it on screen at all.
+void tessellate_shape_to_arrays(const TopoDS_Shape& shape,
+                                std::vector<double>& positions,
+                                std::vector<double>& normals,
+                                std::vector<int>& indices) {
+  if (shape.IsNull()) {
+    return;
+  }
+  try {
+    BRepMesh_IncrementalMesh mesher(shape,
+                                    /*deflection=*/0.1,
+                                    /*isRelative=*/false,
+                                    /*angularDeflection=*/0.5,
+                                    /*isInParallel=*/true);
+    if (!mesher.IsDone()) {
+      return;
+    }
+  } catch (const std::exception&) {
+    return;
+  }
+
+  for (TopExp_Explorer face_explorer(shape, TopAbs_FACE);
+       face_explorer.More();
+       face_explorer.Next()) {
+    const TopoDS_Face face = TopoDS::Face(face_explorer.Current());
+    TopLoc_Location location;
+    const Handle(Poly_Triangulation) triangulation =
+        BRep_Tool::Triangulation(face, location);
+    if (triangulation.IsNull()) {
+      continue;
+    }
+    const gp_Trsf transform = location.Transformation();
+    const bool reversed = face.Orientation() == TopAbs_REVERSED;
+    const int base_index = static_cast<int>(positions.size() / 3);
+    const int node_count = triangulation->NbNodes();
+    for (int i = 1; i <= node_count; ++i) {
+      gp_Pnt node = triangulation->Node(i);
+      node.Transform(transform);
+      positions.push_back(node.X());
+      positions.push_back(node.Y());
+      positions.push_back(node.Z());
+      normals.push_back(0.0);
+      normals.push_back(0.0);
+      normals.push_back(0.0);
+    }
+    const int triangle_count = triangulation->NbTriangles();
+    for (int t = 1; t <= triangle_count; ++t) {
+      const Poly_Triangle& triangle = triangulation->Triangle(t);
+      int n1 = 0;
+      int n2 = 0;
+      int n3 = 0;
+      triangle.Get(n1, n2, n3);
+      if (reversed) {
+        std::swap(n2, n3);
+      }
+      const int i1 = base_index + (n1 - 1);
+      const int i2 = base_index + (n2 - 1);
+      const int i3 = base_index + (n3 - 1);
+      indices.push_back(i1);
+      indices.push_back(i2);
+      indices.push_back(i3);
+      // Accumulate per-triangle normal onto each vertex so the simple
+      // viewer flat-shading pass has something to work with.
+      const double ax = positions[3 * i1 + 0];
+      const double ay = positions[3 * i1 + 1];
+      const double az = positions[3 * i1 + 2];
+      const double bx = positions[3 * i2 + 0];
+      const double by = positions[3 * i2 + 1];
+      const double bz = positions[3 * i2 + 2];
+      const double cx = positions[3 * i3 + 0];
+      const double cy = positions[3 * i3 + 1];
+      const double cz = positions[3 * i3 + 2];
+      const double ux = bx - ax;
+      const double uy = by - ay;
+      const double uz = bz - az;
+      const double vx = cx - ax;
+      const double vy = cy - ay;
+      const double vz = cz - az;
+      const double nx = uy * vz - uz * vy;
+      const double ny = uz * vx - ux * vz;
+      const double nz = ux * vy - uy * vx;
+      const double length = std::sqrt(nx * nx + ny * ny + nz * nz);
+      const double inv = length > 0.0 ? 1.0 / length : 0.0;
+      const double nxn = nx * inv;
+      const double nyn = ny * inv;
+      const double nzn = nz * inv;
+      for (int idx : {i1, i2, i3}) {
+        normals[3 * idx + 0] += nxn;
+        normals[3 * idx + 1] += nyn;
+        normals[3 * idx + 2] += nzn;
+      }
+    }
+  }
+}
+
 }  // namespace
 
 ViewportState build_viewport_state(const std::optional<DocumentState>& document) {
@@ -625,6 +1138,11 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
         .sketch_dimensions = {},
         .sketch_constraints = {},
         .sketch_profiles = {},
+        .meshes = {},
+        .cut_previews = {},
+        .bodies = {},
+        .edges = {},
+        .vertices = {},
         .scene_width = 0.0,
         .scene_height = 0.0,
         .scene_depth = 0.0,
@@ -653,17 +1171,132 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
   std::vector<ViewportSketchDimensionPrimitive> sketch_dimensions;
   std::vector<ViewportSketchConstraintPrimitive> sketch_constraints;
   std::vector<ViewportSketchProfilePrimitive> sketch_profiles;
+  std::vector<ViewportMeshPrimitive> meshes;
+  std::vector<ViewportCutPreview> cut_previews;
+  std::vector<ViewportBodySummary> bodies;
+  std::vector<ViewportEdgePrimitive> edges;
+  std::vector<ViewportVertexPrimitive> vertices;
   double current_x_offset = 0.0;
   double scene_width = 0.0;
   double max_height = 0.0;
   double max_depth = 0.0;
 
+  // Walk the feature history once with boolean operators applied so we
+  // know which features get consumed by Fuse/Cut and which bodies need
+  // to be tessellated as mesh primitives. Features in the resulting
+  // `consumed_feature_ids` set must be skipped by the legacy primitive
+  // emission below to avoid double-rendering. Failures in OCCT booleans
+  // produce empty meshes — see body_compiler.cpp — so legacy fallback
+  // still renders something.
+  CompiledBodies compiled_bodies = compile_bodies(document.value());
+  for (const auto& body_mesh : compiled_bodies.meshes) {
+    ViewportMeshPrimitive mesh{};
+    mesh.id = body_mesh.body_id;
+    mesh.positions = body_mesh.vertices;
+    mesh.normals = body_mesh.normals;
+    mesh.indices = body_mesh.indices;
+    mesh.is_selected =
+        document->selected_feature_id.has_value() &&
+        document->selected_feature_id.value() == body_mesh.body_id;
+    meshes.push_back(std::move(mesh));
+  }
+  const std::set<std::string>& consumed = compiled_bodies.consumed_feature_ids;
+
+  // Cut preview overlay: when the user has a cut extrude selected (i.e.
+  // the floating Extrude panel is open and editing it), emit a
+  // translucent red mesh of the cutter volume so they can see exactly
+  // what's about to be removed. This is a UI overlay only — the
+  // booleaned body itself already renders the post-cut shape via
+  // `meshes`. We only emit the preview while the feature is the
+  // currently-selected one to avoid clutter on saved documents.
+  if (document->selected_feature_id.has_value()) {
+    for (const auto& feature : document->feature_history) {
+      if (feature.id != document->selected_feature_id.value()) {
+        continue;
+      }
+      if (feature.kind != "extrude" ||
+          !feature.extrude_parameters.has_value() ||
+          feature.extrude_parameters->mode != "cut") {
+        break;
+      }
+      try {
+        const TopoDS_Shape cutter =
+            build_extrude_shape(feature.extrude_parameters.value());
+        if (cutter.IsNull()) {
+          break;
+        }
+        ViewportCutPreview preview{};
+        preview.id = feature.id;
+        tessellate_shape_to_arrays(cutter,
+                                   preview.positions,
+                                   preview.normals,
+                                   preview.indices);
+        if (!preview.positions.empty() && !preview.indices.empty()) {
+          cut_previews.push_back(std::move(preview));
+        }
+      } catch (const std::exception&) {
+        // Cutter build failures shouldn't break the rest of the
+        // viewport; just skip the preview for this snapshot.
+      }
+      break;
+    }
+  }
+
+  // Build the body summary list for the UI's target picker. The body's
+  // root id maps 1:1 to a feature id, so we look up the human-readable
+  // name from feature_history; missing or empty names degrade to the id
+  // itself so the picker is always populated.
+  for (const auto& body : compiled_bodies.bodies) {
+    std::string label = body.id;
+    for (const auto& feature : document->feature_history) {
+      if (feature.id == body.id && !feature.name.empty()) {
+        label = feature.name;
+        break;
+      }
+    }
+    bodies.push_back(ViewportBodySummary{.id = body.id, .label = label});
+    enumerate_body_edges(body.shape,
+                         body.id,
+                         document->selected_edge_id,
+                         edges);
+    enumerate_body_vertices(body.shape,
+                            body.id,
+                            document->selected_vertex_id,
+                            vertices);
+    // Look up the body's owning feature kind so the face's owner_kind
+    // stays useful to consumers (the UI uses it to label faces).
+    std::string body_kind;
+    for (const auto& feature : document->feature_history) {
+      if (feature.id == body.id) {
+        body_kind = feature.kind;
+        break;
+      }
+    }
+    // Legacy box/cylinder features render at a `current_x_offset` that
+    // body_compiler doesn't know about (their shapes are built at the
+    // origin). Body-derived faces would therefore land away from the
+    // visual primitive — keep their analytical faces (emitted below in
+    // the per-feature loop) and skip body-derived faces for them.
+    if (body_kind != "box" && body_kind != "cylinder") {
+      enumerate_body_faces(body.shape,
+                           body.id,
+                           body_kind,
+                           document->selected_face_id,
+                           solid_faces);
+    }
+  }
+
   for (const auto& feature : document->feature_history) {
     const bool is_selected =
         document->selected_feature_id.has_value() &&
         document->selected_feature_id.value() == feature.id;
+    const bool feature_consumed_by_boolean =
+        consumed.find(feature.id) != consumed.end();
 
     if (feature.kind == "box" && feature.box_parameters.has_value()) {
+      if (feature_consumed_by_boolean) {
+        continue;
+      }
       const auto& parameters = feature.box_parameters.value();
       boxes.push_back(ViewportBoxPrimitive{
           .id = feature.id,
@@ -864,6 +1497,9 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
     }
 
     if (feature.kind == "cylinder" && feature.cylinder_parameters.has_value()) {
+      if (feature_consumed_by_boolean) {
+        continue;
+      }
       const auto& parameters = feature.cylinder_parameters.value();
       const double diameter = parameters.radius * 2.0;
 
@@ -949,6 +1585,9 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
     }
 
     if (feature.kind == "extrude" && feature.extrude_parameters.has_value()) {
+      if (feature_consumed_by_boolean) {
+        continue;
+      }
       const auto& parameters = feature.extrude_parameters.value();
 
       if (parameters.profile_kind == "rectangle") {
@@ -1795,6 +2434,50 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
       .end_z = reference_extent,
   });
 
+  // Drop legacy named-suffix analytical faces for extrude features
+  // (e.g. "<id>:face:top", "<id>:face:base", "<id>:face:side-N"). The
+  // per-feature loop above still emits those for backwards
+  // compatibility with the old tests / serialization paths, but every
+  // extrude body now also gets accurate body-derived faces from
+  // `enumerate_body_faces` (with numeric suffixes "<id>:face:0",
+  // "<id>:face:1", ...). When both are present they overlap as
+  // transparent meshes at nearly-identical world positions, producing
+  // a "ghost plane" the user can't easily click through. Body-derived
+  // faces always win because they handle filleting, plane-frame
+  // rotations, and booleaned topology correctly — analytical ones
+  // only ever matched on the simple new-body case.
+  {
+    auto is_named_suffix_for_extrude =
+        [&](const ViewportSolidFace& face) -> bool {
+      if (face.owner_kind != "extrude") {
+        return false;
+      }
+      // Find the suffix after the last ":face:" delimiter and check
+      // whether it parses as a non-negative integer. Numeric -> body-
+      // derived (keep). Non-numeric -> legacy analytical (drop).
+      const std::string separator = ":face:";
+      const auto pos = face.face_id.rfind(separator);
+      if (pos == std::string::npos) {
+        return false;
+      }
+      const std::string suffix =
+          face.face_id.substr(pos + separator.size());
+      if (suffix.empty()) {
+        return false;
+      }
+      for (const char ch : suffix) {
+        if (ch < '0' || ch > '9') {
+          return true;
+        }
+      }
+      return false;
+    };
+    solid_faces.erase(std::remove_if(solid_faces.begin(),
+                                     solid_faces.end(),
+                                     is_named_suffix_for_extrude),
+                      solid_faces.end());
+  }
+
   const ViewportSceneBounds scene_bounds = {
       .center_x = scene_width_with_references / 2.0,
       .center_y = scene_height_with_references / 2.0,
@@ -1821,6 +2504,11 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
       .sketch_dimensions = sketch_dimensions,
       .sketch_constraints = sketch_constraints,
       .sketch_profiles = sketch_profiles,
+      .meshes = meshes,
+      .cut_previews = cut_previews,
+      .bodies = bodies,
+      .edges = edges,
+      .vertices = vertices,
       .scene_width = scene_width_with_references,
       .scene_height = scene_height_with_references,
       .scene_depth = scene_depth_with_references,

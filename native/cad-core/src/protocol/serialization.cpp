@@ -113,6 +113,13 @@ extrude_parameters_from_payload(const json& payload) {
     }
   }
   params.depth = read_number(payload, "depth");
+  if (payload.contains("mode") && payload.at("mode").is_string()) {
+    params.mode = payload.at("mode").get<std::string>();
+  }
+  if (payload.contains("target_body_id") &&
+      payload.at("target_body_id").is_string()) {
+    params.target_body_id = payload.at("target_body_id").get<std::string>();
+  }
   return params;
 }
 
@@ -298,6 +305,11 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                     return points;
                   }()},
                  {"depth", feature.extrude_parameters->depth},
+                 {"mode", feature.extrude_parameters->mode},
+                 {"target_body_id",
+                  feature.extrude_parameters->target_body_id.has_value()
+                      ? json(feature.extrude_parameters->target_body_id.value())
+                      : json(nullptr)},
              }
            : json(nullptr)},
       {"sketch_parameters",
@@ -450,6 +462,24 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                  {"active_tool", feature.sketch_parameters->active_tool},
              }
            : json(nullptr)},
+      {"fillet_parameters",
+       feature.fillet_parameters.has_value()
+           ? json{
+                 {"target_body_id",
+                  feature.fillet_parameters->target_body_id},
+                 {"edge_ids", feature.fillet_parameters->edge_ids},
+                 {"radius", feature.fillet_parameters->radius},
+             }
+           : json(nullptr)},
+      {"chamfer_parameters",
+       feature.chamfer_parameters.has_value()
+           ? json{
+                 {"target_body_id",
+                  feature.chamfer_parameters->target_body_id},
+                 {"edge_ids", feature.chamfer_parameters->edge_ids},
+                 {"distance", feature.chamfer_parameters->distance},
+             }
+           : json(nullptr)},
   };
 }
 
@@ -475,6 +505,14 @@ json to_payload(const polysmith::core::DocumentState& document) {
       {"selected_face_id",
        document.selected_face_id.has_value()
            ? json(document.selected_face_id.value())
+           : json(nullptr)},
+      {"selected_edge_id",
+       document.selected_edge_id.has_value()
+           ? json(document.selected_edge_id.value())
+           : json(nullptr)},
+      {"selected_vertex_id",
+       document.selected_vertex_id.has_value()
+           ? json(document.selected_vertex_id.value())
            : json(nullptr)},
       {"active_sketch_plane_id",
        document.active_sketch_plane_id.has_value()
@@ -664,6 +702,8 @@ json to_payload(const polysmith::core::ViewportSolidFace& face) {
            {"height", face.height},
            {"radius", face.radius},
        }},
+      {"triangle_positions", face.triangle_positions},
+      {"triangle_indices", face.triangle_indices},
       {"is_selected", face.is_selected},
   };
 }
@@ -940,6 +980,17 @@ json to_payload(const polysmith::core::ViewportState& viewport) {
     sketch_profiles.push_back(to_payload(profile));
   }
 
+  json meshes = json::array();
+  for (const auto& mesh : viewport.meshes) {
+    meshes.push_back({
+        {"primitive_id", mesh.id},
+        {"positions", mesh.positions},
+        {"normals", mesh.normals},
+        {"indices", mesh.indices},
+        {"is_selected", mesh.is_selected},
+    });
+  }
+
   return {
       {"has_active_document", viewport.has_active_document},
       {"boxes", boxes},
@@ -954,6 +1005,59 @@ json to_payload(const polysmith::core::ViewportState& viewport) {
       {"sketch_dimensions", sketch_dimensions},
       {"sketch_constraints", sketch_constraints},
       {"sketch_profiles", sketch_profiles},
+      {"meshes", meshes},
+      {"cut_previews", [&viewport]() {
+         json previews = json::array();
+         for (const auto& preview : viewport.cut_previews) {
+           previews.push_back({
+               {"id", preview.id},
+               {"positions", preview.positions},
+               {"normals", preview.normals},
+               {"indices", preview.indices},
+           });
+         }
+         return previews;
+       }()},
+      {"bodies", [&viewport]() {
+         json bodies_json = json::array();
+         for (const auto& body : viewport.bodies) {
+           bodies_json.push_back({
+               {"id", body.id},
+               {"label", body.label},
+           });
+         }
+         return bodies_json;
+       }()},
+      {"edges", [&viewport]() {
+         json edges_json = json::array();
+         for (const auto& edge : viewport.edges) {
+           edges_json.push_back({
+               {"id", edge.id},
+               {"owner_body_id", edge.owner_body_id},
+               {"kind", edge.kind},
+               {"points", edge.points},
+               {"is_selected", edge.is_selected},
+           });
+         }
+         return edges_json;
+       }()},
+      {"vertices", [&viewport]() {
+         json vertices_json = json::array();
+         for (const auto& vertex : viewport.vertices) {
+           vertices_json.push_back({
+               {"id", vertex.id},
+               {"owner_body_id", vertex.owner_body_id},
+               {"position",
+                {
+                    {"x", vertex.x},
+                    {"y", vertex.y},
+                    {"z", vertex.z},
+                }},
+               {"is_selected", vertex.is_selected},
+           });
+         }
+         return vertices_json;
+       }()},
       {"scene_width", viewport.scene_width},
       {"scene_height", viewport.scene_height},
       {"scene_depth", viewport.scene_depth},
@@ -1015,6 +1119,34 @@ polysmith::core::FeatureEntry feature_entry_from_payload(const json& payload) {
         sketch_parameters_from_payload(payload.at("sketch_parameters"));
   }
 
+  if (payload.contains("fillet_parameters") &&
+      !payload.at("fillet_parameters").is_null()) {
+    const json& fp = payload.at("fillet_parameters");
+    polysmith::core::FilletFeatureParameters params{};
+    params.target_body_id = read_string(fp, "target_body_id");
+    if (fp.contains("edge_ids") && fp.at("edge_ids").is_array()) {
+      for (const auto& edge : fp.at("edge_ids")) {
+        params.edge_ids.push_back(edge.get<std::string>());
+      }
+    }
+    params.radius = read_number(fp, "radius");
+    feature.fillet_parameters = params;
+  }
+
+  if (payload.contains("chamfer_parameters") &&
+      !payload.at("chamfer_parameters").is_null()) {
+    const json& cp = payload.at("chamfer_parameters");
+    polysmith::core::ChamferFeatureParameters params{};
+    params.target_body_id = read_string(cp, "target_body_id");
+    if (cp.contains("edge_ids") && cp.at("edge_ids").is_array()) {
+      for (const auto& edge : cp.at("edge_ids")) {
+        params.edge_ids.push_back(edge.get<std::string>());
+      }
+    }
+    params.distance = read_number(cp, "distance");
+    feature.chamfer_parameters = params;
+  }
+
   return feature;
 }
 
@@ -1029,6 +1161,9 @@ polysmith::core::DocumentState document_from_payload(const json& payload) {
   document.selected_reference_id =
       read_optional_string(payload, "selected_reference_id");
   document.selected_face_id = read_optional_string(payload, "selected_face_id");
+  document.selected_edge_id = read_optional_string(payload, "selected_edge_id");
+  document.selected_vertex_id =
+      read_optional_string(payload, "selected_vertex_id");
   document.active_sketch_plane_id =
       read_optional_string(payload, "active_sketch_plane_id");
   document.active_sketch_face_id =

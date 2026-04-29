@@ -22,6 +22,8 @@ struct DocumentState {
   std::optional<std::string> selected_feature_id;
   std::optional<std::string> selected_reference_id;
   std::optional<std::string> selected_face_id;
+  std::optional<std::string> selected_edge_id;
+  std::optional<std::string> selected_vertex_id;
   std::optional<std::string> active_sketch_plane_id;
   std::optional<std::string> active_sketch_face_id;
   std::optional<std::string> active_sketch_feature_id;
@@ -49,6 +51,11 @@ class DocumentManager {
                                    const BoxFeatureParameters& parameters);
   DocumentState update_extrude_depth(const std::string& feature_id,
                                      double depth);
+  DocumentState update_extrude_mode(const std::string& feature_id,
+                                    const std::string& mode);
+  DocumentState update_extrude_target_body(
+      const std::string& feature_id,
+      const std::optional<std::string>& target_body_id);
   DocumentState rename_feature(const std::string& feature_id,
                                const std::string& name);
   DocumentState delete_feature(const std::string& feature_id);
@@ -57,6 +64,19 @@ class DocumentManager {
   DocumentState select_feature(const std::string& feature_id);
   DocumentState select_reference(const std::string& reference_id);
   DocumentState select_face(const std::string& face_id);
+  DocumentState select_edge(const std::string& edge_id);
+  DocumentState select_vertex(const std::string& vertex_id);
+  // Create a fillet feature on a single edge of an existing body. The
+  // edge id must already exist in the current viewport_state.edges (the
+  // viewport is the source of truth for available edge ids); we parse
+  // the body owner out of the edge id. Default radius 1.0mm — the UI
+  // panel updates it via update_fillet_radius for live preview.
+  DocumentState create_fillet(const std::string& edge_id, double radius);
+  DocumentState update_fillet_radius(const std::string& feature_id,
+                                     double radius);
+  DocumentState create_chamfer(const std::string& edge_id, double distance);
+  DocumentState update_chamfer_distance(const std::string& feature_id,
+                                        double distance);
   DocumentState start_sketch_on_plane(const std::string& reference_id);
   DocumentState start_sketch_on_face(
       const std::string& face_id,
@@ -93,7 +113,11 @@ class DocumentManager {
   DocumentState update_sketch_dimension(const std::string& dimension_id,
                                         double value);
   DocumentState select_sketch_profile(const std::string& profile_id);
-  DocumentState extrude_profile(const std::string& profile_id, double depth);
+  DocumentState extrude_profile(
+      const std::string& profile_id,
+      double depth,
+      const std::string& mode = "new_body",
+      const std::optional<std::string>& target_body_id = std::nullopt);
   DocumentState add_sketch_line(double start_x,
                                 double start_y,
                                 double end_x,

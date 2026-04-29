@@ -396,7 +396,29 @@ export function DocumentHierarchyPanel({
     [features],
   );
   const bodies = useMemo(
-    () => features.filter((feature) => BODY_KINDS.has(feature.kind)),
+    () =>
+      features.filter((feature) => {
+        if (!BODY_KINDS.has(feature.kind)) {
+          return false;
+        }
+        // Boolean-mode extrudes (cut / join) don't produce their own
+        // body — they get consumed into their target body during
+        // compilation. Listing them in the Bodies category would be
+        // misleading: there's no separate body for the user to
+        // select, hide, or rename. They still appear in the feature
+        // timeline (so the user can edit/delete them), they just
+        // don't show up here. Box / cylinder / polygon_extrude are
+        // always standalone bodies, and a default "new_body" extrude
+        // is too.
+        if (
+          feature.kind === "extrude" &&
+          feature.extrude_parameters !== null &&
+          feature.extrude_parameters.mode !== "new_body"
+        ) {
+          return false;
+        }
+        return true;
+      }),
     [features],
   );
 

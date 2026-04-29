@@ -79,9 +79,17 @@ These three close the gap between fancy demo and real workflow:
 
 ### Tier 2 — the obvious next features
 
-- **Edge & vertex selection.** Currently only faces are selectable.
-  Required prerequisite for fillet/chamfer/measure.
-- **Fillet & chamfer on edges.** Practically required for printable parts.
+- ✅ **Edge & vertex selection** — shipped. Core enumerates body edges
+  and vertices via `TopExp` and emits `viewport_state.edges` /
+  `viewport_state.vertices`; the UI raycasts vertices first, then edges,
+  then faces, and dispatches `select_edge` / `select_vertex`.
+- ✅ **Fillet & chamfer on edges** — shipped. New body-modifying
+  feature kinds (`fillet`, `chamfer`) are applied during body
+  compilation via `BRepFilletAPI_MakeFillet` /
+  `BRepFilletAPI_MakeChamfer` against the target body's edges.
+  Hotkey `F` / `C` on a selected edge spawns a Fusion-style floating
+  preview panel with live `update_fillet_radius` /
+  `update_chamfer_distance` updates and Confirm / Cancel.
 - **Hole feature.** Parametric simple/counterbore/countersink on a face,
   built on top of cut extrude.
 - **Pattern features.** Linear and circular patterns of features and

@@ -50,6 +50,34 @@ struct ExtrudeFeatureParameters {
   double radius;
   std::vector<SketchProfilePoint> profile_points;
   double depth;
+  // "new_body" (default): produces an independent solid body.
+  // "join": fuses the extrude with `target_body_id` if set, else the
+  //         most recent existing body.
+  // "cut":  subtracts the extrude from the same target choice as "join".
+  std::string mode = "new_body";
+  // Optional explicit target body for boolean modes. Stored as the root
+  // feature id of the target body (the same id reported in
+  // `viewport_state.bodies`). Empty / unset means "most recent body" so
+  // single-body workflows keep working without UI changes.
+  std::optional<std::string> target_body_id;
+};
+
+// Edge-modifying body operation. `target_body_id` is the body root feature
+// id whose edges are being filleted/chamfered. `edge_ids` mirrors the
+// `<body_id>:edge:<index>` strings emitted by viewport_state.edges so the
+// body_compiler can re-resolve the edges via TopExp::MapShapes on the
+// target body shape at the moment the feature is replayed.
+struct FilletFeatureParameters {
+  std::string target_body_id;
+  std::vector<std::string> edge_ids;
+  double radius;
+};
+
+struct ChamferFeatureParameters {
+  std::string target_body_id;
+  std::vector<std::string> edge_ids;
+  // Symmetric chamfer distance from the edge along both adjacent faces.
+  double distance;
 };
 
 struct SketchLine {
@@ -141,6 +169,8 @@ struct FeatureEntry {
   std::optional<CylinderFeatureParameters> cylinder_parameters;
   std::optional<ExtrudeFeatureParameters> extrude_parameters;
   std::optional<SketchFeatureParameters> sketch_parameters;
+  std::optional<FilletFeatureParameters> fillet_parameters;
+  std::optional<ChamferFeatureParameters> chamfer_parameters;
 };
 
 }  // namespace polysmith::core

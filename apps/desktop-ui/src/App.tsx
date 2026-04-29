@@ -5,6 +5,7 @@ import { useCadCore } from "./hooks";
 import {
   AppHeader,
   DocumentHierarchyPanel,
+  EdgeOpPreviewPanel,
   ExtrudePreviewPanel,
   FeatureTimeline,
   MessageLog,
@@ -13,8 +14,11 @@ import {
 } from "./layout";
 import type { CategoryId } from "./layout";
 import { ArmedSketchConstraint } from "./types";
+import type { ExtrudeMode } from "./types";
 
 const DEFAULT_EXTRUDE_DEPTH = 20;
+const DEFAULT_FILLET_RADIUS = 1;
+const DEFAULT_CHAMFER_DISTANCE = 1;
 
 // The Core Messages debug panel is hidden by default. Set
 // `VITE_SHOW_DEBUG_MESSAGE_LOG=true` in `.env.local` (or your shell when
@@ -25,6 +29,19 @@ const SHOW_DEBUG_MESSAGE_LOG =
 interface ActiveExtrudeAction {
   featureId: string;
   initialDepth: number;
+  initialMode: ExtrudeMode;
+  // Snapshot of "did the document have any other solid bodies before the
+  // user invoked this extrude?" — drives whether Join/Cut are offered.
+  canCombineWithExistingBody: boolean;
+}
+
+// In-progress fillet or chamfer feature. The native core has already
+// created the feature with the initial value; the floating panel
+// drives live updates and Confirm / Cancel.
+interface ActiveEdgeOpAction {
+  featureId: string;
+  kind: "fillet" | "chamfer";
+  initialValue: number;
 }
 
 function App() {
@@ -32,6 +49,9 @@ function App() {
     useState<ArmedSketchConstraint>(null);
   const [extrudeAction, setExtrudeAction] =
     useState<ActiveExtrudeAction | null>(null);
+  const [edgeOpAction, setEdgeOpAction] = useState<ActiveEdgeOpAction | null>(
+    null,
+  );
   const [hiddenFeatureIds, setHiddenFeatureIds] = useState<Set<string>>(
     () => new Set<string>(),
   );
@@ -108,6 +128,12 @@ function App() {
     selectFeature,
     selectReference,
     selectFace,
+    selectEdge,
+    selectVertex,
+    createFillet,
+    updateFilletRadius,
+    createChamfer,
+    updateChamferDistance,
     startSketchOnPlane,
     startSketchOnFace,
     setSketchTool,
@@ -120,6 +146,8 @@ function App() {
     updateSketchDimension,
     selectSketchProfile,
     extrudeProfile,
+    updateExtrudeMode,
+    updateExtrudeTargetBody,
     addSketchLine,
     addSketchRectangle,
     addSketchCircle,
@@ -194,6 +222,17 @@ function App() {
 
     const profileId = selectedSketchProfile.profile_id;
 
+    // Snapshot whether the document already contains a solid body before
+    // we issue the extrude. Cut/Join target the most recent existing body,
+    // so they're only meaningful when at least one is already there.
+    const hasExistingBody =
+      (document?.feature_history ?? []).some(
+        (entry) =>
+          entry.kind === "box" ||
+          entry.kind === "cylinder" ||
+          entry.kind === "extrude",
+      ) ?? false;
+
     // The IPC bridge is fire-and-forget: `extrudeProfile` returns as soon as
     // the command is written to cad_core stdin, before the core has emitted
     // the `document_state` event with the new feature. To capture the real
@@ -225,9 +264,68 @@ function App() {
         setExtrudeAction({
           featureId: newFeatureId,
           initialDepth: DEFAULT_EXTRUDE_DEPTH,
+          initialMode: "new_body",
+          canCombineWithExistingBody: hasExistingBody,
         });
       } catch (error) {
         addMessage(`extrude action error: ${String(error)}`);
+      }
+    });
+  }
+
+  // Common helper for fillet/chamfer hotkeys. The native core synchronously
+  // creates the feature with the default value; the floating panel then
+  // drives live preview via update_*_radius / update_*_distance and either
+  // confirms (close) or cancels (undo).
+  async function triggerEdgeOpAction(kind: "fillet" | "chamfer") {
+    if (extrudeAction || edgeOpAction) {
+      return;
+    }
+    const edgeId = document?.selected_edge_id ?? null;
+    if (!edgeId) {
+      return;
+    }
+
+    const initialValue =
+      kind === "fillet" ? DEFAULT_FILLET_RADIUS : DEFAULT_CHAMFER_DISTANCE;
+
+    // Same fire-and-forget IPC trick as triggerExtrudeAction: subscribe to
+    // the next document update that contains a freshly-created feature of
+    // the requested kind so we can pick up its real id.
+    const documentPromise = awaitDocumentChange((next, previous) => {
+      if (!next.selected_feature_id) {
+        return false;
+      }
+      const previousLength = previous?.feature_history.length ?? 0;
+      if (next.feature_history.length <= previousLength) {
+        return false;
+      }
+      const lastFeature = next.feature_history[next.feature_history.length - 1];
+      return (
+        lastFeature.feature_id === next.selected_feature_id &&
+        lastFeature.kind === kind
+      );
+    });
+
+    await runAction(async () => {
+      if (kind === "fillet") {
+        await createFillet(edgeId, initialValue);
+      } else {
+        await createChamfer(edgeId, initialValue);
+      }
+      try {
+        const nextDocument = await documentPromise;
+        const newFeatureId = nextDocument.selected_feature_id ?? null;
+        if (!newFeatureId) {
+          return;
+        }
+        setEdgeOpAction({
+          featureId: newFeatureId,
+          kind,
+          initialValue,
+        });
+      } catch (error) {
+        addMessage(`${kind} action error: ${String(error)}`);
       }
     });
   }
@@ -273,21 +371,40 @@ function App() {
         return;
       }
 
-      // E: trigger extrude action (no modifiers).
+      // E / F / C: trigger extrude / fillet / chamfer actions (no modifiers).
       if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) {
         return;
       }
 
-      if (event.code !== "KeyE") {
+      if (event.code === "KeyE") {
+        if (!selectedSketchProfile) {
+          return;
+        }
+        event.preventDefault();
+        void triggerExtrudeAction();
         return;
       }
 
-      if (!selectedSketchProfile) {
+      // Fillet / Chamfer require a selected edge. They are no-ops
+      // otherwise — silently, so a stray F or C keystroke doesn't
+      // surprise the user with an error toast.
+      if (event.code === "KeyF") {
+        if (!document?.selected_edge_id) {
+          return;
+        }
+        event.preventDefault();
+        void triggerEdgeOpAction("fillet");
         return;
       }
 
-      event.preventDefault();
-      void triggerExtrudeAction();
+      if (event.code === "KeyC") {
+        if (!document?.selected_edge_id) {
+          return;
+        }
+        event.preventDefault();
+        void triggerEdgeOpAction("chamfer");
+        return;
+      }
     }
 
     window.addEventListener("keydown", handleKeyDown);
@@ -297,6 +414,8 @@ function App() {
   }, [
     selectedSketchProfile,
     extrudeAction,
+    edgeOpAction,
+    document?.selected_edge_id,
     session?.can_undo,
     session?.can_redo,
   ]);
@@ -706,6 +825,16 @@ function App() {
                   await selectFace(faceId);
                 });
               }}
+              onSelectEdge={async (edgeId) => {
+                await runAction(async () => {
+                  await selectEdge(edgeId);
+                });
+              }}
+              onSelectVertex={async (vertexId) => {
+                await runAction(async () => {
+                  await selectVertex(vertexId);
+                });
+              }}
               onStartSketch={async (referenceId) => {
                 await runAction(async () => {
                   await startSketchOnPlane(referenceId);
@@ -824,23 +953,94 @@ function App() {
                   }}
                 />
               ) : null}
-              {extrudeAction ? (
-                <ExtrudePreviewPanel
-                  initialDepth={extrudeAction.initialDepth}
+              {extrudeAction
+                ? (() => {
+                    // Bodies that the in-progress extrude can target. We
+                    // exclude the extrude itself: at this point the core
+                    // already created the feature in `new_body` mode and
+                    // it appears as its own body in `viewport.bodies`,
+                    // but targeting it would be a no-op (or nonsensical
+                    // for cut). Filtering it out keeps the picker honest.
+                    const availableTargetBodies = (
+                      viewport?.bodies ?? []
+                    ).filter((body) => body.id !== extrudeAction.featureId);
+                    return (
+                      <ExtrudePreviewPanel
+                        initialDepth={extrudeAction.initialDepth}
+                        initialMode={extrudeAction.initialMode}
+                        canCombineWithExistingBody={
+                          extrudeAction.canCombineWithExistingBody
+                        }
+                        availableTargetBodies={availableTargetBodies}
+                        initialTargetBodyId={null}
+                        disabled={status !== "connected"}
+                        onPreviewDepth={async (depth) => {
+                          await runAction(async () => {
+                            await updateExtrudeDepth(
+                              extrudeAction.featureId,
+                              depth,
+                            );
+                          });
+                        }}
+                        onPreviewMode={async (mode) => {
+                          await runAction(async () => {
+                            await updateExtrudeMode(
+                              extrudeAction.featureId,
+                              mode,
+                            );
+                          });
+                        }}
+                        onPreviewTargetBody={async (targetBodyId) => {
+                          await runAction(async () => {
+                            await updateExtrudeTargetBody(
+                              extrudeAction.featureId,
+                              targetBodyId,
+                            );
+                          });
+                        }}
+                        onConfirm={() => {
+                          setExtrudeAction(null);
+                        }}
+                        onCancel={async () => {
+                          await runAction(async () => {
+                            await undo();
+                          });
+                          setExtrudeAction(null);
+                        }}
+                      />
+                    );
+                  })()
+                : null}
+              {edgeOpAction ? (
+                <EdgeOpPreviewPanel
+                  title={edgeOpAction.kind === "fillet" ? "Fillet" : "Chamfer"}
+                  valueLabel={
+                    edgeOpAction.kind === "fillet"
+                      ? "Radius (mm)"
+                      : "Distance (mm)"
+                  }
+                  initialValue={edgeOpAction.initialValue}
                   disabled={status !== "connected"}
-                  onPreviewDepth={async (depth) => {
+                  onPreviewValue={async (value) => {
                     await runAction(async () => {
-                      await updateExtrudeDepth(extrudeAction.featureId, depth);
+                      if (edgeOpAction.kind === "fillet") {
+                        await updateFilletRadius(edgeOpAction.featureId, value);
+                      } else {
+                        await updateChamferDistance(
+                          edgeOpAction.featureId,
+                          value,
+                        );
+                      }
                     });
                   }}
                   onConfirm={() => {
-                    setExtrudeAction(null);
+                    setEdgeOpAction(null);
                   }}
                   onCancel={async () => {
                     await runAction(async () => {
                       await undo();
                     });
-                    setExtrudeAction(null);
+                    setEdgeOpAction(null);
                   }}
                 />
               ) : null}
