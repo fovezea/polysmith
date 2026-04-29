@@ -2,8 +2,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <limits>
 #include <set>
+#include <string>
 #include <utility>
 
 #include <BRepAdaptor_Curve.hxx>
@@ -375,6 +377,68 @@ ViewportSketchPointPrimitive make_sketch_point_primitive(
   };
 }
 
+// Render a dimension value as a short, human-friendly string with no
+// trailing zeros: 12 -> "12", 12.5 -> "12.5", 12.50 -> "12.5",
+// 12.345678 -> "12.35". std::to_string on a double produces six
+// trailing decimals which makes the canvas-rendered dimension labels
+// noisy ("12.500000 mm"). Two decimals of precision is enough for the
+// viewport readout; the underlying value the core stores is unchanged.
+std::string format_dimension_value(double value) {
+  char buffer[64];
+  std::snprintf(buffer, sizeof(buffer), "%.2f", value);
+  std::string text = buffer;
+  if (text.find('.') != std::string::npos) {
+    while (!text.empty() && text.back() == '0') {
+      text.pop_back();
+    }
+    if (!text.empty() && text.back() == '.') {
+      text.pop_back();
+    }
+  }
+  if (text == "-0") {
+    text = "0";
+  }
+  return text;
+}
+
+// Centroid (in sketch-local 2D coords) of every line midpoint and
+// circle center in the sketch. Used as the "inside" reference when
+// placing line dimensions so the dimension line lands on the side of
+// the segment that points away from the rest of the sketch — i.e. on
+// the outside of a closed profile such as a rectangle. Falls back to
+// the line's own midpoint when the sketch has no other entities, in
+// which case the offset direction does not matter.
+struct SketchCentroid2D {
+  double x;
+  double y;
+  bool has_value;
+};
+
+SketchCentroid2D compute_sketch_centroid_2d(
+    const SketchFeatureParameters& parameters) {
+  double sum_x = 0.0;
+  double sum_y = 0.0;
+  int count = 0;
+  for (const auto& other_line : parameters.lines) {
+    sum_x += (other_line.start_x + other_line.end_x) / 2.0;
+    sum_y += (other_line.start_y + other_line.end_y) / 2.0;
+    count += 1;
+  }
+  for (const auto& other_circle : parameters.circles) {
+    sum_x += other_circle.center_x;
+    sum_y += other_circle.center_y;
+    count += 1;
+  }
+  if (count == 0) {
+    return SketchCentroid2D{.x = 0.0, .y = 0.0, .has_value = false};
+  }
+  return SketchCentroid2D{
+      .x = sum_x / static_cast<double>(count),
+      .y = sum_y / static_cast<double>(count),
+      .has_value = true,
+  };
+}
+
 ViewportSketchDimensionPrimitive make_line_dimension_primitive(
     const SketchLine& line,
     const SketchDimension& dimension,
@@ -383,8 +447,24 @@ ViewportSketchDimensionPrimitive make_line_dimension_primitive(
   const double dx = line.end_x - line.start_x;
   const double dy = line.end_y - line.start_y;
   const double length = std::sqrt(dx * dx + dy * dy);
-  const double normal_x = length > 0.0 ? -dy / length : 0.0;
-  const double normal_y = length > 0.0 ? dx / length : 1.0;
+  double normal_x = length > 0.0 ? -dy / length : 0.0;
+  double normal_y = length > 0.0 ? dx / length : 1.0;
+
+  // Flip the normal so it points *away* from the centroid of the rest
+  // of the sketch. For a rectangle (or any closed profile) this puts
+  // every edge's dimension line on the outside of the shape.
+  const double midpoint_x = (line.start_x + line.end_x) / 2.0;
+  const double midpoint_y = (line.start_y + line.end_y) / 2.0;
+  const SketchCentroid2D centroid = compute_sketch_centroid_2d(parameters);
+  if (centroid.has_value) {
+    const double to_outside_x = midpoint_x - centroid.x;
+    const double to_outside_y = midpoint_y - centroid.y;
+    if (normal_x * to_outside_x + normal_y * to_outside_y < 0.0) {
+      normal_x = -normal_x;
+      normal_y = -normal_y;
+    }
+  }
+
   const WorldPoint anchor_start = to_world_point(parameters, line.start_x, line.start_y);
   const WorldPoint anchor_end = to_world_point(parameters, line.end_x, line.end_y);
   const WorldPoint dimension_start = to_world_point(
@@ -397,15 +477,15 @@ ViewportSketchDimensionPrimitive make_line_dimension_primitive(
       line.end_y + normal_y * kLineDimensionOffset);
   const WorldPoint label = to_world_point(
       parameters,
-      (line.start_x + line.end_x) / 2.0 + normal_x * (kLineDimensionOffset + 1.5),
-      (line.start_y + line.end_y) / 2.0 + normal_y * (kLineDimensionOffset + 1.5));
+      midpoint_x + normal_x * (kLineDimensionOffset + 1.5),
+      midpoint_y + normal_y * (kLineDimensionOffset + 1.5));
 
   return ViewportSketchDimensionPrimitive{
       .dimension_id = dimension.id,
       .plane_id = parameters.plane_id,
       .kind = "line_length",
       .entity_id = line.id,
-      .label = std::to_string(std::round(dimension.value * 100.0) / 100.0) + " mm",
+      .label = format_dimension_value(dimension.value) + " mm",
       .is_selected = is_selected,
       .anchor_start_x = anchor_start.x,
       .anchor_start_y = anchor_start.y,
@@ -445,8 +525,7 @@ ViewportSketchDimensionPrimitive make_circle_dimension_primitive(
       .plane_id = parameters.plane_id,
       .kind = "circle_radius",
       .entity_id = circle.id,
-      .label =
-          "R " + std::to_string(std::round(dimension.value * 100.0) / 100.0) + " mm",
+      .label = "R " + format_dimension_value(dimension.value) + " mm",
       .is_selected = is_selected,
       .anchor_start_x = center.x,
       .anchor_start_y = center.y,

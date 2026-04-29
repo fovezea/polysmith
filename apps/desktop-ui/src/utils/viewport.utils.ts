@@ -677,6 +677,17 @@ export function buildSolidFaceObject(face: SolidFaceScene) {
   };
 }
 
+// Face overlays sit on top of the body's opaque fill. Earlier the
+// hover branch ramped up to 22% saturated cyan; over a gray body that
+// reads as the body itself going translucent (the "first extrude
+// looks transparent under the cursor" bug). The values below are
+// tuned so the highlight is unmistakably visible without making the
+// body feel see-through:
+//
+//   * Hover: 8% off-white tint. Barely-perceptible "your cursor is
+//     over a face" cue. Doesn't compete with the body's gray.
+//   * Selected: 24% accent cyan. Still clearly the picked face, but
+//     low enough that the body underneath stays solid-looking.
 export function applySolidFaceVisualState(
   visual: SolidFaceVisual,
   state: SolidFaceInteractionState,
@@ -685,21 +696,17 @@ export function applySolidFaceVisualState(
     visual.fillMaterial.color.set(
       themeColor("--color-primary-soft", "#c3f5ff"),
     );
-    visual.fillMaterial.opacity = 0.32;
+    visual.fillMaterial.opacity = 0.24;
     return;
   }
 
   if (state.isHovered) {
-    visual.fillMaterial.color.set(
-      themeColor("--color-primary-hover", "#86f4ff"),
-    );
-    visual.fillMaterial.opacity = 0.22;
+    visual.fillMaterial.color.set("#ffffff");
+    visual.fillMaterial.opacity = 0.08;
     return;
   }
 
-  visual.fillMaterial.color.set(
-    themeColor("--color-primary-fixed-dim", "#00daf3"),
-  );
+  visual.fillMaterial.color.set("#ffffff");
   visual.fillMaterial.opacity = 0;
 }
 

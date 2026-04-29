@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { DocumentState } from "@/types";
+import { ContextMenuShell } from "./ContextMenuShell";
 
 export type CategoryId = "origin" | "sketches" | "bodies";
 
@@ -605,20 +606,19 @@ export function DocumentHierarchyPanel({
 
       {contextMenu
         ? createPortal(
-            <div
-              // Portaled to document.body so the menu's `position: fixed`
-              // resolves against the viewport. Without the portal it lives
-              // inside `.cad-sidebar`, which has `backdrop-filter` set —
-              // and per CSS spec any element with a non-`none`
-              // `backdrop-filter` becomes the containing block for fixed-
-              // position descendants. That made the menu appear shifted
-              // down by the sidebar's `top` offset (i.e. "far below the
-              // cursor").
-              className="cad-context-menu fixed z-30 min-w-[140px] rounded-xl p-1 shadow-[0_8px_24px_rgba(0,0,0,0.5)] backdrop-blur-xl"
-              style={{ left: contextMenu.x, top: contextMenu.y }}
-              // Stop propagation so the global dismiss listener does not close
-              // the menu before the click on a button is handled.
-              onClick={(event) => event.stopPropagation()}
+            // Portaled to document.body for the same reason the timeline
+            // does it: `.cad-sidebar` has `backdrop-filter` set, which
+            // makes it a containing block for fixed-position descendants
+            // and skews the menu's anchor.
+            //
+            // ContextMenuShell handles the auto-flip: when the click
+            // is near the bottom / right edge of the viewport the menu
+            // anchors its bottom / right to the click point so it
+            // stays visible. Same shell as the feature timeline uses.
+            <ContextMenuShell
+              x={contextMenu.x}
+              y={contextMenu.y}
+              className="min-w-[140px]"
             >
               <button
                 type="button"
@@ -663,7 +663,7 @@ export function DocumentHierarchyPanel({
               >
                 Delete
               </button>
-            </div>,
+            </ContextMenuShell>,
             window.document.body,
           )
         : null}
