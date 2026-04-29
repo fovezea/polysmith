@@ -723,7 +723,16 @@ export function buildSketchLineObject(line: SketchLineScene) {
   return sketchLine;
 }
 
-export function buildSketchCircleObject(circle: SketchCircleScene) {
+// Build the perimeter line for a sketch circle. The center comes
+// in world space; the radius is a 2D scalar in the sketch plane, so
+// we project each perimeter sample using the plane's x_axis / y_axis.
+// `planeFrame` is required for face-based sketches (arbitrary planes);
+// when it's null we fall back to the legacy ref-plane axis mapping
+// for back-compat with sketches on the three named ref planes.
+export function buildSketchCircleObject(
+  circle: SketchCircleScene,
+  planeFrame: SketchPlaneFrame | null = null,
+) {
   const material = new THREE.LineBasicMaterial({
     color: circle.isSelected
       ? themeColor("--color-primary-edge-active", "#c3f5ff")
@@ -741,26 +750,34 @@ export function buildSketchCircleObject(circle: SketchCircleScene) {
     false,
     0,
   );
+  // Determine the plane's x and y world-space axes. For sketches with
+  // an arbitrary plane (face-based sketches) we must use the frame the
+  // core ships; otherwise the perimeter ends up perpendicular to the
+  // actual sketch plane (the "preview shows in wrong plane" bug).
+  let xAxis: [number, number, number];
+  let yAxis: [number, number, number];
+  if (planeFrame) {
+    xAxis = [planeFrame.x_axis.x, planeFrame.x_axis.y, planeFrame.x_axis.z];
+    yAxis = [planeFrame.y_axis.x, planeFrame.y_axis.y, planeFrame.y_axis.z];
+  } else if (circle.planeId === "ref-plane-xy") {
+    xAxis = [1, 0, 0];
+    yAxis = [0, 0, 1];
+  } else if (circle.planeId === "ref-plane-yz") {
+    xAxis = [0, 1, 0];
+    yAxis = [0, 0, 1];
+  } else {
+    xAxis = [1, 0, 0];
+    yAxis = [0, 1, 0];
+  }
   const points = curve
     .getPoints(64)
-    .map((point) =>
-      circle.planeId === "ref-plane-xy"
-        ? new THREE.Vector3(
-            circle.center[0] + point.x,
-            circle.center[1],
-            circle.center[2] + point.y,
-          )
-        : circle.planeId === "ref-plane-yz"
-          ? new THREE.Vector3(
-              circle.center[0],
-              circle.center[1] + point.x,
-              circle.center[2] + point.y,
-            )
-          : new THREE.Vector3(
-              circle.center[0] + point.x,
-              circle.center[1] + point.y,
-              circle.center[2],
-            ),
+    .map(
+      (point) =>
+        new THREE.Vector3(
+          circle.center[0] + xAxis[0] * point.x + yAxis[0] * point.y,
+          circle.center[1] + xAxis[1] * point.x + yAxis[1] * point.y,
+          circle.center[2] + xAxis[2] * point.x + yAxis[2] * point.y,
+        ),
     );
   const geometry = new THREE.BufferGeometry().setFromPoints(points);
   const sketchCircle = new THREE.LineLoop(geometry, material);
@@ -933,6 +950,13 @@ export function buildSketchProfileObject(profile: SketchProfileScene) {
 
   if (profile.profileKind === "circle") {
     const geometry = new THREE.CircleGeometry(profile.radius, 48);
+    // CircleGeometry is centered at (0, 0) in 2D plane coords. The
+    // core ships the actual circle center as `profile.start` (in 2D
+    // sketch coords), so we translate the geometry to that center
+    // BEFORE applying the plane transform — otherwise the pickable
+    // disk lands at the plane's origin instead of where the user sees
+    // the circle, and Extrude can't hit it.
+    geometry.translate(profile.start[0], profile.start[1], 0);
     const mesh = new THREE.Mesh(geometry, material);
     if (profile.planeFrame) {
       mesh.applyMatrix4(
@@ -943,7 +967,9 @@ export function buildSketchProfileObject(profile: SketchProfileScene) {
       );
     } else {
       orientPlaneMesh(mesh, planeOrientationFromId(profile.planeId));
-      mesh.position.set(...toWorldPoint(profile.planeId, profile.start));
+      // Legacy ref-plane fallback: use the plane id mapping. The
+      // geometry already carries the (start_x, start_y) translation,
+      // so we don't add it again here — just orient the plane.
     }
     mesh.userData.sketchProfileId = profile.profileId;
     return mesh;

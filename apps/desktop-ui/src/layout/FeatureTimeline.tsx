@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { DocumentState } from "@/types";
 import { FeatureKindIcon } from "./header/ToolBarIcons";
@@ -28,6 +28,67 @@ interface ContextMenuState {
   suppressed: boolean;
 }
 
+// Wrapper that renders the menu at the click point, then on first
+// layout flips it upward / leftward when it would overflow the
+// viewport. The timeline lives flush with the bottom of the window so
+// a naive downward-anchored menu gets clipped; flipping based on a
+// real measurement (not an estimate) keeps the layout robust as the
+// menu's item count changes.
+function ContextMenuShell({
+  x,
+  y,
+  children,
+}: {
+  x: number;
+  y: number;
+  children: React.ReactNode;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [position, setPosition] = useState<{ left: number; top: number }>({
+    left: x,
+    top: y,
+  });
+  // Hide on the first paint so the user never sees the menu in its
+  // pre-flip (potentially clipped) position before the layout effect
+  // measures and corrects it.
+  const [ready, setReady] = useState(false);
+
+  useLayoutEffect(() => {
+    const node = containerRef.current;
+    if (!node) {
+      return;
+    }
+    const rect = node.getBoundingClientRect();
+    const margin = 8;
+    let nextLeft = x;
+    let nextTop = y;
+    if (nextLeft + rect.width + margin > window.innerWidth) {
+      nextLeft = Math.max(margin, x - rect.width);
+    }
+    if (nextTop + rect.height + margin > window.innerHeight) {
+      nextTop = Math.max(margin, y - rect.height);
+    }
+    setPosition({ left: nextLeft, top: nextTop });
+    setReady(true);
+  }, [x, y]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="cad-context-menu fixed z-30 min-w-[160px] rounded-xl p-1 shadow-[0_8px_24px_rgba(0,0,0,0.5)] backdrop-blur-xl"
+      style={{
+        left: position.left,
+        top: position.top,
+        opacity: ready ? 1 : 0,
+      }}
+      onClick={(event) => event.stopPropagation()}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      {children}
+    </div>
+  );
+}
+
 // Compact icon-only timeline. Each feature is rendered as a square
 // `cad-icon-button` with the feature kind's icon and a tooltip showing
 // the full name + kind. The previous version used circle nodes plus
@@ -39,7 +100,12 @@ interface ContextMenuState {
 // The menu still surfaces the entry but disables it (greyed out) for
 // non-editable kinds so the user discovers what's coming, rather than
 // being silently ignored on click.
-const EDITABLE_KINDS = new Set(["box", "cylinder"]);
+// Kinds the parent can do *something* meaningful with on double-click.
+// `box` / `cylinder` open their parameter panels; `extrude` opens the
+// extrude preview panel for depth / mode / target-body editing; `sketch`
+// re-enters the sketch (same as the hierarchy panel's pencil icon).
+// The actual dispatch lives in App.tsx's `onEditFeature`.
+const EDITABLE_KINDS = new Set(["box", "cylinder", "extrude", "sketch"]);
 
 export function FeatureTimeline({
   document,
@@ -141,16 +207,7 @@ export function FeatureTimeline({
       </div>
       {contextMenu
         ? createPortal(
-            <div
-              // Portaled to document.body so the fixed positioning
-              // resolves against the viewport, not against a parent
-              // with `backdrop-filter` (same reason the hierarchy
-              // panel's menu is portaled).
-              className="cad-context-menu fixed z-30 min-w-[160px] rounded-xl p-1 shadow-[0_8px_24px_rgba(0,0,0,0.5)] backdrop-blur-xl"
-              style={{ left: contextMenu.x, top: contextMenu.y }}
-              onClick={(event) => event.stopPropagation()}
-              onContextMenu={(event) => event.preventDefault()}
-            >
+            <ContextMenuShell x={contextMenu.x} y={contextMenu.y}>
               <button
                 type="button"
                 disabled={!canEdit || !onEditFeature}
@@ -191,7 +248,7 @@ export function FeatureTimeline({
                   Delete
                 </button>
               ) : null}
-            </div>,
+            </ContextMenuShell>,
             window.document.body,
           )
         : null}

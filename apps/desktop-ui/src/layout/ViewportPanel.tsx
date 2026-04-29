@@ -615,7 +615,14 @@ export function ViewportPanel({
       return;
     }
 
-    setDimensionDraftValue(String(selectedSketchDimensionValue));
+    // Round to 2 decimals and strip trailing zeros so 12.000000001 →
+    // "12" and 3.4567 → "3.46", instead of leaking the full IEEE-754
+    // representation into the input. `parseFloat` of a fixed-precision
+    // string is the canonical way to drop trailing zeros without
+    // building a regex.
+    setDimensionDraftValue(
+      String(parseFloat(selectedSketchDimensionValue.toFixed(2))),
+    );
   }, [selectedSketchDimensionValue, document?.selected_sketch_dimension_id]);
 
   useEffect(() => {
@@ -962,20 +969,63 @@ export function ViewportPanel({
         if (activeSketchToolRef.current === "circle") {
           const radius = distanceBetweenPoints(draftStart, sketchPoint.local);
           if (radius > 0.001) {
-            const preview = buildSketchCircleObject({
-              circleId: "preview-circle",
-              planeId: activeSketchPlaneId,
-              center: toWorldPoint(
-                activeSketchPlaneId,
-                draftStart,
-                activeSketchPlaneFrame,
-              ),
-              radius,
-              isSelected: false,
-            });
+            // Pass the active sketch's plane frame so the perimeter is
+            // projected onto the actual sketch plane. Without it the
+            // perimeter falls back to the legacy ref-plane axis
+            // mapping which disagrees with the center's projection
+            // for arbitrary planes (face-based sketches), and the
+            // circle reads as perpendicular to the sketch plane.
+            const preview = buildSketchCircleObject(
+              {
+                circleId: "preview-circle",
+                planeId: activeSketchPlaneId,
+                center: toWorldPoint(
+                  activeSketchPlaneId,
+                  draftStart,
+                  activeSketchPlaneFrame,
+                ),
+                radius,
+                isSelected: false,
+              },
+              activeSketchPlaneFrame,
+            );
             previewCircleRef.current = preview;
             sketchGroupRefValue.add(preview);
           }
+        } else if (activeSketchToolRef.current === "rectangle") {
+          // Show the full 4-corner outline as the user drags so they
+          // can see the rectangle they're about to create — the old
+          // single-segment diagonal preview made sizing rectangles
+          // largely guesswork.
+          const [sx, sy] = draftStart;
+          const [ex, ey] = sketchPoint.local;
+          const corners: Array<[number, number]> = [
+            [sx, sy],
+            [ex, sy],
+            [ex, ey],
+            [sx, ey],
+            [sx, sy],
+          ];
+          const worldCorners = corners.map(
+            (corner) =>
+              new THREE.Vector3(
+                ...toWorldPoint(
+                  activeSketchPlaneId,
+                  corner,
+                  activeSketchPlaneFrame,
+                ),
+              ),
+          );
+          const preview = new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints(worldCorners),
+            new THREE.LineBasicMaterial({
+              color: themeColor("--color-tertiary-plane-edge", "#ffe784"),
+              transparent: true,
+              opacity: 0.88,
+            }),
+          );
+          previewLineRef.current = preview;
+          sketchGroupRefValue.add(preview);
         } else {
           const preview = new THREE.Line(
             new THREE.BufferGeometry().setFromPoints([
@@ -1470,7 +1520,18 @@ export function ViewportPanel({
     }
 
     for (const sketchCircle of sceneData.sketchCircles) {
-      const sketchCircleObject = buildSketchCircleObject(sketchCircle);
+      // Only the active sketch's circles get the live plane frame;
+      // circles owned by other (currently-hidden) sketches fall back
+      // to the legacy ref-plane axis mapping. In practice the only
+      // visible circles are the active sketch's anyway because
+      // `viewportScene` filters by `isSketchPlaneVisible`.
+      const frame =
+        activeSketchPlaneId &&
+        sketchCircle.planeId === activeSketchPlaneId &&
+        activeSketchPlaneFrame
+          ? activeSketchPlaneFrame
+          : null;
+      const sketchCircleObject = buildSketchCircleObject(sketchCircle, frame);
       sketchEntityObjectsRef.current.push(sketchCircleObject);
       sketchGroup.add(sketchCircleObject);
     }
@@ -1758,9 +1819,13 @@ export function ViewportPanel({
               onKeyDown={(event) => {
                 if (event.key === "Escape") {
                   event.preventDefault();
+                  // Same 2-decimal compact formatting as the open
+                  // effect — keeps the field consistent on Escape.
                   setDimensionDraftValue(
                     selectedSketchDimensionValue !== null
-                      ? String(selectedSketchDimensionValue)
+                      ? String(
+                          parseFloat(selectedSketchDimensionValue.toFixed(2)),
+                        )
                       : "",
                   );
                   setIsDimensionEditorOpen(false);

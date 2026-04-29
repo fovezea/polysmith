@@ -36,6 +36,16 @@ interface ActiveExtrudeAction {
   // Snapshot of "did the document have any other solid bodies before the
   // user invoked this extrude?" — drives whether Join/Cut are offered.
   canCombineWithExistingBody: boolean;
+  // Set when the panel was opened to *edit* an existing extrude (via
+  // double-click in the timeline) rather than to dial in a freshly-
+  // created one. On cancel we restore these values instead of calling
+  // `undo`, which would clobber whatever the user did *after* the
+  // extrude was originally created.
+  originalSnapshot: {
+    depth: number;
+    mode: ExtrudeMode;
+    targetBodyId: string | null;
+  } | null;
 }
 
 // In-progress fillet or chamfer feature. The native core has already
@@ -380,6 +390,8 @@ function App() {
           featureId: newFeatureId,
           initialDepth: DEFAULT_EXTRUDE_DEPTH,
           initialMode: "new_body",
+          // Newly-created extrude: cancel = undo (handled below).
+          originalSnapshot: null,
           canCombineWithExistingBody: hasExistingBody,
         });
       } catch (error) {
@@ -1257,9 +1269,33 @@ function App() {
                           }
                         }}
                         onCancel={async () => {
-                          await runAction(async () => {
-                            await undo();
-                          });
+                          // Edit flow (snapshot present): restore the
+                          // depth / mode / target the extrude had
+                          // before the user opened the panel. Create
+                          // flow (no snapshot): undo the whole new
+                          // feature, since cancelling creation should
+                          // leave the document untouched.
+                          const snapshot = extrudeAction.originalSnapshot;
+                          if (snapshot) {
+                            await runAction(async () => {
+                              await updateExtrudeDepth(
+                                extrudeAction.featureId,
+                                snapshot.depth,
+                              );
+                              await updateExtrudeMode(
+                                extrudeAction.featureId,
+                                snapshot.mode,
+                              );
+                              await updateExtrudeTargetBody(
+                                extrudeAction.featureId,
+                                snapshot.targetBodyId,
+                              );
+                            });
+                          } else {
+                            await runAction(async () => {
+                              await undo();
+                            });
+                          }
                           setExtrudeAction(null);
                         }}
                       />
@@ -1411,21 +1447,49 @@ function App() {
             });
           }}
           onEditFeature={(featureId) => {
-            // Edit only fires for kinds we have a panel for; the
-            // timeline's double-click handler already filters to
-            // editable kinds, but we double-check here so non-editable
-            // kinds (root_part, sketch, extrude, etc.) silently no-op
-            // rather than mounting a blank panel.
+            // Dispatch by feature kind: box/cylinder open the inline
+            // parameter form; sketch re-enters the sketch so the user
+            // can edit its lines (extrudes that depend on the sketch
+            // re-evaluate automatically); extrude opens the same
+            // floating preview panel that creation uses, but seeded
+            // with the existing depth/mode/target so cancel can
+            // restore instead of undoing the whole feature.
             const feature = document?.feature_history.find(
               (entry) => entry.feature_id === featureId,
             );
             if (!feature) {
               return;
             }
-            if (feature.kind !== "box" && feature.kind !== "cylinder") {
+            if (feature.kind === "box" || feature.kind === "cylinder") {
+              setEditingFeatureId(featureId);
               return;
             }
-            setEditingFeatureId(featureId);
+            if (feature.kind === "sketch") {
+              void runAction(async () => {
+                await reenterSketch(featureId);
+              });
+              return;
+            }
+            if (feature.kind === "extrude" && feature.extrude_parameters) {
+              if (extrudeAction || edgeOpAction) {
+                return;
+              }
+              const params = feature.extrude_parameters;
+              const otherBodies = (viewport?.bodies ?? []).filter(
+                (body) => body.id !== featureId,
+              );
+              setExtrudeAction({
+                featureId,
+                initialDepth: params.depth,
+                initialMode: params.mode,
+                canCombineWithExistingBody: otherBodies.length > 0,
+                originalSnapshot: {
+                  depth: params.depth,
+                  mode: params.mode,
+                  targetBodyId: params.target_body_id ?? null,
+                },
+              });
+            }
           }}
           onSuppressFeature={(featureId, suppressed) => {
             void runAction(async () => {
