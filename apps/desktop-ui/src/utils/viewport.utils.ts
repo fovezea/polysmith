@@ -215,6 +215,18 @@ export function buildPrimitiveObject(primitive: ScenePrimitive) {
     roughness: 0.55,
     transparent: false,
     opacity: 1,
+    // Render both sides because `makePlaneTransformMatrix` for
+    // `ref-plane-xy` has determinant -1 (it swaps Y and Z without
+    // negating one), which flips the winding of every triangle in a
+    // legacy `polygon_extrude`. Without DoubleSide the front faces
+    // get culled and the user sees through to the inside walls — the
+    // "first extrude on XY plane looks transparent" bug. The proper
+    // fix is to make that matrix a rotation (det +1) and update
+    // `toWorldPoint`'s ref-plane-xy branch to match, but every site
+    // that pairs the two would need to flip its sign too. DoubleSide
+    // costs a few extra fragments and three.js auto-flips normals
+    // for back-facing fragments so PBR lighting stays correct.
+    side: THREE.DoubleSide,
   });
   const edgeMaterial = new THREE.LineBasicMaterial({
     color: themeColor("--color-cad-edge", "#2a2a2c"),
