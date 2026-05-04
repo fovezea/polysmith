@@ -143,6 +143,7 @@ function makeReferenceAxis(axis: ViewportReferenceAxis): ReferenceAxisScene {
 
 function makeSketchCircle(circle: ViewportSketchCircle): SketchCircleScene {
   return {
+    isPreview: circle.is_preview,
     circleId: circle.circle_id,
     planeId: circle.plane_id,
     center: [circle.center.x, circle.center.y, circle.center.z],
@@ -340,6 +341,7 @@ export function createViewportScene(
       isSelected: line.is_selected,
       constraint: line.constraint,
       isConstruction: line.is_construction,
+      isPreview: line.is_preview,
     }));
   const sketchCircles = viewport.sketch_circles
     .filter((circle) => isSketchPlaneVisible(circle.plane_id))

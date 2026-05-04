@@ -498,17 +498,53 @@ export function makeSetSketchPerpendicularConstraintCommand(
   };
 }
 
-export function makeMirrorSketchEntitiesCommand(
-  mirrorLineId: string,
-  entityIds: string[],
+// Mirror tool lifecycle factories. All five mirror the C++ ops in
+// `core/sketch_feature.h`. Start opens an empty pending preview;
+// the two `update_*` ops drive the live preview as the user
+// edits the panel; commit/cancel finish the action.
+export function makeStartMirrorPreviewCommand(): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "start_mirror_preview",
+    payload: {},
+  };
+}
+
+export function makeUpdateMirrorPreviewAxisCommand(
+  axisLineId: string | null,
 ): CoreCommand {
   return {
     id: crypto.randomUUID(),
-    type: "mirror_sketch_entities",
-    payload: {
-      mirror_line_id: mirrorLineId,
-      entity_ids: entityIds,
-    },
+    type: "update_mirror_preview_axis",
+    // The C++ side treats an empty string as "no axis" (clears the
+    // preview), so a null/absent UI state maps to "".
+    payload: { axis_line_id: axisLineId ?? "" },
+  };
+}
+
+export function makeUpdateMirrorPreviewObjectsCommand(
+  objectIds: string[],
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_mirror_preview_objects",
+    payload: { object_ids: objectIds },
+  };
+}
+
+export function makeCommitMirrorPreviewCommand(): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "commit_mirror_preview",
+    payload: {},
+  };
+}
+
+export function makeCancelMirrorPreviewCommand(): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "cancel_mirror_preview",
+    payload: {},
   };
 }
 

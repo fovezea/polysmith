@@ -110,18 +110,31 @@ void add_sketch_circle(FeatureEntry& feature,
                        double center_y,
                        double radius);
 
-// Mirror sketch entities across a sketch line. For each id in
-// `entity_ids` (lines and circles supported), a *new* reflected
-// entity is created. Existing constraints, dimensions, and
-// relations on the source entities are NOT carried over — the
-// reflected copies are independent geometry. The source entities
-// themselves are unchanged. The mirror line must exist on the
-// sketch; passing it as one of `entity_ids` is a no-op (we don't
-// mirror the axis to itself).
-void mirror_sketch_entities(FeatureEntry& feature,
-                            int& next_line_index,
-                            int& next_circle_index,
-                            const std::string& mirror_line_id,
-                            const std::vector<std::string>& entity_ids);
+// ---------------------------------------------------------------
+// Mirror tool — Fusion-style pending preview lifecycle.
+//
+// The mirror feature follows the canonical action pattern (see
+// `docs/architecture/fusion-style-behavior.md`):
+//   1. `start_mirror_preview` — opens a transient `pending_mirror`
+//      with empty selections. No geometry yet.
+//   2. `update_mirror_preview_axis` / `update_mirror_preview_objects`
+//      — set parameters; preview geometry is regenerated each time
+//      so the viewport snapshot reflects the current selection.
+//   3. `commit_mirror_preview` — moves the generated geometry into
+//      the sketch's main arrays as real entities (with dimensions
+//      and inferred constraints), and clears `pending_mirror`.
+//   4. `cancel_mirror_preview` — discards the generated geometry
+//      and clears `pending_mirror`. No state escapes the tool.
+// ---------------------------------------------------------------
+void start_mirror_preview(FeatureEntry& feature);
+void update_mirror_preview_axis(FeatureEntry& feature,
+                                const std::string& axis_line_id);
+void update_mirror_preview_objects(
+    FeatureEntry& feature,
+    const std::vector<std::string>& object_ids);
+void commit_mirror_preview(FeatureEntry& feature,
+                           int& next_line_index,
+                           int& next_circle_index);
+void cancel_mirror_preview(FeatureEntry& feature);
 
 }  // namespace polysmith::core

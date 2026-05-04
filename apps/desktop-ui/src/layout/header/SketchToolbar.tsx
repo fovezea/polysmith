@@ -12,12 +12,17 @@ interface SketchToolbarProps {
   selectedReferenceId: string | null;
   selectedFaceId: string | null;
   armedSketchConstraint: ArmedSketchConstraint;
+  // Mirror tool is a Fusion-style action with its own panel, not
+  // an armed constraint. The toolbar uses this flag only to
+  // light up the Mirror button while the panel is open.
+  isMirrorToolOpen: boolean;
 
   onStartSketch: () => Promise<void>;
   onFinishSketch: () => Promise<void>;
   onCancelSketchConstraint: () => void;
   onSetSketchTool: (tool: SketchTool) => Promise<void>;
   onArmSketchConstraint: (constraint: ConstraintType) => Promise<void>;
+  onStartMirrorTool: () => Promise<void>;
   onProjectFace: () => Promise<void>;
 }
 
@@ -42,11 +47,13 @@ export function SketchToolbar({
   selectedReferenceId,
   selectedFaceId,
   armedSketchConstraint,
+  isMirrorToolOpen,
   onStartSketch,
   onFinishSketch,
   onCancelSketchConstraint,
   onSetSketchTool,
   onArmSketchConstraint,
+  onStartMirrorTool,
   onProjectFace,
 }: SketchToolbarProps) {
   const canProjectFace =
@@ -217,7 +224,7 @@ export function SketchToolbar({
       </button>
       <button
         className={
-          activeSketchPlaneId && armedSketchConstraint?.kind === "mirror"
+          activeSketchPlaneId && isMirrorToolOpen
             ? "cad-icon-button cad-icon-tool cad-icon-tool-active h-9 w-9 p-0"
             : "cad-icon-button cad-icon-tool h-9 w-9 p-0"
         }
@@ -225,7 +232,7 @@ export function SketchToolbar({
         aria-label="Mirror"
         disabled={!activeSketchPlaneId}
         onClick={() => {
-          void onArmSketchConstraint("mirror");
+          void onStartMirrorTool();
         }}
       >
         <ConstraintIcon kind="mirror" />
@@ -236,17 +243,13 @@ export function SketchToolbar({
             ? armedSketchConstraint.firstPointId
               ? "Coincident: click second point"
               : "Coincident: click first point"
-            : armedSketchConstraint.kind === "mirror"
-              ? armedSketchConstraint.axisLineId
-                ? "Mirror: click entity to mirror (Esc to exit)"
-                : "Mirror: click axis line"
-              : armedSketchConstraint.kind === "equal_length" ||
-                  armedSketchConstraint.kind === "perpendicular" ||
-                  armedSketchConstraint.kind === "parallel"
-                ? armedSketchConstraint.firstLineId
-                  ? `${armedSketchConstraint.kind === "equal_length" ? "Equal length" : armedSketchConstraint.kind === "perpendicular" ? "Perpendicular" : "Parallel"}: click second line`
-                  : `${armedSketchConstraint.kind === "equal_length" ? "Equal length" : armedSketchConstraint.kind === "perpendicular" ? "Perpendicular" : "Parallel"}: click first line`
-                : `${armedSketchConstraint.kind}: click line`}
+            : armedSketchConstraint.kind === "equal_length" ||
+                armedSketchConstraint.kind === "perpendicular" ||
+                armedSketchConstraint.kind === "parallel"
+              ? armedSketchConstraint.firstLineId
+                ? `${armedSketchConstraint.kind === "equal_length" ? "Equal length" : armedSketchConstraint.kind === "perpendicular" ? "Perpendicular" : "Parallel"}: click second line`
+                : `${armedSketchConstraint.kind === "equal_length" ? "Equal length" : armedSketchConstraint.kind === "perpendicular" ? "Perpendicular" : "Parallel"}: click first line`
+              : `${armedSketchConstraint.kind}: click line`}
         </p>
       ) : null}
     </>

@@ -52,7 +52,11 @@ import {
   makeSetSketchParallelConstraintCommand,
   makeSetSketchPerpendicularConstraintCommand,
   makeSetSketchTangentConstraintCommand,
-  makeMirrorSketchEntitiesCommand,
+  makeStartMirrorPreviewCommand,
+  makeUpdateMirrorPreviewAxisCommand,
+  makeUpdateMirrorPreviewObjectsCommand,
+  makeCommitMirrorPreviewCommand,
+  makeCancelMirrorPreviewCommand,
   makeSetSketchPointFixedCommand,
   makeExtrudeProfileCommand,
   makeSetSketchLineConstraintCommand,
@@ -372,10 +376,26 @@ export function useCadCore() {
       );
       await sendCoreCommand(makeGetViewportStateCommand());
     },
-    mirrorSketchEntities: async (mirrorLineId: string, entityIds: string[]) => {
-      await sendCoreCommand(
-        makeMirrorSketchEntitiesCommand(mirrorLineId, entityIds),
-      );
+    // Mirror tool — five-call lifecycle. Start opens the panel,
+    // update_* drive the live preview, commit/cancel finish.
+    startMirrorPreview: async () => {
+      await sendCoreCommand(makeStartMirrorPreviewCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateMirrorPreviewAxis: async (axisLineId: string | null) => {
+      await sendCoreCommand(makeUpdateMirrorPreviewAxisCommand(axisLineId));
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateMirrorPreviewObjects: async (objectIds: string[]) => {
+      await sendCoreCommand(makeUpdateMirrorPreviewObjectsCommand(objectIds));
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    commitMirrorPreview: async () => {
+      await sendCoreCommand(makeCommitMirrorPreviewCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    cancelMirrorPreview: async () => {
+      await sendCoreCommand(makeCancelMirrorPreviewCommand());
       await sendCoreCommand(makeGetViewportStateCommand());
     },
     setSketchParallelConstraint: async (

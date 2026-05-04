@@ -723,19 +723,19 @@ export function applySolidFaceVisualState(
 }
 
 export function buildSketchLineObject(line: SketchLineScene) {
-  // Construction lines use a dashed material to read as
-  // reference-only geometry (Fusion convention). The dash size is
-  // tuned so a typical 10mm line shows ~10 segments at default zoom;
-  // it doesn't auto-scale with camera distance, but that mirrors how
-  // edges are drawn elsewhere in the viewport so the look stays
-  // consistent across zoom levels.
-  const material = line.isConstruction
+  // Tool-generated preview lines (e.g. Mirror's reflected
+  // entities) render dashed and translucent so they read as
+  // "about to exist" rather than committed geometry. They share
+  // the dashed material path with construction lines, just at
+  // lower opacity.
+  const isDashed = line.isConstruction || line.isPreview;
+  const material = isDashed
     ? new THREE.LineDashedMaterial({
         color: line.isSelected
           ? themeColor("--color-primary-edge-active", "#c3f5ff")
           : themeColor("--color-tertiary-plane-fill", "#fff7c0"),
         transparent: true,
-        opacity: 0.85,
+        opacity: line.isPreview ? 0.55 : 0.85,
         linewidth: line.isSelected ? 2 : 1,
         dashSize: 1,
         gapSize: 0.6,
@@ -756,12 +756,16 @@ export function buildSketchLineObject(line: SketchLineScene) {
   const sketchLine = new THREE.Line(geometry, material);
   // `LineDashedMaterial` requires per-vertex distance data to render
   // the dash pattern; without this call the line renders solid.
-  if (line.isConstruction) {
+  if (isDashed) {
     sketchLine.computeLineDistances();
   }
-  sketchLine.userData.sketchEntityId = line.lineId;
-  sketchLine.userData.sketchEntityKind = "line";
-  sketchLine.userData.sketchEntityIsConstruction = line.isConstruction;
+  // Preview entities aren't selectable — leave their userData
+  // un-tagged so the raycaster ignores them.
+  if (!line.isPreview) {
+    sketchLine.userData.sketchEntityId = line.lineId;
+    sketchLine.userData.sketchEntityKind = "line";
+    sketchLine.userData.sketchEntityIsConstruction = line.isConstruction;
+  }
   return sketchLine;
 }
 
@@ -775,13 +779,23 @@ export function buildSketchCircleObject(
   circle: SketchCircleScene,
   planeFrame: SketchPlaneFrame | null = null,
 ) {
-  const material = new THREE.LineBasicMaterial({
-    color: circle.isSelected
-      ? themeColor("--color-primary-edge-active", "#c3f5ff")
-      : themeColor("--color-tertiary-plane-fill", "#fff7c0"),
-    transparent: true,
-    opacity: 0.98,
-  });
+  // See `buildSketchLineObject` for the rationale on the dashed +
+  // translucent treatment of preview circles.
+  const material = circle.isPreview
+    ? new THREE.LineDashedMaterial({
+        color: themeColor("--color-tertiary-plane-fill", "#fff7c0"),
+        transparent: true,
+        opacity: 0.55,
+        dashSize: 1,
+        gapSize: 0.6,
+      })
+    : new THREE.LineBasicMaterial({
+        color: circle.isSelected
+          ? themeColor("--color-primary-edge-active", "#c3f5ff")
+          : themeColor("--color-tertiary-plane-fill", "#fff7c0"),
+        transparent: true,
+        opacity: 0.98,
+      });
   const curve = new THREE.EllipseCurve(
     0,
     0,
@@ -823,8 +837,14 @@ export function buildSketchCircleObject(
     );
   const geometry = new THREE.BufferGeometry().setFromPoints(points);
   const sketchCircle = new THREE.LineLoop(geometry, material);
-  sketchCircle.userData.sketchEntityId = circle.circleId;
-  sketchCircle.userData.sketchEntityKind = "circle";
+  if (circle.isPreview) {
+    // Dashed materials need per-vertex distance; preview circles
+    // also stay un-tagged so they're never raycast hits.
+    sketchCircle.computeLineDistances();
+  } else {
+    sketchCircle.userData.sketchEntityId = circle.circleId;
+    sketchCircle.userData.sketchEntityKind = "circle";
+  }
   return sketchCircle;
 }
 

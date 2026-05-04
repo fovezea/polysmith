@@ -10,6 +10,7 @@ import {
   DocumentHierarchyPanel,
   EdgeOpPreviewPanel,
   ExtrudePreviewPanel,
+  MirrorToolPanel,
   FeatureTimeline,
   MessageLog,
   ViewportPanel,
@@ -59,6 +60,14 @@ interface ActiveEdgeOpAction {
 function App() {
   const [armedSketchConstraint, setArmedSketchConstraint] =
     useState<ArmedSketchConstraint>(null);
+  // Which input slot in the floating Mirror panel is currently
+  // focused (and therefore captures viewport entity clicks).
+  // `null` means the panel is closed; the *open / closed* state is
+  // mirrored in the document's `pending_mirror` so the UI flag
+  // and the core stay in sync via the document round-trip.
+  const [mirrorFocusedSlot, setMirrorFocusedSlot] = useState<
+    "objects" | "axis" | null
+  >(null);
   const [extrudeAction, setExtrudeAction] =
     useState<ActiveExtrudeAction | null>(null);
   const [edgeOpAction, setEdgeOpAction] = useState<ActiveEdgeOpAction | null>(
@@ -96,6 +105,17 @@ function App() {
     viewport?.sketch_profiles.find((profile) => profile.is_selected) ?? null;
   const activeSketchPlaneId = document?.active_sketch_plane_id ?? null;
   const activeSketchTool = document?.active_sketch_tool ?? null;
+  // The active sketch's pending mirror state lives in the document.
+  // The UI presents the floating panel whenever this is non-null;
+  // local React state only tracks which slot has keyboard / pick
+  // focus.
+  const activeSketchFeature =
+    document?.feature_history.find(
+      (entry) => entry.feature_id === document?.active_sketch_feature_id,
+    ) ?? null;
+  const pendingMirror =
+    activeSketchFeature?.sketch_parameters?.pending_mirror ?? null;
+  const isMirrorToolOpen = pendingMirror !== null;
   function toCorePlaneFrame(planeFrame: {
     origin: [number, number, number];
     xAxis: [number, number, number];
@@ -163,7 +183,11 @@ function App() {
     setSketchParallelConstraint,
     setSketchPerpendicularConstraint,
     setSketchTangentConstraint,
-    mirrorSketchEntities,
+    startMirrorPreview,
+    updateMirrorPreviewAxis,
+    updateMirrorPreviewObjects,
+    commitMirrorPreview,
+    cancelMirrorPreview,
     setSketchPointFixed,
     updateSketchDimension,
     selectSketchProfile,
@@ -188,6 +212,12 @@ function App() {
   useEffect(() => {
     if (!activeSketchPlaneId) {
       setArmedSketchConstraint(null);
+      // Mirror tool is sketch-scoped: if the user finishes the
+      // sketch (or the active sketch otherwise becomes null) we
+      // drop the focus state. The core's pending_mirror is
+      // already gone with the sketch, so there's nothing else to
+      // clean up here.
+      setMirrorFocusedSlot(null);
     }
   }, [activeSketchPlaneId]);
 
@@ -606,45 +636,6 @@ function App() {
       return;
     }
 
-    if (armedSketchConstraint.kind === "mirror") {
-      // First pick is the axis line. Validate that the picked
-      // entity is actually a line (not a circle) by looking it up
-      // in the active sketch — circles can't be a mirror axis.
-      // Subsequent picks are entities to mirror; they can be lines
-      // or circles. The axis selection is sticky so the user can
-      // mirror a batch by clicking each entity in sequence.
-      if (!armedSketchConstraint.axisLineId) {
-        const activeSketchId = document?.active_sketch_feature_id ?? null;
-        const activeSketch = activeSketchId
-          ? document?.feature_history.find(
-              (entry) => entry.feature_id === activeSketchId,
-            )
-          : null;
-        const isLine =
-          activeSketch?.sketch_parameters?.lines.some(
-            (line) => line.line_id === lineId,
-          ) ?? false;
-        if (!isLine) {
-          // Ignore non-line picks before the axis is set; the
-          // status text already tells the user to click a line.
-          return;
-        }
-        setArmedSketchConstraint({ kind: "mirror", axisLineId: lineId });
-        await selectSketchEntity(lineId);
-        return;
-      }
-      // Subsequent pick: dispatch the mirror op. Mirroring the
-      // axis to itself is a no-op (the core also guards against
-      // it), so we early-return without firing IPC.
-      if (lineId === armedSketchConstraint.axisLineId) {
-        return;
-      }
-      await mirrorSketchEntities(armedSketchConstraint.axisLineId, [lineId]);
-      // Stay armed: axis is sticky, the user can keep clicking
-      // entities to mirror more across the same axis. Esc clears.
-      return;
-    }
-
     if (armedSketchConstraint.kind === "horizontal") {
       await setSketchLineConstraint(lineId, "horizontal");
       clearArmedSketchConstraint();
@@ -864,8 +855,20 @@ function App() {
           selectedReferenceId={selectedReference?.reference_id ?? null}
           selectedFaceId={document?.selected_face_id ?? null}
           armedSketchConstraint={armedSketchConstraint}
+          isMirrorToolOpen={isMirrorToolOpen}
           onStart={async () => {
             await runAction(start);
+          }}
+          onStartMirrorTool={async () => {
+            // Idempotent: clicking Mirror while it's already open
+            // re-focuses the Objects slot (a Fusion-style "I'd
+            // like to redo my selection from scratch" gesture
+            // would be Cancel + reopen, but we keep this lighter).
+            await runAction(async () => {
+              await startMirrorPreview();
+              setMirrorFocusedSlot("objects");
+              clearArmedSketchConstraint();
+            });
           }}
           onCreateDocument={async () => {
             await runAction(createDocument);
@@ -984,8 +987,14 @@ function App() {
                 return null;
               }
 
+              // Mirror is no longer an armed constraint — the
+              // toolbar's Mirror button calls
+              // `onStartMirrorTool` directly. Defensively handle
+              // a stray "mirror" arming request as a no-op so we
+              // don't desync the toolbar's button state.
               if (constraint === "mirror") {
-                return { kind: "mirror", axisLineId: null };
+                shouldArm = false;
+                return current;
               }
               return constraint === "equal_length" ||
                 constraint === "coincident" ||
@@ -1273,6 +1282,41 @@ function App() {
                 });
               }}
               armedSketchConstraint={armedSketchConstraint}
+              mirrorFocusedSlot={mirrorFocusedSlot}
+              onMirrorEntityPick={async (entityId, entityKind) => {
+                if (!pendingMirror) {
+                  return;
+                }
+                await runAction(async () => {
+                  if (mirrorFocusedSlot === "axis") {
+                    // Only lines can be mirror axes. Silently
+                    // ignore circles to avoid bouncing the user
+                    // out of the slot.
+                    if (entityKind !== "line") {
+                      return;
+                    }
+                    await updateMirrorPreviewAxis(entityId);
+                    // Auto-advance to the Objects slot if it's
+                    // empty — Fusion's small UX touch that saves
+                    // a click on the typical "axis first, then
+                    // objects" flow. If the user explicitly
+                    // re-focused Axis with objects already
+                    // selected, leave focus on Axis (they're
+                    // probably re-picking).
+                    if (pendingMirror.object_ids.length === 0) {
+                      setMirrorFocusedSlot("objects");
+                    }
+                    return;
+                  }
+
+                  // Objects slot. Toggle membership.
+                  const current = pendingMirror.object_ids;
+                  const next = current.includes(entityId)
+                    ? current.filter((id) => id !== entityId)
+                    : [...current, entityId];
+                  await updateMirrorPreviewObjects(next);
+                });
+              }}
               onCancelSketchConstraint={clearArmedSketchConstraint}
               onClearSketchConstraint={async (
                 kind,
@@ -1525,6 +1569,40 @@ function App() {
                     return null;
                   })()
                 : null}
+              {pendingMirror ? (
+                <MirrorToolPanel
+                  axisLineId={pendingMirror.axis_line_id}
+                  objectIds={pendingMirror.object_ids}
+                  generatedLineCount={pendingMirror.generated_lines.length}
+                  generatedCircleCount={pendingMirror.generated_circles.length}
+                  focusedSlot={mirrorFocusedSlot}
+                  disabled={status !== "connected"}
+                  onFocusObjects={() => setMirrorFocusedSlot("objects")}
+                  onFocusAxis={() => setMirrorFocusedSlot("axis")}
+                  onClearObjects={async () => {
+                    await runAction(async () => {
+                      await updateMirrorPreviewObjects([]);
+                    });
+                  }}
+                  onClearAxis={async () => {
+                    await runAction(async () => {
+                      await updateMirrorPreviewAxis(null);
+                    });
+                  }}
+                  onConfirm={async () => {
+                    await runAction(async () => {
+                      await commitMirrorPreview();
+                    });
+                    setMirrorFocusedSlot(null);
+                  }}
+                  onCancel={async () => {
+                    await runAction(async () => {
+                      await cancelMirrorPreview();
+                    });
+                    setMirrorFocusedSlot(null);
+                  }}
+                />
+              ) : null}
               {edgeOpAction ? (
                 <EdgeOpPreviewPanel
                   title={edgeOpAction.kind === "fillet" ? "Fillet" : "Chamfer"}

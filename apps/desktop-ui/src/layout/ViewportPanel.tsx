@@ -125,6 +125,16 @@ interface ViewportPanelProps {
     kind: "endpoint" | "center",
   ) => Promise<void>;
   armedSketchConstraint: ArmedSketchConstraint;
+  // Which mirror tool slot is taking entity clicks. `null` when the
+  // mirror tool isn't open. The mirror tool runs alongside the
+  // armed-constraint flow but takes priority when active: a click
+  // on a sketch entity is routed through `onMirrorEntityPick`
+  // instead of the normal selection / armed-constraint paths.
+  mirrorFocusedSlot: "objects" | "axis" | null;
+  onMirrorEntityPick: (
+    entityId: string,
+    entityKind: "line" | "circle",
+  ) => Promise<void>;
   onCancelSketchConstraint: () => void;
   onClearSketchConstraint: (
     kind: ConstraintType,
@@ -167,6 +177,8 @@ export function ViewportPanel({
   onSelectSketchEntity,
   onPickSketchPoint,
   armedSketchConstraint,
+  mirrorFocusedSlot,
+  onMirrorEntityPick,
   onCancelSketchConstraint,
   onClearSketchConstraint,
   onSelectSketchDimension,
@@ -292,6 +304,8 @@ export function ViewportPanel({
   }, [isDimensionEditorOpen]);
   const setSketchToolRef = useRef(onSetSketchTool);
   const armedSketchConstraintRef = useRef(armedSketchConstraint);
+  const mirrorFocusedSlotRef = useRef(mirrorFocusedSlot);
+  const mirrorEntityPickRef = useRef(onMirrorEntityPick);
   const cancelSketchConstraintRef = useRef(onCancelSketchConstraint);
   const clearSketchConstraintRef = useRef(onClearSketchConstraint);
   const activeSketchToolRef = useRef<SketchTool>("select");
@@ -1036,6 +1050,8 @@ export function ViewportPanel({
     selectSketchProfileRef.current = onSelectSketchProfile;
     setSketchToolRef.current = onSetSketchTool;
     armedSketchConstraintRef.current = armedSketchConstraint;
+    mirrorFocusedSlotRef.current = mirrorFocusedSlot;
+    mirrorEntityPickRef.current = onMirrorEntityPick;
     cancelSketchConstraintRef.current = onCancelSketchConstraint;
     clearSketchConstraintRef.current = onClearSketchConstraint;
   }, [
@@ -1056,6 +1072,8 @@ export function ViewportPanel({
     onSelectSketchProfile,
     onSetSketchTool,
     armedSketchConstraint,
+    mirrorFocusedSlot,
+    onMirrorEntityPick,
     onCancelSketchConstraint,
     onClearSketchConstraint,
   ]);
@@ -1659,6 +1677,13 @@ export function ViewportPanel({
                 ),
                 radius,
                 isSelected: false,
+                // The line/circle draft preview (drawn while the
+                // user is dragging out a new circle) is not a
+                // tool-generated preview entity; the renderer's
+                // dashed-translucent path is gated on `isPreview`,
+                // so leaving it false keeps the existing draft
+                // styling intact.
+                isPreview: false,
               },
               activeSketchPlaneFrame,
             );
@@ -1785,6 +1810,21 @@ export function ViewportPanel({
       if (activeSketchPlaneId) {
         const hit = intersectSceneTargets(event);
         if (activeSketchToolRef.current === "select") {
+          // Mirror tool takes priority over the rest of the
+          // selection / armed-constraint flow when one of its
+          // slots is focused. We route line and circle hits to
+          // the parent's mirror handler; everything else falls
+          // through (so the user can still rotate the camera,
+          // edit dimensions, etc. with the panel open).
+          if (
+            mirrorFocusedSlotRef.current &&
+            hit?.kind === "sketch_entity" &&
+            (hit.entityKind === "line" || hit.entityKind === "circle")
+          ) {
+            void mirrorEntityPickRef.current(hit.id, hit.entityKind);
+            return;
+          }
+
           if (
             armedSketchConstraintRef.current &&
             hit?.kind === "sketch_entity" &&
@@ -2896,17 +2936,13 @@ export function ViewportPanel({
                       ? armedSketchConstraint.firstPointId
                         ? `Coincident armed · first ${armedSketchConstraint.firstPointId} · click second point`
                         : "Coincident armed · click first point"
-                      : armedSketchConstraint.kind === "mirror"
-                        ? armedSketchConstraint.axisLineId
-                          ? `Mirror armed · axis ${armedSketchConstraint.axisLineId} · click entity to mirror (Esc to exit)`
-                          : "Mirror armed · click axis line"
-                        : armedSketchConstraint.kind === "equal_length" ||
-                            armedSketchConstraint.kind === "perpendicular" ||
-                            armedSketchConstraint.kind === "parallel"
-                          ? armedSketchConstraint.firstLineId
-                            ? `${armedSketchConstraint.kind === "equal_length" ? "Equal length" : armedSketchConstraint.kind === "perpendicular" ? "Perpendicular" : "Parallel"} armed · first ${armedSketchConstraint.firstLineId} · click second line`
-                            : `${armedSketchConstraint.kind === "equal_length" ? "Equal length" : armedSketchConstraint.kind === "perpendicular" ? "Perpendicular" : "Parallel"} armed · click first line`
-                          : `${armedSketchConstraint.kind} constraint armed · click a line`
+                      : armedSketchConstraint.kind === "equal_length" ||
+                          armedSketchConstraint.kind === "perpendicular" ||
+                          armedSketchConstraint.kind === "parallel"
+                        ? armedSketchConstraint.firstLineId
+                          ? `${armedSketchConstraint.kind === "equal_length" ? "Equal length" : armedSketchConstraint.kind === "perpendicular" ? "Perpendicular" : "Parallel"} armed · first ${armedSketchConstraint.firstLineId} · click second line`
+                          : `${armedSketchConstraint.kind === "equal_length" ? "Equal length" : armedSketchConstraint.kind === "perpendicular" ? "Perpendicular" : "Parallel"} armed · click first line`
+                        : `${armedSketchConstraint.kind} constraint armed · click a line`
                     : document?.selected_sketch_entity_id
                       ? document?.selected_sketch_dimension_id
                         ? `Dimension: ${document.selected_sketch_dimension_id} · Entity: ${document.selected_sketch_entity_id}`

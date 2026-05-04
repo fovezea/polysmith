@@ -94,6 +94,7 @@ interface AppHeaderProps {
   selectedReferenceId: string | null;
   selectedFaceId: string | null;
   armedSketchConstraint: ArmedSketchConstraint;
+  isMirrorToolOpen: boolean;
   onStart: () => Promise<void>;
   onCreateDocument: () => Promise<void>;
   onExportDocument: () => Promise<void>;
@@ -118,6 +119,7 @@ interface AppHeaderProps {
   onFinishSketch: () => Promise<void>;
   onSetSketchTool: (tool: SketchTool) => Promise<void>;
   onArmSketchConstraint: (constraint: ConstraintType) => Promise<void>;
+  onStartMirrorTool: () => Promise<void>;
   onCancelSketchConstraint: () => void;
   onProjectFace: () => Promise<void>;
 }
@@ -132,6 +134,7 @@ export function AppHeader({
   selectedReferenceId,
   selectedFaceId,
   armedSketchConstraint,
+  isMirrorToolOpen,
   onStart,
   onCreateDocument,
   onExportDocument,
@@ -148,6 +151,7 @@ export function AppHeader({
   onFinishSketch,
   onSetSketchTool,
   onArmSketchConstraint,
+  onStartMirrorTool,
   onCancelSketchConstraint,
   onProjectFace,
 }: AppHeaderProps) {
@@ -284,11 +288,13 @@ export function AppHeader({
               selectedReferenceId={selectedReferenceId}
               selectedFaceId={selectedFaceId}
               armedSketchConstraint={armedSketchConstraint}
+              isMirrorToolOpen={isMirrorToolOpen}
               onStartSketch={onStartSketch}
               onFinishSketch={onFinishSketch}
               onCancelSketchConstraint={onCancelSketchConstraint}
               onSetSketchTool={onSetSketchTool}
               onArmSketchConstraint={onArmSketchConstraint}
+              onStartMirrorTool={onStartMirrorTool}
               onProjectFace={onProjectFace}
             />
           ) : null}

@@ -27,8 +27,7 @@ export type ArmedSketchConstraint =
       kind: "equal_length" | "perpendicular" | "parallel";
       firstLineId: string | null;
     }
-  | { kind: "coincident"; firstPointId: string | null }
-  // Mirror: first pick captures the axis line, every subsequent
-  // pick (line or circle) mirrors that entity across the axis.
-  // Stays armed across mirrors so the user can mirror a batch.
-  | { kind: "mirror"; axisLineId: string | null };
+  | { kind: "coincident"; firstPointId: string | null };
+// Note: Mirror is NOT an armed constraint — it's a full Fusion-
+// style tool with its own floating panel and lifecycle. See
+// `mirrorFocusedSlot` in App.tsx and `MirrorToolPanel`.

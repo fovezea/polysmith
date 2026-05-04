@@ -148,12 +148,17 @@ class DocumentManager {
   // `circle_id` to clear an existing tangent relation.
   DocumentState set_sketch_tangent_constraint(const std::string& line_id,
                                               const std::string& circle_id);
-  // Mirror a batch of sketch entities (lines, circles) across a
-  // sketch line. Creates independent reflected copies; the source
-  // entities are unchanged.
-  DocumentState mirror_sketch_entities(
-      const std::string& mirror_line_id,
-      const std::vector<std::string>& entity_ids);
+  // Mirror tool — Fusion-style pending preview lifecycle. Each
+  // method maps directly onto the sketch_feature core ops; the
+  // wrapping here is bookkeeping (undo, refresh, selection).
+  // Note: only `commit` writes a permanent change, so it's the
+  // only one that pushes an undo state.
+  DocumentState start_mirror_preview();
+  DocumentState update_mirror_preview_axis(const std::string& axis_line_id);
+  DocumentState update_mirror_preview_objects(
+      const std::vector<std::string>& object_ids);
+  DocumentState commit_mirror_preview();
+  DocumentState cancel_mirror_preview();
   DocumentState set_sketch_parallel_constraint(
       const std::string& line_id,
       const std::optional<std::string>& other_line_id);

@@ -200,6 +200,28 @@ struct SketchFeatureParameters {
   std::vector<SketchMidpointAnchor> midpoint_anchors;
   std::vector<SketchPointLineAnchor> point_line_anchors;
   std::vector<SketchProfileRegion> profiles;
+
+  // Transient state for an in-progress Mirror tool invocation.
+  // Lives on the sketch only between `start_mirror_preview` and
+  // either `commit_mirror_preview` (the geometry becomes real) or
+  // `cancel_mirror_preview` (the geometry is discarded).
+  //
+  // The generated geometry is kept *separate* from the main
+  // `lines`/`circles` arrays so that:
+  //   - dimensions, points, and relations don't get polluted by
+  //     entities the user might back out of,
+  //   - regenerating after each parameter change is just a clear
+  //     and rebuild — no risk of leaving orphan dimensions.
+  // On commit, the generated entities are folded back into the
+  // main arrays via `add_sketch_line`/`add_sketch_circle` so they
+  // pick up dimensions and constraint inference normally.
+  struct PendingMirror {
+    std::optional<std::string> axis_line_id;
+    std::vector<std::string> object_ids;
+    std::vector<SketchLine> generated_lines;
+    std::vector<SketchCircle> generated_circles;
+  };
+  std::optional<PendingMirror> pending_mirror;
 };
 
 struct FeatureEntry {

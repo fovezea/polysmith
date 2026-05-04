@@ -621,13 +621,42 @@ export interface SetSketchPerpendicularConstraintCommand {
   };
 }
 
-export interface MirrorSketchEntitiesCommand {
+// Mirror tool — Fusion-style pending preview lifecycle. See
+// `docs/architecture/fusion-style-behavior.md` and
+// `core/sketch_feature.h`.
+export interface StartMirrorPreviewCommand {
   id: string;
-  type: "mirror_sketch_entities";
+  type: "start_mirror_preview";
+  payload: Record<string, never>;
+}
+
+export interface UpdateMirrorPreviewAxisCommand {
+  id: string;
+  type: "update_mirror_preview_axis";
   payload: {
-    mirror_line_id: string;
-    entity_ids: string[];
+    // Empty string clears the axis (preview drops to no geometry).
+    axis_line_id: string;
   };
+}
+
+export interface UpdateMirrorPreviewObjectsCommand {
+  id: string;
+  type: "update_mirror_preview_objects";
+  payload: {
+    object_ids: string[];
+  };
+}
+
+export interface CommitMirrorPreviewCommand {
+  id: string;
+  type: "commit_mirror_preview";
+  payload: Record<string, never>;
+}
+
+export interface CancelMirrorPreviewCommand {
+  id: string;
+  type: "cancel_mirror_preview";
+  payload: Record<string, never>;
 }
 
 export interface SetSketchTangentConstraintCommand {
@@ -820,7 +849,11 @@ export type CoreCommand =
   | SetSketchEqualLengthConstraintCommand
   | SetSketchPerpendicularConstraintCommand
   | SetSketchTangentConstraintCommand
-  | MirrorSketchEntitiesCommand
+  | StartMirrorPreviewCommand
+  | UpdateMirrorPreviewAxisCommand
+  | UpdateMirrorPreviewObjectsCommand
+  | CommitMirrorPreviewCommand
+  | CancelMirrorPreviewCommand
   | SetSketchParallelConstraintCommand
   | SetSketchCoincidentConstraintCommand
   | SetSketchPointFixedCommand

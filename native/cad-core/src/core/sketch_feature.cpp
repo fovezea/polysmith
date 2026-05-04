@@ -2298,65 +2298,171 @@ std::pair<double, double> reflect_point_across_line(double px, double py,
   return {2.0 * foot_x - px, 2.0 * foot_y - py};
 }
 
-void mirror_sketch_entities(FeatureEntry& feature,
-                            int& next_line_index,
-                            int& next_circle_index,
-                            const std::string& mirror_line_id,
-                            const std::vector<std::string>& entity_ids) {
-  if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
-    throw std::runtime_error("Only sketch features can mirror entities");
+// Regenerate `pending_mirror.generated_lines/circles` from the
+// current `axis_line_id` + `object_ids` selection. Called on every
+// preview parameter change. Cheap to run: it just walks the
+// object list, reflects each entity's geometry across the axis,
+// and pushes a transient SketchLine / SketchCircle into the
+// pending state. The transient ids use a `pending-mirror-...`
+// prefix so they never collide with committed entities.
+//
+// If the axis is unset, isn't actually a line, or has zero length,
+// the generated arrays are simply cleared (no preview to draw).
+void regenerate_mirror_preview(SketchFeatureParameters& parameters) {
+  if (!parameters.pending_mirror.has_value()) {
+    return;
   }
-  auto& parameters = *feature.sketch_parameters;
-  // Resolve the axis line. We snapshot its endpoints up front
-  // because we'll be appending new lines to `parameters.lines` as
-  // we go and the iterator could be invalidated.
+  auto& pending = *parameters.pending_mirror;
+  pending.generated_lines.clear();
+  pending.generated_circles.clear();
+
+  if (!pending.axis_line_id.has_value()) {
+    return;
+  }
+  const auto& axis_id = *pending.axis_line_id;
   const auto axis_it = std::find_if(
       parameters.lines.begin(), parameters.lines.end(),
-      [&](const SketchLine& line) { return line.id == mirror_line_id; });
+      [&](const SketchLine& line) { return line.id == axis_id; });
   if (axis_it == parameters.lines.end()) {
-    throw std::runtime_error("Mirror axis line not found: " + mirror_line_id);
+    return;
   }
   const double ax = axis_it->start_x;
   const double ay = axis_it->start_y;
   const double bx = axis_it->end_x;
   const double by = axis_it->end_y;
+  // Zero-length axis can't reflect; bail out so the user sees an
+  // empty preview rather than a misleading copy.
+  if ((bx - ax) * (bx - ax) + (by - ay) * (by - ay) <= 0.0) {
+    return;
+  }
 
-  // Process each entity id. Capturing source coordinates by value
-  // before any append: `add_sketch_line` / `add_sketch_circle`
-  // mutate the parameters and may invalidate iterators on growth.
-  for (const auto& entity_id : entity_ids) {
-    if (entity_id == mirror_line_id) {
-      continue;  // Mirroring the axis to itself is a no-op.
+  int local_line_counter = 0;
+  int local_circle_counter = 0;
+  for (const auto& object_id : pending.object_ids) {
+    if (object_id == axis_id) {
+      continue;  // Axis to itself is a no-op.
     }
     const auto line_it = std::find_if(
         parameters.lines.begin(), parameters.lines.end(),
-        [&](const SketchLine& line) { return line.id == entity_id; });
+        [&](const SketchLine& line) { return line.id == object_id; });
     if (line_it != parameters.lines.end()) {
       const auto [new_start_x, new_start_y] = reflect_point_across_line(
           line_it->start_x, line_it->start_y, ax, ay, bx, by);
       const auto [new_end_x, new_end_y] = reflect_point_across_line(
           line_it->end_x, line_it->end_y, ax, ay, bx, by);
-      const bool is_construction = line_it->is_construction;
-      add_sketch_line(feature, next_line_index++, new_start_x, new_start_y,
-                      new_end_x, new_end_y, is_construction);
+      SketchLine reflected{};
+      const std::string suffix = std::to_string(local_line_counter++);
+      reflected.id = "pending-mirror-line-" + suffix;
+      reflected.start_point_id = reflected.id + "-start";
+      reflected.end_point_id = reflected.id + "-end";
+      reflected.start_x = new_start_x;
+      reflected.start_y = new_start_y;
+      reflected.end_x = new_end_x;
+      reflected.end_y = new_end_y;
+      reflected.constraint = std::nullopt;
+      reflected.is_construction = line_it->is_construction;
+      pending.generated_lines.push_back(reflected);
       continue;
     }
     const auto circle_it = std::find_if(
         parameters.circles.begin(), parameters.circles.end(),
-        [&](const SketchCircle& circle) { return circle.id == entity_id; });
+        [&](const SketchCircle& circle) { return circle.id == object_id; });
     if (circle_it != parameters.circles.end()) {
       const auto [new_cx, new_cy] = reflect_point_across_line(
           circle_it->center_x, circle_it->center_y, ax, ay, bx, by);
-      const double radius = circle_it->radius;
-      add_sketch_circle(feature, next_circle_index++, new_cx, new_cy, radius);
+      SketchCircle reflected{};
+      reflected.id =
+          "pending-mirror-circle-" + std::to_string(local_circle_counter++);
+      reflected.center_x = new_cx;
+      reflected.center_y = new_cy;
+      reflected.radius = circle_it->radius;
+      pending.generated_circles.push_back(reflected);
       continue;
     }
-    // Unknown id (could be a stale selection). Skip rather than
-    // throw — partial mirrors are friendlier than aborting the
-    // whole batch.
+    // Unknown id — silently skip. The UI may have stale selections
+    // and we'd rather draw a partial preview than throw.
   }
+}
 
-  refresh_sketch_derived_state(feature);
+void start_mirror_preview(FeatureEntry& feature) {
+  if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+    throw std::runtime_error("Only sketch features can host a mirror tool");
+  }
+  // Idempotent: re-arming the mirror tool while a preview is
+  // already in progress just resets the selections. Saves the
+  // caller from having to cancel + start.
+  feature.sketch_parameters->pending_mirror =
+      SketchFeatureParameters::PendingMirror{};
+}
+
+void update_mirror_preview_axis(FeatureEntry& feature,
+                                const std::string& axis_line_id) {
+  if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+    throw std::runtime_error("Only sketch features can host a mirror tool");
+  }
+  auto& parameters = *feature.sketch_parameters;
+  if (!parameters.pending_mirror.has_value()) {
+    throw std::runtime_error(
+        "Mirror preview must be started before setting the axis");
+  }
+  if (axis_line_id.empty()) {
+    parameters.pending_mirror->axis_line_id = std::nullopt;
+  } else {
+    parameters.pending_mirror->axis_line_id = axis_line_id;
+  }
+  regenerate_mirror_preview(parameters);
+}
+
+void update_mirror_preview_objects(
+    FeatureEntry& feature, const std::vector<std::string>& object_ids) {
+  if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+    throw std::runtime_error("Only sketch features can host a mirror tool");
+  }
+  auto& parameters = *feature.sketch_parameters;
+  if (!parameters.pending_mirror.has_value()) {
+    throw std::runtime_error(
+        "Mirror preview must be started before setting objects");
+  }
+  parameters.pending_mirror->object_ids = object_ids;
+  regenerate_mirror_preview(parameters);
+}
+
+void commit_mirror_preview(FeatureEntry& feature,
+                           int& next_line_index,
+                           int& next_circle_index) {
+  if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+    throw std::runtime_error("Only sketch features can host a mirror tool");
+  }
+  auto& parameters = *feature.sketch_parameters;
+  if (!parameters.pending_mirror.has_value()) {
+    throw std::runtime_error("No mirror preview to commit");
+  }
+  // Snapshot the generated geometry by value before clearing the
+  // pending state — `add_sketch_line` / `add_sketch_circle` will
+  // also call `refresh_sketch_derived_state` which iterates over
+  // sketch state and we don't want a half-cleared pending around.
+  const auto generated_lines = parameters.pending_mirror->generated_lines;
+  const auto generated_circles = parameters.pending_mirror->generated_circles;
+  parameters.pending_mirror = std::nullopt;
+
+  for (const auto& line : generated_lines) {
+    add_sketch_line(feature, next_line_index++, line.start_x, line.start_y,
+                    line.end_x, line.end_y, line.is_construction);
+  }
+  for (const auto& circle : generated_circles) {
+    add_sketch_circle(feature, next_circle_index++, circle.center_x,
+                      circle.center_y, circle.radius);
+  }
+  // `add_sketch_*` already runs refresh, so no extra refresh here.
+}
+
+void cancel_mirror_preview(FeatureEntry& feature) {
+  if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+    throw std::runtime_error("Only sketch features can host a mirror tool");
+  }
+  // Plain discard. `pending_mirror` was never written to the main
+  // arrays so there's nothing to roll back.
+  feature.sketch_parameters->pending_mirror = std::nullopt;
 }
 
 void add_sketch_circle(FeatureEntry& feature,
