@@ -60,6 +60,15 @@ geometry preview → confirm or cancel.
 This pattern is documented in `docs/architecture/fusion-style-behavior.md`
 and is binding for new features.
 
+## UI Copy Rules
+
+- **Never expose internal ids in the UI.** Entity ids, feature ids,
+  point ids, etc. are implementation details. User-visible copy
+  describes things by their kind ("Line", "Circle"), their count
+  ("3 selected"), or by user-meaningful labels ("Sketch on XY").
+  Ids are allowed in debug overlays gated behind a flag, never in
+  default UI.
+
 ## Philosophy
 
 PolySmith is built to be **understandable and maintainable by humans first**.

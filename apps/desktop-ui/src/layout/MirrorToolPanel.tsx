@@ -128,7 +128,9 @@ export function MirrorToolPanel({
             Mirror line
           </span>
           <span className="mt-1 block text-sm">
-            {axisLineId ?? "Click to select…"}
+            {/* Never expose internal ids in the UI — the user
+                only needs to know whether something is selected. */}
+            {axisLineId ? "1 selected" : "Click to select…"}
           </span>
         </button>
         {axisLineId !== null ? (

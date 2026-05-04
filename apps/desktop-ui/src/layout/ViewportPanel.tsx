@@ -2925,32 +2925,41 @@ export function ViewportPanel({
                 </p>
               ) : null}
               <p className="mt-1 text-xs uppercase tracking-[0.14em] text-on-surface-dim">
+                {/* Plane / face ids are internal — see
+                    AGENTS.md UI Copy Rules. The status line just
+                    reports the active tool and entity counts. */}
                 {activeSketchPlaneId
-                  ? `${activeSketchPlaneId} · ${activeSketchTool} · ${lineCount} line${lineCount === 1 ? "" : "s"} · ${circleCount} circle${circleCount === 1 ? "" : "s"}`
+                  ? `Sketching · ${activeSketchTool} · ${lineCount} line${lineCount === 1 ? "" : "s"} · ${circleCount} circle${circleCount === 1 ? "" : "s"}`
                   : "No active sketch"}
               </p>
               {activeSketchPlaneId ? (
                 <p className="mt-1 text-xs text-on-surface-dim">
+                  {/* Status text — never embed internal ids; see
+                      AGENTS.md "UI Copy Rules". The selection
+                      details (entity / point / dimension /
+                      profile) just acknowledge that something is
+                      selected; specifics live in the floating
+                      panels keyed off those selections. */}
                   {armedSketchConstraint
                     ? armedSketchConstraint.kind === "coincident"
                       ? armedSketchConstraint.firstPointId
-                        ? `Coincident armed · first ${armedSketchConstraint.firstPointId} · click second point`
+                        ? "Coincident armed · click second point"
                         : "Coincident armed · click first point"
                       : armedSketchConstraint.kind === "equal_length" ||
                           armedSketchConstraint.kind === "perpendicular" ||
                           armedSketchConstraint.kind === "parallel"
                         ? armedSketchConstraint.firstLineId
-                          ? `${armedSketchConstraint.kind === "equal_length" ? "Equal length" : armedSketchConstraint.kind === "perpendicular" ? "Perpendicular" : "Parallel"} armed · first ${armedSketchConstraint.firstLineId} · click second line`
+                          ? `${armedSketchConstraint.kind === "equal_length" ? "Equal length" : armedSketchConstraint.kind === "perpendicular" ? "Perpendicular" : "Parallel"} armed · click second line`
                           : `${armedSketchConstraint.kind === "equal_length" ? "Equal length" : armedSketchConstraint.kind === "perpendicular" ? "Perpendicular" : "Parallel"} armed · click first line`
                         : `${armedSketchConstraint.kind} constraint armed · click a line`
                     : document?.selected_sketch_entity_id
                       ? document?.selected_sketch_dimension_id
-                        ? `Dimension: ${document.selected_sketch_dimension_id} · Entity: ${document.selected_sketch_entity_id}`
-                        : `Entity: ${document.selected_sketch_entity_id}`
+                        ? "Dimension selected"
+                        : "Entity selected"
                       : document?.selected_sketch_point_id
-                        ? `Point: ${document.selected_sketch_point_id}`
+                        ? "Point selected"
                         : document?.selected_sketch_profile_id
-                          ? `Profile: ${document.selected_sketch_profile_id}`
+                          ? "Profile selected"
                           : sketchSnapLabel
                             ? `Snap: ${sketchSnapLabel}`
                             : activeSketchTool === "select"
