@@ -1,6 +1,7 @@
 #include "core/sketch_feature.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <deque>
 #include <sstream>
@@ -21,6 +22,15 @@ constexpr double kCoincidentTolerance = 0.01;
 // `refresh_sketch_derived_state` so every public mutator picks up
 // the enforcement automatically.
 void enforce_midpoint_anchors(SketchFeatureParameters& parameters);
+void enforce_point_line_anchors(SketchFeatureParameters& parameters);
+// Slide each tangent-bound line's end point onto the closer of the
+// two tangent points from its start to the host circle. Stored as a
+// `SketchLineRelation` of kind "tangent_line_circle" with
+// `first_line_id` = line id and `second_line_id` = circle id. Run
+// from `refresh_sketch_derived_state` so changes to either the line
+// start, the circle center, or the radius all keep the relation
+// satisfied without explicit re-driving.
+void enforce_tangent_line_circle_relations(SketchFeatureParameters& parameters);
 
 std::string make_parameters_summary(const SketchFeatureParameters& parameters) {
   std::ostringstream stream;
@@ -456,6 +466,8 @@ void refresh_sketch_derived_state(FeatureEntry& feature) {
   // shift other line endpoints which `rebuild_sketch_points` then
   // mirrors into the points vector.
   enforce_midpoint_anchors(*feature.sketch_parameters);
+  enforce_point_line_anchors(*feature.sketch_parameters);
+  enforce_tangent_line_circle_relations(*feature.sketch_parameters);
 
   const std::vector<SketchPoint> previous_points = feature.sketch_parameters->points;
   rebuild_sketch_points(*feature.sketch_parameters);
@@ -925,6 +937,112 @@ void enforce_midpoint_anchors(SketchFeatureParameters& parameters) {
     const double mid_x = (host_it->start_x + host_it->end_x) / 2.0;
     const double mid_y = (host_it->start_y + host_it->end_y) / 2.0;
     propagate_connected_point_move(parameters, anchor.point_id, mid_x, mid_y);
+  }
+}
+
+// Pull every line-anchored point back to its parametric position
+// along the host line. Mirrors `enforce_midpoint_anchors` but uses
+// the stored `t` instead of always 0.5, so the user can anchor at
+// any fraction along the line and have it ride with edits.
+void enforce_point_line_anchors(SketchFeatureParameters& parameters) {
+  for (const auto& anchor : parameters.point_line_anchors) {
+    const auto host_it = std::find_if(
+        parameters.lines.begin(),
+        parameters.lines.end(),
+        [&](const SketchLine& line) { return line.id == anchor.line_id; });
+    if (host_it == parameters.lines.end()) {
+      continue;
+    }
+    const double tx =
+        host_it->start_x + anchor.t * (host_it->end_x - host_it->start_x);
+    const double ty =
+        host_it->start_y + anchor.t * (host_it->end_y - host_it->start_y);
+    propagate_connected_point_move(parameters, anchor.point_id, tx, ty);
+  }
+}
+
+// Re-projects each tangent-bound line's end onto the closer of the
+// two tangent points from its start to the host circle. The line's
+// start, the circle center, and the radius can all change between
+// refreshes; recomputing the tangent on every pass keeps the line
+// geometrically tangent without us having to know which input
+// changed. The branch selection (T₁ vs T₂) uses the current end as
+// a tiebreaker so the line doesn't flip across the circle on small
+// edits — flips can still happen if the user drags the start
+// through the circle interior, but the user-visible result matches
+// what they'd expect from a "stickier" tangent.
+void enforce_tangent_line_circle_relations(
+    SketchFeatureParameters& parameters) {
+  for (const auto& relation : parameters.line_relations) {
+    if (relation.kind != "tangent_line_circle") {
+      continue;
+    }
+    const auto line_it = std::find_if(
+        parameters.lines.begin(),
+        parameters.lines.end(),
+        [&](const SketchLine& line) {
+          return line.id == relation.first_line_id;
+        });
+    if (line_it == parameters.lines.end()) {
+      continue;
+    }
+    const auto circle_it = std::find_if(
+        parameters.circles.begin(),
+        parameters.circles.end(),
+        [&](const SketchCircle& circle) {
+          return circle.id == relation.second_line_id;
+        });
+    if (circle_it == parameters.circles.end()) {
+      continue;
+    }
+
+    const double sx = line_it->start_x;
+    const double sy = line_it->start_y;
+    const double cx = circle_it->center_x;
+    const double cy = circle_it->center_y;
+    const double r = circle_it->radius;
+    const double dx = cx - sx;
+    const double dy = cy - sy;
+    const double d_squared = dx * dx + dy * dy;
+    // Start lies inside (or on) the circle: no real tangent line
+    // through it. Skip rather than throw — the user might be
+    // mid-drag and the geometry will become valid again. Validation
+    // at op-add time prevents creating tangents that are
+    // permanently degenerate.
+    if (d_squared <= r * r + 1e-12) {
+      continue;
+    }
+    const double d = std::sqrt(d_squared);
+    const double tangent_length = std::sqrt(d_squared - r * r);
+    // Unit vector from start toward center, plus its left-perp.
+    const double ux = dx / d;
+    const double uy = dy / d;
+    const double vx = -uy;
+    const double vy = ux;
+    // Tangent point T = S + (L²/d) * u ± (L*r/d) * v. Derivation:
+    // (T-C) ⊥ (T-S) and |T-C| = r, so T sits at angle θ off the
+    // S→C ray with sin θ = r/d, cos θ = L/d, at distance L from S.
+    const double along = (tangent_length * tangent_length) / d;
+    const double perp = (tangent_length * r) / d;
+    const double t1x = sx + along * ux + perp * vx;
+    const double t1y = sy + along * uy + perp * vy;
+    const double t2x = sx + along * ux - perp * vx;
+    const double t2y = sy + along * uy - perp * vy;
+
+    const double end_x = line_it->end_x;
+    const double end_y = line_it->end_y;
+    const double dist1_sq =
+        (end_x - t1x) * (end_x - t1x) + (end_y - t1y) * (end_y - t1y);
+    const double dist2_sq =
+        (end_x - t2x) * (end_x - t2x) + (end_y - t2y) * (end_y - t2y);
+    const double tx = dist1_sq <= dist2_sq ? t1x : t2x;
+    const double ty = dist1_sq <= dist2_sq ? t1y : t2y;
+
+    if (points_match(end_x, end_y, tx, ty)) {
+      continue;
+    }
+    propagate_connected_point_move(
+        parameters, line_it->end_point_id, tx, ty);
   }
 }
 
@@ -1412,6 +1530,59 @@ void set_sketch_perpendicular_constraint(
   refresh_sketch_derived_state(feature);
 }
 
+void set_sketch_tangent_constraint(FeatureEntry& feature,
+                                   const std::string& line_id,
+                                   const std::string& circle_id) {
+  if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+    throw std::runtime_error(
+        "Only sketch features can set tangent constraints");
+  }
+
+  auto& parameters = feature.sketch_parameters.value();
+  auto& line = require_line(parameters, line_id);
+
+  // Tangent is one-per-line — there's no useful semantics for a
+  // single line being tangent to multiple circles simultaneously
+  // (it would over-constrain the end point). Drop any prior tangent
+  // before reseating.
+  remove_line_relations_for_line(parameters, "tangent_line_circle", line_id);
+
+  if (circle_id.empty()) {
+    refresh_sketch_derived_state(feature);
+    return;
+  }
+
+  const auto circle_it = std::find_if(
+      parameters.circles.begin(),
+      parameters.circles.end(),
+      [&](const SketchCircle& circle) { return circle.id == circle_id; });
+  if (circle_it == parameters.circles.end()) {
+    throw std::runtime_error("Sketch circle not found: " + circle_id);
+  }
+
+  // Pre-validate the geometric prerequisite. If the start lies
+  // inside or on the circle the enforcer would silently no-op every
+  // refresh, leaving the relation but never satisfying it. Better
+  // to refuse the op so the user knows immediately.
+  const double dx = circle_it->center_x - line.start_x;
+  const double dy = circle_it->center_y - line.start_y;
+  const double d_squared = dx * dx + dy * dy;
+  if (d_squared <= circle_it->radius * circle_it->radius + 1e-9) {
+    throw std::runtime_error(
+        "Tangent constraint requires the line's start to lie outside the "
+        "circle");
+  }
+
+  parameters.line_relations.push_back(SketchLineRelation{
+      .id = "rel-tangent-" + line_id + "-" + circle_id,
+      .kind = "tangent_line_circle",
+      .first_line_id = line_id,
+      .second_line_id = circle_id,
+  });
+
+  refresh_sketch_derived_state(feature);
+}
+
 void set_sketch_parallel_constraint(
     FeatureEntry& feature,
     const std::string& line_id,
@@ -1657,7 +1828,200 @@ void update_sketch_dimension(FeatureEntry& feature,
     return;
   }
 
+  if (dimension.kind == "angle") {
+    // Angle dimensions take a target angle in radians. We rotate the
+    // SECOND line (`secondary_entity_id`) about the endpoint shared
+    // with the FIRST line (`entity_id`) until the angle between
+    // their outgoing direction vectors matches the target. Requires
+    // the two lines to share an endpoint within
+    // `kCoincidentTolerance`.
+    auto& line_a = require_line(parameters, dimension.entity_id);
+    auto& line_b = require_line(parameters, dimension.secondary_entity_id);
+
+    // Locate the shared endpoint by comparing each pair of endpoints
+    // numerically. We don't rely on point ids because two lines
+    // sharing the same point id is not guaranteed by the model.
+    const std::array<std::pair<double, double>, 2> a_ends = {{
+        {line_a.start_x, line_a.start_y},
+        {line_a.end_x, line_a.end_y},
+    }};
+    const std::array<std::pair<double, double>, 2> b_ends = {{
+        {line_b.start_x, line_b.start_y},
+        {line_b.end_x, line_b.end_y},
+    }};
+    int a_pivot_index = -1;
+    int b_pivot_index = -1;
+    for (int i = 0; i < 2 && a_pivot_index < 0; ++i) {
+      for (int j = 0; j < 2; ++j) {
+        if (std::abs(a_ends[i].first - b_ends[j].first) <=
+                kCoincidentTolerance &&
+            std::abs(a_ends[i].second - b_ends[j].second) <=
+                kCoincidentTolerance) {
+          a_pivot_index = i;
+          b_pivot_index = j;
+          break;
+        }
+      }
+    }
+    if (a_pivot_index < 0) {
+      throw std::runtime_error(
+          "Angle dimension requires the two lines to share an endpoint");
+    }
+
+    const double pivot_x = a_ends[a_pivot_index].first;
+    const double pivot_y = a_ends[a_pivot_index].second;
+    // Outgoing direction of line A (from pivot to its other end).
+    const double a_other_x = a_ends[1 - a_pivot_index].first;
+    const double a_other_y = a_ends[1 - a_pivot_index].second;
+    const double a_dx = a_other_x - pivot_x;
+    const double a_dy = a_other_y - pivot_y;
+    // Driven endpoint of line B (the one that should rotate about
+    // the pivot).
+    const double b_other_x = b_ends[1 - b_pivot_index].first;
+    const double b_other_y = b_ends[1 - b_pivot_index].second;
+    const double b_dx = b_other_x - pivot_x;
+    const double b_dy = b_other_y - pivot_y;
+
+    const double a_length = std::sqrt(a_dx * a_dx + a_dy * a_dy);
+    const double b_length = std::sqrt(b_dx * b_dx + b_dy * b_dy);
+    if (a_length <= kMinimumSketchDimensionValue ||
+        b_length <= kMinimumSketchDimensionValue) {
+      throw std::runtime_error(
+          "Angle dimension requires both lines to have non-zero length");
+    }
+
+    // Current signed angle from A's direction to B's direction. We
+    // preserve the rotation sense so the user's edit doesn't flip
+    // the line through the reference axis on every solve.
+    const double current_signed = std::atan2(
+        a_dx * b_dy - a_dy * b_dx, a_dx * b_dx + a_dy * b_dy);
+    const double target_signed = current_signed >= 0.0 ? value : -value;
+    const double delta = target_signed - current_signed;
+    const double cos_delta = std::cos(delta);
+    const double sin_delta = std::sin(delta);
+    const double new_b_dx = b_dx * cos_delta - b_dy * sin_delta;
+    const double new_b_dy = b_dx * sin_delta + b_dy * cos_delta;
+    const double new_other_x = pivot_x + new_b_dx;
+    const double new_other_y = pivot_y + new_b_dy;
+
+    // Mutate line B in-place. We have to pick the right endpoint
+    // based on `b_pivot_index`. The non-pivot endpoint is the one
+    // that moves; the pivot stays where it is.
+    if (b_pivot_index == 0) {
+      line_b.end_x = new_other_x;
+      line_b.end_y = new_other_y;
+    } else {
+      line_b.start_x = new_other_x;
+      line_b.start_y = new_other_y;
+    }
+
+    snap_line_endpoints_to_coincident_geometry(parameters, line_b);
+    validate_line(line_b.start_x, line_b.start_y, line_b.end_x, line_b.end_y);
+
+    // Propagate the moved endpoint through any coincident points so
+    // chained geometry follows the rotation.
+    const std::string moved_point_id =
+        b_pivot_index == 0 ? line_b.end_point_id : line_b.start_point_id;
+    propagate_connected_point_move(
+        parameters, moved_point_id, new_other_x, new_other_y);
+
+    dimension.value = value;
+    refresh_sketch_derived_state(feature);
+    return;
+  }
+
   throw std::runtime_error("Unsupported sketch dimension kind: " + dimension.kind);
+}
+
+void add_sketch_angle_dimension(FeatureEntry& feature,
+                                const std::string& first_line_id,
+                                const std::string& second_line_id) {
+  if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+    throw std::runtime_error(
+        "Only sketch features can hold angle dimensions");
+  }
+  if (first_line_id == second_line_id) {
+    throw std::runtime_error(
+        "Angle dimension requires two distinct lines");
+  }
+  auto& parameters = *feature.sketch_parameters;
+  const auto& line_a = require_line(parameters, first_line_id);
+  const auto& line_b = require_line(parameters, second_line_id);
+
+  // Compute the current angle (unsigned) between outgoing directions
+  // from the shared endpoint. Mirrors the share-endpoint detection
+  // in `update_sketch_dimension`.
+  const std::array<std::pair<double, double>, 2> a_ends = {{
+      {line_a.start_x, line_a.start_y},
+      {line_a.end_x, line_a.end_y},
+  }};
+  const std::array<std::pair<double, double>, 2> b_ends = {{
+      {line_b.start_x, line_b.start_y},
+      {line_b.end_x, line_b.end_y},
+  }};
+  int a_pivot_index = -1;
+  int b_pivot_index = -1;
+  for (int i = 0; i < 2 && a_pivot_index < 0; ++i) {
+    for (int j = 0; j < 2; ++j) {
+      if (std::abs(a_ends[i].first - b_ends[j].first) <=
+              kCoincidentTolerance &&
+          std::abs(a_ends[i].second - b_ends[j].second) <=
+              kCoincidentTolerance) {
+        a_pivot_index = i;
+        b_pivot_index = j;
+        break;
+      }
+    }
+  }
+  if (a_pivot_index < 0) {
+    throw std::runtime_error(
+        "Angle dimension requires the two lines to share an endpoint");
+  }
+
+  const double pivot_x = a_ends[a_pivot_index].first;
+  const double pivot_y = a_ends[a_pivot_index].second;
+  const double a_dx = a_ends[1 - a_pivot_index].first - pivot_x;
+  const double a_dy = a_ends[1 - a_pivot_index].second - pivot_y;
+  const double b_dx = b_ends[1 - b_pivot_index].first - pivot_x;
+  const double b_dy = b_ends[1 - b_pivot_index].second - pivot_y;
+  const double signed_angle = std::atan2(
+      a_dx * b_dy - a_dy * b_dx, a_dx * b_dx + a_dy * b_dy);
+  const double current_angle = std::abs(signed_angle);
+
+  // Refuse to create a duplicate angle dimension on the same pair so
+  // the dimension list doesn't accumulate stale entries when the
+  // user clicks the same two lines repeatedly.
+  const auto duplicate_it = std::find_if(
+      parameters.dimensions.begin(),
+      parameters.dimensions.end(),
+      [&](const SketchDimension& dim) {
+        return dim.kind == "angle" &&
+               ((dim.entity_id == first_line_id &&
+                 dim.secondary_entity_id == second_line_id) ||
+                (dim.entity_id == second_line_id &&
+                 dim.secondary_entity_id == first_line_id));
+      });
+  if (duplicate_it != parameters.dimensions.end()) {
+    return;
+  }
+
+  // Stable id derived from the line ids (sorted) so the same pair
+  // round-trips through serialization without churning, and the
+  // duplicate-detection above doesn't depend on insertion order.
+  const std::string& first = first_line_id < second_line_id
+                                 ? first_line_id
+                                 : second_line_id;
+  const std::string& second = first_line_id < second_line_id
+                                  ? second_line_id
+                                  : first_line_id;
+  parameters.dimensions.push_back(SketchDimension{
+      .id = "dim-angle-" + first + "-" + second,
+      .kind = "angle",
+      .entity_id = first_line_id,
+      .secondary_entity_id = second_line_id,
+      .value = current_angle,
+  });
+  refresh_sketch_derived_state(feature);
 }
 
 void add_sketch_line(FeatureEntry& feature,
@@ -1797,16 +2161,119 @@ void set_sketch_midpoint_anchor(FeatureEntry& feature,
   refresh_sketch_derived_state(feature);
 }
 
+// Anchor a point to the body of a host line at a specific parametric
+// position `t` in [0, 1]. Used by the line-body snap to make the
+// bound point ride with the host as it moves. Mirrors
+// `set_sketch_midpoint_anchor` byte-for-byte except it also accepts
+// (and clamps) the `t` value and stores it on the anchor record.
+void set_sketch_point_line_anchor(FeatureEntry& feature,
+                                  const std::string& point_id,
+                                  const std::string& host_line_id,
+                                  double t) {
+  if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+    throw std::runtime_error(
+        "Only sketch features can hold point-line anchors");
+  }
+  auto& parameters = *feature.sketch_parameters;
+
+  // Drop any pre-existing anchor for the same point. Also clear any
+  // midpoint anchor on the same point so the two relations don't
+  // fight each other (a midpoint anchor is a degenerate point-line
+  // anchor at t=0.5; the explicit point-line anchor wins).
+  parameters.point_line_anchors.erase(
+      std::remove_if(
+          parameters.point_line_anchors.begin(),
+          parameters.point_line_anchors.end(),
+          [&](const SketchPointLineAnchor& anchor) {
+            return anchor.point_id == point_id;
+          }),
+      parameters.point_line_anchors.end());
+  parameters.midpoint_anchors.erase(
+      std::remove_if(
+          parameters.midpoint_anchors.begin(),
+          parameters.midpoint_anchors.end(),
+          [&](const SketchMidpointAnchor& anchor) {
+            return anchor.point_id == point_id;
+          }),
+      parameters.midpoint_anchors.end());
+
+  if (host_line_id.empty()) {
+    refresh_sketch_derived_state(feature);
+    return;
+  }
+
+  const auto host_it = std::find_if(
+      parameters.lines.begin(),
+      parameters.lines.end(),
+      [&](const SketchLine& line) { return line.id == host_line_id; });
+  if (host_it == parameters.lines.end()) {
+    throw std::runtime_error(
+        "Point-line anchor host line not found: " + host_line_id);
+  }
+
+  // Clamp `t` so out-of-range UI input can never produce an anchor
+  // that re-projects past the segment's endpoints.
+  const double clamped_t = std::max(0.0, std::min(1.0, t));
+
+  parameters.point_line_anchors.push_back(SketchPointLineAnchor{
+      .id = "point-line-anchor-" + point_id,
+      .point_id = point_id,
+      .line_id = host_line_id,
+      .t = clamped_t,
+  });
+
+  refresh_sketch_derived_state(feature);
+}
+
 void add_sketch_rectangle(FeatureEntry& feature,
                           int& next_line_index,
                           double start_x,
                           double start_y,
                           double end_x,
                           double end_y) {
-  add_sketch_line(feature, next_line_index++, start_x, start_y, end_x, start_y);
-  add_sketch_line(feature, next_line_index++, end_x, start_y, end_x, end_y);
-  add_sketch_line(feature, next_line_index++, end_x, end_y, start_x, end_y);
-  add_sketch_line(feature, next_line_index++, start_x, end_y, start_x, start_y);
+  // Stash the indices used for each side so we can build the
+  // line-id pair for the equal-length relations after the loop.
+  // `add_sketch_line` itself reads the line id from `line-{index}`,
+  // so the only way to know the resulting ids is to capture the
+  // counter values we passed in.
+  const int top_index = next_line_index++;
+  const int right_index = next_line_index++;
+  const int bottom_index = next_line_index++;
+  const int left_index = next_line_index++;
+
+  add_sketch_line(feature, top_index, start_x, start_y, end_x, start_y);
+  add_sketch_line(feature, right_index, end_x, start_y, end_x, end_y);
+  add_sketch_line(feature, bottom_index, end_x, end_y, start_x, end_y);
+  add_sketch_line(feature, left_index, start_x, end_y, start_x, start_y);
+
+  // H/V constraints on each side are already inferred by
+  // `add_sketch_line` (via `infer_constraint_hint`) because the
+  // sides are exactly axis-aligned by construction. What's missing
+  // is the equal-length pairing: top↔bottom and left↔right. Adding
+  // these two relations means editing one side's length dimension
+  // also updates its mirror, matching Fusion's behavior.
+  if (!feature.sketch_parameters.has_value()) {
+    return;
+  }
+  auto& parameters = *feature.sketch_parameters;
+  const std::string top_id = "line-" + std::to_string(top_index);
+  const std::string right_id = "line-" + std::to_string(right_index);
+  const std::string bottom_id = "line-" + std::to_string(bottom_index);
+  const std::string left_id = "line-" + std::to_string(left_index);
+
+  parameters.line_relations.push_back(SketchLineRelation{
+      .id = "rel-equal-length-" + top_id,
+      .kind = "equal_length",
+      .first_line_id = top_id,
+      .second_line_id = bottom_id,
+  });
+  parameters.line_relations.push_back(SketchLineRelation{
+      .id = "rel-equal-length-" + left_id,
+      .kind = "equal_length",
+      .first_line_id = left_id,
+      .second_line_id = right_id,
+  });
+  refresh_sketch_derived_state(feature);
 }
 
 void add_sketch_circle(FeatureEntry& feature,

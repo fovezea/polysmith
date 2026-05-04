@@ -180,6 +180,13 @@ sketch_parameters_from_payload(const json& payload) {
       dimension.id = read_string(dim_payload, "dimension_id");
       dimension.kind = read_string(dim_payload, "kind");
       dimension.entity_id = read_string(dim_payload, "entity_id");
+      // Older saves predate angle dimensions; fall back to "" so the
+      // unary dimensions round-trip without churn.
+      if (dim_payload.contains("secondary_entity_id") &&
+          dim_payload.at("secondary_entity_id").is_string()) {
+        dimension.secondary_entity_id =
+            dim_payload.at("secondary_entity_id").get<std::string>();
+      }
       dimension.value = read_number(dim_payload, "value");
       params.dimensions.push_back(dimension);
     }
@@ -203,6 +210,21 @@ sketch_parameters_from_payload(const json& payload) {
       anchor.point_id = read_string(anchor_payload, "point_id");
       anchor.line_id = read_string(anchor_payload, "line_id");
       params.midpoint_anchors.push_back(anchor);
+    }
+  }
+  // Older saves predate point-line anchors — silently default to none.
+  if (payload.contains("point_line_anchors") &&
+      payload.at("point_line_anchors").is_array()) {
+    for (const auto& anchor_payload : payload.at("point_line_anchors")) {
+      polysmith::core::SketchPointLineAnchor anchor{};
+      anchor.id = read_string(anchor_payload, "anchor_id");
+      anchor.point_id = read_string(anchor_payload, "point_id");
+      anchor.line_id = read_string(anchor_payload, "line_id");
+      anchor.t = anchor_payload.contains("t") &&
+                         anchor_payload.at("t").is_number()
+                     ? anchor_payload.at("t").get<double>()
+                     : 0.5;
+      params.point_line_anchors.push_back(anchor);
     }
   }
   if (payload.contains("profiles") && payload.at("profiles").is_array()) {
@@ -425,6 +447,8 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                           {"dimension_id", dimension.id},
                           {"kind", dimension.kind},
                           {"entity_id", dimension.entity_id},
+                          {"secondary_entity_id",
+                           dimension.secondary_entity_id},
                           {"value", dimension.value},
                       });
                     }
@@ -453,6 +477,20 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                           {"anchor_id", anchor.id},
                           {"point_id", anchor.point_id},
                           {"line_id", anchor.line_id},
+                      });
+                    }
+                    return anchors;
+                  }()},
+                 {"point_line_anchors",
+                  [&feature]() {
+                    json anchors = json::array();
+                    for (const auto& anchor :
+                         feature.sketch_parameters->point_line_anchors) {
+                      anchors.push_back({
+                          {"anchor_id", anchor.id},
+                          {"point_id", anchor.point_id},
+                          {"line_id", anchor.line_id},
+                          {"t", anchor.t},
                       });
                     }
                     return anchors;

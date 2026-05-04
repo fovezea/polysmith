@@ -169,15 +169,22 @@ const documentStateSchema = z.object({
           dimensions: z.array(
             z.object({
               dimension_id: z.string(),
-              kind: z.enum(["line_length", "circle_radius"]),
+              kind: z.enum(["line_length", "circle_radius", "angle"]),
               entity_id: z.string(),
+              // Empty string for unary dims; second line id for angle.
+              secondary_entity_id: z.string().default(""),
               value: z.number(),
             }),
           ),
           line_relations: z.array(
             z.object({
               relation_id: z.string(),
-              kind: z.enum(["equal_length", "perpendicular", "parallel"]),
+              kind: z.enum([
+                "equal_length",
+                "perpendicular",
+                "parallel",
+                "tangent_line_circle",
+              ]),
               first_line_id: z.string(),
               second_line_id: z.string(),
             }),
@@ -393,7 +400,7 @@ const viewportStateSchema = z.object({
     z.object({
       dimension_id: z.string(),
       plane_id: z.string(),
-      kind: z.enum(["line_length", "circle_radius"]),
+      kind: z.enum(["line_length", "circle_radius", "angle"]),
       entity_id: z.string(),
       label: z.string(),
       is_selected: z.boolean(),
@@ -436,6 +443,8 @@ const viewportStateSchema = z.object({
         "parallel",
         "fixed",
         "midpoint",
+        "on_line",
+        "tangent_line_circle",
       ]),
       entity_id: z.string(),
       related_entity_id: z.string().nullable(),

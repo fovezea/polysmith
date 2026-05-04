@@ -13,6 +13,8 @@ import {
   makeAddSketchLineCommand,
   makeSetSketchLineConstructionCommand,
   makeSetSketchMidpointAnchorCommand,
+  makeSetSketchPointLineAnchorCommand,
+  makeAddSketchAngleDimensionCommand,
   makeAddSketchRectangleCommand,
   makeClearSelectionCommand,
   makeDeleteFeatureCommand,
@@ -49,6 +51,7 @@ import {
   makeSetSketchEqualLengthConstraintCommand,
   makeSetSketchParallelConstraintCommand,
   makeSetSketchPerpendicularConstraintCommand,
+  makeSetSketchTangentConstraintCommand,
   makeSetSketchPointFixedCommand,
   makeExtrudeProfileCommand,
   makeSetSketchLineConstraintCommand,
@@ -362,6 +365,12 @@ export function useCadCore() {
       );
       await sendCoreCommand(makeGetViewportStateCommand());
     },
+    setSketchTangentConstraint: async (lineId: string, circleId: string) => {
+      await sendCoreCommand(
+        makeSetSketchTangentConstraintCommand(lineId, circleId),
+      );
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
     setSketchParallelConstraint: async (
       lineId: string,
       otherLineId: string | null,
@@ -425,6 +434,25 @@ export function useCadCore() {
     setSketchMidpointAnchor: async (pointId: string, hostLineId: string) => {
       await sendCoreCommand(
         makeSetSketchMidpointAnchorCommand(pointId, hostLineId),
+      );
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    setSketchPointLineAnchor: async (
+      pointId: string,
+      hostLineId: string,
+      t: number,
+    ) => {
+      await sendCoreCommand(
+        makeSetSketchPointLineAnchorCommand(pointId, hostLineId, t),
+      );
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    addSketchAngleDimension: async (
+      firstLineId: string,
+      secondLineId: string,
+    ) => {
+      await sendCoreCommand(
+        makeAddSketchAngleDimensionCommand(firstLineId, secondLineId),
       );
       await sendCoreCommand(makeGetViewportStateCommand());
     },

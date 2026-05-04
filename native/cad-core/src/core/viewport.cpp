@@ -546,6 +546,125 @@ ViewportSketchDimensionPrimitive make_circle_dimension_primitive(
   };
 }
 
+// Build the viewport primitive for an angle dimension between two
+// lines that share an endpoint. We emit a chord-shaped "dimension
+// line" along the imaginary arc between the two outgoing rays so the
+// existing UI dimension renderer can draw something sensible without
+// arc support: anchor_start / anchor_end land on each line slightly
+// past the pivot, dimension_start / dimension_end form a chord at a
+// larger radius, and the label sits beyond that on the bisector.
+ViewportSketchDimensionPrimitive make_angle_dimension_primitive(
+    const SketchLine& line_a,
+    const SketchLine& line_b,
+    const SketchDimension& dimension,
+    const SketchFeatureParameters& parameters,
+    bool is_selected) {
+  // Locate the shared endpoint and the outgoing direction of each
+  // line using the same heuristic as the solver: tolerance match on
+  // numeric coordinates.
+  const std::array<std::pair<double, double>, 2> a_ends = {{
+      {line_a.start_x, line_a.start_y},
+      {line_a.end_x, line_a.end_y},
+  }};
+  const std::array<std::pair<double, double>, 2> b_ends = {{
+      {line_b.start_x, line_b.start_y},
+      {line_b.end_x, line_b.end_y},
+  }};
+  int a_pivot = 0;
+  int b_pivot = 0;
+  bool found = false;
+  for (int i = 0; i < 2 && !found; ++i) {
+    for (int j = 0; j < 2; ++j) {
+      if (std::abs(a_ends[i].first - b_ends[j].first) <= 0.05 &&
+          std::abs(a_ends[i].second - b_ends[j].second) <= 0.05) {
+        a_pivot = i;
+        b_pivot = j;
+        found = true;
+        break;
+      }
+    }
+  }
+
+  const double pivot_x = a_ends[a_pivot].first;
+  const double pivot_y = a_ends[a_pivot].second;
+  const double a_dx = a_ends[1 - a_pivot].first - pivot_x;
+  const double a_dy = a_ends[1 - a_pivot].second - pivot_y;
+  const double b_dx = b_ends[1 - b_pivot].first - pivot_x;
+  const double b_dy = b_ends[1 - b_pivot].second - pivot_y;
+  const double a_len = std::sqrt(a_dx * a_dx + a_dy * a_dy);
+  const double b_len = std::sqrt(b_dx * b_dx + b_dy * b_dy);
+  const double a_ux = a_len > 0.0 ? a_dx / a_len : 1.0;
+  const double a_uy = a_len > 0.0 ? a_dy / a_len : 0.0;
+  const double b_ux = b_len > 0.0 ? b_dx / b_len : 0.0;
+  const double b_uy = b_len > 0.0 ? b_dy / b_len : 1.0;
+
+  // Bisector direction (sum of unit vectors). Normalize defensively
+  // because antiparallel rays sum to zero — fall back to A's normal.
+  double bx = a_ux + b_ux;
+  double by = a_uy + b_uy;
+  double blen = std::sqrt(bx * bx + by * by);
+  if (blen < 1e-6) {
+    bx = -a_uy;
+    by = a_ux;
+    blen = 1.0;
+  }
+  const double bisector_ux = bx / blen;
+  const double bisector_uy = by / blen;
+
+  constexpr double kAnchorRadius = 4.0;
+  constexpr double kArcRadius = 6.0;
+  constexpr double kLabelRadius = 9.0;
+
+  const WorldPoint anchor_start = to_world_point(
+      parameters,
+      pivot_x + a_ux * kAnchorRadius,
+      pivot_y + a_uy * kAnchorRadius);
+  const WorldPoint anchor_end = to_world_point(
+      parameters,
+      pivot_x + b_ux * kAnchorRadius,
+      pivot_y + b_uy * kAnchorRadius);
+  const WorldPoint dimension_start = to_world_point(
+      parameters,
+      pivot_x + a_ux * kArcRadius,
+      pivot_y + a_uy * kArcRadius);
+  const WorldPoint dimension_end = to_world_point(
+      parameters,
+      pivot_x + b_ux * kArcRadius,
+      pivot_y + b_uy * kArcRadius);
+  const WorldPoint label = to_world_point(
+      parameters,
+      pivot_x + bisector_ux * kLabelRadius,
+      pivot_y + bisector_uy * kLabelRadius);
+
+  // Render the value in degrees (Fusion convention) with the same
+  // formatter as length / radius so trailing-zero handling stays
+  // consistent.
+  const double degrees = dimension.value * 180.0 / 3.14159265358979323846;
+  return ViewportSketchDimensionPrimitive{
+      .dimension_id = dimension.id,
+      .plane_id = parameters.plane_id,
+      .kind = "angle",
+      .entity_id = line_a.id,
+      .label = format_dimension_value(degrees) + "\xc2\xb0",
+      .is_selected = is_selected,
+      .anchor_start_x = anchor_start.x,
+      .anchor_start_y = anchor_start.y,
+      .anchor_start_z = anchor_start.z,
+      .anchor_end_x = anchor_end.x,
+      .anchor_end_y = anchor_end.y,
+      .anchor_end_z = anchor_end.z,
+      .dimension_start_x = dimension_start.x,
+      .dimension_start_y = dimension_start.y,
+      .dimension_start_z = dimension_start.z,
+      .dimension_end_x = dimension_end.x,
+      .dimension_end_y = dimension_end.y,
+      .dimension_end_z = dimension_end.z,
+      .label_x = label.x,
+      .label_y = label.y,
+      .label_z = label.z,
+  };
+}
+
 ViewportSketchConstraintPrimitive make_line_constraint_primitive(
     const SketchLine& line,
     const std::string& plane_id,
@@ -2389,6 +2508,39 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
               relation.first_line_id));
         }
 
+        // Tangent (line ↔ circle) badge. Same line-mounted "T" glyph
+        // rendered at the line's midpoint as the other line-line
+        // relations. We don't put a matching badge on the circle —
+        // the relation only drives the line's end, so attaching the
+        // marker to the line keeps the affordance visually tied to
+        // the entity that actually moves.
+        for (const auto& relation : feature.sketch_parameters->line_relations) {
+          if (relation.kind != "tangent_line_circle") {
+            continue;
+          }
+
+          const auto line_it = std::find_if(
+              feature.sketch_parameters->lines.begin(),
+              feature.sketch_parameters->lines.end(),
+              [&](const SketchLine& line) {
+                return line.id == relation.first_line_id;
+              });
+          if (line_it == feature.sketch_parameters->lines.end()) {
+            continue;
+          }
+
+          const bool is_selected =
+              document->selected_sketch_entity_id.has_value() &&
+              document->selected_sketch_entity_id.value() == line_it->id;
+          sketch_constraints.push_back(make_line_constraint_primitive(
+              *line_it,
+              feature.sketch_parameters->plane_id,
+              relation.kind,
+              "T",
+              is_selected,
+              relation.second_line_id));
+        }
+
         // Midpoint anchors render a small "M" badge at the host
         // line's midpoint so the user sees that the bound point is
         // tracking the line's midpoint (Fusion convention).
@@ -2410,6 +2562,84 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
               "M",
               is_selected,
               anchor.point_id));
+        }
+
+        // Point-line anchors render a "/" badge at the anchor's
+        // parametric position along the host line. We can't reuse
+        // `make_line_constraint_primitive` (it always places the
+        // badge at the line's midpoint), so we build the primitive
+        // inline here, mirroring the same offset / normal math.
+        for (const auto& anchor :
+             feature.sketch_parameters->point_line_anchors) {
+          const auto host_it = std::find_if(
+              feature.sketch_parameters->lines.begin(),
+              feature.sketch_parameters->lines.end(),
+              [&](const SketchLine& line) { return line.id == anchor.line_id; });
+          if (host_it == feature.sketch_parameters->lines.end()) {
+            continue;
+          }
+          const double dx = host_it->end_x - host_it->start_x;
+          const double dy = host_it->end_y - host_it->start_y;
+          const double length = std::sqrt(dx * dx + dy * dy);
+          const double normal_x = length > 0.0 ? -dy / length : 0.0;
+          const double normal_y = length > 0.0 ? dx / length : 1.0;
+          const double anchor_x = host_it->start_x + anchor.t * dx;
+          const double anchor_y = host_it->start_y + anchor.t * dy;
+          const WorldPoint position = to_world_point(
+              feature.sketch_parameters->plane_id,
+              anchor_x + normal_x * kConstraintBadgeOffset,
+              anchor_y + normal_y * kConstraintBadgeOffset);
+          const bool is_selected =
+              document->selected_sketch_entity_id.has_value() &&
+              document->selected_sketch_entity_id.value() == anchor.point_id;
+          sketch_constraints.push_back(ViewportSketchConstraintPrimitive{
+              .constraint_id = "constraint-on_line-" + anchor.point_id,
+              .plane_id = feature.sketch_parameters->plane_id,
+              .kind = "on_line",
+              .entity_id = host_it->id,
+              .related_entity_id = anchor.point_id,
+              .label = "/",
+              .is_selected = is_selected,
+              .position_x = position.x,
+              .position_y = position.y,
+              .position_z = position.z,
+          });
+        }
+
+        // Angle dimensions span two lines. Emit them once per dim
+        // (rather than per line) so we don't double-render. Skip
+        // silently if either referenced line is missing — that's
+        // possible mid-edit when a line is being deleted.
+        for (const auto& dimension :
+             feature.sketch_parameters->dimensions) {
+          if (dimension.kind != "angle") {
+            continue;
+          }
+          const auto line_a_it = std::find_if(
+              feature.sketch_parameters->lines.begin(),
+              feature.sketch_parameters->lines.end(),
+              [&](const SketchLine& line) {
+                return line.id == dimension.entity_id;
+              });
+          const auto line_b_it = std::find_if(
+              feature.sketch_parameters->lines.begin(),
+              feature.sketch_parameters->lines.end(),
+              [&](const SketchLine& line) {
+                return line.id == dimension.secondary_entity_id;
+              });
+          if (line_a_it == feature.sketch_parameters->lines.end() ||
+              line_b_it == feature.sketch_parameters->lines.end()) {
+            continue;
+          }
+          const bool is_selected_dimension =
+              document->selected_sketch_dimension_id.has_value() &&
+              document->selected_sketch_dimension_id.value() == dimension.id;
+          sketch_dimensions.push_back(make_angle_dimension_primitive(
+              *line_a_it,
+              *line_b_it,
+              dimension,
+              *feature.sketch_parameters,
+              is_selected_dimension));
         }
       }
 

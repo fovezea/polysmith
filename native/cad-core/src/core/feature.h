@@ -116,6 +116,12 @@ struct SketchDimension {
   std::string id;
   std::string kind;
   std::string entity_id;
+  // Secondary entity for relational dimensions (e.g. the second line
+  // of an angle dimension). Empty for unary dimensions like
+  // line_length / circle_radius.
+  std::string secondary_entity_id;
+  // For "angle" dimensions, the angle in radians. For other kinds
+  // this field carries the natural numeric value (length, radius).
   double value;
 };
 
@@ -128,6 +134,24 @@ struct SketchMidpointAnchor {
   std::string id;
   std::string point_id;
   std::string line_id;
+};
+
+// A point anchored to the body of a line (not just its midpoint).
+// The solver re-projects the bound point onto the host line on every
+// edit, parametrized by `t` in [0, 1]. Created automatically when the
+// user starts/ends a draft on another line's body via the line-body
+// snap. Distinct from `SketchMidpointAnchor`, which is a degenerate
+// special case at t=0.5.
+struct SketchPointLineAnchor {
+  std::string id;
+  std::string point_id;
+  std::string line_id;
+  // Stored fraction along the host line at the time the anchor was
+  // created. The solver uses this to keep the bound point at the
+  // same relative position even when the host line moves; without
+  // it, every solve would re-project to the closest point on the
+  // moving line, which can drift.
+  double t;
 };
 
 struct SketchLineRelation {
@@ -174,6 +198,7 @@ struct SketchFeatureParameters {
   std::vector<SketchDimension> dimensions;
   std::vector<SketchLineRelation> line_relations;
   std::vector<SketchMidpointAnchor> midpoint_anchors;
+  std::vector<SketchPointLineAnchor> point_line_anchors;
   std::vector<SketchProfileRegion> profiles;
 };
 

@@ -589,6 +589,17 @@ void CadCoreApp::handle_command_line(const std::string& line) {
     return;
   }
 
+  if (command.type == "set_sketch_tangent_constraint") {
+    const auto document = document_manager().set_sketch_tangent_constraint(
+        read_string(command.payload, "line_id"),
+        read_string(command.payload, "circle_id"));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
   if (command.type == "set_sketch_parallel_constraint") {
     const std::string other_line_id =
         read_string(command.payload, "other_line_id");
@@ -631,6 +642,17 @@ void CadCoreApp::handle_command_line(const std::string& line) {
     const auto document = document_manager().update_sketch_dimension(
         read_string(command.payload, "dimension_id"),
         read_dimension(command.payload, "value"));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "add_sketch_angle_dimension") {
+    const auto document = document_manager().add_sketch_angle_dimension(
+        read_string(command.payload, "first_line_id"),
+        read_string(command.payload, "second_line_id"));
 
     polysmith::protocol::write_message(
         polysmith::protocol::make_document_state_event(
@@ -730,6 +752,26 @@ void CadCoreApp::handle_command_line(const std::string& line) {
     }
     const auto document = document_manager().set_sketch_midpoint_anchor(
         read_string(command.payload, "point_id"), host_line_id);
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "set_sketch_point_line_anchor") {
+    std::string host_line_id;
+    if (command.payload.contains("host_line_id") &&
+        command.payload.at("host_line_id").is_string()) {
+      host_line_id = command.payload.at("host_line_id").get<std::string>();
+    }
+    double t = 0.5;
+    if (command.payload.contains("t") &&
+        command.payload.at("t").is_number()) {
+      t = command.payload.at("t").get<double>();
+    }
+    const auto document = document_manager().set_sketch_point_line_anchor(
+        read_string(command.payload, "point_id"), host_line_id, t);
 
     polysmith::protocol::write_message(
         polysmith::protocol::make_document_state_event(

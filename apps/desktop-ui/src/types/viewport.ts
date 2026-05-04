@@ -252,6 +252,25 @@ export interface SketchPreviewPoint {
   // remaining draft clicks. Distinct from `snapPerpendicularHostLineId`,
   // which only lights up when the *current* cursor is on the perp ray.
   snapEndpointHostLineId?: string | null;
+  // When the resolved point snapped to a line's body (anywhere along
+  // the segment, not just an endpoint or midpoint), this holds the
+  // host line id and the parametric position `t` in [0, 1] along it.
+  // The post-commit step uses these to attach a `point_line_anchor`
+  // so the bound point rides with the host as it edits.
+  snapLineBodyHostLineId?: string | null;
+  snapLineBodyT?: number | null;
+  // When the cursor was within the angular threshold of the world X
+  // or Y axis relative to the draft start, the resolver pulls the
+  // off-axis coordinate onto the start to lock the segment flat. The
+  // post-commit step uses this kind to apply a `set_sketch_line_constraint`
+  // of "horizontal" or "vertical" to the new line.
+  snapAxisLock?: "horizontal" | "vertical" | null;
+  // When the cursor snapped onto one of the two tangent points from
+  // the draft start to a circle's circumference, this holds the
+  // host circle id. The post-commit step uses it to add a
+  // `tangent_line_circle` relation between the new line and the
+  // circle so the line stays tangent through later edits.
+  snapTangentCircleId?: string | null;
 }
 
 export type SketchPlaneFrame = NonNullable<

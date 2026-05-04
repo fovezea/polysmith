@@ -86,9 +86,26 @@ interface ViewportPanelProps {
     pointId: string,
     hostLineId: string,
   ) => Promise<void>;
+  onSetSketchPointLineAnchor: (
+    pointId: string,
+    hostLineId: string,
+    t: number,
+  ) => Promise<void>;
+  onAddSketchAngleDimension: (
+    firstLineId: string,
+    secondLineId: string,
+  ) => Promise<void>;
+  onSetSketchLineConstraint: (
+    lineId: string,
+    constraint: "none" | "horizontal" | "vertical",
+  ) => Promise<void>;
   onSetSketchPerpendicularConstraint: (
     lineId: string,
     otherLineId: string | null,
+  ) => Promise<void>;
+  onSetSketchTangentConstraint: (
+    lineId: string,
+    circleId: string,
   ) => Promise<void>;
   onAddSketchRectangle: (
     startX: number,
@@ -146,7 +163,11 @@ export function ViewportPanel({
   onAddSketchLine,
   onSetSketchLineConstruction,
   onSetSketchMidpointAnchor,
+  onSetSketchPointLineAnchor,
+  onAddSketchAngleDimension,
+  onSetSketchLineConstraint,
   onSetSketchPerpendicularConstraint,
+  onSetSketchTangentConstraint,
   onAddSketchRectangle,
   onAddSketchCircle,
   onSelectSketchEntity,
@@ -173,8 +194,24 @@ export function ViewportPanel({
   // (Fusion convention). `kind` controls the glyph; `x`/`y` are
   // container-local pixel offsets so the overlay scrolls with the
   // viewport.
+  // First line picked while the dimension tool is armed. After a
+  // line click we wait for a *second* line click to know whether the
+  // user wants a length dim (same line clicked again) or an angle
+  // dim (different line). Cleared when the dim tool exits or when a
+  // dimension is created. Stored as a ref so the click handler reads
+  // the latest value without re-attaching listeners.
+  const dimensionToolFirstLineRef = useRef<string | null>(null);
+  const [dimensionToolFirstLine, setDimensionToolFirstLine] = useState<
+    string | null
+  >(null);
   const [constraintPreview, setConstraintPreview] = useState<{
-    kind: "midpoint" | "perpendicular" | "on_line";
+    kind:
+      | "midpoint"
+      | "perpendicular"
+      | "on_line"
+      | "horizontal"
+      | "vertical"
+      | "tangent";
     x: number;
     y: number;
   } | null>(null);
@@ -300,6 +337,24 @@ export function ViewportPanel({
     fromLineCount: number;
     hostLineId: string;
   } | null>(null);
+  // Pending point-on-line anchor state. Captured at click-time when
+  // either end of the just-committed draft snapped to a line body.
+  // The post-add effect dispatches one `set_sketch_point_line_anchor`
+  // per side once the new line lands. Same baseline-on-line-count
+  // guard as the other pending refs.
+  const pendingPointLineAnchorRef = useRef<{
+    fromLineCount: number;
+    startHost: { lineId: string; t: number } | null;
+    endHost: { lineId: string; t: number } | null;
+  } | null>(null);
+  // Mirror of `draftStartMidpointHostRef` for the line-body snap.
+  // Holds the host line + t at the time the start was committed so
+  // the *next* click (which only sees the end's snap) can still
+  // attribute the start-side anchor to the correct host.
+  const draftStartLineBodyHostRef = useRef<{
+    lineId: string;
+    t: number;
+  } | null>(null);
   // Latest line count for the active sketch, mirrored as a ref so the
   // pointer handler (which captures stale closures) can baseline new
   // lines for the post-add midpoint-anchor effect.
@@ -307,9 +362,30 @@ export function ViewportPanel({
   // Stable ref to `onSetSketchMidpointAnchor` so the post-add effect
   // can issue the IPC without remounting on every re-render.
   const setSketchMidpointAnchorRef = useRef(onSetSketchMidpointAnchor);
+  const setSketchPointLineAnchorRef = useRef(onSetSketchPointLineAnchor);
+  const addSketchAngleDimensionRef = useRef(onAddSketchAngleDimension);
   const setSketchPerpendicularConstraintRef = useRef(
     onSetSketchPerpendicularConstraint,
   );
+  const setSketchLineConstraintRef = useRef(onSetSketchLineConstraint);
+  const setSketchTangentConstraintRef = useRef(onSetSketchTangentConstraint);
+  // Captured at click-time when the resolved sketch point indicates
+  // the line's end snapped to a circle tangent. The post-add effect
+  // dispatches `set_sketch_tangent_constraint` so the relation
+  // sticks. Same baseline-on-line-count guard as the other refs.
+  const pendingTangentConstraintRef = useRef<{
+    fromLineCount: number;
+    circleId: string;
+  } | null>(null);
+  // Set at click-time when the resolved sketch point indicates an
+  // axis lock; the post-add effect dispatches `set_sketch_line_constraint`
+  // for the just-added line. Same baseline-on-line-count guard as
+  // the other pending refs to avoid mis-attribution if the line
+  // count ticks twice between commit and refresh.
+  const pendingAxisConstraintRef = useRef<{
+    fromLineCount: number;
+    kind: "horizontal" | "vertical";
+  } | null>(null);
   // Snapshot of the sketch feature's lines for the post-add effect to
   // index into. Same pattern as the count ref above.
   const sketchLinesRef = useRef<
@@ -606,6 +682,139 @@ export function ViewportPanel({
       }
     }
 
+    // Tangent snap: while drafting a line from outside a circle, the
+    // cursor sticks to whichever of the two tangent points it's
+    // nearest. Given start S, center C, radius r and d = |C - S|,
+    // the tangent points sit at distance L = sqrt(d² - r²) from S
+    // along directions ±θ off S→C, where sin θ = r/d. Skipped when
+    // the start lies inside or on the circle (no real tangent
+    // exists). Higher priority than axis-lock so an explicit
+    // "draw to this circle" gesture wins over a passive axis hint.
+    if (startPoint && params) {
+      let bestTangentSnap: {
+        local: [number, number];
+        distance: number;
+        circleId: string;
+      } | null = null;
+      for (const circle of params.circles) {
+        const dx = circle.center_x - startPoint[0];
+        const dy = circle.center_y - startPoint[1];
+        const dSquared = dx * dx + dy * dy;
+        const rSquared = circle.radius * circle.radius;
+        if (dSquared <= rSquared + 1e-9) {
+          continue;
+        }
+        const d = Math.sqrt(dSquared);
+        const tangentLength = Math.sqrt(dSquared - rSquared);
+        const ux = dx / d;
+        const uy = dy / d;
+        const vx = -uy;
+        const vy = ux;
+        const along = (tangentLength * tangentLength) / d;
+        const perp = (tangentLength * circle.radius) / d;
+        const candidates: Array<[number, number]> = [
+          [
+            startPoint[0] + along * ux + perp * vx,
+            startPoint[1] + along * uy + perp * vy,
+          ],
+          [
+            startPoint[0] + along * ux - perp * vx,
+            startPoint[1] + along * uy - perp * vy,
+          ],
+        ];
+        for (const [tx, ty] of candidates) {
+          const distance = Math.hypot(
+            rawPoint.local[0] - tx,
+            rawPoint.local[1] - ty,
+          );
+          if (distance > SKETCH_SNAP_DISTANCE) {
+            continue;
+          }
+          if (!bestTangentSnap || distance < bestTangentSnap.distance) {
+            bestTangentSnap = {
+              local: [tx, ty],
+              distance,
+              circleId: circle.circle_id,
+            };
+          }
+        }
+      }
+      if (bestTangentSnap) {
+        return {
+          local: bestTangentSnap.local,
+          world: toWorldPoint(
+            activeSketchPlaneId ?? "ref-plane-xy",
+            bestTangentSnap.local,
+            activeSketchPlaneFrame,
+          ),
+          snapLabel: `Tangent to ${bestTangentSnap.circleId}`,
+          snapMidpointHostLineId: null,
+          snapPerpendicularHostLineId: null,
+          snapEndpointHostLineId: null,
+          snapTangentCircleId: bestTangentSnap.circleId,
+        } satisfies SketchPreviewPoint;
+      }
+    }
+
+    // Axis lock: while a draft is in progress, if the segment from
+    // start → cursor lies within ~3° of the world horizontal or
+    // vertical axis, pull the off-axis coordinate onto the start so
+    // the line lands flat. We check H first (Fusion convention),
+    // and gate on a minimum draft length so the lock doesn't fight
+    // the user during the first few pixels of motion. Threshold uses
+    // sin(3°) ≈ 0.0523 against `|orthogonal| / hypot`. Higher
+    // priority than line-body snap so an explicit "draw straight"
+    // gesture isn't hijacked by passive proximity to other lines.
+    if (startPoint) {
+      const ax = rawPoint.local[0] - startPoint[0];
+      const ay = rawPoint.local[1] - startPoint[1];
+      const hypot = Math.hypot(ax, ay);
+      const minDraftLength = SKETCH_SNAP_DISTANCE * 1.5;
+      if (hypot >= minDraftLength) {
+        const sinThreshold = Math.sin((3 * Math.PI) / 180);
+        const horizontalRatio = Math.abs(ay) / hypot;
+        const verticalRatio = Math.abs(ax) / hypot;
+        if (horizontalRatio < sinThreshold) {
+          const lockedLocal: [number, number] = [
+            rawPoint.local[0],
+            startPoint[1],
+          ];
+          return {
+            local: lockedLocal,
+            world: toWorldPoint(
+              activeSketchPlaneId ?? "ref-plane-xy",
+              lockedLocal,
+              activeSketchPlaneFrame,
+            ),
+            snapLabel: "Horizontal",
+            snapMidpointHostLineId: null,
+            snapPerpendicularHostLineId: null,
+            snapEndpointHostLineId: null,
+            snapAxisLock: "horizontal",
+          } satisfies SketchPreviewPoint;
+        }
+        if (verticalRatio < sinThreshold) {
+          const lockedLocal: [number, number] = [
+            startPoint[0],
+            rawPoint.local[1],
+          ];
+          return {
+            local: lockedLocal,
+            world: toWorldPoint(
+              activeSketchPlaneId ?? "ref-plane-xy",
+              lockedLocal,
+              activeSketchPlaneFrame,
+            ),
+            snapLabel: "Vertical",
+            snapMidpointHostLineId: null,
+            snapPerpendicularHostLineId: null,
+            snapEndpointHostLineId: null,
+            snapAxisLock: "vertical",
+          } satisfies SketchPreviewPoint;
+        }
+      }
+    }
+
     // Line-body snap: when no point candidate matched, project the
     // cursor onto the closest sketch line segment (clamped to the
     // segment's interior). This lets the user start or end a draft
@@ -619,6 +828,7 @@ export function ViewportPanel({
         local: [number, number];
         distance: number;
         lineId: string;
+        t: number;
       } | null = null;
       for (const line of linesParams.lines) {
         const dx = line.end_x - line.start_x;
@@ -648,7 +858,12 @@ export function ViewportPanel({
           continue;
         }
         if (!bestLineSnap || distance < bestLineSnap.distance) {
-          bestLineSnap = { local: [px, py], distance, lineId: line.line_id };
+          bestLineSnap = {
+            local: [px, py],
+            distance,
+            lineId: line.line_id,
+            t,
+          };
         }
       }
       if (bestLineSnap) {
@@ -663,6 +878,8 @@ export function ViewportPanel({
           snapMidpointHostLineId: null,
           snapPerpendicularHostLineId: null,
           snapEndpointHostLineId: null,
+          snapLineBodyHostLineId: bestLineSnap.lineId,
+          snapLineBodyT: bestLineSnap.t,
         } satisfies SketchPreviewPoint;
       }
     }
@@ -859,9 +1076,25 @@ export function ViewportPanel({
   }, [onSetSketchMidpointAnchor]);
 
   useEffect(() => {
+    setSketchPointLineAnchorRef.current = onSetSketchPointLineAnchor;
+  }, [onSetSketchPointLineAnchor]);
+
+  useEffect(() => {
+    addSketchAngleDimensionRef.current = onAddSketchAngleDimension;
+  }, [onAddSketchAngleDimension]);
+
+  useEffect(() => {
     setSketchPerpendicularConstraintRef.current =
       onSetSketchPerpendicularConstraint;
   }, [onSetSketchPerpendicularConstraint]);
+
+  useEffect(() => {
+    setSketchLineConstraintRef.current = onSetSketchLineConstraint;
+  }, [onSetSketchLineConstraint]);
+
+  useEffect(() => {
+    setSketchTangentConstraintRef.current = onSetSketchTangentConstraint;
+  }, [onSetSketchTangentConstraint]);
 
   // Post-add midpoint-anchor dispatch. When `add_sketch_line` settles
   // and the sketch's lines vector has grown, look at the just-added
@@ -878,29 +1111,48 @@ export function ViewportPanel({
 
     const pending = pendingMidpointAnchorRef.current;
     const pendingPerp = pendingPerpendicularConstraintRef.current;
+    const pendingLine = pendingPointLineAnchorRef.current;
+    const pendingAxis = pendingAxisConstraintRef.current;
+    const pendingTangent = pendingTangentConstraintRef.current;
     if (!params) {
       return;
     }
-    if (!pending && !pendingPerp) {
+    if (
+      !pending &&
+      !pendingPerp &&
+      !pendingLine &&
+      !pendingAxis &&
+      !pendingTangent
+    ) {
       return;
     }
 
-    // Both pending kinds use the same matching rule: the line count
+    // All pending kinds use the same matching rule: the line count
     // must have grown by exactly one past the baseline. If it
-    // didn't, drop both pendings (they're stale).
-    const baselineMidpoint = pending?.fromLineCount;
-    const baselinePerp = pendingPerp?.fromLineCount;
-    const baseline = baselineMidpoint ?? baselinePerp ?? -1;
+    // didn't, drop every pending (they're stale).
+    const baseline =
+      pending?.fromLineCount ??
+      pendingPerp?.fromLineCount ??
+      pendingLine?.fromLineCount ??
+      pendingAxis?.fromLineCount ??
+      pendingTangent?.fromLineCount ??
+      -1;
     if (newCount !== baseline + 1) {
       if (newCount !== previousCount) {
         pendingMidpointAnchorRef.current = null;
         pendingPerpendicularConstraintRef.current = null;
+        pendingPointLineAnchorRef.current = null;
+        pendingAxisConstraintRef.current = null;
+        pendingTangentConstraintRef.current = null;
       }
       return;
     }
 
     pendingMidpointAnchorRef.current = null;
     pendingPerpendicularConstraintRef.current = null;
+    pendingPointLineAnchorRef.current = null;
+    pendingAxisConstraintRef.current = null;
+    pendingTangentConstraintRef.current = null;
     const newLine = params.lines[params.lines.length - 1];
     if (!newLine) {
       return;
@@ -921,6 +1173,44 @@ export function ViewportPanel({
       void setSketchPerpendicularConstraintRef.current(
         newLine.line_id,
         pendingPerp.hostLineId,
+      );
+    }
+    // Point-on-line anchors. Per side, only fire when that side
+    // wasn't already claimed by a midpoint anchor — the midpoint
+    // anchor is a more specific relation and should win.
+    if (pendingLine?.startHost && !pending?.startHostLineId) {
+      void setSketchPointLineAnchorRef.current(
+        newLine.start_point_id,
+        pendingLine.startHost.lineId,
+        pendingLine.startHost.t,
+      );
+    }
+    if (pendingLine?.endHost && !pending?.endHostLineId) {
+      void setSketchPointLineAnchorRef.current(
+        newLine.end_point_id,
+        pendingLine.endHost.lineId,
+        pendingLine.endHost.t,
+      );
+    }
+    // Axis lock takes precedence at most once per draft. Skip it if
+    // a perpendicular constraint already fired for this line — the
+    // two would conflict in the solver (perp's own conflict check
+    // throws). Otherwise dispatch H/V as a sticky line constraint.
+    if (pendingAxis && !pendingPerp) {
+      void setSketchLineConstraintRef.current(
+        newLine.line_id,
+        pendingAxis.kind,
+      );
+    }
+    // Tangent relation. Skipped when the new line already has a
+    // perpendicular host or an axis lock — both fully determine the
+    // line's direction and would over-constrain the tangent. The
+    // user's explicit perp/axis intent wins; tangent is only the
+    // implicit "snapped to a circle" outcome.
+    if (pendingTangent && !pendingPerp && !pendingAxis) {
+      void setSketchTangentConstraintRef.current(
+        newLine.line_id,
+        pendingTangent.circleId,
       );
     }
   }, [sketchFeature]);
@@ -953,10 +1243,19 @@ export function ViewportPanel({
     // representation into the input. `parseFloat` of a fixed-precision
     // string is the canonical way to drop trailing zeros without
     // building a regex.
-    setDimensionDraftValue(
-      String(parseFloat(selectedSketchDimensionValue.toFixed(2))),
-    );
-  }, [selectedSketchDimensionValue, document?.selected_sketch_dimension_id]);
+    // Angle dims store radians internally but the editor shows
+    // degrees (matches the on-screen badge), so convert before
+    // populating. `selectedSketchDimension` is null-checked above.
+    const isAngle = selectedSketchDimension?.kind === "angle";
+    const displayValue = isAngle
+      ? selectedSketchDimensionValue * (180 / Math.PI)
+      : selectedSketchDimensionValue;
+    setDimensionDraftValue(String(parseFloat(displayValue.toFixed(2))));
+  }, [
+    selectedSketchDimensionValue,
+    document?.selected_sketch_dimension_id,
+    selectedSketchDimension?.kind,
+  ]);
 
   useEffect(() => {
     if (!selectedSketchDimension) {
@@ -1317,6 +1616,18 @@ export function ViewportPanel({
             x: previewX,
             y: previewY,
           });
+        } else if (sketchPoint.snapAxisLock) {
+          setConstraintPreview({
+            kind: sketchPoint.snapAxisLock,
+            x: previewX,
+            y: previewY,
+          });
+        } else if (sketchPoint.snapTangentCircleId) {
+          setConstraintPreview({
+            kind: "tangent",
+            x: previewX,
+            y: previewY,
+          });
         } else {
           setConstraintPreview(null);
         }
@@ -1519,19 +1830,62 @@ export function ViewportPanel({
           return;
         }
 
-        // Dimension tool: clicking a line or circle opens the editor
-        // for its driving dimension. Construction lines have no auto
-        // length dimension, so they're a no-op for now.
+        // Dimension tool. Single-click on a line / circle opens its
+        // unary dim editor (length / radius). Shift+click is the
+        // angle-dim gesture: the first Shift+click marks a line as
+        // the angle's first leg, the second Shift+click on a
+        // different line creates the angle dim. Same-line Shift+
+        // click clears the pending pick. Empty-space clicks also
+        // clear the pending state.
         if (activeSketchToolRef.current === "dimension") {
           if (hit?.kind === "sketch_dimension") {
+            dimensionToolFirstLineRef.current = null;
+            setDimensionToolFirstLine(null);
             void selectSketchDimensionRef.current(hit.id);
             return;
           }
           if (hit?.kind === "sketch_entity") {
-            const dimensionId =
-              hit.entityKind === "circle"
-                ? `dim-circle-${hit.id}`
-                : `dim-line-${hit.id}`;
+            if (hit.entityKind === "circle") {
+              dimensionToolFirstLineRef.current = null;
+              setDimensionToolFirstLine(null);
+              const dimensionId = `dim-circle-${hit.id}`;
+              const dimensionExists =
+                sketchLinesRef.current?.dimensions.some(
+                  (dim) => dim.dimension_id === dimensionId,
+                ) ?? false;
+              if (dimensionExists) {
+                void selectSketchDimensionRef.current(dimensionId);
+              } else {
+                void selectSketchEntityRef.current(hit.id);
+              }
+              return;
+            }
+            // Line click. Shift gates the angle-pick flow.
+            if (event.shiftKey) {
+              const firstLineId = dimensionToolFirstLineRef.current;
+              if (firstLineId === null) {
+                dimensionToolFirstLineRef.current = hit.id;
+                setDimensionToolFirstLine(hit.id);
+                return;
+              }
+              if (firstLineId === hit.id) {
+                // Same line picked twice — treat as a cancel rather
+                // than dimensioning an angle to itself.
+                dimensionToolFirstLineRef.current = null;
+                setDimensionToolFirstLine(null);
+                return;
+              }
+              dimensionToolFirstLineRef.current = null;
+              setDimensionToolFirstLine(null);
+              void addSketchAngleDimensionRef.current(firstLineId, hit.id);
+              return;
+            }
+            // Plain click → length dim. Clear any pending angle
+            // pick so the user doesn't accidentally bind a stale
+            // first-line into the next Shift+click.
+            dimensionToolFirstLineRef.current = null;
+            setDimensionToolFirstLine(null);
+            const dimensionId = `dim-line-${hit.id}`;
             const dimensionExists =
               sketchLinesRef.current?.dimensions.some(
                 (dim) => dim.dimension_id === dimensionId,
@@ -1543,6 +1897,9 @@ export function ViewportPanel({
             }
             return;
           }
+          // Click in empty space cancels the pending angle pick.
+          dimensionToolFirstLineRef.current = null;
+          setDimensionToolFirstLine(null);
           return;
         }
 
@@ -1582,6 +1939,20 @@ export function ViewportPanel({
           // come from distinct snap candidates.)
           draftStartEndpointHostRef.current =
             sketchPoint.snapEndpointHostLineId ?? null;
+          // If the start landed on a line's body, capture the host +
+          // parametric position so the post-add effect can anchor
+          // the new line's start point to the host once it lands.
+          // Mutually exclusive with the midpoint case at the snap-
+          // resolver level: midpoint snap wins when the cursor is
+          // genuinely close to the midpoint.
+          draftStartLineBodyHostRef.current =
+            sketchPoint.snapLineBodyHostLineId &&
+            typeof sketchPoint.snapLineBodyT === "number"
+              ? {
+                  lineId: sketchPoint.snapLineBodyHostLineId,
+                  t: sketchPoint.snapLineBodyT,
+                }
+              : null;
           return;
         }
 
@@ -1636,6 +2007,48 @@ export function ViewportPanel({
           };
         }
 
+        // Capture pending point-on-line anchor for either side that
+        // landed on a line body. The start-side host was stashed at
+        // the previous click (or chained from the last commit); the
+        // end-side comes straight from the current snap result.
+        const endLineBodyHost =
+          sketchPoint.snapLineBodyHostLineId &&
+          typeof sketchPoint.snapLineBodyT === "number"
+            ? {
+                lineId: sketchPoint.snapLineBodyHostLineId,
+                t: sketchPoint.snapLineBodyT,
+              }
+            : null;
+        const startLineBodyHost = draftStartLineBodyHostRef.current;
+        if (startLineBodyHost || endLineBodyHost) {
+          pendingPointLineAnchorRef.current = {
+            fromLineCount: sketchLineCountRef.current,
+            startHost: startLineBodyHost,
+            endHost: endLineBodyHost,
+          };
+        }
+
+        // Capture pending axis lock so the post-add effect can
+        // dispatch a sticky `set_sketch_line_constraint` for the new
+        // line. Skipped when the line also has a perpendicular host
+        // — the solver rejects the combination.
+        if (sketchPoint.snapAxisLock && !perpHostLineId) {
+          pendingAxisConstraintRef.current = {
+            fromLineCount: sketchLineCountRef.current,
+            kind: sketchPoint.snapAxisLock,
+          };
+        }
+
+        // Capture pending tangent relation when the cursor snapped
+        // onto a circle's tangent point. Skipped when a perpendicular
+        // host is also pending — they conflict on the line's end.
+        if (sketchPoint.snapTangentCircleId && !perpHostLineId) {
+          pendingTangentConstraintRef.current = {
+            fromLineCount: sketchLineCountRef.current,
+            circleId: sketchPoint.snapTangentCircleId,
+          };
+        }
+
         // The line tool keeps drafting from the just-clicked end so
         // the user can chain segments. Update the start-side host to
         // the *new* draft start (= the end of the line we just
@@ -1648,6 +2061,9 @@ export function ViewportPanel({
         // happened to itself snap to an existing line's endpoint.
         draftStartEndpointHostRef.current =
           sketchPoint.snapEndpointHostLineId ?? null;
+        // Same chaining for the line-body host: the next draft
+        // segment's start is the end we just committed.
+        draftStartLineBodyHostRef.current = endLineBodyHost;
         void addSketchLineRef.current(
           startX,
           startY,
@@ -2043,6 +2459,10 @@ export function ViewportPanel({
     clearPreviewCircle();
     setSketchSnapLabel(null);
     setConstraintPreview(null);
+    // Reset the dimension tool's pending first-line on every tool
+    // switch so it can't leak across tools or sketches.
+    dimensionToolFirstLineRef.current = null;
+    setDimensionToolFirstLine(null);
   }, [activeSketchPlaneId, activeSketchTool]);
 
   useEffect(() => {
@@ -2208,11 +2628,18 @@ export function ViewportPanel({
       return;
     }
 
-    const nextValue = Number(dimensionDraftValue);
-    if (!Number.isFinite(nextValue) || nextValue <= 0) {
+    const rawValue = Number(dimensionDraftValue);
+    if (!Number.isFinite(rawValue) || rawValue <= 0) {
       setIsDimensionEditorOpen(false);
       return;
     }
+
+    // Angle dims accept the user's input in degrees (matching the
+    // badge); convert back to radians before sending to the core.
+    const nextValue =
+      selectedSketchDimension.kind === "angle"
+        ? rawValue * (Math.PI / 180)
+        : rawValue;
 
     await updateSketchDimensionRef.current(
       selectedSketchDimension.dimensionId,
@@ -2275,7 +2702,13 @@ export function ViewportPanel({
               ? "M"
               : constraintPreview.kind === "perpendicular"
                 ? "\u22a5"
-                : "/"}
+                : constraintPreview.kind === "horizontal"
+                  ? "H"
+                  : constraintPreview.kind === "vertical"
+                    ? "V"
+                    : constraintPreview.kind === "tangent"
+                      ? "T"
+                      : "/"}
           </div>
         ) : null}
         {/*
@@ -2290,6 +2723,7 @@ export function ViewportPanel({
           bottom-right Selection panel or the dimension editor.
         */}
         {activeSketchPlaneId &&
+        activeSketchTool !== "dimension" &&
         (activeSketchTool === "line" || selectedSketchLine) ? (
           <div className="cad-floating-panel pointer-events-auto absolute left-4 top-4 z-20 flex flex-col gap-2 px-3 py-2 text-xs">
             <p className="text-[10px] uppercase tracking-[0.18em] text-on-surface-dim">
@@ -2333,6 +2767,32 @@ export function ViewportPanel({
             ) : null}
           </div>
         ) : null}
+        {/*
+          Floating Dimension Tool hint panel. Active only while the
+          dim tool is armed; updates from "click a line / circle" to
+          "click second line for angle, or same line for length"
+          after the first line is picked. Mirrors the Line Tool
+          panel's placement so the user always knows where to look.
+        */}
+        {activeSketchPlaneId && activeSketchTool === "dimension" ? (
+          <div className="cad-floating-panel pointer-events-auto absolute left-4 top-4 z-20 flex flex-col gap-1 px-3 py-2 text-xs">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-on-surface-dim">
+              Dimension Tool <span className="opacity-60">(D)</span>
+            </p>
+            <p className="text-on-surface">
+              {dimensionToolFirstLine === null ? (
+                <>Click a line / circle. Shift+click two lines for angle.</>
+              ) : (
+                <>
+                  Angle: pick second line. First leg ={" "}
+                  <span className="font-mono text-on-surface-muted">
+                    {dimensionToolFirstLine}
+                  </span>
+                </>
+              )}
+            </p>
+          </div>
+        ) : null}
         {selectedSketchDimension &&
         activeSketchPlaneId &&
         isDimensionEditorOpen ? (
@@ -2370,7 +2830,12 @@ export function ViewportPanel({
                   setDimensionDraftValue(
                     selectedSketchDimensionValue !== null
                       ? String(
-                          parseFloat(selectedSketchDimensionValue.toFixed(2)),
+                          parseFloat(
+                            (selectedSketchDimension?.kind === "angle"
+                              ? selectedSketchDimensionValue * (180 / Math.PI)
+                              : selectedSketchDimensionValue
+                            ).toFixed(2),
+                          ),
                         )
                       : "",
                   );

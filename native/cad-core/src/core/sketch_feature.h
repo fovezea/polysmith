@@ -46,6 +46,15 @@ void update_sketch_circle(FeatureEntry& feature,
                           double center_x,
                           double center_y,
                           double radius);
+// Add a new "angle" dimension between two sketch lines that share an
+// endpoint. The dimension is stored with `entity_id = first_line_id`,
+// `secondary_entity_id = second_line_id`, and `value` initialized to
+// the current angle (radians) between their outgoing direction
+// vectors. Throws if the two lines do not share an endpoint within
+// the coincident tolerance.
+void add_sketch_angle_dimension(FeatureEntry& feature,
+                                const std::string& first_line_id,
+                                const std::string& second_line_id);
 void update_sketch_dimension(FeatureEntry& feature,
                              const std::string& dimension_id,
                              double value);
@@ -76,6 +85,25 @@ void set_sketch_line_construction(FeatureEntry& feature,
 void set_sketch_midpoint_anchor(FeatureEntry& feature,
                                 const std::string& point_id,
                                 const std::string& host_line_id);
+// Bind a sketch point to a host line's body at parametric position
+// `t` in [0, 1]. The solver re-projects the bound point on every
+// edit so it rides along with the host. Pass an empty
+// `host_line_id` to remove an existing anchor for the point.
+void set_sketch_point_line_anchor(FeatureEntry& feature,
+                                  const std::string& point_id,
+                                  const std::string& host_line_id,
+                                  double t);
+
+// Constrain a sketch line to be tangent to a circle. The relation
+// is one-directional: the line's *end* point is driven onto the
+// closer of the two tangent points from its start to the circle.
+// Pass an empty `circle_id` to clear any existing tangent relation
+// for the line. Throws when the line's start is inside or on the
+// circle (no real tangent exists).
+void set_sketch_tangent_constraint(FeatureEntry& feature,
+                                   const std::string& line_id,
+                                   const std::string& circle_id);
+
 void add_sketch_circle(FeatureEntry& feature,
                        int circle_index,
                        double center_x,

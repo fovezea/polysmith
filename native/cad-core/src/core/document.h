@@ -144,6 +144,10 @@ class DocumentManager {
   DocumentState set_sketch_perpendicular_constraint(
       const std::string& line_id,
       const std::optional<std::string>& other_line_id);
+  // Make a sketch line tangent to a circle. Pass an empty
+  // `circle_id` to clear an existing tangent relation.
+  DocumentState set_sketch_tangent_constraint(const std::string& line_id,
+                                              const std::string& circle_id);
   DocumentState set_sketch_parallel_constraint(
       const std::string& line_id,
       const std::optional<std::string>& other_line_id);
@@ -155,6 +159,12 @@ class DocumentManager {
                                      double center_x,
                                      double center_y,
                                      double radius);
+  // Add an angle dimension between two sketch lines that share an
+  // endpoint. The dimension's `value` is initialized to the current
+  // angle (radians); subsequent `update_sketch_dimension` calls
+  // drive the second line's rotation about the shared endpoint.
+  DocumentState add_sketch_angle_dimension(const std::string& first_line_id,
+                                           const std::string& second_line_id);
   DocumentState update_sketch_dimension(const std::string& dimension_id,
                                         double value);
   DocumentState select_sketch_profile(const std::string& profile_id);
@@ -178,6 +188,11 @@ class DocumentManager {
   // to remove an existing anchor.
   DocumentState set_sketch_midpoint_anchor(const std::string& point_id,
                                            const std::string& host_line_id);
+  // Bind a sketch point to a host line's body at parametric position
+  // `t` in [0, 1]. Pass an empty `host_line_id` to clear the anchor.
+  DocumentState set_sketch_point_line_anchor(const std::string& point_id,
+                                             const std::string& host_line_id,
+                                             double t);
   DocumentState add_sketch_rectangle(double start_x,
                                      double start_y,
                                      double end_x,

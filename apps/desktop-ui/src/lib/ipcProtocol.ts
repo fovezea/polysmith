@@ -498,6 +498,20 @@ export function makeSetSketchPerpendicularConstraintCommand(
   };
 }
 
+export function makeSetSketchTangentConstraintCommand(
+  lineId: string,
+  circleId: string,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "set_sketch_tangent_constraint",
+    payload: {
+      line_id: lineId,
+      circle_id: circleId,
+    },
+  };
+}
+
 export function makeSetSketchParallelConstraintCommand(
   lineId: string,
   otherLineId: string | null,
@@ -672,6 +686,36 @@ export function makeSetSketchMidpointAnchorCommand(
     payload: {
       point_id: pointId,
       host_line_id: hostLineId,
+    },
+  };
+}
+
+export function makeAddSketchAngleDimensionCommand(
+  firstLineId: string,
+  secondLineId: string,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "add_sketch_angle_dimension",
+    payload: {
+      first_line_id: firstLineId,
+      second_line_id: secondLineId,
+    },
+  };
+}
+
+export function makeSetSketchPointLineAnchorCommand(
+  pointId: string,
+  hostLineId: string,
+  t: number,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "set_sketch_point_line_anchor",
+    payload: {
+      point_id: pointId,
+      host_line_id: hostLineId,
+      t,
     },
   };
 }

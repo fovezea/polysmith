@@ -162,6 +162,7 @@ function App() {
     setSketchCoincidentConstraint,
     setSketchParallelConstraint,
     setSketchPerpendicularConstraint,
+    setSketchTangentConstraint,
     setSketchPointFixed,
     updateSketchDimension,
     selectSketchProfile,
@@ -171,6 +172,8 @@ function App() {
     addSketchLine,
     setSketchLineConstruction,
     setSketchMidpointAnchor,
+    setSketchPointLineAnchor,
+    addSketchAngleDimension,
     addSketchRectangle,
     addSketchCircle,
     selectSketchPoint,
@@ -1178,12 +1181,32 @@ function App() {
                   await setSketchMidpointAnchor(pointId, hostLineId);
                 });
               }}
+              onSetSketchPointLineAnchor={async (pointId, hostLineId, t) => {
+                await runAction(async () => {
+                  await setSketchPointLineAnchor(pointId, hostLineId, t);
+                });
+              }}
+              onAddSketchAngleDimension={async (firstLineId, secondLineId) => {
+                await runAction(async () => {
+                  await addSketchAngleDimension(firstLineId, secondLineId);
+                });
+              }}
+              onSetSketchLineConstraint={async (lineId, constraint) => {
+                await runAction(async () => {
+                  await setSketchLineConstraint(lineId, constraint);
+                });
+              }}
               onSetSketchPerpendicularConstraint={async (
                 lineId,
                 otherLineId,
               ) => {
                 await runAction(async () => {
                   await setSketchPerpendicularConstraint(lineId, otherLineId);
+                });
+              }}
+              onSetSketchTangentConstraint={async (lineId, circleId) => {
+                await runAction(async () => {
+                  await setSketchTangentConstraint(lineId, circleId);
                 });
               }}
               onAddSketchRectangle={async (startX, startY, endX, endY) => {

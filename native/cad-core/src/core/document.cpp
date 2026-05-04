@@ -1363,6 +1363,37 @@ DocumentState DocumentManager::set_sketch_midpoint_anchor(
   return document_.value();
 }
 
+DocumentState DocumentManager::set_sketch_point_line_anchor(
+    const std::string& point_id,
+    const std::string& host_line_id,
+    double t) {
+  require_document();
+
+  if (!document_->active_sketch_feature_id.has_value()) {
+    throw std::runtime_error("No active sketch");
+  }
+
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) {
+        return feature.id == document_->active_sketch_feature_id.value();
+      });
+
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Active sketch feature not found");
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+  polysmith::core::set_sketch_point_line_anchor(
+      *feature_it, point_id, host_line_id, t);
+  refresh_linked_extrudes(*document_, *feature_it);
+  document_->selected_feature_id = feature_it->id;
+  bump_geometry_revision();
+  return document_.value();
+}
+
 DocumentState DocumentManager::set_sketch_equal_length_constraint(
     const std::string& line_id,
     const std::optional<std::string>& other_line_id) {
@@ -1427,6 +1458,35 @@ DocumentState DocumentManager::set_sketch_perpendicular_constraint(
   document_->selected_sketch_entity_id = line_id;
   document_->selected_sketch_dimension_id = "dim-line-" + line_id;
   document_->selected_sketch_profile_id = std::nullopt;
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::set_sketch_tangent_constraint(
+    const std::string& line_id, const std::string& circle_id) {
+  require_document();
+
+  if (!document_->active_sketch_feature_id.has_value()) {
+    throw std::runtime_error("No active sketch");
+  }
+
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) {
+        return feature.id == document_->active_sketch_feature_id.value();
+      });
+
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Active sketch feature not found");
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+  polysmith::core::set_sketch_tangent_constraint(
+      *feature_it, line_id, circle_id);
+  refresh_linked_extrudes(*document_, *feature_it);
+  document_->selected_feature_id = feature_it->id;
   bump_geometry_revision();
   return document_.value();
 }
@@ -1561,6 +1621,36 @@ DocumentState DocumentManager::update_sketch_circle(const std::string& circle_id
   document_->selected_sketch_entity_id = circle_id;
   document_->selected_sketch_dimension_id = "dim-circle-" + circle_id;
   document_->selected_sketch_profile_id = std::nullopt;
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::add_sketch_angle_dimension(
+    const std::string& first_line_id,
+    const std::string& second_line_id) {
+  require_document();
+
+  if (!document_->active_sketch_feature_id.has_value()) {
+    throw std::runtime_error("No active sketch");
+  }
+
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) {
+        return feature.id == document_->active_sketch_feature_id.value();
+      });
+
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Active sketch feature not found");
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+  polysmith::core::add_sketch_angle_dimension(
+      *feature_it, first_line_id, second_line_id);
+  refresh_linked_extrudes(*document_, *feature_it);
+  document_->selected_feature_id = feature_it->id;
   bump_geometry_revision();
   return document_.value();
 }

@@ -521,6 +521,28 @@ export interface SetSketchMidpointAnchorCommand {
   };
 }
 
+export interface AddSketchAngleDimensionCommand {
+  id: string;
+  type: "add_sketch_angle_dimension";
+  payload: {
+    first_line_id: string;
+    second_line_id: string;
+  };
+}
+
+export interface SetSketchPointLineAnchorCommand {
+  id: string;
+  type: "set_sketch_point_line_anchor";
+  payload: {
+    point_id: string;
+    // Empty string clears any existing anchor for the point.
+    host_line_id: string;
+    // Parametric position along the host line, clamped to [0, 1] by
+    // the core. 0 = host start, 1 = host end.
+    t: number;
+  };
+}
+
 export interface AddSketchRectangleCommand {
   id: string;
   type: "add_sketch_rectangle";
@@ -596,6 +618,16 @@ export interface SetSketchPerpendicularConstraintCommand {
   payload: {
     line_id: string;
     other_line_id: string;
+  };
+}
+
+export interface SetSketchTangentConstraintCommand {
+  id: string;
+  type: "set_sketch_tangent_constraint";
+  payload: {
+    line_id: string;
+    // Empty string clears any existing tangent relation on the line.
+    circle_id: string;
   };
 }
 
@@ -778,6 +810,7 @@ export type CoreCommand =
   | SetSketchLineConstraintCommand
   | SetSketchEqualLengthConstraintCommand
   | SetSketchPerpendicularConstraintCommand
+  | SetSketchTangentConstraintCommand
   | SetSketchParallelConstraintCommand
   | SetSketchCoincidentConstraintCommand
   | SetSketchPointFixedCommand
@@ -788,6 +821,8 @@ export type CoreCommand =
   | AddSketchLineCommand
   | SetSketchLineConstructionCommand
   | SetSketchMidpointAnchorCommand
+  | SetSketchPointLineAnchorCommand
+  | AddSketchAngleDimensionCommand
   | AddSketchRectangleCommand
   | AddSketchCircleCommand
   | SelectSketchPointCommand
