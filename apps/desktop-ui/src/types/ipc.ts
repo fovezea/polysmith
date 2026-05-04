@@ -621,6 +621,15 @@ export interface SetSketchPerpendicularConstraintCommand {
   };
 }
 
+export interface MirrorSketchEntitiesCommand {
+  id: string;
+  type: "mirror_sketch_entities";
+  payload: {
+    mirror_line_id: string;
+    entity_ids: string[];
+  };
+}
+
 export interface SetSketchTangentConstraintCommand {
   id: string;
   type: "set_sketch_tangent_constraint";
@@ -811,6 +820,7 @@ export type CoreCommand =
   | SetSketchEqualLengthConstraintCommand
   | SetSketchPerpendicularConstraintCommand
   | SetSketchTangentConstraintCommand
+  | MirrorSketchEntitiesCommand
   | SetSketchParallelConstraintCommand
   | SetSketchCoincidentConstraintCommand
   | SetSketchPointFixedCommand

@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { createViewportScene } from "@/lib";
 import type {
+  ArmedSketchConstraint,
   ConstraintType,
   DocumentState,
   SketchTool,
@@ -123,14 +124,7 @@ interface ViewportPanelProps {
     pointId: string,
     kind: "endpoint" | "center",
   ) => Promise<void>;
-  armedSketchConstraint:
-    | null
-    | { kind: "horizontal" | "vertical" | "clear" }
-    | {
-        kind: "equal_length" | "perpendicular" | "parallel";
-        firstLineId: string | null;
-      }
-    | { kind: "coincident"; firstPointId: string | null };
+  armedSketchConstraint: ArmedSketchConstraint;
   onCancelSketchConstraint: () => void;
   onClearSketchConstraint: (
     kind: ConstraintType,
@@ -2902,13 +2896,17 @@ export function ViewportPanel({
                       ? armedSketchConstraint.firstPointId
                         ? `Coincident armed · first ${armedSketchConstraint.firstPointId} · click second point`
                         : "Coincident armed · click first point"
-                      : armedSketchConstraint.kind === "equal_length" ||
-                          armedSketchConstraint.kind === "perpendicular" ||
-                          armedSketchConstraint.kind === "parallel"
-                        ? armedSketchConstraint.firstLineId
-                          ? `${armedSketchConstraint.kind === "equal_length" ? "Equal length" : armedSketchConstraint.kind === "perpendicular" ? "Perpendicular" : "Parallel"} armed · first ${armedSketchConstraint.firstLineId} · click second line`
-                          : `${armedSketchConstraint.kind === "equal_length" ? "Equal length" : armedSketchConstraint.kind === "perpendicular" ? "Perpendicular" : "Parallel"} armed · click first line`
-                        : `${armedSketchConstraint.kind} constraint armed · click a line`
+                      : armedSketchConstraint.kind === "mirror"
+                        ? armedSketchConstraint.axisLineId
+                          ? `Mirror armed · axis ${armedSketchConstraint.axisLineId} · click entity to mirror (Esc to exit)`
+                          : "Mirror armed · click axis line"
+                        : armedSketchConstraint.kind === "equal_length" ||
+                            armedSketchConstraint.kind === "perpendicular" ||
+                            armedSketchConstraint.kind === "parallel"
+                          ? armedSketchConstraint.firstLineId
+                            ? `${armedSketchConstraint.kind === "equal_length" ? "Equal length" : armedSketchConstraint.kind === "perpendicular" ? "Perpendicular" : "Parallel"} armed · first ${armedSketchConstraint.firstLineId} · click second line`
+                            : `${armedSketchConstraint.kind === "equal_length" ? "Equal length" : armedSketchConstraint.kind === "perpendicular" ? "Perpendicular" : "Parallel"} armed · click first line`
+                          : `${armedSketchConstraint.kind} constraint armed · click a line`
                     : document?.selected_sketch_entity_id
                       ? document?.selected_sketch_dimension_id
                         ? `Dimension: ${document.selected_sketch_dimension_id} · Entity: ${document.selected_sketch_entity_id}`

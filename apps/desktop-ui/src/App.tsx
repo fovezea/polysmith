@@ -163,6 +163,7 @@ function App() {
     setSketchParallelConstraint,
     setSketchPerpendicularConstraint,
     setSketchTangentConstraint,
+    mirrorSketchEntities,
     setSketchPointFixed,
     updateSketchDimension,
     selectSketchProfile,
@@ -605,6 +606,45 @@ function App() {
       return;
     }
 
+    if (armedSketchConstraint.kind === "mirror") {
+      // First pick is the axis line. Validate that the picked
+      // entity is actually a line (not a circle) by looking it up
+      // in the active sketch — circles can't be a mirror axis.
+      // Subsequent picks are entities to mirror; they can be lines
+      // or circles. The axis selection is sticky so the user can
+      // mirror a batch by clicking each entity in sequence.
+      if (!armedSketchConstraint.axisLineId) {
+        const activeSketchId = document?.active_sketch_feature_id ?? null;
+        const activeSketch = activeSketchId
+          ? document?.feature_history.find(
+              (entry) => entry.feature_id === activeSketchId,
+            )
+          : null;
+        const isLine =
+          activeSketch?.sketch_parameters?.lines.some(
+            (line) => line.line_id === lineId,
+          ) ?? false;
+        if (!isLine) {
+          // Ignore non-line picks before the axis is set; the
+          // status text already tells the user to click a line.
+          return;
+        }
+        setArmedSketchConstraint({ kind: "mirror", axisLineId: lineId });
+        await selectSketchEntity(lineId);
+        return;
+      }
+      // Subsequent pick: dispatch the mirror op. Mirroring the
+      // axis to itself is a no-op (the core also guards against
+      // it), so we early-return without firing IPC.
+      if (lineId === armedSketchConstraint.axisLineId) {
+        return;
+      }
+      await mirrorSketchEntities(armedSketchConstraint.axisLineId, [lineId]);
+      // Stay armed: axis is sticky, the user can keep clicking
+      // entities to mirror more across the same axis. Esc clears.
+      return;
+    }
+
     if (armedSketchConstraint.kind === "horizontal") {
       await setSketchLineConstraint(lineId, "horizontal");
       clearArmedSketchConstraint();
@@ -944,6 +984,9 @@ function App() {
                 return null;
               }
 
+              if (constraint === "mirror") {
+                return { kind: "mirror", axisLineId: null };
+              }
               return constraint === "equal_length" ||
                 constraint === "coincident" ||
                 constraint === "perpendicular" ||

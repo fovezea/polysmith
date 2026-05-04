@@ -195,6 +195,26 @@ export const EqualLengthConstraintIcon = () => (
   </svg>
 );
 
+export const MirrorConstraintIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-7 w-7"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    {/* Vertical dashed mirror axis flanked by two arrow-heads
+        pointing toward each other — visually conveys "reflect
+        across this line". */}
+    <path d="M12 4v16" strokeDasharray="2 2" />
+    <path d="M4 9l4 3-4 3" />
+    <path d="M20 9l-4 3 4 3" />
+  </svg>
+);
+
 export const ClearConstraintIcon = () => (
   <svg
     viewBox="0 0 24 24"
@@ -471,6 +491,8 @@ export function ConstraintIcon({ kind }: { kind: ConstraintType }) {
       return <ParallelConstraintIcon />;
     case "equal_length":
       return <EqualLengthConstraintIcon />;
+    case "mirror":
+      return <MirrorConstraintIcon />;
     default:
       return <ClearConstraintIcon />;
   }

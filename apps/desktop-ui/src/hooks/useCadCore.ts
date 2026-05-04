@@ -52,6 +52,7 @@ import {
   makeSetSketchParallelConstraintCommand,
   makeSetSketchPerpendicularConstraintCommand,
   makeSetSketchTangentConstraintCommand,
+  makeMirrorSketchEntitiesCommand,
   makeSetSketchPointFixedCommand,
   makeExtrudeProfileCommand,
   makeSetSketchLineConstraintCommand,
@@ -368,6 +369,12 @@ export function useCadCore() {
     setSketchTangentConstraint: async (lineId: string, circleId: string) => {
       await sendCoreCommand(
         makeSetSketchTangentConstraintCommand(lineId, circleId),
+      );
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    mirrorSketchEntities: async (mirrorLineId: string, entityIds: string[]) => {
+      await sendCoreCommand(
+        makeMirrorSketchEntitiesCommand(mirrorLineId, entityIds),
       );
       await sendCoreCommand(makeGetViewportStateCommand());
     },

@@ -1462,6 +1462,40 @@ DocumentState DocumentManager::set_sketch_perpendicular_constraint(
   return document_.value();
 }
 
+DocumentState DocumentManager::mirror_sketch_entities(
+    const std::string& mirror_line_id,
+    const std::vector<std::string>& entity_ids) {
+  require_document();
+
+  if (!document_->active_sketch_feature_id.has_value()) {
+    throw std::runtime_error("No active sketch");
+  }
+
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) {
+        return feature.id == document_->active_sketch_feature_id.value();
+      });
+
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Active sketch feature not found");
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+  polysmith::core::mirror_sketch_entities(
+      *feature_it,
+      next_sketch_line_id_,
+      next_sketch_circle_id_,
+      mirror_line_id,
+      entity_ids);
+  refresh_linked_extrudes(*document_, *feature_it);
+  document_->selected_feature_id = feature_it->id;
+  bump_geometry_revision();
+  return document_.value();
+}
+
 DocumentState DocumentManager::set_sketch_tangent_constraint(
     const std::string& line_id, const std::string& circle_id) {
   require_document();

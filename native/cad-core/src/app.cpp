@@ -589,6 +589,25 @@ void CadCoreApp::handle_command_line(const std::string& line) {
     return;
   }
 
+  if (command.type == "mirror_sketch_entities") {
+    std::vector<std::string> entity_ids;
+    if (command.payload.contains("entity_ids") &&
+        command.payload.at("entity_ids").is_array()) {
+      for (const auto& entry : command.payload.at("entity_ids")) {
+        if (entry.is_string()) {
+          entity_ids.push_back(entry.get<std::string>());
+        }
+      }
+    }
+    const auto document = document_manager().mirror_sketch_entities(
+        read_string(command.payload, "mirror_line_id"), entity_ids);
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
   if (command.type == "set_sketch_tangent_constraint") {
     const auto document = document_manager().set_sketch_tangent_constraint(
         read_string(command.payload, "line_id"),

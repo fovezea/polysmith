@@ -148,6 +148,12 @@ class DocumentManager {
   // `circle_id` to clear an existing tangent relation.
   DocumentState set_sketch_tangent_constraint(const std::string& line_id,
                                               const std::string& circle_id);
+  // Mirror a batch of sketch entities (lines, circles) across a
+  // sketch line. Creates independent reflected copies; the source
+  // entities are unchanged.
+  DocumentState mirror_sketch_entities(
+      const std::string& mirror_line_id,
+      const std::vector<std::string>& entity_ids);
   DocumentState set_sketch_parallel_constraint(
       const std::string& line_id,
       const std::optional<std::string>& other_line_id);

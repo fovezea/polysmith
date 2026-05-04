@@ -110,4 +110,18 @@ void add_sketch_circle(FeatureEntry& feature,
                        double center_y,
                        double radius);
 
+// Mirror sketch entities across a sketch line. For each id in
+// `entity_ids` (lines and circles supported), a *new* reflected
+// entity is created. Existing constraints, dimensions, and
+// relations on the source entities are NOT carried over — the
+// reflected copies are independent geometry. The source entities
+// themselves are unchanged. The mirror line must exist on the
+// sketch; passing it as one of `entity_ids` is a no-op (we don't
+// mirror the axis to itself).
+void mirror_sketch_entities(FeatureEntry& feature,
+                            int& next_line_index,
+                            int& next_circle_index,
+                            const std::string& mirror_line_id,
+                            const std::vector<std::string>& entity_ids);
+
 }  // namespace polysmith::core

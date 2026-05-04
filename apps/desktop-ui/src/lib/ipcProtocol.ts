@@ -498,6 +498,20 @@ export function makeSetSketchPerpendicularConstraintCommand(
   };
 }
 
+export function makeMirrorSketchEntitiesCommand(
+  mirrorLineId: string,
+  entityIds: string[],
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "mirror_sketch_entities",
+    payload: {
+      mirror_line_id: mirrorLineId,
+      entity_ids: entityIds,
+    },
+  };
+}
+
 export function makeSetSketchTangentConstraintCommand(
   lineId: string,
   circleId: string,

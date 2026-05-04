@@ -2276,6 +2276,89 @@ void add_sketch_rectangle(FeatureEntry& feature,
   refresh_sketch_derived_state(feature);
 }
 
+// Reflect a 2D point across the line passing through (ax, ay) and
+// (bx, by). Standard formula: project P onto the line to find the
+// foot F, then P' = 2F - P. Returns NaN-free results as long as
+// the line has non-zero length, which `validate_line` guarantees
+// at line creation.
+std::pair<double, double> reflect_point_across_line(double px, double py,
+                                                    double ax, double ay,
+                                                    double bx, double by) {
+  const double dx = bx - ax;
+  const double dy = by - ay;
+  const double len_sq = dx * dx + dy * dy;
+  // Defensive: zero-length axis can't reflect. Return the source
+  // unchanged so callers get a benign no-op rather than NaNs.
+  if (len_sq <= 0.0) {
+    return {px, py};
+  }
+  const double t = ((px - ax) * dx + (py - ay) * dy) / len_sq;
+  const double foot_x = ax + t * dx;
+  const double foot_y = ay + t * dy;
+  return {2.0 * foot_x - px, 2.0 * foot_y - py};
+}
+
+void mirror_sketch_entities(FeatureEntry& feature,
+                            int& next_line_index,
+                            int& next_circle_index,
+                            const std::string& mirror_line_id,
+                            const std::vector<std::string>& entity_ids) {
+  if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+    throw std::runtime_error("Only sketch features can mirror entities");
+  }
+  auto& parameters = *feature.sketch_parameters;
+  // Resolve the axis line. We snapshot its endpoints up front
+  // because we'll be appending new lines to `parameters.lines` as
+  // we go and the iterator could be invalidated.
+  const auto axis_it = std::find_if(
+      parameters.lines.begin(), parameters.lines.end(),
+      [&](const SketchLine& line) { return line.id == mirror_line_id; });
+  if (axis_it == parameters.lines.end()) {
+    throw std::runtime_error("Mirror axis line not found: " + mirror_line_id);
+  }
+  const double ax = axis_it->start_x;
+  const double ay = axis_it->start_y;
+  const double bx = axis_it->end_x;
+  const double by = axis_it->end_y;
+
+  // Process each entity id. Capturing source coordinates by value
+  // before any append: `add_sketch_line` / `add_sketch_circle`
+  // mutate the parameters and may invalidate iterators on growth.
+  for (const auto& entity_id : entity_ids) {
+    if (entity_id == mirror_line_id) {
+      continue;  // Mirroring the axis to itself is a no-op.
+    }
+    const auto line_it = std::find_if(
+        parameters.lines.begin(), parameters.lines.end(),
+        [&](const SketchLine& line) { return line.id == entity_id; });
+    if (line_it != parameters.lines.end()) {
+      const auto [new_start_x, new_start_y] = reflect_point_across_line(
+          line_it->start_x, line_it->start_y, ax, ay, bx, by);
+      const auto [new_end_x, new_end_y] = reflect_point_across_line(
+          line_it->end_x, line_it->end_y, ax, ay, bx, by);
+      const bool is_construction = line_it->is_construction;
+      add_sketch_line(feature, next_line_index++, new_start_x, new_start_y,
+                      new_end_x, new_end_y, is_construction);
+      continue;
+    }
+    const auto circle_it = std::find_if(
+        parameters.circles.begin(), parameters.circles.end(),
+        [&](const SketchCircle& circle) { return circle.id == entity_id; });
+    if (circle_it != parameters.circles.end()) {
+      const auto [new_cx, new_cy] = reflect_point_across_line(
+          circle_it->center_x, circle_it->center_y, ax, ay, bx, by);
+      const double radius = circle_it->radius;
+      add_sketch_circle(feature, next_circle_index++, new_cx, new_cy, radius);
+      continue;
+    }
+    // Unknown id (could be a stale selection). Skip rather than
+    // throw — partial mirrors are friendlier than aborting the
+    // whole batch.
+  }
+
+  refresh_sketch_derived_state(feature);
+}
+
 void add_sketch_circle(FeatureEntry& feature,
                        int circle_index,
                        double center_x,

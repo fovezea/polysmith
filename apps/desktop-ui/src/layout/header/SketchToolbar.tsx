@@ -215,19 +215,38 @@ export function SketchToolbar({
       >
         <ConstraintIcon kind="parallel" />
       </button>
+      <button
+        className={
+          activeSketchPlaneId && armedSketchConstraint?.kind === "mirror"
+            ? "cad-icon-button cad-icon-tool cad-icon-tool-active h-9 w-9 p-0"
+            : "cad-icon-button cad-icon-tool h-9 w-9 p-0"
+        }
+        data-tooltip="Mirror"
+        aria-label="Mirror"
+        disabled={!activeSketchPlaneId}
+        onClick={() => {
+          void onArmSketchConstraint("mirror");
+        }}
+      >
+        <ConstraintIcon kind="mirror" />
+      </button>
       {armedSketchConstraint ? (
         <p className="text-xs uppercase tracking-[0.14em] text-on-surface-dim">
           {armedSketchConstraint.kind === "coincident"
             ? armedSketchConstraint.firstPointId
               ? "Coincident: click second point"
               : "Coincident: click first point"
-            : armedSketchConstraint.kind === "equal_length" ||
-                armedSketchConstraint.kind === "perpendicular" ||
-                armedSketchConstraint.kind === "parallel"
-              ? armedSketchConstraint.firstLineId
-                ? `${armedSketchConstraint.kind === "equal_length" ? "Equal length" : armedSketchConstraint.kind === "perpendicular" ? "Perpendicular" : "Parallel"}: click second line`
-                : `${armedSketchConstraint.kind === "equal_length" ? "Equal length" : armedSketchConstraint.kind === "perpendicular" ? "Perpendicular" : "Parallel"}: click first line`
-              : `${armedSketchConstraint.kind}: click line`}
+            : armedSketchConstraint.kind === "mirror"
+              ? armedSketchConstraint.axisLineId
+                ? "Mirror: click entity to mirror (Esc to exit)"
+                : "Mirror: click axis line"
+              : armedSketchConstraint.kind === "equal_length" ||
+                  armedSketchConstraint.kind === "perpendicular" ||
+                  armedSketchConstraint.kind === "parallel"
+                ? armedSketchConstraint.firstLineId
+                  ? `${armedSketchConstraint.kind === "equal_length" ? "Equal length" : armedSketchConstraint.kind === "perpendicular" ? "Perpendicular" : "Parallel"}: click second line`
+                  : `${armedSketchConstraint.kind === "equal_length" ? "Equal length" : armedSketchConstraint.kind === "perpendicular" ? "Perpendicular" : "Parallel"}: click first line`
+                : `${armedSketchConstraint.kind}: click line`}
         </p>
       ) : null}
     </>
