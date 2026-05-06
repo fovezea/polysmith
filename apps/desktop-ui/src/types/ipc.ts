@@ -473,6 +473,22 @@ export interface UpdateChamferDistanceCommand {
   };
 }
 
+export interface ConfirmFilletCommand {
+  id: string;
+  type: "confirm_fillet";
+  payload: {
+    feature_id: string;
+  };
+}
+
+export interface ConfirmChamferCommand {
+  id: string;
+  type: "confirm_chamfer";
+  payload: {
+    feature_id: string;
+  };
+}
+
 export interface StartSketchOnPlaneCommand {
   id: string;
   type: "start_sketch_on_plane";
@@ -837,9 +853,11 @@ export type CoreCommand =
   | CreateFilletCommand
   | UpdateFilletRadiusCommand
   | UpdateFilletEdgesCommand
+  | ConfirmFilletCommand
   | CreateChamferCommand
   | UpdateChamferDistanceCommand
   | UpdateChamferEdgesCommand
+  | ConfirmChamferCommand
   | StartSketchOnPlaneCommand
   | StartSketchOnFaceCommand
   | SetSketchToolCommand

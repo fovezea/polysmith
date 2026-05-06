@@ -379,6 +379,22 @@ export function makeUpdateChamferDistanceCommand(
   };
 }
 
+export function makeConfirmFilletCommand(featureId: string): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "confirm_fillet",
+    payload: { feature_id: featureId },
+  };
+}
+
+export function makeConfirmChamferCommand(featureId: string): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "confirm_chamfer",
+    payload: { feature_id: featureId },
+  };
+}
+
 export function makeStartSketchOnPlaneCommand(
   referenceId: string,
 ): CoreCommand {

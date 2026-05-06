@@ -640,6 +640,7 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                   feature.fillet_parameters->target_body_id},
                  {"edge_ids", feature.fillet_parameters->edge_ids},
                  {"radius", feature.fillet_parameters->radius},
+                 {"is_pending", feature.fillet_parameters->is_pending},
              }
            : json(nullptr)},
       {"chamfer_parameters",
@@ -649,6 +650,7 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                   feature.chamfer_parameters->target_body_id},
                  {"edge_ids", feature.chamfer_parameters->edge_ids},
                  {"distance", feature.chamfer_parameters->distance},
+                 {"is_pending", feature.chamfer_parameters->is_pending},
              }
            : json(nullptr)},
   };
@@ -1316,6 +1318,12 @@ polysmith::core::FeatureEntry feature_entry_from_payload(const json& payload) {
       }
     }
     params.radius = read_number(fp, "radius");
+    // Default false when absent so older saved documents (created
+    // before is_pending existed) load with the same semantics they
+    // had at save time — i.e. "already confirmed".
+    if (fp.contains("is_pending") && fp.at("is_pending").is_boolean()) {
+      params.is_pending = fp.at("is_pending").get<bool>();
+    }
     feature.fillet_parameters = params;
   }
 
@@ -1330,6 +1338,9 @@ polysmith::core::FeatureEntry feature_entry_from_payload(const json& payload) {
       }
     }
     params.distance = read_number(cp, "distance");
+    if (cp.contains("is_pending") && cp.at("is_pending").is_boolean()) {
+      params.is_pending = cp.at("is_pending").get<bool>();
+    }
     feature.chamfer_parameters = params;
   }
 

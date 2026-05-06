@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { awaitDocumentChange, useCadCoreStore } from "./state";
 import { useCadCore } from "./hooks";
@@ -48,14 +48,37 @@ interface ActiveExtrudeAction {
   } | null;
 }
 
-// In-progress fillet or chamfer feature. The native core has already
-// created the feature with the initial value; the floating panel
-// drives live updates and Confirm / Cancel.
-interface ActiveEdgeOpAction {
-  featureId: string;
-  kind: "fillet" | "chamfer";
-  initialValue: number;
-}
+// In-progress fillet or chamfer feature. Two-phase Fusion-style flow:
+//
+//   - phase "pending": panel is open but no feature exists yet. The
+//     user opens this by invoking Fillet / Chamfer with no edges
+//     selected. They can either type a value first or click an edge
+//     first; whichever comes first, the other is honored when the
+//     feature is created on the first edge click.
+//
+//   - phase "active": the core created the feature on the first edge
+//     pick. The panel now drives live `update_*_radius` /
+//     `update_*_distance` and edge clicks toggle membership through
+//     `update_*_edges`. We mirror the edge list locally as the
+//     authoritative source while editing — relying on the document
+//     round-trip for it caused dropped edges under rapid clicking,
+//     because each click read a stale snapshot of `selected_edge_ids`.
+type ActiveEdgeOpAction =
+  | {
+      phase: "pending";
+      kind: "fillet" | "chamfer";
+      // Seed value displayed in the panel; the *current* typed value
+      // lives in `pendingValueRef` so that an edge click placed
+      // mid-typing still uses the latest input.
+      initialValue: number;
+    }
+  | {
+      phase: "active";
+      kind: "fillet" | "chamfer";
+      featureId: string;
+      initialValue: number;
+      edgeIds: string[];
+    };
 
 function App() {
   const [armedSketchConstraint, setArmedSketchConstraint] =
@@ -174,6 +197,8 @@ function App() {
     createChamfer,
     updateChamferDistance,
     updateChamferEdges,
+    confirmFillet,
+    confirmChamfer,
     startSketchOnPlane,
     startSketchOnFace,
     setSketchTool,
@@ -432,27 +457,60 @@ function App() {
     });
   }
 
-  // Common helper for fillet/chamfer hotkeys. The native core synchronously
-  // creates the feature with the default value; the floating panel then
-  // drives live preview via update_*_radius / update_*_distance and either
-  // confirms (close) or cancels (undo).
+  // Latest typed value while in the "pending" phase. The panel debounces
+  // its onPreviewValue callback, so a click that lands mid-typing must
+  // read the freshest value via this ref rather than from React state.
+  const pendingValueRef = useRef<number>(DEFAULT_FILLET_RADIUS);
+
+  // Live edge_ids for the in-progress fillet/chamfer feature. We mirror
+  // the list in a ref (in addition to React state for the UI count) so
+  // every viewport edge click can read the *current* set synchronously
+  // and dispatch update_*_edges immediately. A purely state-based
+  // approach can't do that — `setState` updaters run asynchronously, so
+  // any IPC dispatch decided inside the updater fires after the click
+  // handler has already returned, dropping the call entirely. The ref
+  // sidesteps both that and the IPC-echo-lag race in one move.
+  const activeEdgeIdsRef = useRef<string[]>([]);
+
+  // Fusion-style flow for Fillet / Chamfer. The user invokes the action
+  // first (button or hotkey), the panel opens in "pending" phase, and
+  // the *first* edge click is what actually creates the feature in the
+  // core via create_fillet / create_chamfer. If edges happen to be
+  // pre-selected when the action is invoked, we honor that and create
+  // immediately, jumping straight to the "active" phase. See the
+  // ActiveEdgeOpAction comment above for the rationale.
   async function triggerEdgeOpAction(kind: "fillet" | "chamfer") {
-    if (extrudeAction || edgeOpAction) {
+    if (extrudeAction || edgeOpAction || activeSketchPlaneId) {
       return;
     }
-    // Multi-edge: snapshot the entire selection set at the moment the
-    // hotkey fires. If the user shift-clicked three edges, we send all
-    // three to create_fillet / create_chamfer in one feature. Snapshot
-    // up-front because the core's create_* call clears the selection
-    // before we can read it again.
-    const edgeIds = document?.selected_edge_ids ?? [];
+    const initialValue =
+      kind === "fillet" ? DEFAULT_FILLET_RADIUS : DEFAULT_CHAMFER_DISTANCE;
+    pendingValueRef.current = initialValue;
+
+    const preSelectedEdgeIds = document?.selected_edge_ids ?? [];
+    if (preSelectedEdgeIds.length === 0) {
+      // No edges yet — open the panel in "pending" mode and let the
+      // user pick edges in the viewport.
+      setEdgeOpAction({ phase: "pending", kind, initialValue });
+      return;
+    }
+
+    // Pre-selected edges: behave like Fusion's "select-then-invoke"
+    // shortcut and create the feature immediately.
+    await createEdgeOpFeature(kind, preSelectedEdgeIds, initialValue);
+  }
+
+  // Creates the fillet/chamfer feature in the core and transitions the
+  // panel into the "active" phase once the freshly-created feature id
+  // has come back over IPC.
+  async function createEdgeOpFeature(
+    kind: "fillet" | "chamfer",
+    edgeIds: string[],
+    value: number,
+  ) {
     if (edgeIds.length === 0) {
       return;
     }
-
-    const initialValue =
-      kind === "fillet" ? DEFAULT_FILLET_RADIUS : DEFAULT_CHAMFER_DISTANCE;
-
     // Same fire-and-forget IPC trick as triggerExtrudeAction: subscribe to
     // the next document update that contains a freshly-created feature of
     // the requested kind so we can pick up its real id.
@@ -473,9 +531,9 @@ function App() {
 
     await runAction(async () => {
       if (kind === "fillet") {
-        await createFillet(edgeIds, initialValue);
+        await createFillet(edgeIds, value);
       } else {
-        await createChamfer(edgeIds, initialValue);
+        await createChamfer(edgeIds, value);
       }
       try {
         const nextDocument = await documentPromise;
@@ -483,10 +541,13 @@ function App() {
         if (!newFeatureId) {
           return;
         }
+        activeEdgeIdsRef.current = [...edgeIds];
         setEdgeOpAction({
-          featureId: newFeatureId,
+          phase: "active",
           kind,
-          initialValue,
+          featureId: newFeatureId,
+          initialValue: value,
+          edgeIds: [...edgeIds],
         });
       } catch (error) {
         addMessage(`${kind} action error: ${String(error)}`);
@@ -535,7 +596,9 @@ function App() {
         return;
       }
 
-      // E / F / C: trigger extrude / fillet / chamfer actions (no modifiers).
+      // E / F: trigger extrude / fillet actions (no modifiers).
+      // Chamfer intentionally has no hotkey — it's invoked from the
+      // Modify ribbon button only.
       if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) {
         return;
       }
@@ -565,24 +628,19 @@ function App() {
         return;
       }
 
-      // Fillet / Chamfer require a selected edge. They are no-ops
-      // otherwise — silently, so a stray F or C keystroke doesn't
-      // surprise the user with an error toast.
+      // Fillet requires a selected edge and is gated to non-sketch
+      // mode — body edges aren't selectable inside an active sketch
+      // anyway, but the explicit guard keeps the hotkey from
+      // surprising the user during sketching.
       if (event.code === "KeyF") {
+        if (activeSketchPlaneId) {
+          return;
+        }
         if ((document?.selected_edge_ids.length ?? 0) === 0) {
           return;
         }
         event.preventDefault();
         void triggerEdgeOpAction("fillet");
-        return;
-      }
-
-      if (event.code === "KeyC") {
-        if ((document?.selected_edge_ids.length ?? 0) === 0) {
-          return;
-        }
-        event.preventDefault();
-        void triggerEdgeOpAction("chamfer");
         return;
       }
 
@@ -947,6 +1005,18 @@ function App() {
             return Boolean(face && face.sketchability === "planar");
           })()}
           onExtrude={triggerExtrudeAction}
+          // Modify ribbon: Fillet / Chamfer can be invoked at any
+          // time outside a sketch / other floating action. Edge
+          // selection is *not* required — the panel opens in
+          // "pending" mode and waits for the user to click edges in
+          // the viewport.
+          canEdgeOp={!activeSketchPlaneId && !extrudeAction && !edgeOpAction}
+          onFillet={async () => {
+            await triggerEdgeOpAction("fillet");
+          }}
+          onChamfer={async () => {
+            await triggerEdgeOpAction("chamfer");
+          }}
           onStartSketch={async () => {
             if (!selectedReference) {
               return;
@@ -1160,29 +1230,48 @@ function App() {
                 // recompiles live so the user sees the fillet grow /
                 // shrink as they pick. We ignore `additive` here —
                 // toggle is the only meaningful gesture during edit.
-                if (edgeOpAction && document) {
-                  const feature = document.feature_history.find(
-                    (entry) => entry.feature_id === edgeOpAction.featureId,
-                  );
-                  const current =
-                    feature?.fillet_parameters?.edge_ids ??
-                    feature?.chamfer_parameters?.edge_ids ??
-                    [];
-                  const isMember = current.includes(edgeId);
-                  const next = isMember
-                    ? current.filter((id) => id !== edgeId)
-                    : [...current, edgeId];
-                  if (next.length === 0) {
-                    // Last edge: refusing the toggle keeps the feature
-                    // valid (the core requires at least one edge). The
-                    // user can Cancel the panel to undo entirely.
+                if (edgeOpAction) {
+                  // Pending phase: this is the first edge — create the
+                  // feature with the latest typed value (which may have
+                  // been edited before any edge was clicked).
+                  if (edgeOpAction.phase === "pending") {
+                    await createEdgeOpFeature(
+                      edgeOpAction.kind,
+                      [edgeId],
+                      pendingValueRef.current,
+                    );
                     return;
                   }
+
+                  // Active phase: toggle membership. We compute the
+                  // next list against the ref (not against React
+                  // state, whose updater runs asynchronously, and not
+                  // against the document, whose echo for the previous
+                  // click may not have arrived yet) so rapid
+                  // successive clicks compound correctly.
+                  const current = activeEdgeIdsRef.current;
+                  const isMember = current.includes(edgeId);
+                  const updated = isMember
+                    ? current.filter((id) => id !== edgeId)
+                    : [...current, edgeId];
+                  if (updated.length === 0) {
+                    // Last edge: refusing the toggle keeps the
+                    // feature valid (the core requires at least one
+                    // edge). The user can Cancel the panel to undo
+                    // entirely.
+                    return;
+                  }
+                  activeEdgeIdsRef.current = updated;
+                  setEdgeOpAction((prev) =>
+                    prev && prev.phase === "active"
+                      ? { ...prev, edgeIds: updated }
+                      : prev,
+                  );
                   await runAction(async () => {
                     if (edgeOpAction.kind === "fillet") {
-                      await updateFilletEdges(edgeOpAction.featureId, next);
+                      await updateFilletEdges(edgeOpAction.featureId, updated);
                     } else {
-                      await updateChamferEdges(edgeOpAction.featureId, next);
+                      await updateChamferEdges(edgeOpAction.featureId, updated);
                     }
                   });
                   return;
@@ -1613,19 +1702,19 @@ function App() {
                   }
                   initialValue={edgeOpAction.initialValue}
                   disabled={status !== "connected"}
-                  edgeCount={(() => {
-                    // Source the count off the live document so it
-                    // updates the moment update_*_edges round-trips.
-                    const feature = document?.feature_history.find(
-                      (entry) => entry.feature_id === edgeOpAction.featureId,
-                    );
-                    return (
-                      feature?.fillet_parameters?.edge_ids.length ??
-                      feature?.chamfer_parameters?.edge_ids.length ??
-                      0
-                    );
-                  })()}
+                  edgeCount={
+                    edgeOpAction.phase === "active"
+                      ? edgeOpAction.edgeIds.length
+                      : 0
+                  }
                   onPreviewValue={async (value) => {
+                    if (edgeOpAction.phase === "pending") {
+                      // No feature exists yet; remember the value so
+                      // the next edge click creates the feature with
+                      // it.
+                      pendingValueRef.current = value;
+                      return;
+                    }
                     await runAction(async () => {
                       if (edgeOpAction.kind === "fillet") {
                         await updateFilletRadius(edgeOpAction.featureId, value);
@@ -1638,21 +1727,46 @@ function App() {
                     });
                   }}
                   onConfirm={async () => {
-                    // Core keeps the feature's edges in
-                    // `selected_edge_ids` while the panel is open so
-                    // the highlight tracks live edits. On Confirm we
-                    // explicitly clear selection so the user is left
-                    // looking at a clean filleted body, not yellow
-                    // highlights on the just-confirmed edges.
-                    await runAction(async () => {
-                      await clearSelection();
-                    });
+                    // Pending phase: nothing to commit — just close.
+                    if (edgeOpAction.phase === "active") {
+                      // Active: tell the core the panel session is
+                      // over so the body's edge identity stops
+                      // shadowing through the pre-fillet pick_shape
+                      // and follows the post-fillet topology like
+                      // any other confirmed feature. Then clear the
+                      // edge selection (the core kept it in sync
+                      // with the live edge_ids during the session
+                      // for the highlight) so the user looks at a
+                      // clean body.
+                      const featureId = edgeOpAction.featureId;
+                      const kind = edgeOpAction.kind;
+                      await runAction(async () => {
+                        if (kind === "fillet") {
+                          await confirmFillet(featureId);
+                        } else {
+                          await confirmChamfer(featureId);
+                        }
+                        await clearSelection();
+                      });
+                    }
+                    activeEdgeIdsRef.current = [];
                     setEdgeOpAction(null);
                   }}
                   onCancel={async () => {
-                    await runAction(async () => {
-                      await undo();
-                    });
+                    // Pending phase: no feature was ever created, so
+                    // there is nothing to undo. Active phase: a
+                    // single undo() rolls back the entire panel
+                    // session because update_*_edges and
+                    // update_*_radius / update_*_distance
+                    // intentionally do not push undo states (see
+                    // the matching comment in
+                    // `DocumentManager::update_fillet_edges`).
+                    if (edgeOpAction.phase === "active") {
+                      await runAction(async () => {
+                        await undo();
+                      });
+                    }
+                    activeEdgeIdsRef.current = [];
                     setEdgeOpAction(null);
                   }}
                 />

@@ -47,6 +47,8 @@ import {
   makeUpdateChamferEdgesCommand,
   makeCreateChamferCommand,
   makeUpdateChamferDistanceCommand,
+  makeConfirmFilletCommand,
+  makeConfirmChamferCommand,
   makeSetSketchCoincidentConstraintCommand,
   makeSetSketchEqualLengthConstraintCommand,
   makeSetSketchParallelConstraintCommand,
@@ -303,6 +305,16 @@ export function useCadCore() {
       edgeIds: readonly string[],
     ) => {
       await sendCoreCommand(makeUpdateChamferEdgesCommand(featureId, edgeIds));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    confirmFillet: async (featureId: string) => {
+      await sendCoreCommand(makeConfirmFilletCommand(featureId));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    confirmChamfer: async (featureId: string) => {
+      await sendCoreCommand(makeConfirmChamferCommand(featureId));
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());
     },

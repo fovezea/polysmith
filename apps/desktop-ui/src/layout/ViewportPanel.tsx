@@ -229,6 +229,14 @@ export function ViewportPanel({
   // re-attach of the listener.
   const [lineToolConstruction, setLineToolConstruction] = useState(false);
   const lineToolConstructionRef = useRef(false);
+  // Held while the user holds the wireframe-toggle key (Tab) during a
+  // pending fillet/chamfer panel session. Reveals every ghost edge
+  // so the user can see and click the original sharp edges that
+  // were hidden by default to keep the rounded preview readable.
+  // Kept as a ref because the keydown/keyup handlers repaint edge
+  // materials directly (no React state read). Painting goes through
+  // `paintEdgeMaterials` which reads this ref.
+  const revealGhostEdgesRef = useRef(false);
   const [dimensionDraftValue, setDimensionDraftValue] = useState("");
   const [isDimensionEditorOpen, setIsDimensionEditorOpen] = useState(false);
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -402,6 +410,26 @@ export function ViewportPanel({
   const sketchLinesRef = useRef<
     NonNullable<typeof sketchFeature>["sketch_parameters"] | null
   >(null);
+  // Bodies whose edges are picked against a stable pre-fillet topology
+  // because a fillet / chamfer feature targeting them is in its
+  // pending panel session. Used to flag those edges as ghosts in the
+  // scene, which the renderer hides by default and reveals when the
+  // user holds Tab. Recomputed alongside the scene so it stays in
+  // sync with `feature_history`.
+  const pendingEdgeOpBodyIds = useMemo(() => {
+    const result = new Set<string>();
+    if (!document) {
+      return result;
+    }
+    for (const feature of document.feature_history) {
+      const params =
+        feature.fillet_parameters ?? feature.chamfer_parameters ?? null;
+      if (params && params.is_pending && params.target_body_id) {
+        result.add(params.target_body_id);
+      }
+    }
+    return result;
+  }, [document]);
   const sceneData = useMemo(
     () =>
       viewport?.has_active_document
@@ -409,9 +437,16 @@ export function ViewportPanel({
             hiddenFeatureIds,
             hiddenSketchPlaneIds,
             hideReferences,
+            pendingEdgeOpBodyIds,
           })
         : null,
-    [viewport, hiddenFeatureIds, hiddenSketchPlaneIds, hideReferences],
+    [
+      viewport,
+      hiddenFeatureIds,
+      hiddenSketchPlaneIds,
+      hideReferences,
+      pendingEdgeOpBodyIds,
+    ],
   );
   const sceneDataRef = useRef(sceneData);
   useEffect(() => {
@@ -1100,18 +1135,32 @@ export function ViewportPanel({
   // resolve the (selected, hovered) tuple per object without reading
   // the document state here.
   const hoveredEdgeIdRef = useRef<string | null>(null);
+  // Recolor every edge from its userData (selection / ghost flags) plus
+  // the current hover id and the live ghost-reveal flag. Single source
+  // of truth so hover changes and Tab-toggle changes don't have to
+  // duplicate the visual logic.
+  function paintEdgeMaterials(hoveredId: string | null) {
+    const revealGhost = revealGhostEdgesRef.current;
+    for (const line of edgeLineObjectsRef.current) {
+      const id = line.userData.edgeId as string | undefined;
+      const isSelected = line.userData.isSelected === true;
+      const isGhost = line.userData.isGhost === true;
+      const isHovered = id !== undefined && id === hoveredId;
+      const material = line.material as THREE.LineBasicMaterial;
+      applyEdgeVisualColor(material, {
+        isSelected,
+        isHovered,
+        isGhost,
+        revealGhost,
+      });
+    }
+  }
   function setHoveredEdge(edgeId: string | null) {
     if (hoveredEdgeIdRef.current === edgeId) {
       return;
     }
     hoveredEdgeIdRef.current = edgeId;
-    for (const line of edgeLineObjectsRef.current) {
-      const id = line.userData.edgeId as string | undefined;
-      const isSelected = line.userData.isSelected === true;
-      const isHovered = id !== undefined && id === edgeId;
-      const material = line.material as THREE.LineBasicMaterial;
-      applyEdgeVisualColor(material, { isSelected, isHovered });
-    }
+    paintEdgeMaterials(edgeId);
   }
 
   const hoveredVertexIdRef = useRef<string | null>(null);
@@ -2743,6 +2792,65 @@ export function ViewportPanel({
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [activeSketchPlaneId]);
+
+  // Tab toggles ghost-edge visibility while a fillet/chamfer panel is
+  // open. The handler is mounted only when at least one body has a
+  // pending edge-op feature so the key keeps its default browser
+  // behavior in every other context. Hold to reveal, release to hide.
+  useEffect(() => {
+    if (pendingEdgeOpBodyIds.size === 0) {
+      return;
+    }
+    function isTypingTarget(target: EventTarget | null) {
+      return (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      );
+    }
+    function setReveal(next: boolean) {
+      if (revealGhostEdgesRef.current === next) {
+        return;
+      }
+      revealGhostEdgesRef.current = next;
+      paintEdgeMaterials(hoveredEdgeIdRef.current);
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.code !== "Tab") {
+        return;
+      }
+      if (isTypingTarget(event.target)) {
+        return;
+      }
+      // Suppress the default Tab focus shuffle so the panel session
+      // stays in control of the input the user just typed into.
+      event.preventDefault();
+      setReveal(true);
+    }
+    function handleKeyUp(event: KeyboardEvent) {
+      if (event.code !== "Tab") {
+        return;
+      }
+      setReveal(false);
+    }
+    function handleBlur() {
+      // Window blur (e.g. user switched apps mid-hold) loses keyup
+      // events; reset so the wireframe doesn't get stuck "on".
+      setReveal(false);
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", handleBlur);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", handleBlur);
+      // Drop the reveal state so the next pending session starts
+      // hidden by default.
+      revealGhostEdgesRef.current = false;
+    };
+  }, [pendingEdgeOpBodyIds]);
 
   useEffect(() => {
     if (activeSketchPlaneId) {

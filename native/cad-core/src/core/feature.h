@@ -71,6 +71,17 @@ struct FilletFeatureParameters {
   std::string target_body_id;
   std::vector<std::string> edge_ids;
   double radius;
+  // True while the floating panel is open and the user is still picking
+  // edges / dialing in the radius. Body compiler still applies the
+  // fillet so the user gets a real geometry preview, but it ALSO
+  // retains the pre-fillet shape on the compiled body so viewport edge
+  // ids stay stable during the session — picks resolve against the
+  // pre-fillet topology, sidestepping the index reshuffle that would
+  // otherwise happen every time OCCT mutates the shape. Flipped to
+  // false by `confirm_fillet`, after which body_compiler behaves as
+  // before. Defaults false so persisted documents keep the same
+  // semantics they had before pending was introduced.
+  bool is_pending = false;
 };
 
 struct ChamferFeatureParameters {
@@ -78,6 +89,8 @@ struct ChamferFeatureParameters {
   std::vector<std::string> edge_ids;
   // Symmetric chamfer distance from the edge along both adjacent faces.
   double distance;
+  // See FilletFeatureParameters::is_pending — same semantics.
+  bool is_pending = false;
 };
 
 struct SketchLine {

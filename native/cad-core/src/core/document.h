@@ -115,6 +115,13 @@ class DocumentManager {
   // edges from a different body has no well-defined fillet semantics.
   DocumentState update_fillet_edges(const std::string& feature_id,
                                     const std::vector<std::string>& edge_ids);
+  // Flip an in-progress fillet's `is_pending` flag to false. Called by
+  // the UI's panel-Confirm path once the user is done picking edges /
+  // dialing in the radius. After this point the body's edge identity
+  // follows the post-fillet topology again. Does not push an undo
+  // step — the original create_fillet's push covers the entire panel
+  // session in one shot.
+  DocumentState confirm_fillet(const std::string& feature_id);
   DocumentState create_chamfer(const std::vector<std::string>& edge_ids,
                                double distance);
   DocumentState update_chamfer_distance(const std::string& feature_id,
@@ -122,6 +129,8 @@ class DocumentManager {
   DocumentState update_chamfer_edges(
       const std::string& feature_id,
       const std::vector<std::string>& edge_ids);
+  // See `confirm_fillet` for semantics.
+  DocumentState confirm_chamfer(const std::string& feature_id);
   DocumentState start_sketch_on_plane(const std::string& reference_id);
   DocumentState start_sketch_on_face(
       const std::string& face_id,

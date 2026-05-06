@@ -1475,7 +1475,16 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
       }
     }
     bodies.push_back(ViewportBodySummary{.id = body.id, .label = label});
-    enumerate_body_edges(body.shape,
+    // Edge picking uses pick_shape when the body has one (set by
+    // body_compiler for the duration of a pending fillet/chamfer
+    // panel session). This keeps edge ids stable while the user
+    // toggles edges, even though body.shape is mutating with each
+    // update_*_edges. Vertices and faces still come from the live
+    // post-op shape because vertex / face picks aren't part of the
+    // pending feature's input set.
+    const TopoDS_Shape& edge_pick_shape =
+        body.pick_shape.IsNull() ? body.shape : body.pick_shape;
+    enumerate_body_edges(edge_pick_shape,
                          body.id,
                          document->selected_edge_ids,
                          edges);

@@ -52,6 +52,44 @@ Notes:
 
 - For extrude, the user selects a face first, then the extrude action is invoked, then the user can adjust the depth in the floating panel. But for Fillet or Chamfer, the user selects the action then he can chose to select edges or vertices.
 
+### Fillet / Chamfer specifics
+
+The two-phase flow above lands as follows for edge-input actions:
+
+1. The user clicks **Fillet** (`F` hotkey) or **Chamfer** (button only — no
+   hotkey) with no requirement to have any edge pre-selected.
+2. The floating panel opens immediately in a **pending** phase. No feature
+   exists in the document yet. The panel auto-focuses its numeric input,
+   so the user can type a radius / distance straight away.
+3. The user clicks edges in the viewport. The **first** click triggers
+   `create_fillet` / `create_chamfer` with the currently-typed value and
+   that single edge, transitioning the panel into the **active** phase.
+   Every subsequent click toggles edge membership through
+   `update_fillet_edges` / `update_chamfer_edges`. The body recompiles
+   live so the user sees the fillet grow / shrink as they pick.
+4. Editing the radius / distance in the panel during the active phase
+   dispatches `update_fillet_radius` / `update_chamfer_distance`. The
+   change applies to **every** edge currently in the feature
+   retroactively — that's just how the feature is parameterised.
+5. **Confirm** (Enter / button): close the panel; clear edge selection.
+6. **Cancel** (Escape / button): if the panel never advanced past the
+   pending phase, just close it (nothing to undo). Otherwise call `undo`
+   to remove the freshly-created feature and every live edit made during
+   the session.
+
+If the user happens to have edges pre-selected when they invoke the
+action (the Fusion "select-then-invoke" shortcut), the panel skips the
+pending phase and creates the feature immediately with the existing
+selection. The user-facing flow is the same from that point on.
+
+The UI must own the active edge list optimistically while the panel is
+open. Reading it back from the latest `document.feature_history` snapshot
+inside an edge-click handler is unsafe under rapid clicking — the IPC
+echo from the previous click may not have arrived yet, and the next
+click will read a stale list and clobber earlier picks. The active-phase
+state therefore mirrors `edge_ids` locally and updates it through a
+functional `setState` so toggles compound correctly.
+
 ## Selection feedback rules
 
 - Hover targets must show a clear, non-permanent visual change.

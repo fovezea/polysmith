@@ -299,6 +299,12 @@ export interface ViewportSceneOptions {
   hiddenSketchPlaneIds?: ReadonlySet<string>;
   // Hide all reference planes and axes.
   hideReferences?: boolean;
+  // Body ids whose edges should be tagged as ghosts because a fillet /
+  // chamfer feature targeting that body is currently in its pending
+  // panel session. Ghost edges stay pickable but render hidden by
+  // default; the viewport can flip them visible when the user holds
+  // the wireframe-toggle key.
+  pendingEdgeOpBodyIds?: ReadonlySet<string>;
 }
 
 export function createViewportScene(
@@ -309,6 +315,8 @@ export function createViewportScene(
   const hiddenSketchPlaneIds =
     options.hiddenSketchPlaneIds ?? new Set<string>();
   const hideReferences = options.hideReferences ?? false;
+  const pendingEdgeOpBodyIds =
+    options.pendingEdgeOpBodyIds ?? new Set<string>();
 
   const primitives = [
     ...viewport.boxes.map(makeBoxPrimitive),
@@ -382,6 +390,7 @@ export function createViewportScene(
       // straight to a BufferAttribute without re-allocating per frame.
       points: Float32Array.from(edge.points),
       isSelected: edge.is_selected,
+      isGhost: pendingEdgeOpBodyIds.has(edge.owner_body_id),
     }));
   const vertices: SceneVertex[] = viewport.vertices
     .filter((vertex) => !hiddenFeatureIds.has(vertex.owner_body_id))

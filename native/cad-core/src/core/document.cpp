@@ -844,6 +844,10 @@ DocumentState DocumentManager::create_fillet(
   params.target_body_id = owner_id;
   params.edge_ids = edge_ids;
   params.radius = radius;
+  // Born pending so body_compiler retains the pre-fillet shape for
+  // edge picking until the UI calls `confirm_fillet`. See
+  // FilletFeatureParameters::is_pending.
+  params.is_pending = true;
 
   std::ostringstream summary;
   summary << edge_ids.size() << " edge"
@@ -918,8 +922,13 @@ DocumentState DocumentManager::update_fillet_edges(
     }
   }
 
-  push_undo_state();
-  clear_redo_stack();
+  // No push_undo_state here: this is a live-preview update on the
+  // freshly-created fillet whose own create_fillet already pushed an
+  // undo step. Pushing here would make a panel session of N edge
+  // toggles and M radius edits collapse to a single user-visible
+  // feature but produce N+M+1 undo steps, so Cancel → undo() would
+  // only revert the last edit instead of the whole session. The
+  // create_* push covers the entire session.
   feature_it->fillet_parameters->edge_ids = edge_ids;
   std::ostringstream summary;
   summary << edge_ids.size() << " edge"
@@ -929,6 +938,36 @@ DocumentState DocumentManager::update_fillet_edges(
   // Keep the highlight in sync with the live edge set so the user
   // sees what's being filleted while picking.
   document_->selected_edge_ids = edge_ids;
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::confirm_fillet(const std::string& feature_id) {
+  require_document();
+
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Feature not found: " + feature_id);
+  }
+  if (feature_it->kind != "fillet" ||
+      !feature_it->fillet_parameters.has_value()) {
+    throw std::runtime_error(
+        "confirm_fillet requires a fillet feature: " + feature_id);
+  }
+
+  // Idempotent: confirming an already-confirmed fillet is a no-op so
+  // the UI doesn't have to track whether it has called this before.
+  if (!feature_it->fillet_parameters->is_pending) {
+    return document_.value();
+  }
+
+  // No push_undo here — the matching create_fillet's undo step covers
+  // the entire pending session, so a single undo() rolls back create
+  // + all edits + this confirm in one step.
+  feature_it->fillet_parameters->is_pending = false;
   bump_geometry_revision();
   return document_.value();
 }
@@ -953,8 +992,8 @@ DocumentState DocumentManager::update_fillet_radius(
         "update_fillet_radius requires a fillet feature: " + feature_id);
   }
 
-  push_undo_state();
-  clear_redo_stack();
+  // See update_fillet_edges for why this command intentionally does
+  // not push an undo step.
   feature_it->fillet_parameters->radius = radius;
   std::ostringstream summary;
   summary << feature_it->fillet_parameters->edge_ids.size() << " edge"
@@ -1008,6 +1047,8 @@ DocumentState DocumentManager::create_chamfer(
   params.target_body_id = owner_id;
   params.edge_ids = edge_ids;
   params.distance = distance;
+  // Same rationale as create_fillet — see comment there.
+  params.is_pending = true;
 
   std::ostringstream summary;
   summary << edge_ids.size() << " edge"
@@ -1074,8 +1115,8 @@ DocumentState DocumentManager::update_chamfer_edges(
     }
   }
 
-  push_undo_state();
-  clear_redo_stack();
+  // See update_fillet_edges for why this command intentionally does
+  // not push an undo step.
   feature_it->chamfer_parameters->edge_ids = edge_ids;
   std::ostringstream summary;
   summary << edge_ids.size() << " edge"
@@ -1108,14 +1149,40 @@ DocumentState DocumentManager::update_chamfer_distance(
         "update_chamfer_distance requires a chamfer feature: " + feature_id);
   }
 
-  push_undo_state();
-  clear_redo_stack();
+  // See update_fillet_edges for why this command intentionally does
+  // not push an undo step.
   feature_it->chamfer_parameters->distance = distance;
   std::ostringstream summary;
   summary << feature_it->chamfer_parameters->edge_ids.size() << " edge"
           << (feature_it->chamfer_parameters->edge_ids.size() == 1 ? "" : "s")
           << " · " << distance << " mm";
   feature_it->parameters_summary = summary.str();
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::confirm_chamfer(const std::string& feature_id) {
+  require_document();
+
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Feature not found: " + feature_id);
+  }
+  if (feature_it->kind != "chamfer" ||
+      !feature_it->chamfer_parameters.has_value()) {
+    throw std::runtime_error(
+        "confirm_chamfer requires a chamfer feature: " + feature_id);
+  }
+
+  if (!feature_it->chamfer_parameters->is_pending) {
+    return document_.value();
+  }
+
+  // See `confirm_fillet` for why this does not push an undo step.
+  feature_it->chamfer_parameters->is_pending = false;
   bump_geometry_revision();
   return document_.value();
 }

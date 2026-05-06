@@ -16,6 +16,13 @@ struct DocumentState;
 struct CompiledBody {
   std::string id;
   TopoDS_Shape shape;
+  // Stable shape used for edge picking while a fillet/chamfer feature
+  // targeting this body is in its pending phase. When non-null the
+  // viewport enumerates body edges from this shape (whose topology
+  // doesn't change as the user toggles pending edges) instead of
+  // `shape`, so edge ids stay stable for the duration of the panel
+  // session. Null otherwise; callers should fall back to `shape`.
+  TopoDS_Shape pick_shape;
 };
 
 struct BodyMesh {

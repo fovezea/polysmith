@@ -250,6 +250,14 @@ CompiledBodies compile_bodies(const DocumentState& document) {
   // most-recently created or modified.
   std::vector<std::string> body_order;
   std::unordered_map<std::string, TopoDS_Shape> body_shapes;
+  // When a fillet/chamfer feature with `is_pending=true` is replayed
+  // we capture the body shape *before* the op was applied. The
+  // viewport later enumerates body edges from this shape so edge ids
+  // stay stable for the duration of the panel session, even though
+  // the post-op shape (used for visual rendering) keeps mutating as
+  // the user toggles edges. Cleared per-body when a non-pending op
+  // overwrites that body. See FilletFeatureParameters::is_pending.
+  std::unordered_map<std::string, TopoDS_Shape> body_pick_shapes;
 
   // First pass: detect whether ANY extrude uses a non-default mode. If
   // not we still need per-body shapes for downstream callers (export),
@@ -310,9 +318,19 @@ CompiledBodies compile_bodies(const DocumentState& document) {
       } else {
         continue;
       }
-      const TopoDS_Shape next =
-          apply_fillet(body_shapes[target_id], params);
+      const TopoDS_Shape pre_shape = body_shapes[target_id];
+      const TopoDS_Shape next = apply_fillet(pre_shape, params);
       body_shapes[target_id] = next;
+      // Pending feature: keep the pre-op shape around so the viewport
+      // can pick edges against a stable topology. Non-pending features
+      // overwrite (and effectively clear) any prior pick_shape on this
+      // body, since once confirmed the body's edge identity follows
+      // the new post-op topology.
+      if (params.is_pending) {
+        body_pick_shapes[target_id] = pre_shape;
+      } else {
+        body_pick_shapes.erase(target_id);
+      }
       result.consumed_feature_ids.insert(feature.id);
       // Refresh "most recent body" so subsequent boolean ops target the
       // post-fillet shape.
@@ -338,9 +356,16 @@ CompiledBodies compile_bodies(const DocumentState& document) {
       } else {
         continue;
       }
-      const TopoDS_Shape next =
-          apply_chamfer(body_shapes[target_id], params);
+      const TopoDS_Shape pre_shape = body_shapes[target_id];
+      const TopoDS_Shape next = apply_chamfer(pre_shape, params);
       body_shapes[target_id] = next;
+      // Same pending-shape logic as fillet — see the matching comment
+      // a few lines above.
+      if (params.is_pending) {
+        body_pick_shapes[target_id] = pre_shape;
+      } else {
+        body_pick_shapes.erase(target_id);
+      }
       result.consumed_feature_ids.insert(feature.id);
       if (!body_order.empty() && body_order.back() != target_id) {
         for (auto it = body_order.begin(); it != body_order.end(); ++it) {
@@ -405,6 +430,11 @@ CompiledBodies compile_bodies(const DocumentState& document) {
       }
 
       body_shapes[target_id] = combined;
+      // A boolean op replaced the body's topology, so any stale
+      // pending-fillet pick shape no longer reflects what the user is
+      // looking at. Clear it so edge picks resolve against the current
+      // body shape from here on.
+      body_pick_shapes.erase(target_id);
       result.consumed_feature_ids.insert(feature.id);
       result.consumed_feature_ids.insert(target_id);
       // The combined body is now the most recent body for the purpose
@@ -429,6 +459,10 @@ CompiledBodies compile_bodies(const DocumentState& document) {
     CompiledBody body{};
     body.id = body_id;
     body.shape = body_shapes[body_id];
+    const auto pick_it = body_pick_shapes.find(body_id);
+    if (pick_it != body_pick_shapes.end()) {
+      body.pick_shape = pick_it->second;
+    }
     result.bodies.push_back(body);
   }
 

@@ -139,12 +139,20 @@ export interface FilletFeatureParameters {
   target_body_id: string;
   edge_ids: string[];
   radius: number;
+  // True while the fillet is in its floating-panel "pending" phase.
+  // The viewport keeps emitting edge ids from the *pre*-fillet body
+  // topology so picks remain stable while the user toggles edges.
+  // Confirm flips this to false; the body's edge identity then
+  // follows the post-fillet topology like any other feature.
+  is_pending: boolean;
 }
 
 export interface ChamferFeatureParameters {
   target_body_id: string;
   edge_ids: string[];
   distance: number;
+  // See FilletFeatureParameters.is_pending — same semantics.
+  is_pending: boolean;
 }
 
 export interface FeatureEntry {

@@ -42,7 +42,9 @@ Install them on your platform:
 xcode-select --install
 
 # Homebrew dependencies
-brew install pnpm cmake freetype
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
+nvm install 24
+corepack enable pnpm
 
 # Rust toolchain (for Tauri)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -60,7 +62,9 @@ sudo apt install -y \
   libssl-dev curl
 
 # Node + pnpm
-curl -fsSL https://get.pnpm.io/install.sh | sh -
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
+nvm install 24
+corepack enable pnpm
 
 # Rust toolchain (for Tauri)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -74,7 +78,9 @@ For other distributions, follow the [Tauri v2 prerequisites guide](https://v2.ta
 2. Install **Rust** via [rustup-init.exe](https://rustup.rs/) and select the `stable-x86_64-pc-windows-msvc` toolchain.
 3. Install **Node.js 20** and enable Corepack:
    ```powershell
-   corepack enable
+   powershell -c "irm https://community.chocolatey.org/install.ps1|iex"
+   choco install nodejs --version="24.15.0"
+   corepack enable pnpm
    corepack prepare pnpm@latest --activate
    ```
 4. Install **WebView2 Runtime** (Tauri requirement) — pre-installed on Windows 11.

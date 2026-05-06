@@ -121,7 +121,19 @@ export function applyPrimitiveVisualState(
 // so the palette decisions live in one file.
 export function applyEdgeVisualColor(
   material: THREE.LineBasicMaterial,
-  state: { isSelected: boolean; isHovered: boolean },
+  state: {
+    isSelected: boolean;
+    isHovered: boolean;
+    // True when the edge belongs to a body with a pending
+    // fillet/chamfer feature. Ghost edges are still pickable but
+    // render hidden by default — only the selected ones glow — so
+    // the post-op preview reads cleanly.
+    isGhost?: boolean;
+    // Set by ViewportPanel while the user holds the wireframe-toggle
+    // key so the user can re-discover ghost edges to add to the
+    // pending feature.
+    revealGhost?: boolean;
+  },
 ) {
   if (state.isSelected) {
     material.color.set(themeColor("--color-cad-edge-selected", "#ff9a3c"));
@@ -131,6 +143,15 @@ export function applyEdgeVisualColor(
   if (state.isHovered) {
     material.color.set(themeColor("--color-cad-edge-hover", "#3da9ff"));
     material.opacity = 1;
+    return;
+  }
+  if (state.isGhost && !state.revealGhost) {
+    // Pickable but visually hidden. We can't set opacity to 0 because
+    // some renderers treat fully-transparent materials as a no-draw
+    // and skip raycasting; a near-zero value keeps the THREE.Line
+    // alive in the pick chain while staying invisible.
+    material.color.set(themeColor("--color-cad-edge", "#2a2a2c"));
+    material.opacity = 0.001;
     return;
   }
   material.color.set(themeColor("--color-cad-edge", "#2a2a2c"));
@@ -562,11 +583,15 @@ export function buildSceneEdgeObject(edge: SceneEdge): THREE.Line {
   applyEdgeVisualColor(material, {
     isSelected: edge.isSelected,
     isHovered: false,
+    isGhost: edge.isGhost,
   });
 
   const line = new THREE.Line(geometry, material);
   line.userData.edgeId = edge.edgeId;
   line.userData.isSelected = edge.isSelected;
+  // Stashed so the panel's hover/Tab-toggle handlers can recompute
+  // the visual without rebuilding the scene.
+  line.userData.isGhost = edge.isGhost;
   line.renderOrder = 1;
   return line;
 }

@@ -49,6 +49,12 @@ export interface SceneEdge {
   kind: "line" | "circle" | "curve";
   points: Float32Array;
   isSelected: boolean;
+  // True when this edge belongs to a body that has a pending fillet /
+  // chamfer feature in the document. Ghost edges stay fully pickable
+  // (so the user can add / remove edges from the in-progress
+  // operation), but the viewport hides them by default to keep the
+  // post-op preview visually clean. Tab toggles them visible.
+  isGhost: boolean;
 }
 
 // World-space vertex of a body. The renderer materializes these as

@@ -115,6 +115,11 @@ interface AppHeaderProps {
   // hotkey path in App.tsx.
   canExtrude: boolean;
   onExtrude: () => Promise<void>;
+  // Modify ribbon (Fillet / Chamfer). Enabled state is owned by the
+  // parent so it can match the F-hotkey gating exactly.
+  canEdgeOp: boolean;
+  onFillet: () => Promise<void>;
+  onChamfer: () => Promise<void>;
   onStartSketch: () => Promise<void>;
   onFinishSketch: () => Promise<void>;
   onSetSketchTool: (tool: SketchTool) => Promise<void>;
@@ -147,6 +152,9 @@ export function AppHeader({
   onAddCylinderFeature,
   canExtrude,
   onExtrude,
+  canEdgeOp,
+  onFillet,
+  onChamfer,
   onStartSketch,
   onFinishSketch,
   onSetSketchTool,
@@ -277,7 +285,14 @@ export function AppHeader({
             />
           ) : null}
 
-          {activeWorkspace === "Modify" ? <ModifyToolbar /> : null}
+          {activeWorkspace === "Modify" ? (
+            <ModifyToolbar
+              disabled={disabled}
+              canEdgeOp={canEdgeOp}
+              onFillet={() => void onFillet()}
+              onChamfer={() => void onChamfer()}
+            />
+          ) : null}
 
           {activeWorkspace === "Construct" ? <ConstructToolbar /> : null}
 
