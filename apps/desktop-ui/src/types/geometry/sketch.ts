@@ -96,6 +96,27 @@ export interface PendingMirrorEntry {
   }>;
 }
 
+// 2D arc entry stored on the sketch feature. Mirrors C++ `SketchArc`.
+// Endpoints share the SketchPoint graph via `start_point_id` /
+// `end_point_id`; `(center_x, center_y, radius, ccw)` are cached so
+// the renderer can sample without recomputing the circumcircle. v1
+// freezes arc shape at creation; the points are stored with
+// `is_fixed=true` in the points table.
+export interface SketchArcEntry {
+  arc_id: string;
+  start_point_id: string;
+  end_point_id: string;
+  center_x: number;
+  center_y: number;
+  radius: number;
+  start_x: number;
+  start_y: number;
+  end_x: number;
+  end_y: number;
+  ccw: boolean;
+  is_construction: boolean;
+}
+
 export interface SketchFeatureParameters {
   plane_id: string;
   plane_frame: {
@@ -107,6 +128,7 @@ export interface SketchFeatureParameters {
   active_tool: SketchTool;
   lines: SketchLineEntry[];
   circles: SketchCircleEntry[];
+  arcs: SketchArcEntry[];
   points: SketchPointEntry[];
   dimensions: SketchDimensionEntry[];
   line_relations: SketchLineRelationEntry[];

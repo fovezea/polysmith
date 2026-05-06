@@ -26,6 +26,7 @@ import {
   buildPrimitiveObject,
   buildReferenceAxisObject,
   buildReferencePlaneObject,
+  buildSketchArcObject,
   buildSketchCircleObject,
   buildSketchConstraintObject,
   buildSketchDimensionObject,
@@ -119,6 +120,26 @@ interface ViewportPanelProps {
     centerY: number,
     radius: number,
   ) => Promise<void>;
+  // Add an arc using one of two creation modes:
+  //   - "three_point": (start, end, anchor) where anchor lies on the
+  //     arc and fixes the bulge.
+  //   - "center_start_end": anchor is the center; the end is snapped
+  //     onto the resulting circle in the core.
+  // Both modes accept the same three (x, y) pairs in sketch-local
+  // 2D coordinates; the ViewportPanel resolves them from world clicks.
+  onAddSketchArc: (
+    startX: number,
+    startY: number,
+    endX: number,
+    endY: number,
+    anchorX: number,
+    anchorY: number,
+    mode: "three_point" | "center_start_end",
+  ) => Promise<void>;
+  // Tool-level mode for the arc tool. Lifted out of ViewportPanel so
+  // the SketchToolbar can render the segmented control. Defaults to
+  // "three_point"; the toolbar updates it through `onSetArcToolMode`.
+  arcToolMode: "three_point" | "center_start_end";
   onSelectSketchEntity: (entityId: string) => Promise<void>;
   onPickSketchPoint: (
     pointId: string,
@@ -174,6 +195,8 @@ export function ViewportPanel({
   onSetSketchTangentConstraint,
   onAddSketchRectangle,
   onAddSketchCircle,
+  onAddSketchArc,
+  arcToolMode,
   onSelectSketchEntity,
   onPickSketchPoint,
   armedSketchConstraint,
@@ -300,6 +323,16 @@ export function ViewportPanel({
   const addSketchLineRef = useRef(onAddSketchLine);
   const addSketchRectangleRef = useRef(onAddSketchRectangle);
   const addSketchCircleRef = useRef(onAddSketchCircle);
+  const addSketchArcRef = useRef(onAddSketchArc);
+  const arcToolModeRef = useRef(arcToolMode);
+  // Arc placement requires three clicks. The first click goes through
+  // `lineDraftStartRef` (shared with line/rect/circle to keep the
+  // start-snap pipeline uniform); the second click lands here and
+  // captures the end point so the third click can resolve to the
+  // anchor (interior point or center, depending on `arcToolMode`).
+  // Cleared after every committed arc and whenever the user switches
+  // away from the arc tool.
+  const arcSecondPointRef = useRef<[number, number] | null>(null);
   const selectSketchEntityRef = useRef(onSelectSketchEntity);
   const pickSketchPointRef = useRef(onPickSketchPoint);
   const selectSketchDimensionRef = useRef(onSelectSketchDimension);
@@ -1208,6 +1241,8 @@ export function ViewportPanel({
     addSketchLineRef.current = onAddSketchLine;
     addSketchRectangleRef.current = onAddSketchRectangle;
     addSketchCircleRef.current = onAddSketchCircle;
+    addSketchArcRef.current = onAddSketchArc;
+    arcToolModeRef.current = arcToolMode;
     selectSketchEntityRef.current = onSelectSketchEntity;
     pickSketchPointRef.current = onPickSketchPoint;
     selectSketchDimensionRef.current = onSelectSketchDimension;
@@ -1230,6 +1265,8 @@ export function ViewportPanel({
     onAddSketchLine,
     onAddSketchRectangle,
     onAddSketchCircle,
+    onAddSketchArc,
+    arcToolMode,
     onSelectSketchEntity,
     onPickSketchPoint,
     onSelectSketchDimension,
@@ -2188,6 +2225,32 @@ export function ViewportPanel({
         const [startX, startY] = lineDraftStartRef.current;
         clearPreviewLine();
         clearPreviewCircle();
+
+        if (activeSketchToolRef.current === "arc") {
+          // Three-click arc placement. The first click landed in the
+          // `!lineDraftStartRef.current` branch and stored the
+          // start point; the second click captures the end point and
+          // returns; the third click reads the anchor and dispatches.
+          if (!arcSecondPointRef.current) {
+            arcSecondPointRef.current = sketchPoint.local;
+            return;
+          }
+          const [endX, endY] = arcSecondPointRef.current;
+          const [anchorX, anchorY] = sketchPoint.local;
+          arcSecondPointRef.current = null;
+          lineDraftStartRef.current = null;
+          void addSketchArcRef.current(
+            startX,
+            startY,
+            endX,
+            endY,
+            anchorX,
+            anchorY,
+            arcToolModeRef.current,
+          );
+          return;
+        }
+
         if (activeSketchToolRef.current === "rectangle") {
           lineDraftStartRef.current = null;
           void addSketchRectangleRef.current(
@@ -2648,6 +2711,21 @@ export function ViewportPanel({
       sketchGroup.add(sketchCircleObject);
     }
 
+    for (const sketchArc of sceneData.sketchArcs) {
+      // Same plane-frame resolution as circles — see the comment
+      // above. Arc samples need the active sketch's frame to land
+      // on the plane.
+      const frame =
+        activeSketchPlaneId &&
+        sketchArc.planeId === activeSketchPlaneId &&
+        activeSketchPlaneFrame
+          ? activeSketchPlaneFrame
+          : null;
+      const sketchArcObject = buildSketchArcObject(sketchArc, frame);
+      sketchEntityObjectsRef.current.push(sketchArcObject);
+      sketchGroup.add(sketchArcObject);
+    }
+
     for (const sketchDimension of sceneData.sketchDimensions) {
       const sketchDimensionObject = buildSketchDimensionObject(sketchDimension);
       sketchDimensionObjectsRef.current.push(sketchDimensionObject.line);
@@ -2705,6 +2783,7 @@ export function ViewportPanel({
 
   useEffect(() => {
     lineDraftStartRef.current = null;
+    arcSecondPointRef.current = null;
     clearPreviewLine();
     clearPreviewCircle();
     setSketchSnapLabel(null);
@@ -2738,6 +2817,7 @@ export function ViewportPanel({
           return;
         }
         lineDraftStartRef.current = null;
+        arcSecondPointRef.current = null;
         clearPreviewLine();
         clearPreviewCircle();
         setSketchSnapLabel(null);

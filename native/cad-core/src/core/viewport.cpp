@@ -360,6 +360,35 @@ ViewportSketchCirclePrimitive make_sketch_circle_primitive(
   };
 }
 
+ViewportSketchArcPrimitive make_sketch_arc_primitive(
+    const SketchArc& arc,
+    const SketchFeatureParameters& parameters,
+    bool is_selected) {
+  const WorldPoint center = to_world_point(parameters, arc.center_x, arc.center_y);
+  const WorldPoint start = to_world_point(parameters, arc.start_x, arc.start_y);
+  const WorldPoint end = to_world_point(parameters, arc.end_x, arc.end_y);
+
+  return ViewportSketchArcPrimitive{
+      .arc_id = arc.id,
+      .start_point_id = arc.start_point_id,
+      .end_point_id = arc.end_point_id,
+      .plane_id = parameters.plane_id,
+      .center_x = center.x,
+      .center_y = center.y,
+      .center_z = center.z,
+      .radius = arc.radius,
+      .start_x = start.x,
+      .start_y = start.y,
+      .start_z = start.z,
+      .end_x = end.x,
+      .end_y = end.y,
+      .end_z = end.z,
+      .ccw = arc.ccw,
+      .is_selected = is_selected,
+      .is_construction = arc.is_construction,
+  };
+}
+
 ViewportSketchPointPrimitive make_sketch_point_primitive(
     const SketchPoint& point,
     const SketchFeatureParameters& parameters,
@@ -1354,6 +1383,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
         .reference_axes = {},
         .sketch_lines = {},
         .sketch_circles = {},
+        .sketch_arcs = {},
         .sketch_points = {},
         .sketch_dimensions = {},
         .sketch_constraints = {},
@@ -1387,6 +1417,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
   std::vector<ViewportReferenceAxis> reference_axes;
   std::vector<ViewportSketchLinePrimitive> sketch_lines;
   std::vector<ViewportSketchCirclePrimitive> sketch_circles;
+  std::vector<ViewportSketchArcPrimitive> sketch_arcs;
   std::vector<ViewportSketchPointPrimitive> sketch_points;
   std::vector<ViewportSketchDimensionPrimitive> sketch_dimensions;
   std::vector<ViewportSketchConstraintPrimitive> sketch_constraints;
@@ -2676,6 +2707,16 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
         }
       }
 
+      for (const auto& arc : feature.sketch_parameters->arcs) {
+        const bool is_selected_sketch_entity =
+            document->selected_sketch_entity_id.has_value() &&
+            document->selected_sketch_entity_id.value() == arc.id;
+        sketch_arcs.push_back(make_sketch_arc_primitive(
+            arc,
+            *feature.sketch_parameters,
+            is_selected_sketch_entity));
+      }
+
       for (const auto& circle : feature.sketch_parameters->circles) {
         const bool is_selected_sketch_entity =
             document->selected_sketch_entity_id.has_value() &&
@@ -2894,6 +2935,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
       .reference_axes = reference_axes,
       .sketch_lines = sketch_lines,
       .sketch_circles = sketch_circles,
+      .sketch_arcs = sketch_arcs,
       .sketch_points = sketch_points,
       .sketch_dimensions = sketch_dimensions,
       .sketch_constraints = sketch_constraints,

@@ -8,6 +8,7 @@ import {
   ScenePrimitive,
   SolidFaceInteractionState,
   SolidFaceVisual,
+  SketchArcScene,
   SketchCircleScene,
   SketchConstraintScene,
   SketchDimensionScene,
@@ -871,6 +872,111 @@ export function buildSketchCircleObject(
     sketchCircle.userData.sketchEntityKind = "circle";
   }
   return sketchCircle;
+}
+
+// Sample a sketch arc into a polyline and emit it as a THREE.Line.
+// `planeFrame` carries the sketch plane's world-space basis so the
+// sampling stays planar — same pattern as `buildSketchCircleObject`.
+// `start`, `end`, and `center` arrive in world space (the core
+// already projects them through the plane frame), so we project them
+// back into the sketch's local 2D frame, sample around the circle,
+// then project each sample back to world.
+export function buildSketchArcObject(
+  arc: SketchArcScene,
+  planeFrame: SketchPlaneFrame | null = null,
+) {
+  const material = arc.isPreview
+    ? new THREE.LineDashedMaterial({
+        color: themeColor("--color-tertiary-plane-fill", "#fff7c0"),
+        transparent: true,
+        opacity: 0.55,
+        dashSize: 1,
+        gapSize: 0.6,
+      })
+    : new THREE.LineBasicMaterial({
+        color: arc.isSelected
+          ? themeColor("--color-primary-edge-active", "#c3f5ff")
+          : themeColor("--color-tertiary-plane-fill", "#fff7c0"),
+        transparent: true,
+        opacity: 0.98,
+      });
+
+  // Resolve the sketch plane's local x / y world axes (same logic as
+  // `buildSketchCircleObject`). Arc sampling parameterizes on angle
+  // around the center in this local 2D frame.
+  let xAxis: [number, number, number];
+  let yAxis: [number, number, number];
+  if (planeFrame) {
+    xAxis = [planeFrame.x_axis.x, planeFrame.x_axis.y, planeFrame.x_axis.z];
+    yAxis = [planeFrame.y_axis.x, planeFrame.y_axis.y, planeFrame.y_axis.z];
+  } else if (arc.planeId === "ref-plane-xy") {
+    xAxis = [1, 0, 0];
+    yAxis = [0, 0, 1];
+  } else if (arc.planeId === "ref-plane-yz") {
+    xAxis = [0, 1, 0];
+    yAxis = [0, 0, 1];
+  } else {
+    xAxis = [1, 0, 0];
+    yAxis = [0, 1, 0];
+  }
+
+  // Project a world-space point into the (xAxis, yAxis) frame
+  // anchored at the arc's center. Used to recover start_angle /
+  // end_angle from the world-space endpoints we received.
+  const project_local = (p: [number, number, number]): [number, number] => {
+    const dx = p[0] - arc.center[0];
+    const dy = p[1] - arc.center[1];
+    const dz = p[2] - arc.center[2];
+    return [
+      dx * xAxis[0] + dy * xAxis[1] + dz * xAxis[2],
+      dx * yAxis[0] + dy * yAxis[1] + dz * yAxis[2],
+    ];
+  };
+
+  const [sx, sy] = project_local(arc.start);
+  const [ex, ey] = project_local(arc.end);
+  const start_angle = Math.atan2(sy, sx);
+  const end_angle = Math.atan2(ey, ex);
+
+  // Sweep direction matches the arc's stored `ccw`. Normalize so the
+  // sample loop walks from start to end through the correct side of
+  // the circle (otherwise a >180° major arc would sample the minor
+  // arc instead).
+  let sweep = end_angle - start_angle;
+  if (arc.ccw) {
+    while (sweep <= 0) sweep += Math.PI * 2;
+  } else {
+    while (sweep >= 0) sweep -= Math.PI * 2;
+  }
+
+  // 64 segments matches buildSketchCircleObject's resolution. Smaller
+  // arcs naturally end up with fewer "visible" segments because the
+  // chord per segment scales with the sweep.
+  const segments = 64;
+  const points: THREE.Vector3[] = [];
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    const angle = start_angle + sweep * t;
+    const localX = arc.radius * Math.cos(angle);
+    const localY = arc.radius * Math.sin(angle);
+    points.push(
+      new THREE.Vector3(
+        arc.center[0] + xAxis[0] * localX + yAxis[0] * localY,
+        arc.center[1] + xAxis[1] * localX + yAxis[1] * localY,
+        arc.center[2] + xAxis[2] * localX + yAxis[2] * localY,
+      ),
+    );
+  }
+
+  const geometry = new THREE.BufferGeometry().setFromPoints(points);
+  const sketchArc = new THREE.Line(geometry, material);
+  if (arc.isPreview) {
+    sketchArc.computeLineDistances();
+  } else {
+    sketchArc.userData.sketchEntityId = arc.arcId;
+    sketchArc.userData.sketchEntityKind = "arc";
+  }
+  return sketchArc;
 }
 
 export function buildSketchPointObject(point: SketchPointScene) {

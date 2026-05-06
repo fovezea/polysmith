@@ -880,6 +880,22 @@ void CadCoreApp::handle_command_line(const std::string& line) {
     return;
   }
 
+  if (command.type == "add_sketch_arc") {
+    const auto document = document_manager().add_sketch_arc(
+        read_dimension(command.payload, "start_x"),
+        read_dimension(command.payload, "start_y"),
+        read_dimension(command.payload, "end_x"),
+        read_dimension(command.payload, "end_y"),
+        read_dimension(command.payload, "anchor_x"),
+        read_dimension(command.payload, "anchor_y"),
+        read_string(command.payload, "mode"));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
   if (command.type == "add_sketch_circle") {
     const auto document = document_manager().add_sketch_circle(
         read_dimension(command.payload, "center_x"),

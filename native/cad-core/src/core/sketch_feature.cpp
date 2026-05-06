@@ -457,6 +457,16 @@ void rebuild_sketch_points(SketchFeatureParameters& parameters) {
     append_point(line.end_point_id, "endpoint", line.end_x, line.end_y);
   }
 
+  for (const auto& arc : parameters.arcs) {
+    // Arc endpoints share the line "endpoint" kind so the same
+    // hover / snapping / loop-detection logic that already walks
+    // endpoint points just works on arcs without special-casing.
+    // Coords come from the cached arc params (which are kept in
+    // sync at creation; v1 freezes them after that).
+    append_point(arc.start_point_id, "endpoint", arc.start_x, arc.start_y);
+    append_point(arc.end_point_id, "endpoint", arc.end_x, arc.end_y);
+  }
+
   for (const auto& circle : parameters.circles) {
     append_point(
         "point-circle-" + circle.id + "-center", "center", circle.center_x, circle.center_y);
@@ -2621,6 +2631,73 @@ void add_sketch_circle(FeatureEntry& feature,
       .value = circle.radius,
   });
   refresh_sketch_derived_state(feature);
+}
+
+void add_sketch_arc(FeatureEntry& feature,
+                    int arc_index,
+                    int start_point_index,
+                    int end_point_index,
+                    double start_x,
+                    double start_y,
+                    double end_x,
+                    double end_y,
+                    double center_x,
+                    double center_y,
+                    double radius,
+                    bool ccw) {
+  if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+    throw std::runtime_error("Only sketch features can accept sketch arcs");
+  }
+
+  if (radius <= kMinimumSketchDimensionValue) {
+    throw std::runtime_error("Sketch arcs must have non-zero radius");
+  }
+
+  // Reuse an existing endpoint id when this arc's start / end land on
+  // a point that another entity (line or arc) already owns. Mirrors
+  // `add_sketch_line`'s behaviour so arcs and lines share endpoint
+  // points whenever they meet at the same coordinates — the profile
+  // loop detector relies on shared point ids (or the coord fallback)
+  // to chain edges into a closed loop.
+  const auto shared_start_point = find_coincident_endpoint(
+      *feature.sketch_parameters, "", start_x, start_y);
+  const auto shared_end_point = find_coincident_endpoint(
+      *feature.sketch_parameters, "", end_x, end_y);
+
+  const std::string start_point_id =
+      shared_start_point.has_value()
+          ? std::get<0>(shared_start_point.value())
+          : "point-" + std::to_string(start_point_index);
+  const std::string end_point_id =
+      shared_end_point.has_value()
+          ? std::get<0>(shared_end_point.value())
+          : "point-" + std::to_string(end_point_index);
+
+  feature.sketch_parameters->arcs.push_back(SketchArc{
+      .id = "arc-" + std::to_string(arc_index),
+      .start_point_id = start_point_id,
+      .end_point_id = end_point_id,
+      .center_x = center_x,
+      .center_y = center_y,
+      .radius = radius,
+      .start_x = start_x,
+      .start_y = start_y,
+      .end_x = end_x,
+      .end_y = end_y,
+      .ccw = ccw,
+  });
+
+  refresh_sketch_derived_state(feature);
+
+  // After the rebuild above, the arc's endpoint points exist in the
+  // points list. Flag them as fixed so v1 stops the user from dragging
+  // them off the cached arc — the arc's geometry is otherwise frozen
+  // at creation. Editing flows can flip this back to false later.
+  for (auto& point : feature.sketch_parameters->points) {
+    if (point.id == start_point_id || point.id == end_point_id) {
+      point.is_fixed = true;
+    }
+  }
 }
 
 }  // namespace polysmith::core

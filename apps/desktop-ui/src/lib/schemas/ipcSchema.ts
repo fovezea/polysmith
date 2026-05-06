@@ -172,6 +172,27 @@ const documentStateSchema = z.object({
               radius: z.number(),
             }),
           ),
+          // Sketch arcs in the document state. Defaulted to `[]`
+          // so older saves (or messages from a core that pre-dates
+          // arc support) don't fail validation.
+          arcs: z
+            .array(
+              z.object({
+                arc_id: z.string(),
+                start_point_id: z.string(),
+                end_point_id: z.string(),
+                center_x: z.number(),
+                center_y: z.number(),
+                radius: z.number(),
+                start_x: z.number(),
+                start_y: z.number(),
+                end_x: z.number(),
+                end_y: z.number(),
+                ccw: z.boolean(),
+                is_construction: z.boolean().default(false),
+              }),
+            )
+            .default([]),
           points: z.array(
             z.object({
               point_id: z.string(),
@@ -434,6 +455,43 @@ const viewportStateSchema = z.object({
       is_preview: z.boolean().default(false),
     }),
   ),
+  // Sketch arcs share the same visual treatment as sketch circles
+  // (selectable, preview-aware) but carry both endpoints + center
+  // separately because the renderer samples between the two
+  // endpoints around the center along the stored sweep direction.
+  // Defaulted to `[]` so clients running against an older core
+  // (no `sketch_arcs` key in the payload) don't crash on the
+  // downstream `.filter()` call in `viewportScene.ts`.
+  sketch_arcs: z
+    .array(
+      z.object({
+        arc_id: z.string(),
+        start_point_id: z.string(),
+        end_point_id: z.string(),
+        plane_id: z.string(),
+        center: z.object({
+          x: z.number(),
+          y: z.number(),
+          z: z.number(),
+        }),
+        radius: z.number(),
+        start: z.object({
+          x: z.number(),
+          y: z.number(),
+          z: z.number(),
+        }),
+        end: z.object({
+          x: z.number(),
+          y: z.number(),
+          z: z.number(),
+        }),
+        ccw: z.boolean(),
+        is_selected: z.boolean(),
+        is_construction: z.boolean().default(false),
+        is_preview: z.boolean().default(false),
+      }),
+    )
+    .default([]),
   sketch_points: z.array(
     z.object({
       point_id: z.string(),

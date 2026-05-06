@@ -820,6 +820,34 @@ export function makeAddSketchCircleCommand(
   };
 }
 
+// Build an `add_sketch_arc` command. `mode` is one of "three_point"
+// (anchor lies on the arc and fixes the bulge) or "center_start_end"
+// (anchor is the center; end is snapped onto the resulting circle).
+// See `AddSketchArcCommand` in types/ipc.ts for the full contract.
+export function makeAddSketchArcCommand(
+  startX: number,
+  startY: number,
+  endX: number,
+  endY: number,
+  anchorX: number,
+  anchorY: number,
+  mode: "three_point" | "center_start_end",
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "add_sketch_arc",
+    payload: {
+      start_x: startX,
+      start_y: startY,
+      end_x: endX,
+      end_y: endY,
+      anchor_x: anchorX,
+      anchor_y: anchorY,
+      mode,
+    },
+  };
+}
+
 export function makeSelectSketchPointCommand(pointId: string): CoreCommand {
   return {
     id: crypto.randomUUID(),

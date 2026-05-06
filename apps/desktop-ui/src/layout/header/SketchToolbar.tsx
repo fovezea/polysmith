@@ -16,6 +16,11 @@ interface SketchToolbarProps {
   // an armed constraint. The toolbar uses this flag only to
   // light up the Mirror button while the panel is open.
   isMirrorToolOpen: boolean;
+  // Arc tool's creation mode. Lifted from App.tsx so the toolbar can
+  // render a small segmented control next to the Arc button when the
+  // arc tool is active. v1 supports two modes; the toolbar passes
+  // the user's choice back through `onSetArcToolMode`.
+  arcToolMode: "three_point" | "center_start_end";
 
   onStartSketch: () => Promise<void>;
   onFinishSketch: () => Promise<void>;
@@ -24,6 +29,7 @@ interface SketchToolbarProps {
   onArmSketchConstraint: (constraint: ConstraintType) => Promise<void>;
   onStartMirrorTool: () => Promise<void>;
   onProjectFace: () => Promise<void>;
+  onSetArcToolMode: (mode: "three_point" | "center_start_end") => void;
 }
 
 const sketchTools: Array<{
@@ -36,7 +42,7 @@ const sketchTools: Array<{
   { id: "line", label: "Line", shortcut: "L", enabled: true },
   { id: "rectangle", label: "Rectangle", shortcut: "R", enabled: true },
   { id: "circle", label: "Circle", shortcut: "C", enabled: true },
-  { id: "arc", label: "Arc", enabled: false },
+  { id: "arc", label: "Arc", enabled: true },
   { id: "trim", label: "Trim", enabled: false },
 ];
 
@@ -48,6 +54,7 @@ export function SketchToolbar({
   selectedFaceId,
   armedSketchConstraint,
   isMirrorToolOpen,
+  arcToolMode,
   onStartSketch,
   onFinishSketch,
   onCancelSketchConstraint,
@@ -55,6 +62,7 @@ export function SketchToolbar({
   onArmSketchConstraint,
   onStartMirrorTool,
   onProjectFace,
+  onSetArcToolMode,
 }: SketchToolbarProps) {
   const canProjectFace =
     Boolean(activeSketchPlaneId) && Boolean(selectedFaceId);
@@ -91,7 +99,8 @@ export function SketchToolbar({
               (tool.id !== "select" &&
                 tool.id !== "line" &&
                 tool.id !== "rectangle" &&
-                tool.id !== "circle")
+                tool.id !== "circle" &&
+                tool.id !== "arc")
             ) {
               return;
             }
@@ -103,6 +112,42 @@ export function SketchToolbar({
           <SketchToolIcon tool={tool.id} />
         </button>
       ))}
+      {activeSketchPlaneId && activeSketchTool === "arc" ? (
+        // Arc creation mode toggle. Visible only while the arc tool
+        // is active so the toolbar stays compact otherwise. Three-
+        // point is the default; user can flip to center+start+end
+        // mid-sketch without leaving the tool.
+        <div
+          role="group"
+          aria-label="Arc creation mode"
+          className="ml-1 flex items-center rounded-md border border-white/10 bg-black/20 p-0.5 text-xs"
+        >
+          <button
+            type="button"
+            className={
+              arcToolMode === "three_point"
+                ? "rounded px-2 py-1 bg-white/15 text-on-surface"
+                : "rounded px-2 py-1 text-on-surface-dim hover:text-on-surface"
+            }
+            data-tooltip="Three-point arc: click start, end, then a point on the arc"
+            onClick={() => onSetArcToolMode("three_point")}
+          >
+            3-point
+          </button>
+          <button
+            type="button"
+            className={
+              arcToolMode === "center_start_end"
+                ? "rounded px-2 py-1 bg-white/15 text-on-surface"
+                : "rounded px-2 py-1 text-on-surface-dim hover:text-on-surface"
+            }
+            data-tooltip="Center + start + end: click center, start, then end"
+            onClick={() => onSetArcToolMode("center_start_end")}
+          >
+            Center
+          </button>
+        </div>
+      ) : null}
       <div className="h-8 w-px bg-white/10" />
       <button
         className="cad-icon-button cad-icon-tool h-9 w-9 p-0"

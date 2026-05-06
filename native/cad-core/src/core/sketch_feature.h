@@ -110,6 +110,28 @@ void add_sketch_circle(FeatureEntry& feature,
                        double center_y,
                        double radius);
 
+// Build a SketchArc on the feature. Caller is expected to have already
+// computed the arc's center, radius, and ccw direction from whichever
+// creation flow they ran (three-point or center+start+end). The arc's
+// endpoint points are added to the points list as kind="endpoint" and
+// flagged is_fixed=true so v1 keeps the cached params authoritative.
+// `start_point_index` / `end_point_index` are the trailing integers
+// used to mint the synthesized point ids; they're sourced from the
+// shared sketch line counter so arc endpoints can't collide with
+// line endpoints.
+void add_sketch_arc(FeatureEntry& feature,
+                    int arc_index,
+                    int start_point_index,
+                    int end_point_index,
+                    double start_x,
+                    double start_y,
+                    double end_x,
+                    double end_y,
+                    double center_x,
+                    double center_y,
+                    double radius,
+                    bool ccw);
+
 // ---------------------------------------------------------------
 // Mirror tool — Fusion-style pending preview lifecycle.
 //

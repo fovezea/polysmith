@@ -163,6 +163,29 @@ sketch_parameters_from_payload(const json& payload) {
       params.circles.push_back(circle);
     }
   }
+  // Older saves predate arcs; absence of the key just means no arcs
+  // exist, mirroring how `circles` and `lines` degrade gracefully.
+  if (payload.contains("arcs") && payload.at("arcs").is_array()) {
+    for (const auto& arc_payload : payload.at("arcs")) {
+      polysmith::core::SketchArc arc{};
+      arc.id = read_string(arc_payload, "arc_id");
+      arc.start_point_id = read_string(arc_payload, "start_point_id");
+      arc.end_point_id = read_string(arc_payload, "end_point_id");
+      arc.center_x = read_number(arc_payload, "center_x");
+      arc.center_y = read_number(arc_payload, "center_y");
+      arc.radius = read_number(arc_payload, "radius");
+      arc.start_x = read_number(arc_payload, "start_x");
+      arc.start_y = read_number(arc_payload, "start_y");
+      arc.end_x = read_number(arc_payload, "end_x");
+      arc.end_y = read_number(arc_payload, "end_y");
+      arc.ccw = read_bool(arc_payload, "ccw");
+      if (arc_payload.contains("is_construction") &&
+          arc_payload.at("is_construction").is_boolean()) {
+        arc.is_construction = arc_payload.at("is_construction").get<bool>();
+      }
+      params.arcs.push_back(arc);
+    }
+  }
   if (payload.contains("points") && payload.at("points").is_array()) {
     for (const auto& point_payload : payload.at("points")) {
       polysmith::core::SketchPoint point{};
@@ -473,6 +496,27 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                       });
                     }
                     return circles;
+                  }()},
+                 {"arcs",
+                 [&feature]() {
+                    json arcs = json::array();
+                    for (const auto& arc : feature.sketch_parameters->arcs) {
+                      arcs.push_back({
+                          {"arc_id", arc.id},
+                          {"start_point_id", arc.start_point_id},
+                          {"end_point_id", arc.end_point_id},
+                          {"center_x", arc.center_x},
+                          {"center_y", arc.center_y},
+                          {"radius", arc.radius},
+                          {"start_x", arc.start_x},
+                          {"start_y", arc.start_y},
+                          {"end_x", arc.end_x},
+                          {"end_y", arc.end_y},
+                          {"ccw", arc.ccw},
+                          {"is_construction", arc.is_construction},
+                      });
+                    }
+                    return arcs;
                   }()},
                  {"points",
                   [&feature]() {
@@ -960,6 +1004,38 @@ json to_payload(const polysmith::core::ViewportSketchCirclePrimitive& primitive)
   };
 }
 
+json to_payload(const polysmith::core::ViewportSketchArcPrimitive& primitive) {
+  return {
+      {"arc_id", primitive.arc_id},
+      {"start_point_id", primitive.start_point_id},
+      {"end_point_id", primitive.end_point_id},
+      {"plane_id", primitive.plane_id},
+      {"center",
+       {
+           {"x", primitive.center_x},
+           {"y", primitive.center_y},
+           {"z", primitive.center_z},
+       }},
+      {"radius", primitive.radius},
+      {"start",
+       {
+           {"x", primitive.start_x},
+           {"y", primitive.start_y},
+           {"z", primitive.start_z},
+       }},
+      {"end",
+       {
+           {"x", primitive.end_x},
+           {"y", primitive.end_y},
+           {"z", primitive.end_z},
+       }},
+      {"ccw", primitive.ccw},
+      {"is_selected", primitive.is_selected},
+      {"is_construction", primitive.is_construction},
+      {"is_preview", primitive.is_preview},
+  };
+}
+
 json to_payload(const polysmith::core::ViewportSketchPointPrimitive& primitive) {
   return {
       {"point_id", primitive.point_id},
@@ -1130,6 +1206,11 @@ json to_payload(const polysmith::core::ViewportState& viewport) {
     sketch_circles.push_back(to_payload(circle));
   }
 
+  json sketch_arcs = json::array();
+  for (const auto& arc : viewport.sketch_arcs) {
+    sketch_arcs.push_back(to_payload(arc));
+  }
+
   json sketch_points = json::array();
   for (const auto& point : viewport.sketch_points) {
     sketch_points.push_back(to_payload(point));
@@ -1171,6 +1252,7 @@ json to_payload(const polysmith::core::ViewportState& viewport) {
       {"reference_axes", reference_axes},
       {"sketch_lines", sketch_lines},
       {"sketch_circles", sketch_circles},
+      {"sketch_arcs", sketch_arcs},
       {"sketch_points", sketch_points},
       {"sketch_dimensions", sketch_dimensions},
       {"sketch_constraints", sketch_constraints},

@@ -95,6 +95,10 @@ interface AppHeaderProps {
   selectedFaceId: string | null;
   armedSketchConstraint: ArmedSketchConstraint;
   isMirrorToolOpen: boolean;
+  // Arc tool's creation mode + setter — see SketchToolbar for the
+  // segmented control's behaviour.
+  arcToolMode: "three_point" | "center_start_end";
+  onSetArcToolMode: (mode: "three_point" | "center_start_end") => void;
   onStart: () => Promise<void>;
   onCreateDocument: () => Promise<void>;
   onExportDocument: () => Promise<void>;
@@ -140,6 +144,8 @@ export function AppHeader({
   selectedFaceId,
   armedSketchConstraint,
   isMirrorToolOpen,
+  arcToolMode,
+  onSetArcToolMode,
   onStart,
   onCreateDocument,
   onExportDocument,
@@ -304,6 +310,8 @@ export function AppHeader({
               selectedFaceId={selectedFaceId}
               armedSketchConstraint={armedSketchConstraint}
               isMirrorToolOpen={isMirrorToolOpen}
+              arcToolMode={arcToolMode}
+              onSetArcToolMode={onSetArcToolMode}
               onStartSketch={onStartSketch}
               onFinishSketch={onFinishSketch}
               onCancelSketchConstraint={onCancelSketchConstraint}

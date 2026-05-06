@@ -117,6 +117,38 @@ struct SketchCircle {
   double radius;
 };
 
+// 2D arc on the sketch plane. Stored as start/end endpoint ids (so it
+// participates in the shared point graph just like a SketchLine) plus
+// a fully-cached (center, radius, ccw) triple. v1 freezes the arc's
+// shape at creation: the endpoint points are flagged is_fixed=true so
+// the user can't drag them off the cached arc, and there is no
+// constraint / dimension support on arcs yet. Editing flows on arcs
+// (drag-to-reshape, radius dimension, etc.) are deliberately left
+// for a follow-up so the loop / extrude integration here doesn't have
+// to worry about the cached params drifting from the endpoints.
+struct SketchArc {
+  std::string id;
+  std::string start_point_id;
+  std::string end_point_id;
+  // Cached shape parameters. Endpoint coordinates duplicate the
+  // owning SketchPoint coordinates, mirroring how SketchLine caches
+  // its endpoints, so consumers (renderer, profile builder) don't
+  // have to chase pointer references for every paint.
+  double center_x;
+  double center_y;
+  double radius;
+  double start_x;
+  double start_y;
+  double end_x;
+  double end_y;
+  // True when the sweep from start to end runs counter-clockwise in
+  // sketch-plane coordinates. Combined with the cached endpoints this
+  // disambiguates which side of the chord the arc bulges to (a major
+  // vs minor arc).
+  bool ccw;
+  bool is_construction = false;
+};
+
 struct SketchPoint {
   std::string id;
   std::string kind;
@@ -207,6 +239,7 @@ struct SketchFeatureParameters {
   std::string active_tool;
   std::vector<SketchLine> lines;
   std::vector<SketchCircle> circles;
+  std::vector<SketchArc> arcs;
   std::vector<SketchPoint> points;
   std::vector<SketchDimension> dimensions;
   std::vector<SketchLineRelation> line_relations;

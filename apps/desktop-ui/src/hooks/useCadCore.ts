@@ -9,6 +9,7 @@ import {
   makeCreateDocumentCommand,
   makeAddBoxFeatureCommand,
   makeAddCylinderFeatureCommand,
+  makeAddSketchArcCommand,
   makeAddSketchCircleCommand,
   makeAddSketchLineCommand,
   makeSetSketchLineConstructionCommand,
@@ -513,6 +514,28 @@ export function useCadCore() {
     ) => {
       await sendCoreCommand(
         makeAddSketchCircleCommand(centerX, centerY, radius),
+      );
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    addSketchArc: async (
+      startX: number,
+      startY: number,
+      endX: number,
+      endY: number,
+      anchorX: number,
+      anchorY: number,
+      mode: "three_point" | "center_start_end",
+    ) => {
+      await sendCoreCommand(
+        makeAddSketchArcCommand(
+          startX,
+          startY,
+          endX,
+          endY,
+          anchorX,
+          anchorY,
+          mode,
+        ),
       );
       await sendCoreCommand(makeGetViewportStateCommand());
     },

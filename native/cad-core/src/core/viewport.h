@@ -173,6 +173,35 @@ struct ViewportSketchCirclePrimitive {
   bool is_preview = false;
 };
 
+// 2D arc primitive emitted to the viewport. Carries the arc's
+// endpoints and center in world coordinates plus its radius and ccw
+// flag so the renderer can sample the polyline locally without
+// re-projecting back through the sketch plane. Endpoint world
+// coordinates are kept alongside `start_point_id` / `end_point_id`
+// so consumers (snapping, highlights) can look up the same shared
+// SketchPoint that lines use without an extra lookup.
+struct ViewportSketchArcPrimitive {
+  std::string arc_id;
+  std::string start_point_id;
+  std::string end_point_id;
+  std::string plane_id;
+  double center_x;
+  double center_y;
+  double center_z;
+  double radius;
+  double start_x;
+  double start_y;
+  double start_z;
+  double end_x;
+  double end_y;
+  double end_z;
+  bool ccw;
+  bool is_selected;
+  bool is_construction = false;
+  // See `ViewportSketchLinePrimitive::is_preview`.
+  bool is_preview = false;
+};
+
 struct ViewportSketchPointPrimitive {
   std::string point_id;
   std::string plane_id;
@@ -327,6 +356,7 @@ struct ViewportState {
   std::vector<ViewportReferenceAxis> reference_axes;
   std::vector<ViewportSketchLinePrimitive> sketch_lines;
   std::vector<ViewportSketchCirclePrimitive> sketch_circles;
+  std::vector<ViewportSketchArcPrimitive> sketch_arcs;
   std::vector<ViewportSketchPointPrimitive> sketch_points;
   std::vector<ViewportSketchDimensionPrimitive> sketch_dimensions;
   std::vector<ViewportSketchConstraintPrimitive> sketch_constraints;

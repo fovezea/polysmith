@@ -13,6 +13,7 @@ using polysmith::core::DetectedSketchProfiles;
 using polysmith::core::FeatureEntry;
 using polysmith::core::SketchFeatureParameters;
 using polysmith::core::SketchLine;
+using polysmith::core::add_sketch_arc;
 using polysmith::core::add_sketch_circle;
 using polysmith::core::add_sketch_line;
 using polysmith::core::add_sketch_rectangle;
@@ -312,6 +313,115 @@ bool test_rejects_dimension_drive_when_both_endpoints_are_fixed() {
   return false;
 }
 
+// Build a closed loop made of three lines plus one arc — a "stadium
+// half" shape: two parallel lines plus a base line, closed by a
+// semicircular arc on the right end. This exercises the generalized
+// loop detector's ability to chain mixed line+arc edges through their
+// shared endpoint points and to sample arc interiors when materializing
+// the profile polyline.
+//
+//   (-20, 10) ─────────── (20, 10)
+//                                 \
+//                                   ) arc, ccw, center (20, 0), r=10
+//                                 /
+//   (-20,-10) ─────────── (20,-10)
+//   (closing line on the left side)
+bool test_detects_polygon_loop_with_line_and_arc_edges() {
+  FeatureEntry feature = create_sketch_feature(2, "ref-plane-xy");
+
+  // Three lines plus the arc share endpoint points "point-N" via the
+  // unified counter; we'll drive add_sketch_arc directly with explicit
+  // point indices. The lines we add via the public helper will
+  // consume point-1..point-8 (two endpoints per line); we then add
+  // an arc whose start/end re-use the existing endpoint ids of the
+  // top-right and bottom-right line endpoints by passing matching
+  // coordinates — the loop detector keys on point id when present and
+  // fall back to coordinate match.
+
+  // Top edge: (-20, 10) -> (20, 10)
+  add_sketch_line(feature, /*line_index=*/1, -20.0, 10.0, 20.0, 10.0);
+  // Bottom edge: (-20, -10) -> (20, -10)
+  add_sketch_line(feature, /*line_index=*/2, -20.0, -10.0, 20.0, -10.0);
+  // Left edge: (-20, -10) -> (-20, 10)
+  add_sketch_line(feature, /*line_index=*/3, -20.0, -10.0, -20.0, 10.0);
+
+  // Right semicircle arc from (20, 10) to (20, -10), bulging right
+  // through (30, 0). Center is (20, 0), radius 10. ccw=false because
+  // going from (20,10) to (20,-10) through (30,0) is clockwise in
+  // sketch-plane coordinates.
+  //
+  // For the loop to chain via shared point ids, the arc's endpoint
+  // points need ids that match the line endpoint ids. add_sketch_arc
+  // assigns its own new "point-N" ids, so the chain falls back to
+  // coordinate matching. The ProfileEdge graph quantizes coordinates
+  // into a node key when no shared id is found, so two edges meeting
+  // at the same coordinate still merge into one graph node. This
+  // mirrors the legacy line-loop behaviour for sketches that don't
+  // wire shared point ids.
+  add_sketch_arc(feature,
+                 /*arc_index=*/1,
+                 /*start_point_index=*/100,
+                 /*end_point_index=*/101,
+                 /*start_x=*/20.0,
+                 /*start_y=*/10.0,
+                 /*end_x=*/20.0,
+                 /*end_y=*/-10.0,
+                 /*center_x=*/20.0,
+                 /*center_y=*/0.0,
+                 /*radius=*/10.0,
+                 /*ccw=*/false);
+
+  feature.sketch_parameters->profiles =
+      build_sketch_profile_regions(feature.sketch_parameters.value());
+
+  const DetectedSketchProfiles profiles = detect_sketch_profiles(feature);
+  if (!expect(profiles.polygons.size() == 1,
+              "expected one polygon profile from the line+arc loop")) {
+    return false;
+  }
+
+  // The sample count is 4 corners (top-left, top-right, bottom-right,
+  // bottom-left) plus 15 interior arc samples (kArcSampleSegments-1).
+  // We don't assert the exact count to keep the test resilient to
+  // future tuning of the sample density, but we do require the
+  // polygon to have markedly more than 4 vertices to confirm the
+  // arc was sampled.
+  const auto& polygon = profiles.polygons.front();
+  if (!expect(polygon.points.size() > 4,
+              "expected polygon to include arc samples beyond the "
+              "four corner vertices")) {
+    return false;
+  }
+
+  // Sanity-check the bounding box: the loop should span x in
+  // [-20, 30] (left edge to arc bulge) and y in [-10, 10]. We just
+  // check the extremes are present in the sample list.
+  double min_x = 0.0;
+  double max_x = 0.0;
+  double min_y = 0.0;
+  double max_y = 0.0;
+  for (size_t i = 0; i < polygon.points.size(); ++i) {
+    const auto& point = polygon.points[i];
+    if (i == 0) {
+      min_x = max_x = point.x;
+      min_y = max_y = point.y;
+    } else {
+      min_x = std::min(min_x, point.x);
+      max_x = std::max(max_x, point.x);
+      min_y = std::min(min_y, point.y);
+      max_y = std::max(max_y, point.y);
+    }
+  }
+  return expect(std::abs(min_x - (-20.0)) < 0.5,
+                "expected polygon to reach x = -20") &&
+         expect(std::abs(max_x - 30.0) < 0.5,
+                "expected polygon's arc bulge to reach x = 30") &&
+         expect(std::abs(min_y - (-10.0)) < 0.5,
+                "expected polygon to reach y = -10") &&
+         expect(std::abs(max_y - 10.0) < 0.5,
+                "expected polygon to reach y = 10");
+}
+
 }  // namespace
 
 int main() {
@@ -346,6 +456,9 @@ int main() {
     return EXIT_FAILURE;
   }
   if (!test_rejects_dimension_drive_when_both_endpoints_are_fixed()) {
+    return EXIT_FAILURE;
+  }
+  if (!test_detects_polygon_loop_with_line_and_arc_edges()) {
     return EXIT_FAILURE;
   }
 

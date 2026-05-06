@@ -6,6 +6,7 @@ import type {
   ViewportSolidFace,
   ViewportReferenceAxis,
   ViewportReferencePlane,
+  ViewportSketchArc,
   ViewportSketchCircle,
   ViewportSketchConstraint,
   ViewportSketchDimension,
@@ -17,6 +18,7 @@ import type {
   PolygonExtrudeScenePrimitive,
   ReferencePlaneScene,
   ReferenceAxisScene,
+  SketchArcScene,
   SketchCircleScene,
   SketchConstraintScene,
   SketchDimensionScene,
@@ -149,6 +151,23 @@ function makeSketchCircle(circle: ViewportSketchCircle): SketchCircleScene {
     center: [circle.center.x, circle.center.y, circle.center.z],
     radius: circle.radius,
     isSelected: circle.is_selected,
+  };
+}
+
+function makeSketchArc(arc: ViewportSketchArc): SketchArcScene {
+  return {
+    isPreview: arc.is_preview,
+    arcId: arc.arc_id,
+    startPointId: arc.start_point_id,
+    endPointId: arc.end_point_id,
+    planeId: arc.plane_id,
+    center: [arc.center.x, arc.center.y, arc.center.z],
+    radius: arc.radius,
+    start: [arc.start.x, arc.start.y, arc.start.z],
+    end: [arc.end.x, arc.end.y, arc.end.z],
+    ccw: arc.ccw,
+    isSelected: arc.is_selected,
+    isConstruction: arc.is_construction,
   };
 }
 
@@ -354,6 +373,9 @@ export function createViewportScene(
   const sketchCircles = viewport.sketch_circles
     .filter((circle) => isSketchPlaneVisible(circle.plane_id))
     .map(makeSketchCircle);
+  const sketchArcs = viewport.sketch_arcs
+    .filter((arc) => isSketchPlaneVisible(arc.plane_id))
+    .map(makeSketchArc);
   const sketchPoints: SketchPointScene[] = viewport.sketch_points
     .filter((point) => isSketchPlaneVisible(point.plane_id))
     .map((point) => ({
@@ -433,6 +455,7 @@ export function createViewportScene(
     cutPreviews,
     sketchLines,
     sketchCircles,
+    sketchArcs,
     sketchDimensions,
     sketchConstraints,
     sketchPoints,
@@ -505,6 +528,12 @@ export function createViewportScene(
         sketchCircles.map(
           (circle) =>
             `sketch-circle:${circle.circleId}:${circle.planeId}:${circle.center.join(":")}:${circle.radius}:${circle.isSelected}`,
+        ),
+      )
+      .concat(
+        sketchArcs.map(
+          (arc) =>
+            `sketch-arc:${arc.arcId}:${arc.planeId}:${arc.start.join(":")}:${arc.end.join(":")}:${arc.center.join(":")}:${arc.radius}:${arc.ccw}:${arc.isSelected}`,
         ),
       )
       .concat(

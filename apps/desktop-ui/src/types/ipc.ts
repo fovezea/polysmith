@@ -6,6 +6,7 @@ import {
   ViewportReferenceAxis,
   ViewportReferencePlane,
   ViewportSceneBounds,
+  ViewportSketchArc,
   ViewportSketchCircle,
   ViewportSketchConstraint,
   ViewportSketchDimension,
@@ -56,6 +57,7 @@ export interface ViewportState {
   reference_axes: ViewportReferenceAxis[];
   sketch_lines: ViewportSketchLine[];
   sketch_circles: ViewportSketchCircle[];
+  sketch_arcs: ViewportSketchArc[];
   sketch_points: ViewportSketchPoint[];
   sketch_dimensions: ViewportSketchDimension[];
   sketch_constraints: ViewportSketchConstraint[];
@@ -580,6 +582,28 @@ export interface AddSketchCircleCommand {
   };
 }
 
+// Add an arc to the active sketch. The third anchor's interpretation
+// depends on `mode`:
+//   - "three_point": (start, end, anchor) where anchor lies on the
+//     arc and fixes the bulge. Center is the circumcenter of the
+//     three points.
+//   - "center_start_end": anchor is the center; radius derives from
+//     |center - start|, and the end point is snapped onto the
+//     resulting circle.
+export interface AddSketchArcCommand {
+  id: string;
+  type: "add_sketch_arc";
+  payload: {
+    start_x: number;
+    start_y: number;
+    end_x: number;
+    end_y: number;
+    anchor_x: number;
+    anchor_y: number;
+    mode: "three_point" | "center_start_end";
+  };
+}
+
 export interface SetSketchToolCommand {
   id: string;
   type: "set_sketch_tool";
@@ -886,6 +910,7 @@ export type CoreCommand =
   | AddSketchAngleDimensionCommand
   | AddSketchRectangleCommand
   | AddSketchCircleCommand
+  | AddSketchArcCommand
   | SelectSketchPointCommand
   | SelectSketchEntityCommand
   | SelectSketchDimensionCommand

@@ -146,6 +146,28 @@ export interface SketchCircleScene {
   isSelected: boolean;
 }
 
+// 2D arc derived from `ViewportSketchArc`. The renderer turns this
+// into a THREE.Line by sampling the arc between `start` and `end`
+// around `center` along the stored sweep direction. v1 freezes the
+// arc's shape at creation, so endpoint drag is disabled at the
+// THREE picking layer; consumers still treat start/end as snap
+// targets via the shared SketchPoint graph.
+export interface SketchArcScene {
+  // See `SketchLineScene.isPreview`.
+  isPreview: boolean;
+  arcId: string;
+  startPointId: string;
+  endPointId: string;
+  planeId: string;
+  center: [number, number, number];
+  radius: number;
+  start: [number, number, number];
+  end: [number, number, number];
+  ccw: boolean;
+  isSelected: boolean;
+  isConstruction: boolean;
+}
+
 export interface SketchPointScene {
   pointId: string;
   kind: "endpoint" | "center";

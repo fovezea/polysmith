@@ -220,6 +220,24 @@ class DocumentManager {
   DocumentState add_sketch_circle(double center_x,
                                   double center_y,
                                   double radius);
+  // Add an arc to the active sketch. `mode` selects how the three
+  // input points are interpreted:
+  //   - "three_point": (start, end, anchor) — anchor lies on the arc
+  //     and fixes the bulge / radius. Center is the circumcenter of
+  //     the three points.
+  //   - "center_start_end": (start, end, anchor) — anchor is the
+  //     arc's center. Radius derives from |center - start|; the end
+  //     point is snapped onto the resulting circle so the arc closes
+  //     cleanly.
+  // Returns the document with the new arc and its endpoint points
+  // appended.
+  DocumentState add_sketch_arc(double start_x,
+                               double start_y,
+                               double end_x,
+                               double end_y,
+                               double anchor_x,
+                               double anchor_y,
+                               const std::string& mode);
   DocumentState select_sketch_point(const std::string& point_id);
   DocumentState select_sketch_entity(const std::string& entity_id);
   DocumentState select_sketch_dimension(const std::string& dimension_id);
@@ -251,6 +269,11 @@ class DocumentManager {
   int next_feature_id_ = 1;
   int next_sketch_line_id_ = 1;
   int next_sketch_circle_id_ = 1;
+  // Independent counter for arc ids ("arc-N"). Endpoint point ids
+  // ("point-N") still come from `next_sketch_line_id_` so arc and
+  // line endpoints share the same id space, keeping the points
+  // graph uniform.
+  int next_sketch_arc_id_ = 1;
   int document_count_ = 0;
   std::optional<DocumentState> document_;
   std::vector<DocumentState> undo_stack_;

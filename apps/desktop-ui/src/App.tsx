@@ -93,6 +93,13 @@ function App() {
   >(null);
   const [extrudeAction, setExtrudeAction] =
     useState<ActiveExtrudeAction | null>(null);
+  // Arc tool creation mode. Defaults to three-point (Fusion's default
+  // and the most ergonomic for shaping curves on the fly). The
+  // SketchToolbar exposes a segmented control to toggle to
+  // center+start+end without leaving the tool.
+  const [arcToolMode, setArcToolMode] = useState<
+    "three_point" | "center_start_end"
+  >("three_point");
   const [edgeOpAction, setEdgeOpAction] = useState<ActiveEdgeOpAction | null>(
     null,
   );
@@ -226,6 +233,7 @@ function App() {
     addSketchAngleDimension,
     addSketchRectangle,
     addSketchCircle,
+    addSketchArc,
     selectSketchPoint,
     selectSketchEntity,
     selectSketchDimension,
@@ -914,6 +922,8 @@ function App() {
           selectedFaceId={document?.selected_face_id ?? null}
           armedSketchConstraint={armedSketchConstraint}
           isMirrorToolOpen={isMirrorToolOpen}
+          arcToolMode={arcToolMode}
+          onSetArcToolMode={setArcToolMode}
           onStart={async () => {
             await runAction(start);
           }}
@@ -1360,6 +1370,28 @@ function App() {
                   await addSketchCircle(centerX, centerY, radius);
                 });
               }}
+              onAddSketchArc={async (
+                startX,
+                startY,
+                endX,
+                endY,
+                anchorX,
+                anchorY,
+                mode,
+              ) => {
+                await runAction(async () => {
+                  await addSketchArc(
+                    startX,
+                    startY,
+                    endX,
+                    endY,
+                    anchorX,
+                    anchorY,
+                    mode,
+                  );
+                });
+              }}
+              arcToolMode={arcToolMode}
               onSelectSketchEntity={async (entityId) => {
                 await runAction(async () => {
                   await handleSketchConstraintLinePick(entityId);
