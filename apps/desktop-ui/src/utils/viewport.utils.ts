@@ -1011,19 +1011,22 @@ export function buildSketchArcObject(
 }
 
 export function buildSketchPointObject(point: SketchPointScene) {
-  const geometry = new THREE.SphereGeometry(
-    point.kind === "center" ? 0.9 : 0.7,
-    12,
-    12,
-  );
+  // Projected points get a slightly larger sphere in a cyan-violet
+  // to read as "derived from a body vertex" — matches the Fusion
+  // visual convention. Endpoint / center keep the original look.
+  const radius =
+    point.kind === "center" ? 0.9 : point.kind === "projected" ? 0.85 : 0.7;
+  const geometry = new THREE.SphereGeometry(radius, 12, 12);
   const material = new THREE.MeshBasicMaterial({
     color: point.isSelected
       ? themeColor("--color-primary-edge-active", "#c3f5ff")
       : point.kind === "center"
         ? themeColor("--color-axis-z", "#6db4ff")
-        : themeColor("--color-tertiary-plane-edge", "#ffe784"),
+        : point.kind === "projected"
+          ? themeColor("--color-axis-z", "#6db4ff")
+          : themeColor("--color-tertiary-plane-edge", "#ffe784"),
     transparent: true,
-    opacity: point.isSelected ? 1 : 0.92,
+    opacity: 0.95,
   });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.position.set(...point.position);

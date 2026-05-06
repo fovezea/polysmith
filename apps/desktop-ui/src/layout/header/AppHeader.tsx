@@ -134,7 +134,6 @@ interface AppHeaderProps {
   onArmSketchConstraint: (constraint: ConstraintType) => Promise<void>;
   onStartMirrorTool: () => Promise<void>;
   onCancelSketchConstraint: () => void;
-  onProjectFace: () => Promise<void>;
 }
 
 export function AppHeader({
@@ -173,7 +172,6 @@ export function AppHeader({
   onArmSketchConstraint,
   onStartMirrorTool,
   onCancelSketchConstraint,
-  onProjectFace,
 }: AppHeaderProps) {
   const [activeWorkspace, setActiveWorkspace] =
     useState<(typeof workspaces)[number]>("Create");
@@ -330,7 +328,6 @@ export function AppHeader({
               onSetSketchTool={onSetSketchTool}
               onArmSketchConstraint={onArmSketchConstraint}
               onStartMirrorTool={onStartMirrorTool}
-              onProjectFace={onProjectFace}
             />
           ) : null}
         </div>

@@ -34,7 +34,9 @@ export interface SketchCircleEntry {
 
 export interface SketchPointEntry {
   point_id: string;
-  kind: "endpoint" | "center";
+  // "endpoint" / "center" / "projected" — see `SketchPointScene`
+  // for the renderer-side meaning of each value.
+  kind: "endpoint" | "center" | "projected";
   x: number;
   y: number;
   is_fixed: boolean;
@@ -158,6 +160,15 @@ export interface SketchFeatureParameters {
   // along a host line. Generalization of midpoint anchors used by
   // line-body and sub-segment midpoint snaps. Empty on older saves.
   point_line_anchors: SketchPointLineAnchorEntry[];
+  // Standalone projected points placed by the Project tool. These
+  // are *not* line / arc / circle endpoints — they live in their own
+  // collection so `rebuild_sketch_points` can re-emit them on every
+  // recompute. Empty on older saves; the schema defaults to [].
+  projected_points: SketchProjectedPointEntry[];
+  // Body face / edge ids that have already been projected onto this
+  // sketch. Used by the Project tool to short-circuit duplicate
+  // clicks. Empty on older saves; the schema defaults to [].
+  projected_sources: string[];
   profiles: SketchProfileRegionEntry[];
   // Optional pending mirror tool state. Null when no mirror is in
   // progress.
@@ -175,6 +186,19 @@ export interface SketchPointLineAnchorEntry {
   point_id: string;
   line_id: string;
   t: number;
+}
+
+// One standalone sketch point produced by the Project tool. The
+// canonical form is the `SketchPointEntry` re-emitted into the
+// sketch's `points` array (with `kind = "projected"` and
+// `is_fixed = true`); this entry tells the core where to put it.
+// `source_id` is the body vertex id (`<body>:vertex:<index>`) used
+// for idempotency.
+export interface SketchProjectedPointEntry {
+  point_id: string;
+  source_id: string;
+  x: number;
+  y: number;
 }
 
 export interface FilletFeatureParameters {
@@ -241,4 +265,9 @@ export interface FeatureEntry {
   construction_plane_parameters?: ConstructionPlaneFeatureParameters | null;
 }
 
-export type SketchTool = "select" | Shape2D | "dimension";
+// `project` is a modal tool, not a shape: while it's active the
+// viewport routes face / edge / vertex clicks to the matching
+// `project_*_into_sketch` IPC commands instead of the normal
+// selection. Kept outside `Shape2D` so the shape unions don't grow
+// a non-shape value.
+export type SketchTool = "select" | Shape2D | "project" | "dimension";

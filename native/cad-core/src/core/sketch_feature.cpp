@@ -206,7 +206,7 @@ void validate_constraint(const std::optional<std::string>& constraint) {
 void validate_tool(const std::string& tool) {
   if (tool != "select" && tool != "line" && tool != "rectangle" &&
       tool != "circle" && tool != "arc" && tool != "fillet" &&
-      tool != "dimension") {
+      tool != "project" && tool != "dimension") {
     throw std::runtime_error("Unsupported sketch tool: " + tool);
   }
 }
@@ -486,6 +486,30 @@ void rebuild_sketch_points(SketchFeatureParameters& parameters) {
                  fillet.corner_x,
                  fillet.corner_y);
   }
+
+  // Free-standing points placed by the Project tool. Same machinery
+  // as the fillet corner re-emit above: nothing else references
+  // these ids, so without this loop they would vanish on the next
+  // recompute. Marked `kind = "projected"` so the renderer / hit
+  // testing can give them a distinct visual (a small cross, similar
+  // to Fusion). `is_fixed` is forced true below by
+  // `enforce_projected_points_fixed` so the user can't drag them.
+  for (const auto& projected : parameters.projected_points) {
+    append_point(projected.id, "projected", projected.x, projected.y);
+  }
+}
+
+// Force every projected point to be is_fixed = true. Runs after
+// `rebuild_sketch_points` + `sync_fixed_point_flags` so it doesn't
+// matter what the previous-frame value was — projected points are
+// derived geometry and always locked.
+void enforce_projected_points_fixed(SketchFeatureParameters& parameters) {
+  for (auto& point : parameters.points) {
+    if (point.kind != "projected") {
+      continue;
+    }
+    point.is_fixed = true;
+  }
 }
 
 void sync_fixed_point_flags(SketchFeatureParameters& parameters,
@@ -703,32 +727,11 @@ void enforce_sketch_fillets(SketchFeatureParameters& parameters) {
   }
 }
 
-void refresh_sketch_derived_state(FeatureEntry& feature) {
-  if (!feature.sketch_parameters.has_value()) {
-    return;
-  }
-
-  // Re-anchor midpoint-bound points to their host line's current
-  // midpoint before rebuilding the points list. The cascade may
-  // shift other line endpoints which `rebuild_sketch_points` then
-  // mirrors into the points vector.
-  enforce_midpoint_anchors(*feature.sketch_parameters);
-  enforce_point_line_anchors(*feature.sketch_parameters);
-  enforce_tangent_line_circle_relations(*feature.sketch_parameters);
-
-  // Fillets must run *after* the anchor / tangent passes (so they
-  // see the latest line endpoints) and *before* `rebuild_sketch_points`
-  // (which pulls cached coords off lines and arcs into the points
-  // vector — we want it to see the fillet-corrected values).
-  enforce_sketch_fillets(*feature.sketch_parameters);
-
-  const std::vector<SketchPoint> previous_points = feature.sketch_parameters->points;
-  rebuild_sketch_points(*feature.sketch_parameters);
-  sync_fixed_point_flags(*feature.sketch_parameters, previous_points);
-  rebuild_sketch_profiles(*feature.sketch_parameters);
-  feature.parameters_summary = make_parameters_summary(feature.sketch_parameters.value());
-}
-
+// Forward-declared in `sketch_feature.h` so the document.cpp Project
+// tool path can re-run the recompute pipeline after appending to
+// `projected_points`. Defined below in the public namespace; the
+// closing brace of the anonymous namespace is right above this
+// comment.
 std::vector<std::string> collect_line_ids_for_point(
     const SketchFeatureParameters& parameters,
     const std::string& point_id) {
@@ -1457,6 +1460,36 @@ void enforce_parallel_relations(SketchFeatureParameters& parameters,
 }
 
 }  // namespace
+
+void refresh_sketch_derived_state(FeatureEntry& feature) {
+  if (!feature.sketch_parameters.has_value()) {
+    return;
+  }
+
+  // Re-anchor midpoint-bound points to their host line's current
+  // midpoint before rebuilding the points list. The cascade may
+  // shift other line endpoints which `rebuild_sketch_points` then
+  // mirrors into the points vector.
+  enforce_midpoint_anchors(*feature.sketch_parameters);
+  enforce_point_line_anchors(*feature.sketch_parameters);
+  enforce_tangent_line_circle_relations(*feature.sketch_parameters);
+
+  // Fillets must run *after* the anchor / tangent passes (so they
+  // see the latest line endpoints) and *before* `rebuild_sketch_points`
+  // (which pulls cached coords off lines and arcs into the points
+  // vector — we want it to see the fillet-corrected values).
+  enforce_sketch_fillets(*feature.sketch_parameters);
+
+  const std::vector<SketchPoint> previous_points = feature.sketch_parameters->points;
+  rebuild_sketch_points(*feature.sketch_parameters);
+  sync_fixed_point_flags(*feature.sketch_parameters, previous_points);
+  // Projected points are derived geometry; force them locked
+  // unconditionally even if `sync_fixed_point_flags` happened to
+  // copy a transient false from the previous frame.
+  enforce_projected_points_fixed(*feature.sketch_parameters);
+  rebuild_sketch_profiles(*feature.sketch_parameters);
+  feature.parameters_summary = make_parameters_summary(feature.sketch_parameters.value());
+}
 
 FeatureEntry create_sketch_feature(
     int feature_index,

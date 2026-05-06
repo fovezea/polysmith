@@ -285,6 +285,22 @@ export interface ProjectFaceIntoSketchCommand {
   };
 }
 
+export interface ProjectEdgeIntoSketchCommand {
+  id: string;
+  type: "project_edge_into_sketch";
+  payload: {
+    edge_id: string;
+  };
+}
+
+export interface ProjectVertexIntoSketchCommand {
+  id: string;
+  type: "project_vertex_into_sketch";
+  payload: {
+    vertex_id: string;
+  };
+}
+
 export interface AddBoxFeatureCommand {
   id: string;
   type: "add_box_feature";
@@ -912,6 +928,8 @@ export type CoreCommand =
   | SaveDocumentCommand
   | LoadDocumentCommand
   | ProjectFaceIntoSketchCommand
+  | ProjectEdgeIntoSketchCommand
+  | ProjectVertexIntoSketchCommand
   | AddBoxFeatureCommand
   | AddCylinderFeatureCommand
   | UpdateBoxFeatureCommand

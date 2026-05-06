@@ -30,6 +30,7 @@ const documentStateSchema = z.object({
       "circle",
       "arc",
       "fillet",
+      "project",
       "dimension",
     ])
     .nullable(),
@@ -144,6 +145,7 @@ const documentStateSchema = z.object({
             "circle",
             "arc",
             "fillet",
+            "project",
             "dimension",
           ]),
           lines: z.array(
@@ -190,6 +192,22 @@ const documentStateSchema = z.object({
               }),
             )
             .default([]),
+          // Standalone projected points placed by the Project tool.
+          // Defaulted to [] so older saves / pre-Project cores keep
+          // parsing cleanly.
+          projected_points: z
+            .array(
+              z.object({
+                point_id: z.string(),
+                source_id: z.string(),
+                x: z.number(),
+                y: z.number(),
+              }),
+            )
+            .default([]),
+          // Body face / edge ids that have been projected onto this
+          // sketch. Used for idempotency. Defaulted to [].
+          projected_sources: z.array(z.string()).default([]),
           circles: z.array(
             z.object({
               circle_id: z.string(),
@@ -241,7 +259,7 @@ const documentStateSchema = z.object({
           points: z.array(
             z.object({
               point_id: z.string(),
-              kind: z.enum(["endpoint", "center"]),
+              kind: z.enum(["endpoint", "center", "projected"]),
               x: z.number(),
               y: z.number(),
               is_fixed: z.boolean(),
@@ -555,7 +573,7 @@ const viewportStateSchema = z.object({
     z.object({
       point_id: z.string(),
       plane_id: z.string(),
-      kind: z.enum(["endpoint", "center"]),
+      kind: z.enum(["endpoint", "center", "projected"]),
       position: z.object({
         x: z.number(),
         y: z.number(),

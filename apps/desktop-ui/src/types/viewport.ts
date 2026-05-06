@@ -152,7 +152,10 @@ export interface ViewportSketchArc {
 export interface ViewportSketchPoint {
   point_id: string;
   plane_id: string;
-  kind: "endpoint" | "center";
+  // "endpoint" — line / arc endpoint (default).
+  // "center" — circle center.
+  // "projected" — Project-tool result; locked, drawn distinctly.
+  kind: "endpoint" | "center" | "projected";
   position: Vector3;
   is_fixed: boolean;
   is_selected: boolean;

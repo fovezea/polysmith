@@ -1,9 +1,5 @@
 import { ConstraintType, SketchTool, ArmedSketchConstraint } from "@/types";
-import {
-  ConstraintIcon,
-  ProjectFaceIcon,
-  SketchToolIcon,
-} from "./ToolBarIcons";
+import { ConstraintIcon, SketchToolIcon } from "./ToolBarIcons";
 
 interface SketchToolbarProps {
   disabled?: boolean;
@@ -28,7 +24,6 @@ interface SketchToolbarProps {
   onSetSketchTool: (tool: SketchTool) => Promise<void>;
   onArmSketchConstraint: (constraint: ConstraintType) => Promise<void>;
   onStartMirrorTool: () => Promise<void>;
-  onProjectFace: () => Promise<void>;
   onSetArcToolMode: (mode: "three_point" | "center_start_end") => void;
 }
 
@@ -44,6 +39,11 @@ const sketchTools: Array<{
   { id: "circle", label: "Circle", shortcut: "C", enabled: true },
   { id: "arc", label: "Arc", enabled: true },
   { id: "fillet", label: "Fillet", enabled: true },
+  // Modal Project tool. While active, viewport face / edge / vertex
+  // clicks are routed to `project_*_into_sketch` instead of the
+  // normal selection. Toggling the button (or pressing P / Esc /
+  // picking another tool) deactivates it. See App.tsx click intercept.
+  { id: "project", label: "Project (P)", shortcut: "P", enabled: true },
   { id: "trim", label: "Trim", enabled: false },
 ];
 
@@ -62,11 +62,14 @@ export function SketchToolbar({
   onSetSketchTool,
   onArmSketchConstraint,
   onStartMirrorTool,
-  onProjectFace,
   onSetArcToolMode,
 }: SketchToolbarProps) {
-  const canProjectFace =
-    Boolean(activeSketchPlaneId) && Boolean(selectedFaceId);
+  // selectedFaceId is no longer required by the toolbar (the modal
+  // Project tool now picks faces from the viewport while active),
+  // but we keep it on the props for parity with future face-aware
+  // tools (e.g. dimension targets). Reference here silences the
+  // unused-arg lint without changing behaviour.
+  void selectedFaceId;
   return (
     <>
       <button
@@ -102,12 +105,22 @@ export function SketchToolbar({
                 tool.id !== "rectangle" &&
                 tool.id !== "circle" &&
                 tool.id !== "arc" &&
-                tool.id !== "fillet")
+                tool.id !== "fillet" &&
+                tool.id !== "project")
             ) {
               return;
             }
 
             onCancelSketchConstraint();
+            // Toggle behaviour for the modal Project tool: clicking it
+            // again while it's already active turns it off (returns to
+            // Select). For non-modal tools the second click is a
+            // no-op because `onSetSketchTool` would fire the same id
+            // — harmless but skipped here for clarity.
+            if (tool.id === "project" && activeSketchTool === "project") {
+              void onSetSketchTool("select");
+              return;
+            }
             void onSetSketchTool(tool.id);
           }}
         >
@@ -150,18 +163,6 @@ export function SketchToolbar({
           </button>
         </div>
       ) : null}
-      <div className="h-8 w-px bg-white/10" />
-      <button
-        className="cad-icon-button cad-icon-tool h-9 w-9 p-0"
-        data-tooltip="Project Face (P)"
-        aria-label="Project Face"
-        disabled={!canProjectFace}
-        onClick={() => {
-          void onProjectFace();
-        }}
-      >
-        <ProjectFaceIcon />
-      </button>
       <div className="h-8 w-px bg-white/10" />
       <div className="cad-tool-group-label">Constraints</div>
       <button

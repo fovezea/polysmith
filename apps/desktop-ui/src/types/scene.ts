@@ -180,8 +180,14 @@ export interface SketchArcScene {
 }
 
 export interface SketchPointScene {
+  // "endpoint" — line / arc endpoint (default).
+  // "center" — circle center.
+  // "projected" — standalone point placed by the Project tool. The
+  // renderer draws these with a small distinguishing crosshair so
+  // the user can tell derived geometry from sketched geometry at a
+  // glance.
   pointId: string;
-  kind: "endpoint" | "center";
+  kind: "endpoint" | "center" | "projected";
   position: [number, number, number];
   isFixed: boolean;
   isSelected: boolean;

@@ -1822,6 +1822,31 @@ export function ViewportPanel({
           return;
         }
 
+        // Project tool is a picker, not a draftsman: skip every
+        // draft preview / snap-label resolution and run the body
+        // face / edge / vertex hover highlight directly so the
+        // user sees what they're about to pick. We can't fall
+        // through to the bottom of this function because the
+        // line-draft branches below `return` early before we get
+        // there — instead we mirror the same hover dispatch here
+        // and bail out.
+        if (activeSketchToolRef.current === "project") {
+          clearPreviewLine();
+          clearPreviewCircle();
+          clearPreviewArc();
+          setSketchSnapLabel(null);
+          setConstraintPreview(null);
+          const projectHit = intersectSceneTargets(event);
+          setHoveredReference(null);
+          setHoveredPrimitive(null);
+          setHoveredFace(projectHit?.kind === "face" ? projectHit.id : null);
+          setHoveredEdge(projectHit?.kind === "edge" ? projectHit.id : null);
+          setHoveredVertex(
+            projectHit?.kind === "vertex" ? projectHit.id : null,
+          );
+          return;
+        }
+
         const draftStart = lineDraftStartRef.current;
         const rawPoint = resolveSketchPlanePoint(
           event,
@@ -2459,6 +2484,33 @@ export function ViewportPanel({
             incidentLines[0].line_id,
             incidentLines[1].line_id,
           );
+          return;
+        }
+
+        // Modal Project tool. Clicks must land on a body face,
+        // edge, or vertex; we dispatch the matching selection
+        // callback (App.tsx intercepts those while the tool is
+        // active and turns them into `project_*_into_sketch`
+        // commands). Empty-space clicks and sketch-entity clicks
+        // are no-ops so the user can't accidentally start drafting
+        // a line: per the user's explicit request, the only valid
+        // action while Project is armed is "pick something to
+        // project". The tool stays armed across clicks.
+        if (activeSketchToolRef.current === "project") {
+          if (hit?.kind === "vertex") {
+            void selectVertexRef.current(hit.id, /*additive=*/ false);
+            return;
+          }
+          if (hit?.kind === "edge") {
+            void selectEdgeRef.current(hit.id, /*additive=*/ false);
+            return;
+          }
+          if (hit?.kind === "face") {
+            void selectFaceRef.current(hit.id);
+            return;
+          }
+          // No body geometry under the cursor — swallow the click
+          // so we don't drop into the line-draft branch below.
           return;
         }
 
@@ -3409,7 +3461,9 @@ export function ViewportPanel({
         <canvas
           ref={canvasRef}
           className={`cad-viewport-canvas absolute inset-0 h-full w-full ${
-            activeSketchPlaneId && activeSketchTool !== "select"
+            activeSketchPlaneId &&
+            activeSketchTool !== "select" &&
+            activeSketchTool !== "project"
               ? "cad-viewport-canvas-drawing"
               : ""
           }`}
@@ -3663,10 +3717,12 @@ export function ViewportPanel({
                             ? `Snap: ${sketchSnapLabel}`
                             : activeSketchTool === "select"
                               ? "Selection mode · press a sketch tool to draw"
-                              : activeSketchTool === "line" &&
-                                  lineDraftStartRef.current
-                                ? "Line chain active · click to continue or press Escape"
-                                : "Click to place geometry"}
+                              : activeSketchTool === "project"
+                                ? "Click a face, edge, or vertex to project"
+                                : activeSketchTool === "line" &&
+                                    lineDraftStartRef.current
+                                  ? "Line chain active · click to continue or press Escape"
+                                  : "Click to place geometry"}
                 </p>
               ) : null}
             </div>

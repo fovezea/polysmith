@@ -230,6 +230,8 @@ function App() {
     saveDocument,
     loadDocument,
     projectFaceIntoSketch,
+    projectEdgeIntoSketch,
+    projectVertexIntoSketch,
     addBoxFeature,
     addCylinderFeature,
     updateBoxFeature,
@@ -852,20 +854,20 @@ function App() {
         return;
       }
 
-      // P: Project the currently-selected face into the active
-      // sketch. No-op outside sketch mode or when no face is
-      // selected, matching the toolbar button's enabled state.
+      // P: toggle the modal Project tool inside an active sketch.
+      // While the tool is active, viewport face / edge / vertex
+      // clicks are routed to `project_*_into_sketch` instead of the
+      // normal selection (see App.tsx click intercepts). Pressing P
+      // again (or Esc, or picking another tool) switches back to
+      // Select. No-op outside sketch mode.
       if (event.code === "KeyP") {
         if (!activeSketchPlaneId) {
           return;
         }
-        const faceId = document?.selected_face_id ?? null;
-        if (!faceId) {
-          return;
-        }
         event.preventDefault();
+        const nextTool = activeSketchTool === "project" ? "select" : "project";
         void runAction(async () => {
-          await projectFaceIntoSketch(faceId);
+          await setSketchTool(nextTool);
         });
         return;
       }
@@ -880,6 +882,7 @@ function App() {
     extrudeAction,
     edgeOpAction,
     activeSketchPlaneId,
+    activeSketchTool,
     document?.selected_edge_ids,
     document?.selected_face_id,
     viewport?.solid_faces,
@@ -1302,15 +1305,6 @@ function App() {
             }
           }}
           onCancelSketchConstraint={clearArmedSketchConstraint}
-          onProjectFace={async () => {
-            const faceId = document?.selected_face_id ?? null;
-            if (!faceId) {
-              return;
-            }
-            await runAction(async () => {
-              await projectFaceIntoSketch(faceId);
-            });
-          }}
         />
 
         <div className="flex min-h-0 min-w-0">
@@ -1480,11 +1474,43 @@ function App() {
                   // somewhere else.
                   return;
                 }
+                // Modal Project tool: a face click while it's active
+                // projects the face's outline onto the active sketch
+                // plane via `project_face_into_sketch`. The tool
+                // stays armed so the user can keep clicking more
+                // faces / edges / vertices without re-toggling the
+                // button.
+                if (activeSketchPlaneId && activeSketchTool === "project") {
+                  await runAction(async () => {
+                    try {
+                      await projectFaceIntoSketch(faceId);
+                    } catch (error) {
+                      addMessage(
+                        `Project face: ${error instanceof Error ? error.message : String(error)}`,
+                      );
+                    }
+                  });
+                  return;
+                }
                 await runAction(async () => {
                   await selectFace(faceId);
                 });
               }}
               onSelectEdge={async (edgeId, additive) => {
+                // Modal Project tool wins over the normal edge-pick
+                // path. Same shape as the face intercept above.
+                if (activeSketchPlaneId && activeSketchTool === "project") {
+                  await runAction(async () => {
+                    try {
+                      await projectEdgeIntoSketch(edgeId);
+                    } catch (error) {
+                      addMessage(
+                        `Project edge: ${error instanceof Error ? error.message : String(error)}`,
+                      );
+                    }
+                  });
+                  return;
+                }
                 // While a fillet / chamfer floating panel is open the
                 // user is in "pick edges" mode: every edge click
                 // toggles that edge in the feature's edge_ids set
@@ -1543,6 +1569,20 @@ function App() {
                 });
               }}
               onSelectVertex={async (vertexId, additive) => {
+                // Modal Project tool: vertex click projects a fixed
+                // standalone sketch point onto the active plane.
+                if (activeSketchPlaneId && activeSketchTool === "project") {
+                  await runAction(async () => {
+                    try {
+                      await projectVertexIntoSketch(vertexId);
+                    } catch (error) {
+                      addMessage(
+                        `Project vertex: ${error instanceof Error ? error.message : String(error)}`,
+                      );
+                    }
+                  });
+                  return;
+                }
                 await runAction(async () => {
                   await selectVertex(vertexId, additive);
                 });

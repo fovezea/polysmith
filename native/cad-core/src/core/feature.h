@@ -184,6 +184,22 @@ struct SketchPoint {
   bool is_fixed;
 };
 
+// Standalone sketch point produced by the Project tool when the user
+// projects a body vertex onto the active sketch plane. Unlike line /
+// arc / circle endpoints, projected points are not derived from any
+// other sketch entity — they have to be re-emitted by
+// `rebuild_sketch_points` from this list directly. The cached (x, y)
+// is the projected location in sketch-local coordinates; `source_id`
+// records the body vertex id (`<body>:vertex:<index>`) so the
+// projection is idempotent (clicking the same vertex twice is a
+// no-op) and can be located by future edits.
+struct SketchProjectedPoint {
+  std::string id;
+  std::string source_id;
+  double x;
+  double y;
+};
+
 struct SketchDimension {
   std::string id;
   std::string kind;
@@ -327,6 +343,20 @@ struct SketchFeatureParameters {
   // pass keeps those entities in sync with the fillet's `radius` and
   // the current line endpoints.
   std::vector<SketchFillet> fillets;
+  // Free-standing points placed by the Project tool (one per
+  // projected body vertex). Re-emitted into `points` by every
+  // `rebuild_sketch_points` pass with `kind = "projected"` and
+  // `is_fixed = true` so the user can't drag them; deduplicated by
+  // `source_id` so a second click on the same vertex is a no-op.
+  std::vector<SketchProjectedPoint> projected_points;
+  // Body face / edge ids that have already been projected onto this
+  // sketch. Used by the Project tool to skip duplicate work when the
+  // user clicks the same face / edge a second time. Vertex
+  // projections live in `projected_points` directly (their id field
+  // doubles as the dedup key); face / edge projections write their
+  // generated geometry straight into `lines` / `circles` / `arcs`
+  // and only need this set to remember "already done".
+  std::vector<std::string> projected_sources;
   std::vector<SketchProfileRegion> profiles;
 
   // Transient state for an in-progress Mirror tool invocation.

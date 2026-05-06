@@ -105,6 +105,28 @@ export function makeProjectFaceIntoSketchCommand(faceId: string): CoreCommand {
   };
 }
 
+export function makeProjectEdgeIntoSketchCommand(edgeId: string): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "project_edge_into_sketch",
+    payload: {
+      edge_id: edgeId,
+    },
+  };
+}
+
+export function makeProjectVertexIntoSketchCommand(
+  vertexId: string,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "project_vertex_into_sketch",
+    payload: {
+      vertex_id: vertexId,
+    },
+  };
+}
+
 export function makeAddBoxFeatureCommand(
   width: number,
   height: number,

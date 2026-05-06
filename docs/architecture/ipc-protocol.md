@@ -201,6 +201,8 @@ tool:
 - `save_document` writes the live document state as a JSON `.polysmith` file at the supplied `file_path`; the core replies with `document_saved`
 - `load_document` parses a `.polysmith` file, replaces the live document, restores ID counters by scanning the loaded ids, clears undo/redo stacks, and replies with `document_state`
 - `project_face_into_sketch` projects the outline of a selected solid face onto the active sketch's plane, creating fixed-endpoint sketch lines (or a sketch circle for circular caps); supports extrude features that carry a `plane_frame` (rectangle and circle profiles, base/top/side faces). Polygon profile sides and legacy box/cylinder features are not yet supported by the projection helper and produce a structured error.
+- `project_edge_into_sketch { edge_id }` projects a single body edge onto the active sketch's plane. Linear edges become sketch lines; circular edges become sketch circles or arcs when the edge's plane is parallel to the sketch's. Edges that would project to ellipses (non-parallel circle plane) and other curve types (B-splines, etc.) are rejected with a structured error so the UI can surface a transient message. Repeated clicks on the same edge are no-ops (idempotent via `sketch_parameters.projected_sources`).
+- `project_vertex_into_sketch { vertex_id }` projects a single body vertex onto the active sketch's plane as a fixed standalone sketch point (`points[]` entry with `kind = "projected"`). Recorded in `sketch_parameters.projected_points[]` for round-trip + idempotency. Repeated clicks on the same vertex are no-ops.
 
 For the current spike, export is intentionally narrow:
 

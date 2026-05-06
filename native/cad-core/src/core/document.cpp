@@ -17,6 +17,7 @@
 
 #include "core/body_compiler.h"
 #include "core/construction_plane_feature.h"
+#include "core/edge_geometry.h"
 #include "core/face_geometry.h"
 #include "core/feature_shape.h"
 #include "core/refresh_dependents.h"
@@ -139,7 +140,8 @@ std::string face_owner_id(const std::string& face_id) {
 
 bool is_supported_sketch_tool(const std::string& tool) {
   return tool == "select" || tool == "line" || tool == "rectangle" ||
-         tool == "circle" || tool == "arc" || tool == "fillet";
+         tool == "circle" || tool == "arc" || tool == "fillet" ||
+         tool == "project";
 }
 
 std::string plane_id_from_frame(
@@ -2678,6 +2680,20 @@ DocumentState DocumentManager::project_face_into_sketch(
     }
   }
 
+  // Idempotency: if the user already projected this face onto this
+  // sketch (typical when the modal Project tool stays active and they
+  // accidentally click the same face twice), skip the rebuild and
+  // return the current document state unchanged. Matches Fusion's
+  // "second click is a no-op" behaviour. Vertex / edge projections
+  // share this set so all three project_* methods de-duplicate
+  // through a single source-id list.
+  if (std::find(sketch_it->sketch_parameters->projected_sources.begin(),
+                sketch_it->sketch_parameters->projected_sources.end(),
+                face_id) !=
+      sketch_it->sketch_parameters->projected_sources.end()) {
+    return document_.value();
+  }
+
   const auto outline = compute_face_outline(*document_, face_id);
   if (!outline.has_value()) {
     throw std::runtime_error(
@@ -2783,6 +2799,283 @@ DocumentState DocumentManager::project_face_into_sketch(
     throw std::runtime_error("Unsupported projected face kind: " + outline->kind);
   }
 
+  // Record the face id so a follow-up click on the same face is a
+  // no-op (see the idempotency check at the top of this method).
+  sketch_it->sketch_parameters->projected_sources.push_back(face_id);
+
+  refresh_linked_extrudes(*document_, *sketch_it);
+  document_->selected_feature_id = sketch_it->id;
+  document_->selected_sketch_point_id = std::nullopt;
+  document_->selected_sketch_entity_id = std::nullopt;
+  document_->selected_sketch_dimension_id = std::nullopt;
+  document_->selected_sketch_profile_id = std::nullopt;
+  bump_geometry_revision();
+
+  return document_.value();
+}
+
+namespace {
+
+// Validate that the active sketch in `document` is set up to receive
+// projected geometry: there must be an active sketch with a plane
+// frame. Returns the matching FeatureEntry iterator on success and
+// throws a runtime_error on every failure path so all three
+// project_*_into_sketch methods share the same diagnostics.
+std::vector<FeatureEntry>::iterator require_projection_target(
+    DocumentState& document) {
+  if (!document.active_sketch_feature_id.has_value()) {
+    throw std::runtime_error("No active sketch");
+  }
+  const auto sketch_it = std::find_if(
+      document.feature_history.begin(),
+      document.feature_history.end(),
+      [&](const FeatureEntry& feature) {
+        return feature.id == document.active_sketch_feature_id.value();
+      });
+  if (sketch_it == document.feature_history.end() ||
+      !sketch_it->sketch_parameters.has_value() ||
+      !sketch_it->sketch_parameters->plane_frame.has_value()) {
+    throw std::runtime_error(
+        "Active sketch does not have a plane frame for projection");
+  }
+  return sketch_it;
+}
+
+// Flatten a world-space point onto the sketch's local (u, v) frame.
+// Identical maths to the lambda inside `project_face_into_sketch` —
+// pulled out so edge / vertex projection can reuse it without
+// duplicating the dot-product expansion.
+std::pair<double, double> world_to_sketch_local(
+    const SketchFeatureParameters::SketchPlaneFrame& frame,
+    double wx, double wy, double wz) {
+  const double dx = wx - frame.origin_x;
+  const double dy = wy - frame.origin_y;
+  const double dz = wz - frame.origin_z;
+  const double sx =
+      dx * frame.x_axis_x + dy * frame.x_axis_y + dz * frame.x_axis_z;
+  const double sy =
+      dx * frame.y_axis_x + dy * frame.y_axis_y + dz * frame.y_axis_z;
+  return {sx, sy};
+}
+
+// Returns true when `axis` is parallel (or anti-parallel) to the
+// sketch frame's normal. A circular edge whose plane is parallel to
+// the sketch plane projects cleanly to a circle / arc; non-parallel
+// circular edges would project to ellipses, which we don't support
+// in v1 (see the user-facing decision in the implementation log).
+bool circle_axis_parallel_to_sketch(
+    const SketchFeatureParameters::SketchPlaneFrame& frame,
+    const EdgePoint& axis,
+    double tolerance = 1e-6) {
+  // dot product magnitude == 1 (within tolerance) iff parallel /
+  // anti-parallel given both are unit vectors.
+  const double dot = axis.x * frame.normal_x +
+                     axis.y * frame.normal_y +
+                     axis.z * frame.normal_z;
+  return std::abs(std::abs(dot) - 1.0) <= tolerance;
+}
+
+}  // namespace
+
+DocumentState DocumentManager::project_edge_into_sketch(
+    const std::string& edge_id) {
+  require_document();
+  const auto sketch_it = require_projection_target(*document_);
+
+  // Reject body edges that belong to an extrude built from this same
+  // sketch — same rationale as the face guard above.
+  const auto separator = edge_id.find(":edge:");
+  if (separator == std::string::npos || separator == 0) {
+    throw std::runtime_error("Malformed edge id: " + edge_id);
+  }
+  const std::string owner_id = edge_id.substr(0, separator);
+  for (const auto& feature : document_->feature_history) {
+    if (feature.kind != "extrude" || !feature.extrude_parameters.has_value()) {
+      continue;
+    }
+    if (feature.extrude_parameters->sketch_feature_id == sketch_it->id &&
+        feature.id == owner_id) {
+      throw std::runtime_error(
+          "Cannot project an edge from an extrude back onto its own source "
+          "sketch");
+    }
+  }
+
+  // Idempotency.
+  if (std::find(sketch_it->sketch_parameters->projected_sources.begin(),
+                sketch_it->sketch_parameters->projected_sources.end(),
+                edge_id) !=
+      sketch_it->sketch_parameters->projected_sources.end()) {
+    return document_.value();
+  }
+
+  const auto edge_geometry = compute_edge_geometry(*document_, edge_id);
+  if (!edge_geometry.has_value()) {
+    throw std::runtime_error(
+        "Edge could not be resolved against the current document: " +
+        edge_id);
+  }
+
+  const auto& frame = sketch_it->sketch_parameters->plane_frame.value();
+
+  push_undo_state();
+  clear_redo_stack();
+
+  if (edge_geometry->kind == "line") {
+    const auto a = world_to_sketch_local(frame,
+                                         edge_geometry->start.x,
+                                         edge_geometry->start.y,
+                                         edge_geometry->start.z);
+    const auto b = world_to_sketch_local(frame,
+                                         edge_geometry->end.x,
+                                         edge_geometry->end.y,
+                                         edge_geometry->end.z);
+    // Reject zero-length projections — happens when the edge runs
+    // perpendicular to the sketch plane and collapses to a point.
+    // v1 leaves these alone rather than generating a degenerate
+    // line. Vertex projection covers the "I want a point at the
+    // collapsed location" intent.
+    const double dx = b.first - a.first;
+    const double dy = b.second - a.second;
+    if (dx * dx + dy * dy < 1e-12) {
+      throw std::runtime_error(
+          "Edge projects to a zero-length segment (perpendicular to "
+          "sketch plane). Project the endpoint as a vertex instead.");
+    }
+
+    const size_t lines_before = sketch_it->sketch_parameters->lines.size();
+    polysmith::core::add_sketch_line(*sketch_it,
+                                     next_sketch_line_id_++,
+                                     a.first,
+                                     a.second,
+                                     b.first,
+                                     b.second);
+    // Lock both endpoints — projected geometry is derived.
+    for (size_t i = lines_before;
+         i < sketch_it->sketch_parameters->lines.size(); ++i) {
+      const auto& line = sketch_it->sketch_parameters->lines[i];
+      polysmith::core::set_sketch_point_fixed(
+          *sketch_it, line.start_point_id, true);
+      polysmith::core::set_sketch_point_fixed(
+          *sketch_it, line.end_point_id, true);
+    }
+  } else if (edge_geometry->kind == "circle" || edge_geometry->kind == "arc") {
+    if (!circle_axis_parallel_to_sketch(frame, edge_geometry->axis)) {
+      throw std::runtime_error(
+          "Curved edge projects to an ellipse (its plane isn't parallel "
+          "to the sketch). Not supported in v1.");
+    }
+
+    const auto center =
+        world_to_sketch_local(frame,
+                              edge_geometry->center.x,
+                              edge_geometry->center.y,
+                              edge_geometry->center.z);
+
+    if (edge_geometry->kind == "circle") {
+      polysmith::core::add_sketch_circle(*sketch_it,
+                                         next_sketch_circle_id_++,
+                                         center.first,
+                                         center.second,
+                                         edge_geometry->radius);
+    } else {
+      const auto start = world_to_sketch_local(frame,
+                                               edge_geometry->start.x,
+                                               edge_geometry->start.y,
+                                               edge_geometry->start.z);
+      const auto end = world_to_sketch_local(frame,
+                                             edge_geometry->end.x,
+                                             edge_geometry->end.y,
+                                             edge_geometry->end.z);
+      // Determine winding by checking whether the body axis points
+      // in the same direction as the sketch normal. When parallel,
+      // the body's natural CCW direction matches the sketch's CCW
+      // direction; when anti-parallel, it's flipped.
+      const double dot = edge_geometry->axis.x * frame.normal_x +
+                         edge_geometry->axis.y * frame.normal_y +
+                         edge_geometry->axis.z * frame.normal_z;
+      const bool ccw = dot > 0.0;
+      const int start_point_index = next_sketch_line_id_++;
+      const int end_point_index = next_sketch_line_id_++;
+      polysmith::core::add_sketch_arc(*sketch_it,
+                                      next_sketch_arc_id_++,
+                                      start_point_index,
+                                      end_point_index,
+                                      start.first,
+                                      start.second,
+                                      end.first,
+                                      end.second,
+                                      center.first,
+                                      center.second,
+                                      edge_geometry->radius,
+                                      ccw);
+    }
+  } else {
+    // "unsupported" — propagate as a controlled error. Caller (the
+    // UI) surfaces it as a transient toast.
+    throw std::runtime_error(
+        "Edge type is not supported by the Project tool yet: " + edge_id);
+  }
+
+  sketch_it->sketch_parameters->projected_sources.push_back(edge_id);
+
+  refresh_linked_extrudes(*document_, *sketch_it);
+  document_->selected_feature_id = sketch_it->id;
+  document_->selected_sketch_point_id = std::nullopt;
+  document_->selected_sketch_entity_id = std::nullopt;
+  document_->selected_sketch_dimension_id = std::nullopt;
+  document_->selected_sketch_profile_id = std::nullopt;
+  bump_geometry_revision();
+
+  return document_.value();
+}
+
+DocumentState DocumentManager::project_vertex_into_sketch(
+    const std::string& vertex_id) {
+  require_document();
+  const auto sketch_it = require_projection_target(*document_);
+
+  // Idempotency: search both `projected_sources` (face / edge) and
+  // existing `projected_points[*].source_id`. We could store vertex
+  // ids in `projected_sources` too, but keeping the canonical record
+  // on the projected_points entry itself simplifies "delete this
+  // projected point and forget its source" if we add that later.
+  for (const auto& projected :
+       sketch_it->sketch_parameters->projected_points) {
+    if (projected.source_id == vertex_id) {
+      return document_.value();
+    }
+  }
+
+  const auto position = compute_vertex_position(*document_, vertex_id);
+  if (!position.has_value()) {
+    throw std::runtime_error(
+        "Vertex could not be resolved against the current document: " +
+        vertex_id);
+  }
+
+  const auto& frame = sketch_it->sketch_parameters->plane_frame.value();
+  const auto local = world_to_sketch_local(frame,
+                                           position->x,
+                                           position->y,
+                                           position->z);
+
+  push_undo_state();
+  clear_redo_stack();
+
+  sketch_it->sketch_parameters->projected_points.push_back(
+      SketchProjectedPoint{
+          .id = "projected-point-" +
+                std::to_string(next_sketch_projected_point_id_++),
+          .source_id = vertex_id,
+          .x = local.first,
+          .y = local.second,
+      });
+
+  // Force the points list to pick up the new projected point in this
+  // frame. (`refresh_linked_extrudes` won't run sketch derived state
+  // for us — it only refreshes downstream features.)
+  refresh_sketch_derived_state(*sketch_it);
   refresh_linked_extrudes(*document_, *sketch_it);
   document_->selected_feature_id = sketch_it->id;
   document_->selected_sketch_point_id = std::nullopt;
@@ -3009,6 +3302,11 @@ DocumentState DocumentManager::load_document_from_path(
     for (const auto& fillet : sketch.fillets) {
       next_sketch_fillet_id_ =
           std::max(next_sketch_fillet_id_, trailing_integer(fillet.id) + 1);
+    }
+    for (const auto& projected : sketch.projected_points) {
+      next_sketch_projected_point_id_ = std::max(
+          next_sketch_projected_point_id_,
+          trailing_integer(projected.id) + 1);
     }
   }
 

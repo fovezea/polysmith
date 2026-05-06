@@ -254,6 +254,28 @@ sketch_parameters_from_payload(const json& payload) {
       params.midpoint_anchors.push_back(anchor);
     }
   }
+  // Older saves predate the Project tool's standalone projected
+  // points — absence of these keys just means no projections exist.
+  if (payload.contains("projected_points") &&
+      payload.at("projected_points").is_array()) {
+    for (const auto& point_payload : payload.at("projected_points")) {
+      polysmith::core::SketchProjectedPoint projected{};
+      projected.id = read_string(point_payload, "point_id");
+      projected.source_id = read_string(point_payload, "source_id");
+      projected.x = read_number(point_payload, "x");
+      projected.y = read_number(point_payload, "y");
+      params.projected_points.push_back(projected);
+    }
+  }
+  if (payload.contains("projected_sources") &&
+      payload.at("projected_sources").is_array()) {
+    for (const auto& source_payload : payload.at("projected_sources")) {
+      if (!source_payload.is_string()) {
+        continue;
+      }
+      params.projected_sources.push_back(source_payload.get<std::string>());
+    }
+  }
   // Older saves predate point-line anchors — silently default to none.
   if (payload.contains("point_line_anchors") &&
       payload.at("point_line_anchors").is_array()) {
@@ -626,6 +648,29 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                       });
                     }
                     return anchors;
+                  }()},
+                 {"projected_points",
+                  [&feature]() {
+                    json projected = json::array();
+                    for (const auto& point :
+                         feature.sketch_parameters->projected_points) {
+                      projected.push_back({
+                          {"point_id", point.id},
+                          {"source_id", point.source_id},
+                          {"x", point.x},
+                          {"y", point.y},
+                      });
+                    }
+                    return projected;
+                  }()},
+                 {"projected_sources",
+                  [&feature]() {
+                    json sources = json::array();
+                    for (const auto& source :
+                         feature.sketch_parameters->projected_sources) {
+                      sources.push_back(source);
+                    }
+                    return sources;
                   }()},
                  {"profiles",
                   [&feature]() {

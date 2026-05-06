@@ -245,6 +245,8 @@ export function SketchToolIcon({ tool }: { tool: SketchTool }) {
       return <ArcIcon />;
     case "fillet":
       return <FilletIcon />;
+    case "project":
+      return <ProjectFaceIcon />;
     default:
       return <TrimIcon />;
   }

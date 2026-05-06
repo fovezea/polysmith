@@ -17,6 +17,7 @@ add_executable(cad_core
   src/core/construction_plane_feature.cpp
   src/core/cylinder_feature.cpp
   src/core/document.cpp
+  src/core/edge_geometry.cpp
   src/core/export.cpp
   src/core/extrude_feature.cpp
   src/core/face_geometry.cpp

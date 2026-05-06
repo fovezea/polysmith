@@ -268,6 +268,12 @@ class DocumentManager {
   DocumentState finish_sketch();
   DocumentState reenter_sketch(const std::string& feature_id);
   DocumentState project_face_into_sketch(const std::string& face_id);
+  // Modal Project tool: dispatch one of these per click depending on
+  // what the raycaster hit. Each routes through `project_*_into_sketch`
+  // and shares the active-sketch validation + idempotency check (see
+  // `projected_sources` / `projected_points`).
+  DocumentState project_edge_into_sketch(const std::string& edge_id);
+  DocumentState project_vertex_into_sketch(const std::string& vertex_id);
   DocumentState clear_selection();
   ExportResult export_document_as_step(const std::string& file_path) const;
   ExportResult export_document_as_stl(const std::string& file_path) const;
@@ -302,6 +308,10 @@ class DocumentManager {
   // points and the generated arc still come from the existing line /
   // arc counters so the id namespaces stay uniform.
   int next_sketch_fillet_id_ = 1;
+  // Independent counter for the Project tool's standalone projected
+  // points ("projected-point-N"). Kept separate from the line / arc
+  // endpoint counter so user-visible debug ids stay readable.
+  int next_sketch_projected_point_id_ = 1;
   int document_count_ = 0;
   std::optional<DocumentState> document_;
   std::vector<DocumentState> undo_stack_;

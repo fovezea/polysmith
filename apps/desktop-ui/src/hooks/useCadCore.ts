@@ -25,7 +25,9 @@ import {
   makeExportDocumentCommand,
   makeExportDocumentStlCommand,
   makeLoadDocumentCommand,
+  makeProjectEdgeIntoSketchCommand,
   makeProjectFaceIntoSketchCommand,
+  makeProjectVertexIntoSketchCommand,
   makeSaveDocumentCommand,
   makeFinishSketchCommand,
   makeReenterSketchCommand,
@@ -188,6 +190,16 @@ export function useCadCore() {
     },
     projectFaceIntoSketch: async (faceId: string) => {
       await sendCoreCommand(makeProjectFaceIntoSketchCommand(faceId));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    projectEdgeIntoSketch: async (edgeId: string) => {
+      await sendCoreCommand(makeProjectEdgeIntoSketchCommand(edgeId));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    projectVertexIntoSketch: async (vertexId: string) => {
+      await sendCoreCommand(makeProjectVertexIntoSketchCommand(vertexId));
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());
     },
