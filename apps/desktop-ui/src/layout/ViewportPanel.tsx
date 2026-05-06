@@ -143,14 +143,16 @@ interface ViewportPanelProps {
   // Sketch fillet — fired when the user clicks an eligible corner
   // point under the Fillet tool. Eligible = sketch point shared by
   // exactly two non-construction sketch lines that are not already
-  // filleted at this corner. The viewport resolves the corner /
-  // line ids from the click and hands them up; App owns the
-  // floating panel that the core spawns on the back of this call.
+  // filleted at this corner. The viewport only signals "user
+  // clicked an eligible corner with these args"; App owns the
+  // session radius (driven by the floating panel) and decides
+  // what to do with the click. Mirrors the 3D edge-op flow where
+  // the viewport reports edge picks and the panel owns the
+  // numeric value being applied to all of them.
   onAddSketchFillet: (
     cornerPointId: string,
     lineAId: string,
     lineBId: string,
-    radius: number,
   ) => Promise<void>;
   onSelectSketchEntity: (entityId: string) => Promise<void>;
   onPickSketchPoint: (
@@ -2448,15 +2450,14 @@ export function ViewportPanel({
             return;
           }
 
-          // Default radius — small enough to fit on most user-drawn
-          // corners; the floating panel takes over after this point
-          // so the user can dial in the exact value.
-          const DEFAULT_FILLET_RADIUS_MM = 5;
+          // The session radius lives in App's panel state; the
+          // viewport only signals which corner was picked. App
+          // dispatches `add_sketch_fillet` with whatever radius
+          // the panel is showing at click time.
           void addSketchFilletRef.current(
             cornerPoint.point_id,
             incidentLines[0].line_id,
             incidentLines[1].line_id,
-            DEFAULT_FILLET_RADIUS_MM,
           );
           return;
         }

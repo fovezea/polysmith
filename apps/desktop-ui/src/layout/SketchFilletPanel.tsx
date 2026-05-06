@@ -3,29 +3,38 @@ import { useEffect, useRef, useState } from "react";
 const PREVIEW_DEBOUNCE_MS = 200;
 
 interface SketchFilletPanelProps {
-  // The fillet has already been created by the time the panel opens
-  // (so the viewport shows a real preview); `initialValue` reflects
-  // that committed radius. Typing here drives
-  // `update_sketch_fillet_radius` for live previews.
+  // Initial radius for the panel session. Used as the default for
+  // every fillet created through this session and as the starting
+  // value of the radius input.
   initialValue: number;
   disabled: boolean;
+  // Number of fillets created so far in this panel session. Drives
+  // the subtitle (so the user sees the picker react as they click
+  // corners) and gates the Confirm button: with no fillets
+  // created, Confirm is a no-op and disabled, matching the
+  // `EdgeOpPreviewPanel` (3D fillet) contract.
+  count: number;
+  // Live-preview hook. Called on every debounced numeric change;
+  // App is responsible for fanning the new radius out across all
+  // created fillets via `update_sketch_fillet_radius`.
   onPreviewValue: (value: number) => Promise<void>;
   onConfirm: () => void | Promise<void>;
-  // Cancel undoes the create — i.e. the panel is responsible for
-  // calling `delete_sketch_fillet` to restore the original corner.
+  // Cancel = discard the session. App calls
+  // `delete_sketch_fillet` for every fillet it tracks, restoring
+  // each corner.
   onCancel: () => Promise<void>;
 }
 
-// Fusion-style floating panel for a 2D sketch fillet. Mirrors
-// `EdgeOpPreviewPanel` (3D fillet/chamfer) but is intentionally a
-// separate component because the 2D fillet's input model is
-// different: it's anchored to a single corner, not a multi-edge
-// selection. The numeric input drives the same debounced live
-// preview though, so the body uses the same debounce + flush
-// pattern to make Enter-after-typing reliable.
+// Fusion-style floating panel for the 2D sketch Fillet tool.
+// Mirrors `EdgeOpPreviewPanel` (3D fillet/chamfer) one-to-one:
+// pending phase (count === 0) prompts the user to click a corner;
+// each click adds a fillet at the panel's current radius; the
+// numeric input drives a debounced fan-out update across every
+// fillet in the session.
 export function SketchFilletPanel({
   initialValue,
   disabled,
+  count,
   onPreviewValue,
   onConfirm,
   onCancel,
@@ -104,7 +113,9 @@ export function SketchFilletPanel({
       <p className="cad-kicker">Action</p>
       <h2 className="cad-title mt-2">Sketch Fillet</h2>
       <p className="mt-1 text-xs text-on-surface-muted">
-        Tangent arc replaces the corner; lines trim to fit the radius.
+        {count === 0
+          ? "Click a corner to fillet"
+          : `${count} corner${count === 1 ? "" : "s"} · click a corner to add another`}
       </p>
       <form
         className="mt-4 space-y-4"
@@ -138,7 +149,7 @@ export function SketchFilletPanel({
           <button
             type="submit"
             className="cad-action-primary flex-1"
-            disabled={disabled || Number(value) <= 0}
+            disabled={disabled || Number(value) <= 0 || count === 0}
           >
             Confirm
           </button>

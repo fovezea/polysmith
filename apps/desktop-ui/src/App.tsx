@@ -101,16 +101,26 @@ function App() {
   const [arcToolMode, setArcToolMode] = useState<
     "three_point" | "center_start_end"
   >("three_point");
-  // Sketch fillet panel state. Set to a non-null fillet id when the
-  // user clicks an eligible corner under the Fillet tool — at that
-  // point the core has already created the fillet record (so the
-  // viewport shows real preview geometry) and the panel is the
-  // edit + confirm/cancel surface for the radius. Cancel calls
-  // `delete_sketch_fillet` to undo the create cleanly.
-  const [sketchFilletAction, setSketchFilletAction] = useState<{
-    filletId: string;
-    initialRadius: number;
-  } | null>(null);
+  // Sketch fillet panel session. Mirrors `ActiveEdgeOpAction` (the
+  // 3D fillet/chamfer flow) shape-for-shape: it opens the moment
+  // the user activates the Fillet tool (`pending` phase, no
+  // fillets yet) and transitions to `active` as soon as they
+  // click their first eligible corner. The panel's `radius`
+  // applies to every fillet created in the session and is fanned
+  // out across all of them on every debounced numeric change so
+  // the user gets the same "select N corners, dial in one
+  // radius" experience as 3D fillets give for edges.
+  type SketchFilletAction =
+    | { phase: "pending"; radius: number }
+    | { phase: "active"; radius: number; filletIds: string[] };
+  const [sketchFilletAction, setSketchFilletAction] =
+    useState<SketchFilletAction | null>(null);
+  // Mirror of `sketchFilletAction.filletIds` for the inline
+  // viewport callback. Same trick as `activeEdgeIdsRef` in the 3D
+  // edge-op flow: the click handler runs inside a closure that
+  // captures the value at panel-open time, so we need a ref to
+  // see the live list when each subsequent click lands.
+  const sketchFilletIdsRef = useRef<string[]>([]);
   const [edgeOpAction, setEdgeOpAction] = useState<ActiveEdgeOpAction | null>(
     null,
   );
@@ -272,8 +282,34 @@ function App() {
       // already left the fillet in the sketch in its current
       // committed state.
       setSketchFilletAction(null);
+      sketchFilletIdsRef.current = [];
     }
   }, [activeSketchPlaneId]);
+
+  // Open / close the Sketch Fillet panel in lockstep with the
+  // active sketch tool. Activating the Fillet tool opens the panel
+  // in `pending` phase; deactivating it (switching to any other
+  // tool) implicitly *confirms* — we keep whatever fillets the
+  // user already created and drop the session. Cancel-with-undo
+  // remains explicit via the panel's Cancel button. This keeps
+  // the door open for casual exploration: drop in a fillet, switch
+  // to Line, draw something, come back later — without losing
+  // work.
+  useEffect(() => {
+    if (
+      activeSketchTool === "fillet" &&
+      activeSketchPlaneId &&
+      !sketchFilletAction
+    ) {
+      setSketchFilletAction({ phase: "pending", radius: 5 });
+      sketchFilletIdsRef.current = [];
+      return;
+    }
+    if (activeSketchTool !== "fillet" && sketchFilletAction) {
+      setSketchFilletAction(null);
+      sketchFilletIdsRef.current = [];
+    }
+  }, [activeSketchTool, activeSketchPlaneId, sketchFilletAction]);
 
   // Auto-startup: launch the native core as soon as the UI mounts and,
   // once the core is connected, create an empty document so the user
@@ -1413,20 +1449,20 @@ function App() {
                 });
               }}
               arcToolMode={arcToolMode}
-              onAddSketchFillet={async (
-                cornerPointId,
-                lineAId,
-                lineBId,
-                radius,
-              ) => {
-                if (sketchFilletAction) {
+              onAddSketchFillet={async (cornerPointId, lineAId, lineBId) => {
+                // Panel must be open in either phase for adds to be
+                // accepted. The viewport's eligibility filter is the
+                // primary guard; this is just a defence against a
+                // race where the user drops the panel mid-click.
+                if (!sketchFilletAction) {
                   return;
                 }
+                const sessionRadius = sketchFilletAction.radius;
                 // Same fire-and-forget IPC trick as the extrude /
                 // edge-op flows: subscribe to the next document
                 // update that adds a new fillet on the active
                 // sketch so we can pick up the real fillet id and
-                // pass it to the floating panel.
+                // append it to the session list.
                 const documentPromise = awaitDocumentChange(
                   (next, previous) => {
                     if (!next.active_sketch_feature_id) {
@@ -1453,7 +1489,7 @@ function App() {
                     cornerPointId,
                     lineAId,
                     lineBId,
-                    radius,
+                    sessionRadius,
                   );
                 });
 
@@ -1469,13 +1505,21 @@ function App() {
                   if (!newFillet) {
                     return;
                   }
+                  // Append the new fillet to the session and flip
+                  // pending → active on the first click.
+                  const updatedIds = [
+                    ...sketchFilletIdsRef.current,
+                    newFillet.fillet_id,
+                  ];
+                  sketchFilletIdsRef.current = updatedIds;
                   setSketchFilletAction({
-                    filletId: newFillet.fillet_id,
-                    initialRadius: newFillet.radius,
+                    phase: "active",
+                    radius: sessionRadius,
+                    filletIds: updatedIds,
                   });
                 } catch {
-                  // Document watcher timed out — leave the panel
-                  // closed. The user can re-invoke the tool.
+                  // Document watcher timed out — leave the session
+                  // state alone. The next click can recover.
                 }
               }}
               onSelectSketchEntity={async (entityId) => {
@@ -1891,28 +1935,61 @@ function App() {
               ) : null}
               {sketchFilletAction ? (
                 <SketchFilletPanel
-                  initialValue={sketchFilletAction.initialRadius}
+                  initialValue={sketchFilletAction.radius}
                   disabled={status !== "connected"}
+                  count={
+                    sketchFilletAction.phase === "active"
+                      ? sketchFilletAction.filletIds.length
+                      : 0
+                  }
                   onPreviewValue={async (value) => {
+                    // Fan the new radius out across every fillet
+                    // already in the session. Same model as the 3D
+                    // EdgeOpPreviewPanel: one input drives every
+                    // selected target. We track the panel's
+                    // session radius in state so future adds use
+                    // the latest value too.
+                    setSketchFilletAction((prev) =>
+                      prev ? { ...prev, radius: value } : prev,
+                    );
+                    if (sketchFilletAction.phase !== "active") {
+                      return;
+                    }
                     await runAction(async () => {
-                      await updateSketchFilletRadius(
-                        sketchFilletAction.filletId,
-                        value,
-                      );
+                      for (const filletId of sketchFilletAction.filletIds) {
+                        await updateSketchFilletRadius(filletId, value);
+                      }
                     });
                   }}
-                  onConfirm={() => {
+                  onConfirm={async () => {
+                    // Confirm keeps every fillet in the session
+                    // and exits the tool back to Select — same
+                    // post-confirm UX as 3D fillet, which drops
+                    // out of edge-pick mode after Confirm.
+                    sketchFilletIdsRef.current = [];
                     setSketchFilletAction(null);
+                    await runAction(async () => {
+                      await setSketchTool("select");
+                    });
                   }}
                   onCancel={async () => {
-                    // Cancel = undo the create. The fillet record
-                    // and its generated arc/trim points get removed
-                    // and the original corner is restored. Same
-                    // contract as the 3D EdgeOpPreviewPanel cancel.
-                    await runAction(async () => {
-                      await deleteSketchFillet(sketchFilletAction.filletId);
-                    });
+                    // Cancel = discard the whole session. Each
+                    // fillet's `delete_sketch_fillet` restores its
+                    // corner; the trim points fall off via the
+                    // next `rebuild_sketch_points`. Mirrors the
+                    // EdgeOpPreviewPanel cancel contract.
+                    if (sketchFilletAction.phase === "active") {
+                      await runAction(async () => {
+                        for (const filletId of sketchFilletAction.filletIds) {
+                          await deleteSketchFillet(filletId);
+                        }
+                      });
+                    }
+                    sketchFilletIdsRef.current = [];
                     setSketchFilletAction(null);
+                    await runAction(async () => {
+                      await setSketchTool("select");
+                    });
                   }}
                 />
               ) : null}

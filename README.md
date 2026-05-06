@@ -60,6 +60,7 @@ sudo apt install -y \
   libgtk-3-dev libwebkit2gtk-4.1-dev \
   libayatana-appindicator3-dev librsvg2-dev \
   libssl-dev curl
+sudo apt install -y tcl-dev tk-dev libfreetype-dev libx11-dev
 
 # Node + pnpm
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
