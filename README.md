@@ -59,7 +59,8 @@ sudo apt install -y \
   libfreetype6-dev libfontconfig1-dev \
   libgtk-3-dev libwebkit2gtk-4.1-dev \
   libayatana-appindicator3-dev librsvg2-dev \
-  libssl-dev curl
+  libssl-dev curl libjavascriptcoregtk-4.1-dev \
+  libsoup-3.0-dev \
 sudo apt install -y tcl-dev tk-dev libfreetype-dev libx11-dev
 
 # Node + pnpm

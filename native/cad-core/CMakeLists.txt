@@ -10,6 +10,11 @@ list(APPEND CMAKE_PREFIX_PATH "${CMAKE_SOURCE_DIR}/../../third_party/occt-instal
 
 find_package(OpenCASCADE REQUIRED)
 
+if(UNIX AND NOT APPLE)
+  # Use RPATH instead of RUNPATH so transitive dependencies are found
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--disable-new-dtags")
+endif()
+
 add_executable(cad_core
   src/app.cpp
   src/core/body_compiler.cpp
