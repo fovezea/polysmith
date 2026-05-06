@@ -23,7 +23,7 @@ const documentStateSchema = z.object({
   active_sketch_face_id: z.string().nullable(),
   active_sketch_feature_id: z.string().nullable(),
   active_sketch_tool: z
-    .enum(["select", "line", "rectangle", "circle", "dimension"])
+    .enum(["select", "line", "rectangle", "circle", "arc", "dimension"])
     .nullable(),
   selected_sketch_point_id: z.string().nullable(),
   selected_sketch_entity_id: z.string().nullable(),
@@ -118,6 +118,7 @@ const documentStateSchema = z.object({
             "line",
             "rectangle",
             "circle",
+            "arc",
             "dimension",
           ]),
           lines: z.array(

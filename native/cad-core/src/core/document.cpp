@@ -100,7 +100,7 @@ std::string face_owner_id(const std::string& face_id) {
 
 bool is_supported_sketch_tool(const std::string& tool) {
   return tool == "select" || tool == "line" || tool == "rectangle" ||
-         tool == "circle";
+         tool == "circle" || tool == "arc";
 }
 
 std::string plane_id_from_frame(
