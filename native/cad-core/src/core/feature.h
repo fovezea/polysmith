@@ -93,6 +93,33 @@ struct ChamferFeatureParameters {
   bool is_pending = false;
 };
 
+// Parametric offset construction plane.
+//
+// `source_plane_id` identifies the plane the offset is measured from.
+// Accepted values mirror what the rest of the codebase calls a
+// "selectable plane":
+//   * "ref-plane-xy", "ref-plane-yz", "ref-plane-xz" — origin planes.
+//   * Another construction-plane feature id ("feature-N") — chained
+//     offsets work for free, since each construction plane resolves
+//     into a real `PlaneFrame` during recompute.
+//   * A planar body face id of the form "<body_id>:face:<index>" —
+//     the dependency walker re-resolves the face frame against the
+//     compiled body before re-deriving this plane.
+//
+// `offset` is a signed distance along the source's normal in the
+// document's units (mm at v1).
+//
+// `plane_frame` is the cached world-space frame, kept on the feature
+// so consumers (viewport, sketches placed on this plane, etc.) can
+// read it without re-walking history. The frame is rewritten in
+// `refresh_history_dependencies` after every geometry edit, so it's
+// always coherent with the current document state.
+struct ConstructionPlaneFeatureParameters {
+  std::string source_plane_id;
+  double offset;
+  PlaneFrame plane_frame;
+};
+
 struct SketchLine {
   std::string id;
   std::string start_point_id;
@@ -356,6 +383,7 @@ struct FeatureEntry {
   std::optional<SketchFeatureParameters> sketch_parameters;
   std::optional<FilletFeatureParameters> fillet_parameters;
   std::optional<ChamferFeatureParameters> chamfer_parameters;
+  std::optional<ConstructionPlaneFeatureParameters> construction_plane_parameters;
 };
 
 }  // namespace polysmith::core

@@ -10,6 +10,9 @@ import type { DocumentState, FeatureEntry } from "@/types";
 //   - extrude.target_body_id     → join/cut target
 //   - fillet.target_body_id      → body being filleted
 //   - chamfer.target_body_id     → body being chamfered
+//   - sketch.plane_id            → plane / construction plane / face
+//                                  the sketch was placed on
+//   - construction_plane.source_plane_id → construction plane chain
 //
 // We intentionally return the dependents in `feature_history` order
 // (newest last) so the UI can render a stable list.
@@ -22,11 +25,16 @@ export function findDependents(
     if (feature.feature_id === featureId) {
       continue;
     }
+    const sketchPlaneId = feature.sketch_parameters?.plane_id ?? null;
+    const constructionSourceId =
+      feature.construction_plane_parameters?.source_plane_id ?? null;
     if (
       feature.extrude_parameters?.sketch_feature_id === featureId ||
       feature.extrude_parameters?.target_body_id === featureId ||
       feature.fillet_parameters?.target_body_id === featureId ||
-      feature.chamfer_parameters?.target_body_id === featureId
+      feature.chamfer_parameters?.target_body_id === featureId ||
+      sketchPlaneId === featureId ||
+      constructionSourceId === featureId
     ) {
       dependents.push(feature);
     }

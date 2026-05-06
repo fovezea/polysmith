@@ -14,6 +14,7 @@ add_executable(cad_core
   src/app.cpp
   src/core/body_compiler.cpp
   src/core/box_feature.cpp
+  src/core/construction_plane_feature.cpp
   src/core/cylinder_feature.cpp
   src/core/document.cpp
   src/core/export.cpp

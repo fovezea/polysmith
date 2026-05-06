@@ -110,6 +110,22 @@ const documentStateSchema = z.object({
         })
         .nullable()
         .default(null),
+      // Parametric offset construction plane parameters. Defaulted
+      // to null so older `.polysmith` saves (and messages from a
+      // pre-construction-plane core) round-trip cleanly.
+      construction_plane_parameters: z
+        .object({
+          source_plane_id: z.string(),
+          offset: z.number(),
+          plane_frame: z.object({
+            origin: z.object({ x: z.number(), y: z.number(), z: z.number() }),
+            x_axis: z.object({ x: z.number(), y: z.number(), z: z.number() }),
+            y_axis: z.object({ x: z.number(), y: z.number(), z: z.number() }),
+            normal: z.object({ x: z.number(), y: z.number(), z: z.number() }),
+          }),
+        })
+        .nullable()
+        .default(null),
       sketch_parameters: z
         .object({
           plane_id: z.string(),
@@ -412,7 +428,9 @@ const viewportStateSchema = z.object({
     z.object({
       reference_id: z.string(),
       label: z.string(),
-      orientation: z.enum(["xy", "yz", "xz"]),
+      // Origin planes use one of "xy" / "yz" / "xz"; construction
+      // planes use "custom" and ship a real `plane_frame`.
+      orientation: z.enum(["xy", "yz", "xz", "custom"]),
       center: z.object({
         x: z.number(),
         y: z.number(),
@@ -424,6 +442,18 @@ const viewportStateSchema = z.object({
       }),
       is_selected: z.boolean(),
       is_active_sketch_plane: z.boolean(),
+      // Defaulted to null so older snapshots without the field
+      // (origin-only planes from a pre-construction-plane core)
+      // still validate.
+      plane_frame: z
+        .object({
+          origin: z.object({ x: z.number(), y: z.number(), z: z.number() }),
+          x_axis: z.object({ x: z.number(), y: z.number(), z: z.number() }),
+          y_axis: z.object({ x: z.number(), y: z.number(), z: z.number() }),
+          normal: z.object({ x: z.number(), y: z.number(), z: z.number() }),
+        })
+        .nullable()
+        .default(null),
     }),
   ),
   reference_axes: z.array(

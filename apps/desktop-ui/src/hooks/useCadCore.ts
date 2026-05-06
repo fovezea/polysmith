@@ -53,6 +53,8 @@ import {
   makeUpdateChamferDistanceCommand,
   makeConfirmFilletCommand,
   makeConfirmChamferCommand,
+  makeCreateOffsetPlaneCommand,
+  makeUpdateOffsetPlaneCommand,
   makeSetSketchCoincidentConstraintCommand,
   makeSetSketchEqualLengthConstraintCommand,
   makeSetSketchParallelConstraintCommand,
@@ -319,6 +321,18 @@ export function useCadCore() {
     },
     confirmChamfer: async (featureId: string) => {
       await sendCoreCommand(makeConfirmChamferCommand(featureId));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    createOffsetPlane: async (sourcePlaneId: string, offset: number) => {
+      await sendCoreCommand(
+        makeCreateOffsetPlaneCommand(sourcePlaneId, offset),
+      );
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateOffsetPlane: async (featureId: string, offset: number) => {
+      await sendCoreCommand(makeUpdateOffsetPlaneCommand(featureId, offset));
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());
     },

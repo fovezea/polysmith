@@ -117,6 +117,11 @@ struct ViewportSolidFace {
 struct ViewportReferencePlane {
   std::string id;
   std::string label;
+  // "xy" | "yz" | "xz" for the three origin planes — the renderer
+  // applies a hardcoded rotation for those (legacy path). For
+  // construction planes we set this to "custom" and ship a real
+  // `plane_frame` instead; the renderer uses the frame to position
+  // and orient the quad in world space.
   std::string orientation;
   double center_x;
   double center_y;
@@ -125,6 +130,9 @@ struct ViewportReferencePlane {
   double height;
   bool is_selected;
   bool is_active_sketch_plane;
+  // World-space frame for construction planes. nullopt for origin
+  // planes, which the renderer continues to handle via `orientation`.
+  std::optional<PlaneFrame> plane_frame;
 };
 
 struct ViewportReferenceAxis {

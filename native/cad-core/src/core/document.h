@@ -131,6 +131,18 @@ class DocumentManager {
       const std::vector<std::string>& edge_ids);
   // See `confirm_fillet` for semantics.
   DocumentState confirm_chamfer(const std::string& feature_id);
+  // Create a parametric offset construction plane. The source must
+  // resolve via `resolve_plane_source_frame` (origin plane,
+  // construction plane feature id, or "<body_id>:face:<index>"
+  // planar face). The resulting feature is selected and shows up in
+  // the timeline and the Construction hierarchy category.
+  DocumentState create_offset_plane(const std::string& source_plane_id,
+                                    double offset);
+  // Drive an existing construction plane's offset. The frame is
+  // re-derived from the source's current frame, so chained planes
+  // / face-based sources update correctly.
+  DocumentState update_offset_plane(const std::string& feature_id,
+                                    double offset);
   DocumentState start_sketch_on_plane(const std::string& reference_id);
   DocumentState start_sketch_on_face(
       const std::string& face_id,

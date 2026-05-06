@@ -2869,6 +2869,41 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
       .end_z = reference_extent,
   });
 
+  // Emit construction-plane features as additional reference planes.
+  // We reuse `ViewportReferencePlane` (rather than introducing a new
+  // viewport struct) so existing viewport machinery — selection,
+  // active-sketch-plane highlighting, hierarchy filtering — keeps
+  // working unchanged. Construction planes ship the cached world-space
+  // `plane_frame`; the renderer uses it instead of the legacy
+  // orientation rotation.
+  for (const auto& feature : document->feature_history) {
+    if (feature.suppressed) {
+      continue;
+    }
+    if (feature.kind != "construction_plane" ||
+        !feature.construction_plane_parameters.has_value()) {
+      continue;
+    }
+    const auto& params = feature.construction_plane_parameters.value();
+    reference_planes.push_back(ViewportReferencePlane{
+        .id = feature.id,
+        .label = feature.name,
+        .orientation = "custom",
+        .center_x = params.plane_frame.origin_x,
+        .center_y = params.plane_frame.origin_y,
+        .center_z = params.plane_frame.origin_z,
+        .width = kReferencePlaneSize,
+        .height = kReferencePlaneSize,
+        .is_selected =
+            document->selected_reference_id.has_value() &&
+            document->selected_reference_id.value() == feature.id,
+        .is_active_sketch_plane =
+            document->active_sketch_plane_id.has_value() &&
+            document->active_sketch_plane_id.value() == feature.id,
+        .plane_frame = params.plane_frame,
+    });
+  }
+
   // Drop legacy named-suffix analytical faces for extrude features
   // (e.g. "<id>:face:top", "<id>:face:base", "<id>:face:side-N"). The
   // per-feature loop above still emits those for backwards

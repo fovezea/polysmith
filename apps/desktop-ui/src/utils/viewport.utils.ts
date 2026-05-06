@@ -505,25 +505,56 @@ export function buildReferencePlaneObject(plane: ReferencePlaneScene) {
     REFERENCE_PLANE_RENDER_SIZE,
   );
   const mesh = new THREE.Mesh(geometry, fillMaterial);
-  orientPlaneMesh(mesh, plane.orientation);
-  // Render the origin helpers from the world origin so the visual margin is
-  // measured from the axes, not from the core plane center.
-  const offset = REFERENCE_PLANE_MARGIN + REFERENCE_PLANE_RENDER_SIZE / 2;
-  const renderPosition: [number, number, number] =
-    plane.orientation === "xy"
-      ? [offset, 0, offset]
-      : plane.orientation === "yz"
-        ? [0, offset, offset]
-        : [offset, offset, 0];
-  mesh.position.set(...renderPosition);
-  mesh.userData.referenceId = plane.referenceId;
-
   const edges = new THREE.LineSegments(
     new THREE.EdgesGeometry(geometry),
     edgeMaterial,
   );
-  orientPlaneMesh(edges, plane.orientation);
-  edges.position.copy(mesh.position);
+
+  if (plane.orientation === "custom" && plane.planeFrame) {
+    // Construction plane — orient and position from the cached frame.
+    // PlaneGeometry's local axes are (X, Y) with normal +Z. Build a
+    // world-space basis matrix that maps those axes to the plane's
+    // (xAxis, yAxis, normal) and use the frame's origin as the
+    // translation. This works for any orientation, so chained offsets
+    // and face-source planes render correctly without any special
+    // cases.
+    const frame = plane.planeFrame;
+    const matrix = new THREE.Matrix4().set(
+      frame.xAxis[0],
+      frame.yAxis[0],
+      frame.normal[0],
+      frame.origin[0],
+      frame.xAxis[1],
+      frame.yAxis[1],
+      frame.normal[1],
+      frame.origin[1],
+      frame.xAxis[2],
+      frame.yAxis[2],
+      frame.normal[2],
+      frame.origin[2],
+      0,
+      0,
+      0,
+      1,
+    );
+    mesh.applyMatrix4(matrix);
+    edges.applyMatrix4(matrix);
+  } else {
+    orientPlaneMesh(mesh, plane.orientation);
+    orientPlaneMesh(edges, plane.orientation);
+    // Render the origin helpers from the world origin so the visual margin is
+    // measured from the axes, not from the core plane center.
+    const offset = REFERENCE_PLANE_MARGIN + REFERENCE_PLANE_RENDER_SIZE / 2;
+    const renderPosition: [number, number, number] =
+      plane.orientation === "xy"
+        ? [offset, 0, offset]
+        : plane.orientation === "yz"
+          ? [0, offset, offset]
+          : [offset, offset, 0];
+    mesh.position.set(...renderPosition);
+    edges.position.copy(mesh.position);
+  }
+  mesh.userData.referenceId = plane.referenceId;
 
   return {
     mesh,

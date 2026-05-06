@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import type { DocumentState } from "@/types";
 import { ContextMenuShell } from "./ContextMenuShell";
 
-export type CategoryId = "origin" | "sketches" | "bodies";
+export type CategoryId = "origin" | "construction" | "sketches" | "bodies";
 
 interface DocumentHierarchyPanelProps {
   document: DocumentState | null;
@@ -12,6 +12,11 @@ interface DocumentHierarchyPanelProps {
   onToggleFeatureVisibility: (featureId: string) => void;
   onToggleCategoryVisibility: (category: CategoryId) => void;
   onSelectFeature: (featureId: string) => Promise<void>;
+  // Construction planes are *both* features and references. Clicking
+  // one in the hierarchy sets selected_reference_id (so the Sketch
+  // button enables) instead of selected_feature_id alone — different
+  // dispatch from the timeline / body rows.
+  onSelectReference: (referenceId: string) => Promise<void>;
   onReenterSketch: (featureId: string) => Promise<void>;
   onRenameFeature: (featureId: string, name: string) => Promise<void>;
   onDeleteFeature: (featureId: string) => Promise<void>;
@@ -377,13 +382,14 @@ export function DocumentHierarchyPanel({
   onToggleFeatureVisibility,
   onToggleCategoryVisibility,
   onSelectFeature,
+  onSelectReference,
   onReenterSketch,
   onRenameFeature,
   onDeleteFeature,
   onSetFeatureSuppressed,
 }: DocumentHierarchyPanelProps) {
   const [openCategories, setOpenCategories] = useState<Set<CategoryId>>(
-    () => new Set<CategoryId>(["origin", "sketches", "bodies"]),
+    () => new Set<CategoryId>(["origin", "construction", "sketches", "bodies"]),
   );
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [renamingFeatureId, setRenamingFeatureId] = useState<string | null>(
@@ -412,6 +418,10 @@ export function DocumentHierarchyPanel({
   const features = document?.feature_history ?? [];
   const sketches = useMemo(
     () => features.filter((feature) => feature.kind === "sketch"),
+    [features],
+  );
+  const constructionPlanes = useMemo(
+    () => features.filter((feature) => feature.kind === "construction_plane"),
     [features],
   );
   const bodies = useMemo(
@@ -519,6 +529,60 @@ export function DocumentHierarchyPanel({
         {ORIGIN_AXES.map((axis) => (
           <Row key={axis.id} icon={<AxisIcon />} label={axis.label} />
         ))}
+      </Category>
+
+      <Category
+        id="construction"
+        label="Construction"
+        isOpen={openCategories.has("construction")}
+        onToggleOpen={() => toggleOpen("construction")}
+        isHidden={hiddenCategories.has("construction")}
+        onToggleVisibility={() => onToggleCategoryVisibility("construction")}
+        emptyHint={
+          constructionPlanes.length === 0
+            ? "No construction geometry"
+            : undefined
+        }
+      >
+        {constructionPlanes.map((plane) => {
+          const isHidden = hiddenFeatureIds.has(plane.feature_id);
+          return (
+            <Row
+              key={plane.feature_id}
+              icon={<PlaneIcon />}
+              label={plane.name}
+              // Construction planes get highlighted via either
+              // selected_reference_id or selected_feature_id —
+              // both selectors are valid for them. Match the
+              // viewport's behaviour by light-up if either is set.
+              isSelected={
+                document.selected_reference_id === plane.feature_id ||
+                document.selected_feature_id === plane.feature_id
+              }
+              isHidden={isHidden}
+              isRenaming={renamingFeatureId === plane.feature_id}
+              onSelect={() => {
+                // Treat construction planes as references when
+                // clicked here so the Sketch button enables. The
+                // core also sets selected_feature_id internally.
+                void onSelectReference(plane.feature_id);
+              }}
+              onToggleVisibility={() => {
+                onToggleFeatureVisibility(plane.feature_id);
+              }}
+              onContextMenu={openContextMenu(
+                plane.feature_id,
+                plane.name,
+                isHidden,
+                plane.suppressed === true,
+              )}
+              onRenameSubmit={(nextName) => {
+                void submitRename(plane.feature_id, nextName);
+              }}
+              onRenameCancel={cancelRename}
+            />
+          );
+        })}
       </Category>
 
       <Category

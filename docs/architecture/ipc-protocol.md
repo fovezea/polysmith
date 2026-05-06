@@ -195,6 +195,9 @@ The current implementation now also includes a focused export spike:
 The protocol also covers native document persistence and the Project sketch
 tool:
 
+- `create_offset_plane { source_plane_id, offset }` adds a parametric offset construction plane to the document. `source_plane_id` may be one of the three origin planes (`ref-plane-xy/yz/xz`), an existing construction plane's feature id, or a planar body face id of the form `<body_id>:face:<index>`. `offset` is a signed distance (mm) along the source's normal. The core resolves the source's frame, slides it along the normal, stores the result on a new `construction_plane` feature, and emits the updated document.
+- `update_offset_plane { feature_id, offset }` rewrites the offset on an existing construction plane and re-derives its cached frame from the source's current frame, so chained planes / face-source planes update correctly under upstream edits.
+- `viewport_state.reference_planes[]` gained an optional `plane_frame` field. Origin planes leave it null and the renderer keeps using the legacy `orientation` rotation; construction planes ship a real world-space frame and the renderer positions the quad with that frame instead.
 - `save_document` writes the live document state as a JSON `.polysmith` file at the supplied `file_path`; the core replies with `document_saved`
 - `load_document` parses a `.polysmith` file, replaces the live document, restores ID counters by scanning the loaded ids, clears undo/redo stacks, and replies with `document_state`
 - `project_face_into_sketch` projects the outline of a selected solid face onto the active sketch's plane, creating fixed-endpoint sketch lines (or a sketch circle for circular caps); supports extrude features that carry a `plane_frame` (rectangle and circle profiles, base/top/side faces). Polygon profile sides and legacy box/cylinder features are not yet supported by the projection helper and produce a structured error.

@@ -491,6 +491,30 @@ export interface ConfirmChamferCommand {
   };
 }
 
+// Create a parametric offset construction plane. `source_plane_id`
+// must resolve to a plane the core knows about (origin plane,
+// existing construction plane, or "<body_id>:face:<index>" face id).
+export interface CreateOffsetPlaneCommand {
+  id: string;
+  type: "create_offset_plane";
+  payload: {
+    source_plane_id: string;
+    offset: number;
+  };
+}
+
+// Live-edit an existing construction plane's offset. The core
+// re-derives the cached frame from the source's current frame, so
+// chained planes / face-source planes update correctly.
+export interface UpdateOffsetPlaneCommand {
+  id: string;
+  type: "update_offset_plane";
+  payload: {
+    feature_id: string;
+    offset: number;
+  };
+}
+
 export interface StartSketchOnPlaneCommand {
   id: string;
   type: "start_sketch_on_plane";
@@ -913,6 +937,8 @@ export type CoreCommand =
   | UpdateChamferDistanceCommand
   | UpdateChamferEdgesCommand
   | ConfirmChamferCommand
+  | CreateOffsetPlaneCommand
+  | UpdateOffsetPlaneCommand
   | StartSketchOnPlaneCommand
   | StartSketchOnFaceCommand
   | SetSketchToolCommand

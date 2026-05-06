@@ -90,6 +90,12 @@ export interface ViewportReferencePlane {
   size: ViewportPlaneSize;
   is_selected: boolean;
   is_active_sketch_plane: boolean;
+  // Construction planes (parametric offset planes) ship a real
+  // world-space frame here. Origin planes leave this null and the
+  // renderer keeps using the legacy `orientation` rotation. Made
+  // optional in TS so callers can omit it when constructing test
+  // fixtures.
+  plane_frame?: PlaneFrame | null;
 }
 
 export interface ViewportReferenceAxis {

@@ -120,6 +120,33 @@ function makePolygonExtrudePrimitive(
 function makeReferencePlane(
   plane: ViewportReferencePlane,
 ): ReferencePlaneScene {
+  // Construction planes ship a real world-space frame; origin
+  // planes leave it null and the renderer falls back to the
+  // hardcoded `orientation` rotation.
+  const planeFrame = plane.plane_frame
+    ? {
+        origin: [
+          plane.plane_frame.origin.x,
+          plane.plane_frame.origin.y,
+          plane.plane_frame.origin.z,
+        ] as [number, number, number],
+        xAxis: [
+          plane.plane_frame.x_axis.x,
+          plane.plane_frame.x_axis.y,
+          plane.plane_frame.x_axis.z,
+        ] as [number, number, number],
+        yAxis: [
+          plane.plane_frame.y_axis.x,
+          plane.plane_frame.y_axis.y,
+          plane.plane_frame.y_axis.z,
+        ] as [number, number, number],
+        normal: [
+          plane.plane_frame.normal.x,
+          plane.plane_frame.normal.y,
+          plane.plane_frame.normal.z,
+        ] as [number, number, number],
+      }
+    : null;
   return {
     kind: "reference_plane",
     referenceId: plane.reference_id,
@@ -129,6 +156,7 @@ function makeReferencePlane(
     size: [plane.size.width, plane.size.height],
     isSelected: plane.is_selected,
     isActiveSketchPlane: plane.is_active_sketch_plane,
+    planeFrame,
   };
 }
 
@@ -346,7 +374,14 @@ export function createViewportScene(
   const references = hideReferences
     ? []
     : [
-        ...viewport.reference_planes.map(makeReferencePlane),
+        // Construction planes are also features in the document, so
+        // they participate in per-feature visibility filtering. The
+        // origin planes use static "ref-plane-*" ids that never
+        // appear in `hiddenFeatureIds`, so the filter is a no-op for
+        // them.
+        ...viewport.reference_planes
+          .filter((plane) => !hiddenFeatureIds.has(plane.reference_id))
+          .map(makeReferencePlane),
         ...viewport.reference_axes.map(makeReferenceAxis),
       ];
   const isSketchPlaneVisible = (planeId: string) =>

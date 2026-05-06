@@ -197,6 +197,21 @@ export interface ChamferFeatureParameters {
   is_pending: boolean;
 }
 
+// Parametric offset construction plane parameters. The cached
+// `plane_frame` is the world-space frame the core re-derives on
+// every recompute, so the UI can read it without having to invert
+// the source-+offset relationship itself.
+export interface ConstructionPlaneFeatureParameters {
+  source_plane_id: string;
+  offset: number;
+  plane_frame: {
+    origin: Vector3;
+    x_axis: Vector3;
+    y_axis: Vector3;
+    normal: Vector3;
+  };
+}
+
 export interface FeatureEntry {
   feature_id: string;
   kind: string;
@@ -221,6 +236,9 @@ export interface FeatureEntry {
   sketch_parameters: SketchFeatureParameters | null;
   fillet_parameters: FilletFeatureParameters | null;
   chamfer_parameters: ChamferFeatureParameters | null;
+  // Optional in serialized form so older `.polysmith` saves load
+  // cleanly. Present on `construction_plane` features.
+  construction_plane_parameters?: ConstructionPlaneFeatureParameters | null;
 }
 
 export type SketchTool = "select" | Shape2D | "dimension";

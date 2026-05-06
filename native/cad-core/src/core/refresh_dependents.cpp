@@ -19,6 +19,7 @@
 #include <gp_Vec.hxx>
 
 #include "core/body_compiler.h"
+#include "core/construction_plane_feature.h"
 #include "core/document.h"
 #include "core/feature.h"
 
@@ -179,24 +180,130 @@ const FeatureEntry* find_feature(const DocumentState& document,
   return nullptr;
 }
 
+// Hardcoded frames for the three origin reference planes. The basis
+// vectors mirror the existing conventions used by `feature_shape.cpp`
+// (`to_world_point` and `extrusion_vector`) so a sketch / extrude
+// rendered against one of these frames lands at the same world
+// position it always has — extending `start_sketch_on_plane` with a
+// plane_frame must not move legacy sketches.
+//
+// Mapping (kept in lockstep with `feature_shape.cpp::to_world_point`):
+//   ref-plane-xy: local (x, y) -> world (x, 0, y), normal (0, 1, 0)
+//   ref-plane-yz: local (x, y) -> world (0, x, y), normal (1, 0, 0)
+//   ref-plane-xz: local (x, y) -> world (x, y, 0), normal (0, 0, 1)
+std::optional<PlaneFrame> origin_plane_frame(const std::string& reference_id) {
+  if (reference_id == "ref-plane-xy") {
+    return PlaneFrame{
+        .origin_x = 0.0, .origin_y = 0.0, .origin_z = 0.0,
+        .x_axis_x = 1.0, .x_axis_y = 0.0, .x_axis_z = 0.0,
+        .y_axis_x = 0.0, .y_axis_y = 0.0, .y_axis_z = 1.0,
+        .normal_x = 0.0, .normal_y = 1.0, .normal_z = 0.0,
+    };
+  }
+  if (reference_id == "ref-plane-yz") {
+    return PlaneFrame{
+        .origin_x = 0.0, .origin_y = 0.0, .origin_z = 0.0,
+        .x_axis_x = 0.0, .x_axis_y = 1.0, .x_axis_z = 0.0,
+        .y_axis_x = 0.0, .y_axis_y = 0.0, .y_axis_z = 1.0,
+        .normal_x = 1.0, .normal_y = 0.0, .normal_z = 0.0,
+    };
+  }
+  if (reference_id == "ref-plane-xz") {
+    return PlaneFrame{
+        .origin_x = 0.0, .origin_y = 0.0, .origin_z = 0.0,
+        .x_axis_x = 1.0, .x_axis_y = 0.0, .x_axis_z = 0.0,
+        .y_axis_x = 0.0, .y_axis_y = 1.0, .y_axis_z = 0.0,
+        .normal_x = 0.0, .normal_y = 0.0, .normal_z = 1.0,
+    };
+  }
+  return std::nullopt;
+}
+
 }  // namespace
+
+std::optional<PlaneFrame> resolve_plane_source_frame(
+    const DocumentState& document,
+    const std::string& source_id) {
+  // Origin reference plane — static frame.
+  if (auto frame = origin_plane_frame(source_id); frame.has_value()) {
+    return frame;
+  }
+
+  // Body face — "<body_id>:face:<index>".
+  if (const auto target = parse_face_target(source_id); target.has_value()) {
+    return resolve_face_frame(document, target->body_id, target->face_index);
+  }
+
+  // Construction-plane feature id — read its cached frame. The
+  // topological walk in `refresh_history_dependencies` runs each
+  // construction plane in feature_history order, so by the time a
+  // downstream feature asks for an upstream construction plane's
+  // frame, the upstream feature's cache has already been refreshed.
+  if (const FeatureEntry* feature = find_feature(document, source_id);
+      feature != nullptr &&
+      feature->kind == "construction_plane" &&
+      feature->construction_plane_parameters.has_value()) {
+    return feature->construction_plane_parameters->plane_frame;
+  }
+
+  return std::nullopt;
+}
 
 void refresh_history_dependencies(DocumentState& document) {
   for (size_t i = 0; i < document.feature_history.size(); ++i) {
     FeatureEntry& feature = document.feature_history[i];
 
-    // Sketch on a body face: re-resolve the plane frame against
-    // upstream bodies. We compile the prefix [0, i) — every earlier
-    // feature has already been refreshed in place by previous
-    // iterations, so the upstream geometry reflects the latest edits.
+    // Construction plane: re-derive its cached frame from the
+    // current source. Every earlier feature has already been
+    // refreshed in place by previous iterations, so reading the
+    // upstream construction plane's cache or the upstream face's
+    // body works against fresh state.
+    if (feature.kind == "construction_plane" &&
+        feature.construction_plane_parameters.has_value()) {
+      const auto& params = feature.construction_plane_parameters.value();
+      DocumentState prefix = document;
+      prefix.feature_history.resize(i);
+      const std::optional<PlaneFrame> source_frame =
+          resolve_plane_source_frame(prefix, params.source_plane_id);
+      if (source_frame.has_value()) {
+        ConstructionPlaneFeatureParameters next = params;
+        next.plane_frame =
+            derive_offset_frame(source_frame.value(), params.offset);
+        feature.construction_plane_parameters = next;
+        feature.dependency_broken = false;
+        feature.dependency_warning.clear();
+      } else {
+        // Leave the cached frame at its last value so the UI can
+        // still render the plane somewhere; the warning surfaces
+        // via dependency_broken.
+        feature.dependency_broken = true;
+        feature.dependency_warning =
+            "Construction plane references '" + params.source_plane_id +
+            "', which is no longer available. Edit upstream features to "
+            "restore it.";
+      }
+    }
+
+    // Sketch on a body face / construction plane: re-resolve the
+    // plane frame against upstream geometry. We compile the prefix
+    // [0, i) — every earlier feature has already been refreshed in
+    // place by previous iterations, so the upstream geometry
+    // reflects the latest edits.
     if (feature.kind == "sketch" && feature.sketch_parameters.has_value()) {
-      const auto target = parse_face_target(feature.sketch_parameters->plane_id);
-      if (target.has_value()) {
+      const std::string& plane_id = feature.sketch_parameters->plane_id;
+      const auto face_target = parse_face_target(plane_id);
+      const FeatureEntry* upstream_plane =
+          face_target.has_value() ? nullptr : find_feature(document, plane_id);
+      const bool is_construction_source =
+          upstream_plane != nullptr &&
+          upstream_plane->kind == "construction_plane";
+
+      if (face_target.has_value() || is_construction_source) {
         DocumentState prefix = document;
         prefix.feature_history.resize(i);
 
-        const std::optional<PlaneFrame> frame = resolve_face_frame(
-            prefix, target->body_id, target->face_index);
+        const std::optional<PlaneFrame> frame =
+            resolve_plane_source_frame(prefix, plane_id);
         if (frame.has_value()) {
           feature.sketch_parameters->plane_frame =
               to_sketch_plane_frame(frame.value());
@@ -208,16 +315,22 @@ void refresh_history_dependencies(DocumentState& document) {
           // warning is surfaced via `dependency_broken`.
           feature.dependency_broken = true;
           feature.dependency_warning =
-              "Sketch plane references a face that no longer exists on "
-              "body '" +
-              target->body_id +
-              "'. Edit upstream features to restore it.";
+              face_target.has_value()
+                  ? std::string{
+                        "Sketch plane references a face that no longer "
+                        "exists on body '"} +
+                        face_target->body_id +
+                        "'. Edit upstream features to restore it."
+                  : std::string{"Sketch plane references construction "
+                                "plane '"} +
+                        plane_id +
+                        "', which is no longer available.";
         }
       } else {
-        // Reference-plane sketch (legacy plane_id like "ref-plane-xy"):
-        // its frame is invariant under upstream edits. Clearing any
-        // stale broken-state from a previous run keeps the timeline
-        // honest.
+        // Origin reference plane sketch (legacy plane_id like
+        // "ref-plane-xy"): its frame is invariant under upstream
+        // edits. Clearing any stale broken-state from a previous run
+        // keeps the timeline honest.
         feature.dependency_broken = false;
         feature.dependency_warning.clear();
       }

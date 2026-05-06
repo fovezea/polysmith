@@ -395,6 +395,40 @@ export function makeConfirmChamferCommand(featureId: string): CoreCommand {
   };
 }
 
+// Create a parametric offset construction plane. The source plane id
+// can be one of the three origin planes ("ref-plane-xy/yz/xz"), an
+// existing construction plane's feature id, or a planar body face id
+// ("<body_id>:face:<index>"). The core resolves the source's frame,
+// slides it along the normal by `offset`, and stores the result as a
+// new `construction_plane` feature.
+export function makeCreateOffsetPlaneCommand(
+  sourcePlaneId: string,
+  offset: number,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "create_offset_plane",
+    payload: {
+      source_plane_id: sourcePlaneId,
+      offset,
+    },
+  };
+}
+
+export function makeUpdateOffsetPlaneCommand(
+  featureId: string,
+  offset: number,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_offset_plane",
+    payload: {
+      feature_id: featureId,
+      offset,
+    },
+  };
+}
+
 export function makeStartSketchOnPlaneCommand(
   referenceId: string,
 ): CoreCommand {

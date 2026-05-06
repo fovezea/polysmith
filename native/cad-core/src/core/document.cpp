@@ -16,6 +16,7 @@
 #include <TopoDS_Shape.hxx>
 
 #include "core/body_compiler.h"
+#include "core/construction_plane_feature.h"
 #include "core/face_geometry.h"
 #include "core/feature_shape.h"
 #include "core/refresh_dependents.h"
@@ -27,6 +28,44 @@ namespace {
 bool is_origin_plane_reference(const std::string& reference_id) {
   return reference_id == "ref-plane-xy" || reference_id == "ref-plane-yz" ||
          reference_id == "ref-plane-xz";
+}
+
+// True for any plane the user can pick from the viewport's reference
+// hierarchy: the three origin planes plus every construction plane
+// currently in `document.feature_history`. Face picks go through
+// `select_face` instead and aren't covered here.
+bool is_selectable_plane_reference(const DocumentState& document,
+                                   const std::string& reference_id) {
+  if (is_origin_plane_reference(reference_id)) {
+    return true;
+  }
+  for (const auto& feature : document.feature_history) {
+    if (feature.id == reference_id && feature.kind == "construction_plane") {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Convert a `PlaneFrame` (the core-wide form used by the dependency
+// resolver) into the sketch-specific copy stored on
+// `SketchFeatureParameters`. Same field-by-field layout.
+SketchFeatureParameters::SketchPlaneFrame to_sketch_plane_frame(
+    const PlaneFrame& frame) {
+  return SketchFeatureParameters::SketchPlaneFrame{
+      .origin_x = frame.origin_x,
+      .origin_y = frame.origin_y,
+      .origin_z = frame.origin_z,
+      .x_axis_x = frame.x_axis_x,
+      .x_axis_y = frame.x_axis_y,
+      .x_axis_z = frame.x_axis_z,
+      .y_axis_x = frame.y_axis_x,
+      .y_axis_y = frame.y_axis_y,
+      .y_axis_z = frame.y_axis_z,
+      .normal_x = frame.normal_x,
+      .normal_y = frame.normal_y,
+      .normal_z = frame.normal_z,
+  };
 }
 
 // Test whether two solid shapes intersect with non-zero volume. Used by
@@ -606,7 +645,7 @@ DocumentState DocumentManager::select_feature(const std::string& feature_id) {
 DocumentState DocumentManager::select_reference(const std::string& reference_id) {
   require_document();
 
-  if (!is_origin_plane_reference(reference_id)) {
+  if (!is_selectable_plane_reference(*document_, reference_id)) {
     throw std::runtime_error("Reference not found: " + reference_id);
   }
 
@@ -626,15 +665,31 @@ DocumentState DocumentManager::start_sketch_on_plane(
     const std::string& reference_id) {
   require_document();
 
-  if (!is_origin_plane_reference(reference_id)) {
+  if (!is_selectable_plane_reference(*document_, reference_id)) {
     throw std::runtime_error("Sketch plane not found: " + reference_id);
   }
 
   push_undo_state();
   clear_redo_stack();
 
-  document_->feature_history.push_back(
-      create_sketch_feature(next_feature_id_++, reference_id));
+  // Origin reference planes have hardcoded mappings throughout the
+  // existing code paths, so we omit `plane_frame` and let the
+  // legacy fallbacks take over (matching the historical behaviour).
+  // Construction-plane sketches must carry a `plane_frame` because
+  // there are no hardcoded mappings for arbitrary frames; we read
+  // the cached frame off the source feature.
+  std::optional<SketchFeatureParameters::SketchPlaneFrame> sketch_frame;
+  if (!is_origin_plane_reference(reference_id)) {
+    const auto frame = resolve_plane_source_frame(*document_, reference_id);
+    if (!frame.has_value()) {
+      throw std::runtime_error(
+          "Sketch plane source could not be resolved: " + reference_id);
+    }
+    sketch_frame = to_sketch_plane_frame(frame.value());
+  }
+
+  document_->feature_history.push_back(create_sketch_feature(
+      next_feature_id_++, reference_id, sketch_frame));
   const std::string sketch_feature_id = document_->feature_history.back().id;
   document_->selected_feature_id = std::nullopt;
   document_->selected_reference_id = reference_id;
@@ -2736,6 +2791,92 @@ DocumentState DocumentManager::project_face_into_sketch(
   document_->selected_sketch_profile_id = std::nullopt;
   bump_geometry_revision();
 
+  return document_.value();
+}
+
+DocumentState DocumentManager::create_offset_plane(
+    const std::string& source_plane_id, double offset) {
+  require_document();
+
+  // The source must be a real plane that exists in the current
+  // document. We allow the three origin planes, any earlier
+  // construction plane, and any planar body face id (face ids of the
+  // form "<body_id>:face:<index>"). The face validity check is
+  // intentionally lighter than `select_face`'s — `resolve_plane_source_frame`
+  // returns nullopt for unknown / non-planar / missing faces, so the
+  // `frame.has_value()` guard below catches every failure mode in one
+  // place.
+  const auto frame =
+      resolve_plane_source_frame(*document_, source_plane_id);
+  if (!frame.has_value()) {
+    throw std::runtime_error(
+        "Offset plane source not found: " + source_plane_id);
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+
+  document_->feature_history.push_back(create_construction_plane_feature(
+      next_feature_id_++, source_plane_id, offset, frame.value()));
+  const std::string feature_id = document_->feature_history.back().id;
+  // Select the new plane both as a feature (for the hierarchy /
+  // timeline) and as a reference (for the viewport quad highlight
+  // and the Sketch button gate). Origin-plane selection only sets
+  // selected_reference_id, but construction planes are *both* a
+  // feature and a reference, so we keep both in sync.
+  document_->selected_feature_id = feature_id;
+  document_->selected_reference_id = feature_id;
+  document_->selected_face_id = std::nullopt;
+  document_->selected_edge_ids.clear();
+  document_->selected_vertex_ids.clear();
+  document_->selected_sketch_point_id = std::nullopt;
+  document_->selected_sketch_entity_id = std::nullopt;
+  document_->selected_sketch_dimension_id = std::nullopt;
+  document_->selected_sketch_profile_id = std::nullopt;
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::update_offset_plane(
+    const std::string& feature_id, double offset) {
+  require_document();
+
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Feature not found: " + feature_id);
+  }
+  if (feature_it->kind != "construction_plane" ||
+      !feature_it->construction_plane_parameters.has_value()) {
+    throw std::runtime_error(
+        "update_offset_plane requires a construction_plane feature: " +
+        feature_id);
+  }
+
+  // Resolve the source frame from the rest of the document (everything
+  // before this feature in feature_history is already up to date by
+  // the time we get here, and the source must come from earlier in
+  // history per `is_selectable_plane_reference`).
+  const auto& params = feature_it->construction_plane_parameters.value();
+  const auto frame =
+      resolve_plane_source_frame(*document_, params.source_plane_id);
+  if (!frame.has_value()) {
+    throw std::runtime_error(
+        "Offset plane source could not be resolved: " + params.source_plane_id);
+  }
+
+  // No push_undo_state here: this is a live-preview update on the
+  // freshly-created construction plane whose own create_offset_plane
+  // already pushed an undo step. Pushing here would make a panel
+  // session of N debounced offset edits collapse to N user-visible
+  // undo steps when the user really wants Cancel to revert the
+  // entire session. Mirrors the same comment + rationale in
+  // `update_fillet_edges` / `update_fillet_radius`.
+  clear_redo_stack();
+  polysmith::core::update_construction_plane(*feature_it, offset, frame.value());
+  bump_geometry_revision();
   return document_.value();
 }
 

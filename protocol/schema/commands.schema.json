@@ -38,6 +38,8 @@
         "update_fillet_radius",
         "create_chamfer",
         "update_chamfer_distance",
+        "create_offset_plane",
+        "update_offset_plane",
         "start_sketch_on_plane",
         "start_sketch_on_face",
         "set_sketch_tool",

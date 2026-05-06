@@ -124,6 +124,10 @@ interface AppHeaderProps {
   canEdgeOp: boolean;
   onFillet: () => Promise<void>;
   onChamfer: () => Promise<void>;
+  // Construct ribbon (Offset Plane). The parent gates the button on
+  // "no other floating action is open" — same shape as canEdgeOp.
+  canOffsetPlane: boolean;
+  onOffsetPlane: () => void;
   onStartSketch: () => Promise<void>;
   onFinishSketch: () => Promise<void>;
   onSetSketchTool: (tool: SketchTool) => Promise<void>;
@@ -161,6 +165,8 @@ export function AppHeader({
   canEdgeOp,
   onFillet,
   onChamfer,
+  canOffsetPlane,
+  onOffsetPlane,
   onStartSketch,
   onFinishSketch,
   onSetSketchTool,
@@ -300,7 +306,13 @@ export function AppHeader({
             />
           ) : null}
 
-          {activeWorkspace === "Construct" ? <ConstructToolbar /> : null}
+          {activeWorkspace === "Construct" ? (
+            <ConstructToolbar
+              disabled={disabled}
+              canOffsetPlane={canOffsetPlane}
+              onOffsetPlane={onOffsetPlane}
+            />
+          ) : null}
 
           {activeWorkspace === "Sketch" ? (
             <SketchToolbar

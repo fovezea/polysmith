@@ -15,7 +15,11 @@ export type Shape2D =
 
 export type Axis = "x" | "y" | "z";
 
-export type PlaneOrientation = "xy" | "yz" | "xz";
+// Origin reference planes use "xy" / "yz" / "xz" so the renderer can
+// apply a hardcoded rotation. Construction planes (parametric offset
+// planes) use "custom" and ship a real `plane_frame`; the renderer
+// reads the frame to position the quad in world space.
+export type PlaneOrientation = "xy" | "yz" | "xz" | "custom";
 
 export interface PlaneFrame {
   origin: Vector3;

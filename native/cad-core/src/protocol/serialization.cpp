@@ -735,6 +735,53 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                  {"is_pending", feature.chamfer_parameters->is_pending},
              }
            : json(nullptr)},
+      {"construction_plane_parameters",
+       feature.construction_plane_parameters.has_value()
+           ? json{
+                 {"source_plane_id",
+                  feature.construction_plane_parameters->source_plane_id},
+                 {"offset", feature.construction_plane_parameters->offset},
+                 {"plane_frame",
+                  {
+                      {"origin",
+                       {
+                           {"x", feature.construction_plane_parameters
+                                     ->plane_frame.origin_x},
+                           {"y", feature.construction_plane_parameters
+                                     ->plane_frame.origin_y},
+                           {"z", feature.construction_plane_parameters
+                                     ->plane_frame.origin_z},
+                       }},
+                      {"x_axis",
+                       {
+                           {"x", feature.construction_plane_parameters
+                                     ->plane_frame.x_axis_x},
+                           {"y", feature.construction_plane_parameters
+                                     ->plane_frame.x_axis_y},
+                           {"z", feature.construction_plane_parameters
+                                     ->plane_frame.x_axis_z},
+                       }},
+                      {"y_axis",
+                       {
+                           {"x", feature.construction_plane_parameters
+                                     ->plane_frame.y_axis_x},
+                           {"y", feature.construction_plane_parameters
+                                     ->plane_frame.y_axis_y},
+                           {"z", feature.construction_plane_parameters
+                                     ->plane_frame.y_axis_z},
+                       }},
+                      {"normal",
+                       {
+                           {"x", feature.construction_plane_parameters
+                                     ->plane_frame.normal_x},
+                           {"y", feature.construction_plane_parameters
+                                     ->plane_frame.normal_y},
+                           {"z", feature.construction_plane_parameters
+                                     ->plane_frame.normal_z},
+                       }},
+                  }},
+             }
+           : json(nullptr)},
   };
 }
 
@@ -975,6 +1022,38 @@ json to_payload(const polysmith::core::ViewportReferencePlane& plane) {
        }},
       {"is_selected", plane.is_selected},
       {"is_active_sketch_plane", plane.is_active_sketch_plane},
+      // Construction planes ship a real frame; origin planes leave
+      // it null and the renderer falls back to its hardcoded
+      // orientation rotation.
+      {"plane_frame",
+       plane.plane_frame.has_value()
+           ? json{
+                 {"origin",
+                  {
+                      {"x", plane.plane_frame->origin_x},
+                      {"y", plane.plane_frame->origin_y},
+                      {"z", plane.plane_frame->origin_z},
+                  }},
+                 {"x_axis",
+                  {
+                      {"x", plane.plane_frame->x_axis_x},
+                      {"y", plane.plane_frame->x_axis_y},
+                      {"z", plane.plane_frame->x_axis_z},
+                  }},
+                 {"y_axis",
+                  {
+                      {"x", plane.plane_frame->y_axis_x},
+                      {"y", plane.plane_frame->y_axis_y},
+                      {"z", plane.plane_frame->y_axis_z},
+                  }},
+                 {"normal",
+                  {
+                      {"x", plane.plane_frame->normal_x},
+                      {"y", plane.plane_frame->normal_y},
+                      {"z", plane.plane_frame->normal_z},
+                  }},
+             }
+           : json(nullptr)},
   };
 }
 
@@ -1462,6 +1541,18 @@ polysmith::core::FeatureEntry feature_entry_from_payload(const json& payload) {
       params.is_pending = cp.at("is_pending").get<bool>();
     }
     feature.chamfer_parameters = params;
+  }
+
+  if (payload.contains("construction_plane_parameters") &&
+      !payload.at("construction_plane_parameters").is_null()) {
+    const json& cpp = payload.at("construction_plane_parameters");
+    polysmith::core::ConstructionPlaneFeatureParameters params{};
+    params.source_plane_id = read_string(cpp, "source_plane_id");
+    params.offset = read_number(cpp, "offset");
+    if (cpp.contains("plane_frame") && cpp.at("plane_frame").is_object()) {
+      params.plane_frame = plane_frame_from_payload(cpp.at("plane_frame"));
+    }
+    feature.construction_plane_parameters = params;
   }
 
   return feature;

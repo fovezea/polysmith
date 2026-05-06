@@ -454,6 +454,27 @@ export const FeatureGenericIcon = () => (
   </svg>
 );
 
+// Small parallelogram icon shared by every parametric construction
+// plane in the timeline / hierarchy. Visually distinct from the
+// origin axes badge and the body / sketch glyphs.
+const ConstructionPlaneIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    width="16"
+    height="16"
+    aria-hidden="true"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M5 8h12l2 8H7Z" />
+    <path d="M5 8L7 16" />
+    <path d="M17 8l2 8" />
+  </svg>
+);
+
 export function FeatureKindIcon({ kind }: { kind: string }) {
   switch (kind) {
     case "box":
@@ -474,6 +495,8 @@ export function FeatureKindIcon({ kind }: { kind: string }) {
       return <FilletIcon />;
     case "chamfer":
       return <ChamferIcon />;
+    case "construction_plane":
+      return <ConstructionPlaneIcon />;
     default:
       return <FeatureGenericIcon />;
   }

@@ -100,11 +100,22 @@ export interface ReferencePlaneScene {
   kind: "reference_plane";
   referenceId: string;
   label: string;
-  orientation: "xy" | "yz" | "xz";
+  // Origin planes use the three legacy orientations; construction
+  // planes use "custom" and rely on `planeFrame` for placement.
+  orientation: "xy" | "yz" | "xz" | "custom";
   position: [number, number, number];
   size: [number, number];
   isSelected: boolean;
   isActiveSketchPlane: boolean;
+  // World-space frame for construction planes. Null for origin
+  // planes (the renderer uses the legacy orientation rotation
+  // instead).
+  planeFrame: {
+    origin: [number, number, number];
+    xAxis: [number, number, number];
+    yAxis: [number, number, number];
+    normal: [number, number, number];
+  } | null;
 }
 
 export interface ReferenceAxisScene {

@@ -10,6 +10,7 @@ import {
   DocumentHierarchyPanel,
   EdgeOpPreviewPanel,
   ExtrudePreviewPanel,
+  OffsetPlanePanel,
   SketchFilletPanel,
   MirrorToolPanel,
   FeatureTimeline,
@@ -23,6 +24,10 @@ import type { ExtrudeMode, ViewportSolidFace } from "./types";
 const DEFAULT_EXTRUDE_DEPTH = 20;
 const DEFAULT_FILLET_RADIUS = 1;
 const DEFAULT_CHAMFER_DISTANCE = 1;
+// Default seed for the Offset Plane panel. Zero would be a valid
+// frame (sitting on top of the source) but gives no visible preview;
+// 10 mm matches Fusion's "show me something" default.
+const DEFAULT_OFFSET_PLANE_DISTANCE = 10;
 
 // The Core Messages debug panel is hidden by default. Set
 // `VITE_SHOW_DEBUG_MESSAGE_LOG=true` in `.env.local` (or your shell when
@@ -124,6 +129,27 @@ function App() {
   const [edgeOpAction, setEdgeOpAction] = useState<ActiveEdgeOpAction | null>(
     null,
   );
+  // In-progress offset plane session. Mirrors the fillet/chamfer
+  // two-phase pattern:
+  //   - "pending": panel is open but no construction_plane feature
+  //     exists yet. The user must click a plane / planar face in the
+  //     viewport. The next valid click promotes the session to
+  //     "active". `pendingOffsetRef` holds the latest typed offset
+  //     so the create call uses whatever the user dialed in before
+  //     clicking.
+  //   - "active": the core created the feature; typing here drives
+  //     `update_offset_plane` for live preview.
+  type OffsetPlaneAction =
+    | { phase: "pending"; initialOffset: number }
+    | {
+        phase: "active";
+        featureId: string;
+        initialOffset: number;
+        sourceSummary: string;
+      };
+  const [offsetPlaneAction, setOffsetPlaneAction] =
+    useState<OffsetPlaneAction | null>(null);
+  const pendingOffsetRef = useRef<number>(DEFAULT_OFFSET_PLANE_DISTANCE);
   // Identifies which feature (if any) is being edited via the floating
   // edit panel. The panel itself reads the feature's parameters
   // directly from `document.feature_history`, so we only need the id
@@ -227,6 +253,8 @@ function App() {
     updateChamferEdges,
     confirmFillet,
     confirmChamfer,
+    createOffsetPlane,
+    updateOffsetPlane,
     startSketchOnPlane,
     startSketchOnFace,
     setSketchTool,
@@ -343,6 +371,16 @@ function App() {
         set.add(feature.feature_id);
       }
       if (hiddenCategories.has("bodies") && BODY_KINDS.has(feature.kind)) {
+        set.add(feature.feature_id);
+      }
+      // Hiding the Construction category hides every parametric
+      // construction plane (and indirectly suppresses any sketch
+      // anchored on one, since `hiddenSketchPlaneIds` follows from
+      // these ids via the per-plane sketch grouping below).
+      if (
+        hiddenCategories.has("construction") &&
+        feature.kind === "construction_plane"
+      ) {
         set.add(feature.feature_id);
       }
     }
@@ -544,6 +582,111 @@ function App() {
   // pre-selected when the action is invoked, we honor that and create
   // immediately, jumping straight to the "active" phase. See the
   // ActiveEdgeOpAction comment above for the rationale.
+  // Friendly label for a plane the user just clicked. Per AGENTS.md
+  // UI Copy Rules we never expose internal ids — origin planes get
+  // "XY plane" / "YZ plane" / "XZ plane", construction planes use
+  // their feature name (e.g. "Offset Plane 2"), and faces use the
+  // owning body name + the face's kind label.
+  function describePlaneSource(referenceId: string): string {
+    if (referenceId === "ref-plane-xy") return "XY plane";
+    if (referenceId === "ref-plane-yz") return "YZ plane";
+    if (referenceId === "ref-plane-xz") return "XZ plane";
+    const feature = document?.feature_history.find(
+      (entry) => entry.feature_id === referenceId,
+    );
+    if (feature) {
+      return feature.name || feature.kind;
+    }
+    // Face id "<body_id>:face:<index>" — pull the face's label /
+    // owning body label off the viewport snapshot if we can.
+    const face = viewport?.solid_faces.find(
+      (entry) => entry.face_id === referenceId,
+    );
+    if (face) {
+      return face.label || `${face.owner_kind} face`;
+    }
+    return "selected plane";
+  }
+
+  // Start the Fusion-style Offset Plane flow. Opens the panel in
+  // pending phase; the next viewport click on a plane / planar face
+  // promotes the session to active by calling `create_offset_plane`.
+  // If a plane / face is already selected we honor the
+  // "select-then-invoke" shortcut and create the feature immediately.
+  async function triggerOffsetPlaneAction() {
+    if (
+      extrudeAction ||
+      edgeOpAction ||
+      offsetPlaneAction ||
+      activeSketchPlaneId
+    ) {
+      return;
+    }
+    pendingOffsetRef.current = DEFAULT_OFFSET_PLANE_DISTANCE;
+
+    // Already-selected plane? Use it immediately.
+    const preselectedReference = document?.selected_reference_id ?? null;
+    const preselectedFaceId = document?.selected_face_id ?? null;
+    const preselectedFace = preselectedFaceId
+      ? (viewport?.solid_faces.find(
+          (entry) => entry.face_id === preselectedFaceId,
+        ) ?? null)
+      : null;
+    const sourceId =
+      preselectedReference ??
+      (preselectedFace && preselectedFace.sketchability === "planar"
+        ? preselectedFaceId
+        : null);
+    if (sourceId) {
+      await createOffsetPlaneFeature(sourceId, DEFAULT_OFFSET_PLANE_DISTANCE);
+      return;
+    }
+
+    setOffsetPlaneAction({
+      phase: "pending",
+      initialOffset: DEFAULT_OFFSET_PLANE_DISTANCE,
+    });
+  }
+
+  // Dispatch `create_offset_plane` and wait for the new feature to
+  // come back over IPC, mirroring the extrude / fillet flows. Promotes
+  // the panel from pending to active once the feature id is known.
+  async function createOffsetPlaneFeature(sourceId: string, offset: number) {
+    const documentPromise = awaitDocumentChange((next, previous) => {
+      if (!next.selected_feature_id) {
+        return false;
+      }
+      const previousLength = previous?.feature_history.length ?? 0;
+      if (next.feature_history.length <= previousLength) {
+        return false;
+      }
+      const lastFeature = next.feature_history[next.feature_history.length - 1];
+      return (
+        lastFeature.feature_id === next.selected_feature_id &&
+        lastFeature.kind === "construction_plane"
+      );
+    });
+
+    await runAction(async () => {
+      await createOffsetPlane(sourceId, offset);
+      try {
+        const nextDocument = await documentPromise;
+        const newFeatureId = nextDocument.selected_feature_id ?? null;
+        if (!newFeatureId) {
+          return;
+        }
+        setOffsetPlaneAction({
+          phase: "active",
+          featureId: newFeatureId,
+          initialOffset: offset,
+          sourceSummary: describePlaneSource(sourceId),
+        });
+      } catch (error) {
+        addMessage(`offset plane error: ${String(error)}`);
+      }
+    });
+  }
+
   async function triggerEdgeOpAction(kind: "fillet" | "chamfer") {
     if (extrudeAction || edgeOpAction || activeSketchPlaneId) {
       return;
@@ -1084,6 +1227,15 @@ function App() {
           onChamfer={async () => {
             await triggerEdgeOpAction("chamfer");
           }}
+          canOffsetPlane={
+            !activeSketchPlaneId &&
+            !extrudeAction &&
+            !edgeOpAction &&
+            !offsetPlaneAction
+          }
+          onOffsetPlane={() => {
+            void triggerOffsetPlaneAction();
+          }}
           onStartSketch={async () => {
             if (!selectedReference) {
               return;
@@ -1221,6 +1373,11 @@ function App() {
                       await selectFeature(featureId);
                     });
                   }}
+                  onSelectReference={async (referenceId) => {
+                    await runAction(async () => {
+                      await selectReference(referenceId);
+                    });
+                  }}
                   onReenterSketch={async (featureId) => {
                     await runAction(async () => {
                       await reenterSketch(featureId);
@@ -1280,11 +1437,49 @@ function App() {
                 });
               }}
               onSelectReference={async (referenceId) => {
+                // Offset Plane pending phase: the next plane click is
+                // the source pick. Create the feature with the
+                // currently-typed offset and let the panel transition
+                // to its active phase. We deliberately do *not* also
+                // call selectReference here — the core's
+                // create_offset_plane already routes selection state.
+                if (
+                  offsetPlaneAction &&
+                  offsetPlaneAction.phase === "pending"
+                ) {
+                  await createOffsetPlaneFeature(
+                    referenceId,
+                    pendingOffsetRef.current,
+                  );
+                  return;
+                }
                 await runAction(async () => {
                   await selectReference(referenceId);
                 });
               }}
               onSelectFace={async (faceId) => {
+                // Same intercept as onSelectReference: a face click
+                // during the pending phase is a valid offset-plane
+                // source as long as the face is planar.
+                if (
+                  offsetPlaneAction &&
+                  offsetPlaneAction.phase === "pending"
+                ) {
+                  const face = viewport?.solid_faces.find(
+                    (entry) => entry.face_id === faceId,
+                  );
+                  if (face && face.sketchability === "planar") {
+                    await createOffsetPlaneFeature(
+                      faceId,
+                      pendingOffsetRef.current,
+                    );
+                    return;
+                  }
+                  // Non-planar face: ignore the click, leave the
+                  // panel in pending phase so the user can pick
+                  // somewhere else.
+                  return;
+                }
                 await runAction(async () => {
                   await selectFace(faceId);
                 });
@@ -1930,6 +2125,54 @@ function App() {
                     }
                     activeEdgeIdsRef.current = [];
                     setEdgeOpAction(null);
+                  }}
+                />
+              ) : null}
+              {offsetPlaneAction ? (
+                <OffsetPlanePanel
+                  isPending={offsetPlaneAction.phase === "pending"}
+                  initialOffset={offsetPlaneAction.initialOffset}
+                  sourceSummary={
+                    offsetPlaneAction.phase === "active"
+                      ? offsetPlaneAction.sourceSummary
+                      : ""
+                  }
+                  disabled={status !== "connected"}
+                  onPreviewOffset={async (offset) => {
+                    if (offsetPlaneAction.phase === "pending") {
+                      // No feature exists yet; remember the value so
+                      // the next plane click creates the feature
+                      // with it.
+                      pendingOffsetRef.current = offset;
+                      return;
+                    }
+                    await runAction(async () => {
+                      await updateOffsetPlane(
+                        offsetPlaneAction.featureId,
+                        offset,
+                      );
+                    });
+                  }}
+                  onConfirm={async () => {
+                    // Active phase only: feature stays in the
+                    // document with whatever offset is currently in
+                    // the panel. Selection is left as-is so the user
+                    // can immediately turn around and Sketch on it.
+                    setOffsetPlaneAction(null);
+                  }}
+                  onCancel={async () => {
+                    // Pending phase: no feature was created — just
+                    // close the panel. Active phase: a single
+                    // undo() rolls back the entire panel session
+                    // because update_offset_plane intentionally
+                    // does not push undo states (see the matching
+                    // comment in `DocumentManager::update_offset_plane`).
+                    if (offsetPlaneAction.phase === "active") {
+                      await runAction(async () => {
+                        await undo();
+                      });
+                    }
+                    setOffsetPlaneAction(null);
                   }}
                 />
               ) : null}

@@ -1,8 +1,35 @@
 #pragma once
 
+#include <optional>
+#include <string>
+
+#include "core/feature.h"
+
 namespace polysmith::core {
 
 struct DocumentState;
+
+// Resolve the world-space frame of any "selectable plane" source the
+// rest of the codebase deals with:
+//
+//   * "ref-plane-xy", "ref-plane-yz", "ref-plane-xz" — origin
+//     reference planes. The frames are constant.
+//   * "feature-N" — a construction-plane feature in `document`. We
+//     return its already-cached `plane_frame`. Callers running inside
+//     `refresh_history_dependencies` should make sure the source
+//     construction plane has been refreshed earlier in the same pass
+//     before calling this — the topological walk does that
+//     naturally.
+//   * "<body_id>:face:<index>" — a planar face on a body. We compile
+//     the bodies from `document` and pull the face's plane out of
+//     OCCT, mirroring the path face-based sketches use.
+//
+// Returns nullopt when the id doesn't match any of the three forms,
+// when the upstream feature / face is missing, or when the resolved
+// face is non-planar.
+std::optional<PlaneFrame> resolve_plane_source_frame(
+    const DocumentState& document,
+    const std::string& source_id);
 
 // Walk `document.feature_history` in order and refresh every feature
 // whose geometry is derived from upstream features:
