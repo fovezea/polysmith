@@ -817,8 +817,11 @@ export function ViewportPanel({
     // and gate on a minimum draft length so the lock doesn't fight
     // the user during the first few pixels of motion. Threshold uses
     // sin(3°) ≈ 0.0523 against `|orthogonal| / hypot`. Higher
-    // priority than line-body snap so an explicit "draw straight"
-    // gesture isn't hijacked by passive proximity to other lines.
+    // priority than line-body snap by default, but we co-snap to a
+    // crossed line when the locked position is within snap distance
+    // of one — that way an axis-locked stroke that meets a host
+    // line at right angles still gets a coincident anchor on commit
+    // (the user's "go straight down to the bottom side" gesture).
     if (startPoint) {
       const ax = rawPoint.local[0] - startPoint[0];
       const ay = rawPoint.local[1] - startPoint[1];
@@ -828,43 +831,110 @@ export function ViewportPanel({
         const sinThreshold = Math.sin((3 * Math.PI) / 180);
         const horizontalRatio = Math.abs(ay) / hypot;
         const verticalRatio = Math.abs(ax) / hypot;
+
+        const buildAxisLockSnap = (
+          axis: "horizontal" | "vertical",
+          lockedLocal: [number, number],
+        ): SketchPreviewPoint => {
+          // After the axis lock fixes the off-axis coordinate, look
+          // for a line the lock ray actually crosses (within the
+          // line's segment) and within snap distance of the locked
+          // position. We use a proper ray/segment intersection
+          // rather than perpendicular projection so a line parallel
+          // to the lock axis (e.g. the rectangle's other vertical
+          // side under a vertical lock) doesn't generate a phantom
+          // coincident anchor — those lines have no real crossing.
+          const linesParamsForLock = sketchLinesRef.current;
+          let crossedLine: {
+            intersectionLocal: [number, number];
+            lineId: string;
+            t: number;
+          } | null = null;
+          if (linesParamsForLock) {
+            let bestDistance = SKETCH_SNAP_DISTANCE;
+            for (const line of linesParamsForLock.lines) {
+              const dx = line.end_x - line.start_x;
+              const dy = line.end_y - line.start_y;
+              // Vertical lock crosses lines with non-zero dx;
+              // horizontal lock crosses lines with non-zero dy.
+              // Skip lines that are parallel to the lock axis
+              // because the ray either misses them entirely or
+              // overlaps them (no single intersection point).
+              const denom = axis === "vertical" ? dx : dy;
+              if (Math.abs(denom) <= 1e-9) {
+                continue;
+              }
+              const t =
+                axis === "vertical"
+                  ? (startPoint[0] - line.start_x) / dx
+                  : (startPoint[1] - line.start_y) / dy;
+              if (t < 0 || t > 1) {
+                continue;
+              }
+              const ix = line.start_x + t * dx;
+              const iy = line.start_y + t * dy;
+              // Distance is along the lock axis only — `lockedLocal`
+              // shares the off-axis coordinate with the crossing.
+              const distance =
+                axis === "vertical"
+                  ? Math.abs(iy - lockedLocal[1])
+                  : Math.abs(ix - lockedLocal[0]);
+              if (distance > bestDistance) {
+                continue;
+              }
+              bestDistance = distance;
+              crossedLine = {
+                intersectionLocal: [ix, iy],
+                lineId: line.line_id,
+                t,
+              };
+            }
+          }
+
+          if (crossedLine) {
+            return {
+              local: crossedLine.intersectionLocal,
+              world: toWorldPoint(
+                activeSketchPlaneId ?? "ref-plane-xy",
+                crossedLine.intersectionLocal,
+                activeSketchPlaneFrame,
+              ),
+              snapLabel: axis === "horizontal" ? "Horizontal" : "Vertical",
+              snapMidpointHostLineId: null,
+              snapPerpendicularHostLineId: null,
+              snapEndpointHostLineId: null,
+              snapLineBodyHostLineId: crossedLine.lineId,
+              snapLineBodyT: crossedLine.t,
+              snapAxisLock: axis,
+            } satisfies SketchPreviewPoint;
+          }
+
+          return {
+            local: lockedLocal,
+            world: toWorldPoint(
+              activeSketchPlaneId ?? "ref-plane-xy",
+              lockedLocal,
+              activeSketchPlaneFrame,
+            ),
+            snapLabel: axis === "horizontal" ? "Horizontal" : "Vertical",
+            snapMidpointHostLineId: null,
+            snapPerpendicularHostLineId: null,
+            snapEndpointHostLineId: null,
+            snapAxisLock: axis,
+          } satisfies SketchPreviewPoint;
+        };
+
         if (horizontalRatio < sinThreshold) {
-          const lockedLocal: [number, number] = [
+          return buildAxisLockSnap("horizontal", [
             rawPoint.local[0],
             startPoint[1],
-          ];
-          return {
-            local: lockedLocal,
-            world: toWorldPoint(
-              activeSketchPlaneId ?? "ref-plane-xy",
-              lockedLocal,
-              activeSketchPlaneFrame,
-            ),
-            snapLabel: "Horizontal",
-            snapMidpointHostLineId: null,
-            snapPerpendicularHostLineId: null,
-            snapEndpointHostLineId: null,
-            snapAxisLock: "horizontal",
-          } satisfies SketchPreviewPoint;
+          ]);
         }
         if (verticalRatio < sinThreshold) {
-          const lockedLocal: [number, number] = [
+          return buildAxisLockSnap("vertical", [
             startPoint[0],
             rawPoint.local[1],
-          ];
-          return {
-            local: lockedLocal,
-            world: toWorldPoint(
-              activeSketchPlaneId ?? "ref-plane-xy",
-              lockedLocal,
-              activeSketchPlaneFrame,
-            ),
-            snapLabel: "Vertical",
-            snapMidpointHostLineId: null,
-            snapPerpendicularHostLineId: null,
-            snapEndpointHostLineId: null,
-            snapAxisLock: "vertical",
-          } satisfies SketchPreviewPoint;
+          ]);
         }
       }
     }
