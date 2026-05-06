@@ -437,6 +437,140 @@ export const ChamferIcon = () => (
   </svg>
 );
 
+// Toolbar-sized parallelogram + offset arrow. Reads as "duplicate
+// this plane out along its normal at a typed distance". Uses the
+// same h-7 w-7 grid as the other ribbon glyphs so it lines up with
+// Box / Cylinder / Extrude in the Construct ribbon.
+export const OffsetPlaneIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-7 w-7"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M4 8h11l-2 8H2Z" />
+    <path d="M11 4h11l-2 8H9Z" />
+    <path d="m17 6 2-2-2-2" />
+  </svg>
+);
+
+// Two parallel planes with a midplane between them. Disabled
+// placeholder for the Construct ribbon's "Midplane" tool.
+export const MidplaneIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-7 w-7"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M3 6h11l-1 4H2Z" />
+    <path d="M3 18h11l-1-4H2Z" />
+    <path d="M5 12h12" strokeDasharray="2 2" />
+  </svg>
+);
+
+// Construction axis: thin line with arrow tips. Distinguishable from
+// the origin XYZ trihedron at this scale.
+export const ConstructAxisIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-7 w-7"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M4 12h16" />
+    <path d="m6 10-2 2 2 2" />
+    <path d="m18 10 2 2-2 2" />
+  </svg>
+);
+
+// Single dot for the Construct ribbon's "Point" placeholder. Drawn
+// as a filled circle so it reads as a point rather than a hole.
+export const ConstructPointIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-7 w-7"
+    fill="currentColor"
+    stroke="currentColor"
+    strokeWidth="1.4"
+    aria-hidden="true"
+  >
+    <circle cx="12" cy="12" r="2.6" />
+  </svg>
+);
+
+// Face with bidirectional arrows. Reads "push or pull this face".
+export const PressPullIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-7 w-7"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <rect x="4" y="6" width="9" height="12" rx="1" />
+    <path d="M16 12h6" />
+    <path d="m20 10 2 2-2 2" />
+    <path d="m18 10-2 2 2 2" />
+  </svg>
+);
+
+// Hollowed cube — "shell out the inside of this body".
+export const ShellIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-7 w-7"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M12 4 4 8v8l8 4 8-4V8Z" />
+    <path d="m4 8 8 4 8-4" />
+    <path d="M12 12v8" />
+    <path d="M9 9.5v5L12 16l3-1.5v-5" strokeDasharray="2 2" />
+  </svg>
+);
+
+// Four-direction move gizmo. Disabled placeholder for the Modify
+// ribbon's "Move" tool.
+export const MoveIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-7 w-7"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M12 4v16" />
+    <path d="M4 12h16" />
+    <path d="m9 7 3-3 3 3" />
+    <path d="m9 17 3 3 3-3" />
+    <path d="m7 9-3 3 3 3" />
+    <path d="m17 9 3 3-3 3" />
+  </svg>
+);
+
 // Generic fallback used by the feature timeline for the synthetic
 // "root" entry and any future feature kinds we haven't drawn yet.
 export const FeatureGenericIcon = () => (

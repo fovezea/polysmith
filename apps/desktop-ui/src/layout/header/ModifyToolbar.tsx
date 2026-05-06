@@ -1,7 +1,11 @@
-// Items in the Modify ribbon that aren't wired to a real action yet.
-// Kept as disabled placeholders so the toolbar layout matches the
-// roadmap and the user can see what's coming.
-const placeholderTools = ["Press Pull", "Shell", "Move"];
+import type { ReactElement } from "react";
+import {
+  ChamferIcon,
+  FilletIcon,
+  MoveIcon,
+  PressPullIcon,
+  ShellIcon,
+} from "./ToolBarIcons";
 
 interface ModifyToolbarProps {
   disabled: boolean;
@@ -14,6 +18,23 @@ interface ModifyToolbarProps {
   onChamfer: () => void;
 }
 
+// Match the Create ribbon's icon-button styling so the Modify ribbon
+// reads as part of the same visual family. See `CreateToolbar.tsx`
+// for the rationale on the chromeless rest state + tooltip-on-hover.
+const ICON_BUTTON_BASE = "cad-icon-button cad-icon-tool h-9 w-9 p-0";
+
+// Disabled placeholder tools. Each is rendered as an icon button so
+// the user can see what's coming on the roadmap; the buttons stay
+// non-interactive until each action is wired up.
+const placeholderTools: Array<{
+  label: string;
+  Icon: () => ReactElement;
+}> = [
+  { label: "Press Pull", Icon: PressPullIcon },
+  { label: "Shell", Icon: ShellIcon },
+  { label: "Move", Icon: MoveIcon },
+];
+
 export function ModifyToolbar({
   disabled,
   canEdgeOp,
@@ -25,25 +46,34 @@ export function ModifyToolbar({
     <>
       <button
         type="button"
-        className="cad-tool-button"
+        className={ICON_BUTTON_BASE}
+        data-tooltip="Fillet (F)"
+        aria-label="Fillet"
         disabled={edgeOpDisabled}
-        title="Fillet selected edge (F)"
         onClick={onFillet}
       >
-        Fillet
+        <FilletIcon />
       </button>
       <button
         type="button"
-        className="cad-tool-button"
+        className={ICON_BUTTON_BASE}
+        data-tooltip="Chamfer"
+        aria-label="Chamfer"
         disabled={edgeOpDisabled}
-        title="Chamfer selected edge"
         onClick={onChamfer}
       >
-        Chamfer
+        <ChamferIcon />
       </button>
-      {placeholderTools.map((tool) => (
-        <button key={tool} className="cad-tool-button" disabled>
-          {tool}
+      {placeholderTools.map(({ label, Icon }) => (
+        <button
+          key={label}
+          type="button"
+          className={ICON_BUTTON_BASE}
+          data-tooltip={label}
+          aria-label={label}
+          disabled
+        >
+          <Icon />
         </button>
       ))}
     </>

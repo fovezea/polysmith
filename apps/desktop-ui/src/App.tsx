@@ -836,15 +836,15 @@ function App() {
         return;
       }
 
-      // Fillet requires a selected edge and is gated to non-sketch
-      // mode — body edges aren't selectable inside an active sketch
-      // anyway, but the explicit guard keeps the hotkey from
-      // surprising the user during sketching.
+      // Fillet is gated to non-sketch mode — body edges aren't
+      // selectable inside an active sketch anyway, but the explicit
+      // guard keeps the hotkey from surprising the user during
+      // sketching. No edge-selection requirement: pressing F with
+      // nothing selected opens the panel in "pending" mode and the
+      // user picks edges in the viewport, mirroring the toolbar
+      // button. (`triggerEdgeOpAction` already handles both phases.)
       if (event.code === "KeyF") {
         if (activeSketchPlaneId) {
-          return;
-        }
-        if ((document?.selected_edge_ids.length ?? 0) === 0) {
           return;
         }
         event.preventDefault();

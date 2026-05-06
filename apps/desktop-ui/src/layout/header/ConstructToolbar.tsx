@@ -1,7 +1,10 @@
-// Items in the Construct ribbon that aren't wired to a real action
-// yet. Kept as disabled placeholders so the user can see what's
-// coming. Removed from this list as each action lands.
-const placeholderTools = ["Midplane", "Axis", "Point"];
+import type { ReactElement } from "react";
+import {
+  ConstructAxisIcon,
+  ConstructPointIcon,
+  MidplaneIcon,
+  OffsetPlaneIcon,
+} from "./ToolBarIcons";
 
 interface ConstructToolbarProps {
   disabled: boolean;
@@ -14,6 +17,22 @@ interface ConstructToolbarProps {
   onOffsetPlane: () => void;
 }
 
+// See `CreateToolbar.tsx` — same icon-button base so the ribbon
+// matches the Create / Sketch tabs visually.
+const ICON_BUTTON_BASE = "cad-icon-button cad-icon-tool h-9 w-9 p-0";
+
+// Items in the Construct ribbon that aren't wired to a real action
+// yet. Kept as disabled icon buttons so the user can see what's
+// coming. Removed from this list as each action lands.
+const placeholderTools: Array<{
+  label: string;
+  Icon: () => ReactElement;
+}> = [
+  { label: "Midplane", Icon: MidplaneIcon },
+  { label: "Axis", Icon: ConstructAxisIcon },
+  { label: "Point", Icon: ConstructPointIcon },
+];
+
 export function ConstructToolbar({
   disabled,
   canOffsetPlane,
@@ -23,16 +42,24 @@ export function ConstructToolbar({
     <>
       <button
         type="button"
-        className="cad-tool-button"
+        className={ICON_BUTTON_BASE}
+        data-tooltip="Offset Plane"
+        aria-label="Offset Plane"
         disabled={disabled || !canOffsetPlane}
-        title="Offset Plane"
         onClick={onOffsetPlane}
       >
-        Offset Plane
+        <OffsetPlaneIcon />
       </button>
-      {placeholderTools.map((tool) => (
-        <button key={tool} className="cad-tool-button" disabled>
-          {tool}
+      {placeholderTools.map(({ label, Icon }) => (
+        <button
+          key={label}
+          type="button"
+          className={ICON_BUTTON_BASE}
+          data-tooltip={label}
+          aria-label={label}
+          disabled
+        >
+          <Icon />
         </button>
       ))}
     </>

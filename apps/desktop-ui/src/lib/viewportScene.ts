@@ -371,19 +371,29 @@ export function createViewportScene(
     ...viewport.polygon_extrudes.map(makePolygonExtrudePrimitive),
     ...viewport.meshes.map(makeMeshPrimitive),
   ].filter((primitive) => !hiddenFeatureIds.has(primitive.primitiveId));
-  const references = hideReferences
-    ? []
-    : [
-        // Construction planes are also features in the document, so
-        // they participate in per-feature visibility filtering. The
-        // origin planes use static "ref-plane-*" ids that never
-        // appear in `hiddenFeatureIds`, so the filter is a no-op for
-        // them.
-        ...viewport.reference_planes
-          .filter((plane) => !hiddenFeatureIds.has(plane.reference_id))
-          .map(makeReferencePlane),
-        ...viewport.reference_axes.map(makeReferenceAxis),
-      ];
+  // The "Origin" hierarchy category covers the three named ref planes
+  // and the XYZ axes only — *not* parametric construction planes,
+  // which are a separate feature kind with their own visibility
+  // toggle in the hierarchy. Match by the static ids the core emits
+  // for origin geometry; everything else (construction planes) flows
+  // through the per-feature `hiddenFeatureIds` filter.
+  const isOriginPlaneId = (id: string) =>
+    id === "ref-plane-xy" || id === "ref-plane-yz" || id === "ref-plane-xz";
+
+  const references = [
+    // Construction planes are also features in the document, so
+    // they participate in per-feature visibility filtering. The
+    // origin planes use static "ref-plane-*" ids that never
+    // appear in `hiddenFeatureIds`, so that filter is a no-op for
+    // them; `hideReferences` is what controls the origin trio.
+    ...viewport.reference_planes
+      .filter((plane) => !hiddenFeatureIds.has(plane.reference_id))
+      .filter(
+        (plane) => !(hideReferences && isOriginPlaneId(plane.reference_id)),
+      )
+      .map(makeReferencePlane),
+    ...(hideReferences ? [] : viewport.reference_axes.map(makeReferenceAxis)),
+  ];
   const isSketchPlaneVisible = (planeId: string) =>
     !hiddenSketchPlaneIds.has(planeId);
 
