@@ -315,6 +315,9 @@ export function ViewportPanel({
       label: string;
       kind?: "midpoint" | "endpoint";
       hostLineId?: string;
+      // Parametric position along the host line for sub-segment
+      // midpoint candidates (and 0.5 for whole-line midpoints).
+      tValue?: number;
       endpointHostLineId?: string;
     }>
   >([]);
@@ -529,48 +532,87 @@ export function ViewportPanel({
     // Endpoint candidates carry an optional `endpointHostLineId` so
     // the line tool can recognize when a draft started at an existing
     // line's endpoint and arm perpendicular-snap from that line.
-    // Midpoint candidates carry `hostLineId` for the post-commit
-    // midpoint anchor IPC.
+    // Midpoint candidates carry `hostLineId` and `tValue` for the
+    // post-commit anchor IPC. `tValue` is 0.5 for a clean whole-line
+    // midpoint; sub-segment midpoints (when the host has been split
+    // by anchored points) carry whatever fractional t the snap
+    // resolver should bind the new point to.
     type Candidate = {
       local: [number, number];
       label: string;
       kind?: "midpoint" | "endpoint";
       hostLineId?: string;
+      tValue?: number;
       endpointHostLineId?: string;
     };
     const candidates: Candidate[] = [{ local: [0, 0], label: "Origin" }];
-    for (const line of sketchFeature.sketch_parameters.lines) {
+    const params = sketchFeature.sketch_parameters;
+    for (const line of params.lines) {
       candidates.push({
         local: [line.start_x, line.start_y],
         label:
           line.constraint === "horizontal" || line.constraint === "vertical"
-            ? `${line.line_id} (${line.constraint})`
-            : line.line_id,
+            ? `${line.constraint} line`
+            : "Line endpoint",
         kind: "endpoint",
         endpointHostLineId: line.line_id,
       });
       candidates.push({
         local: [line.end_x, line.end_y],
-        label: line.line_id,
+        label: "Line endpoint",
         kind: "endpoint",
         endpointHostLineId: line.line_id,
       });
-      // Midpoint candidate. Construction lines also expose midpoints
-      // — they're valid reference geometry to bind to.
-      candidates.push({
-        local: [
-          (line.start_x + line.end_x) / 2,
-          (line.start_y + line.end_y) / 2,
-        ],
-        label: `Midpoint of ${line.line_id}`,
-        kind: "midpoint",
-        hostLineId: line.line_id,
-      });
+
+      // Build the list of "split" t-values for this line. A line is
+      // split by any point anchored on it (whole-line midpoint
+      // anchor at t=0.5, or arbitrary-t point-line anchor). Sorting
+      // them and inserting the t=0 / t=1 endpoints yields a sequence
+      // of sub-segments; the midpoint of each sub-segment becomes
+      // its own snap candidate. With no splits, this collapses back
+      // to the classic whole-line midpoint at t=0.5.
+      const splitTs: number[] = [];
+      for (const anchor of params.midpoint_anchors) {
+        if (anchor.line_id === line.line_id) {
+          splitTs.push(0.5);
+        }
+      }
+      for (const anchor of params.point_line_anchors ?? []) {
+        if (anchor.line_id === line.line_id) {
+          splitTs.push(anchor.t);
+        }
+      }
+      // Dedupe + sort. Two anchors at the same t shouldn't generate
+      // a zero-length sub-segment with degenerate snap candidates.
+      const uniqueTs = Array.from(new Set([0, ...splitTs, 1])).sort(
+        (a, b) => a - b,
+      );
+      for (let i = 0; i < uniqueTs.length - 1; i++) {
+        const tMid = (uniqueTs[i] + uniqueTs[i + 1]) / 2;
+        // Skip degenerate sub-segments — same-position anchors leave
+        // adjacent t values equal up to floating-point noise.
+        if (uniqueTs[i + 1] - uniqueTs[i] < 1e-9) {
+          continue;
+        }
+        const isWholeLine = uniqueTs.length === 2;
+        const dx = line.end_x - line.start_x;
+        const dy = line.end_y - line.start_y;
+        candidates.push({
+          local: [line.start_x + tMid * dx, line.start_y + tMid * dy],
+          // The label deliberately avoids ids — see AGENTS.md UI
+          // copy rules. "Midpoint" reads naturally for both whole-
+          // line and sub-segment cases.
+          label: isWholeLine ? "Midpoint" : "Sub-segment midpoint",
+          kind: "midpoint",
+          hostLineId: line.line_id,
+          tValue: tMid,
+        });
+      }
     }
-    for (const circle of sketchFeature.sketch_parameters.circles) {
+    for (const circle of params.circles) {
       candidates.push({
         local: [circle.center_x, circle.center_y],
-        label: circle.circle_id,
+        label: "Circle center",
       });
     }
     return candidates;
@@ -634,6 +676,10 @@ export function ViewportPanel({
         snapMidpointHostLineId:
           closestCandidate.kind === "midpoint"
             ? (closestCandidate.hostLineId ?? null)
+            : null,
+        snapMidpointT:
+          closestCandidate.kind === "midpoint"
+            ? (closestCandidate.tValue ?? null)
             : null,
         snapPerpendicularHostLineId: null,
         snapEndpointHostLineId:
@@ -1608,8 +1654,17 @@ export function ViewportPanel({
         const previewX = event.clientX - canvasRect.left;
         const previewY = event.clientY - canvasRect.top;
         if (sketchPoint.snapMidpointHostLineId) {
+          // Whole-line midpoint snaps render the "M" glyph; sub-
+          // segment midpoints commit as parametric anchors and so
+          // get the same "/" point-on-line glyph as a generic
+          // line-body snap, keeping the visual language aligned
+          // with what's actually being created on commit.
+          const isWhole =
+            sketchPoint.snapMidpointT !== null &&
+            sketchPoint.snapMidpointT !== undefined &&
+            Math.abs(sketchPoint.snapMidpointT - 0.5) < 1e-9;
           setConstraintPreview({
-            kind: "midpoint",
+            kind: isWhole ? "midpoint" : "on_line",
             x: previewX,
             y: previewY,
           });
@@ -1960,12 +2015,23 @@ export function ViewportPanel({
 
         if (!lineDraftStartRef.current) {
           lineDraftStartRef.current = sketchPoint.local;
-          // Capture whether the start snapped to a midpoint so the
-          // post-add effect can attach the anchor once the IPC has
-          // settled. Reset on every fresh draft so we don't reuse a
-          // stale host id from a previous line.
-          draftStartMidpointHostRef.current =
-            sketchPoint.snapMidpointHostLineId ?? null;
+          // Whole-line midpoint snaps (t==0.5) get a true
+          // `midpoint_anchor`; sub-segment midpoints (t!=0.5,
+          // e.g. quarter-line snaps after a sibling line has split
+          // the host) get a parametric `point_line_anchor` instead
+          // — same machinery as the line-body snap. The two
+          // branches stay mutually exclusive: the snap resolver
+          // can only return one host per click.
+          const midpointHostLineId = sketchPoint.snapMidpointHostLineId;
+          const midpointT = sketchPoint.snapMidpointT ?? null;
+          const isWholeLineMidpoint =
+            midpointHostLineId !== null &&
+            midpointHostLineId !== undefined &&
+            midpointT !== null &&
+            Math.abs(midpointT - 0.5) < 1e-9;
+          draftStartMidpointHostRef.current = isWholeLineMidpoint
+            ? (midpointHostLineId ?? null)
+            : null;
           // If the start snapped to an existing line's endpoint, arm
           // the perpendicular-foot snap for the rest of the draft.
           // (The midpoint and endpoint hosts are independent: a
@@ -1973,20 +2039,30 @@ export function ViewportPanel({
           // come from distinct snap candidates.)
           draftStartEndpointHostRef.current =
             sketchPoint.snapEndpointHostLineId ?? null;
-          // If the start landed on a line's body, capture the host +
-          // parametric position so the post-add effect can anchor
-          // the new line's start point to the host once it lands.
-          // Mutually exclusive with the midpoint case at the snap-
-          // resolver level: midpoint snap wins when the cursor is
-          // genuinely close to the midpoint.
-          draftStartLineBodyHostRef.current =
-            sketchPoint.snapLineBodyHostLineId &&
-            typeof sketchPoint.snapLineBodyT === "number"
-              ? {
-                  lineId: sketchPoint.snapLineBodyHostLineId,
-                  t: sketchPoint.snapLineBodyT,
-                }
-              : null;
+          // Line-body snap captures the host + parametric position
+          // so the post-add effect can anchor the new line's start
+          // point to the host once it lands. We funnel sub-segment
+          // midpoint snaps through the same channel: they're just
+          // discrete-t projections onto the line's body.
+          if (
+            !isWholeLineMidpoint &&
+            midpointHostLineId &&
+            midpointT !== null
+          ) {
+            draftStartLineBodyHostRef.current = {
+              lineId: midpointHostLineId,
+              t: midpointT,
+            };
+          } else {
+            draftStartLineBodyHostRef.current =
+              sketchPoint.snapLineBodyHostLineId &&
+              typeof sketchPoint.snapLineBodyT === "number"
+                ? {
+                    lineId: sketchPoint.snapLineBodyHostLineId,
+                    t: sketchPoint.snapLineBodyT,
+                  }
+                : null;
+          }
           return;
         }
 
@@ -2014,13 +2090,23 @@ export function ViewportPanel({
           return;
         }
 
-        // Capture both endpoints' midpoint hosts (if any) before the
-        // draft state advances, so the post-add effect can attach
-        // anchors to the just-created line. The baseline line count
-        // anchors the effect's match: it will fire only when the
-        // sketch's line count grows past `fromLineCount` by 1.
+        // Capture both endpoints' midpoint hosts before the draft
+        // state advances, so the post-add effect can attach anchors
+        // to the just-created line. The baseline line count anchors
+        // the effect's match: it will fire only when the sketch's
+        // line count grows past `fromLineCount` by 1. Whole-line
+        // midpoints (t==0.5) → midpoint_anchor; sub-segment
+        // midpoints → point_line_anchor (handled below as part of
+        // the line-body anchor path).
         const startHostLineId = draftStartMidpointHostRef.current;
-        const endHostLineId = sketchPoint.snapMidpointHostLineId ?? null;
+        const endMidpointT = sketchPoint.snapMidpointT ?? null;
+        const endIsWholeLineMidpoint =
+          sketchPoint.snapMidpointHostLineId &&
+          endMidpointT !== null &&
+          Math.abs(endMidpointT - 0.5) < 1e-9;
+        const endHostLineId = endIsWholeLineMidpoint
+          ? (sketchPoint.snapMidpointHostLineId ?? null)
+          : null;
         if (startHostLineId || endHostLineId) {
           pendingMidpointAnchorRef.current = {
             fromLineCount: sketchLineCountRef.current,
@@ -2042,12 +2128,23 @@ export function ViewportPanel({
         }
 
         // Capture pending point-on-line anchor for either side that
-        // landed on a line body. The start-side host was stashed at
-        // the previous click (or chained from the last commit); the
-        // end-side comes straight from the current snap result.
-        const endLineBodyHost =
-          sketchPoint.snapLineBodyHostLineId &&
-          typeof sketchPoint.snapLineBodyT === "number"
+        // landed on a line body OR a sub-segment midpoint. The
+        // start-side host was stashed at the previous click (or
+        // chained from the last commit); the end-side comes
+        // straight from the current snap result. Sub-segment
+        // midpoints (t!=0.5) ride this same channel so they
+        // commit as parametric anchors.
+        const endIsSubSegmentMidpoint =
+          sketchPoint.snapMidpointHostLineId &&
+          endMidpointT !== null &&
+          !endIsWholeLineMidpoint;
+        const endLineBodyHost = endIsSubSegmentMidpoint
+          ? {
+              lineId: sketchPoint.snapMidpointHostLineId as string,
+              t: endMidpointT as number,
+            }
+          : sketchPoint.snapLineBodyHostLineId &&
+              typeof sketchPoint.snapLineBodyT === "number"
             ? {
                 lineId: sketchPoint.snapLineBodyHostLineId,
                 t: sketchPoint.snapLineBodyT,

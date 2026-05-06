@@ -245,6 +245,13 @@ export interface SketchPreviewPoint {
   // anchor after the line is committed. Null for endpoint / origin /
   // circle-center / no-snap resolutions.
   snapMidpointHostLineId?: string | null;
+  // Parametric position along `snapMidpointHostLineId` for the
+  // resolved midpoint. 0.5 for a whole-line midpoint; some other
+  // value when the host line has been "split" by an intermediate
+  // anchored point (a quarter-line, eighth-line, etc. snap).
+  // Drives the anchor choice on commit: t==0.5 → midpoint anchor,
+  // otherwise → point_line anchor.
+  snapMidpointT?: number | null;
   // Set when the cursor was projected onto a perpendicular ray
   // emanating from the line draft's start (because the start lay on
   // an existing line). The post-commit step uses this to apply a

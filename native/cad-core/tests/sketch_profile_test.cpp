@@ -18,7 +18,9 @@ using polysmith::core::add_sketch_line;
 using polysmith::core::add_sketch_rectangle;
 using polysmith::core::create_sketch_feature;
 using polysmith::core::detect_sketch_profiles;
+using polysmith::core::set_sketch_midpoint_anchor;
 using polysmith::core::set_sketch_point_fixed;
+using polysmith::core::set_sketch_point_line_anchor;
 using polysmith::core::update_sketch_dimension;
 using polysmith::core::build_sketch_profile_regions;
 
@@ -203,6 +205,95 @@ bool test_fixed_endpoint_stays_put_when_redimensioning() {
                 "expected opposite endpoint to move when driving from fixed end");
 }
 
+bool test_midpoint_anchor_follows_host_length_change() {
+  FeatureEntry feature = create_sketch_feature(8, "ref-plane-xy");
+  int next_line_index = 1;
+  add_sketch_rectangle(feature, next_line_index, 0.0, 0.0, 40.0, 20.0);
+  // Driven side. line-1 is the y=start_y horizontal in
+  // add_sketch_rectangle ordering.
+  add_sketch_line(feature, next_line_index++, 20.0, 0.0, 20.0, 20.0);
+  set_sketch_midpoint_anchor(feature, "point-line-5-start", "line-1");
+
+  update_sketch_dimension(feature, "dim-line-line-1", 60.0);
+
+  const auto& line5 = feature.sketch_parameters->lines.back();
+  return expect(std::abs(line5.start_x - 30.0) < 1e-6,
+                "midpoint anchor (driven host): start_x") &&
+         expect(std::abs(line5.start_y - 0.0) < 1e-6,
+                "midpoint anchor (driven host): start_y");
+}
+
+bool test_midpoint_anchor_both_ends_follow_perpendicular_resize() {
+  // User-reported repro (screenshot): rectangle, vertical line from
+  // bottom-midpoint to top-midpoint, then shrink one of the
+  // *vertical* sides — the line that's perpendicular to the user's
+  // line. The user's line should shrink to fit the new rectangle
+  // height; before the fix it kept its original length and poked
+  // outside the rectangle.
+  FeatureEntry feature = create_sketch_feature(11, "ref-plane-xy");
+  int next_line_index = 1;
+  add_sketch_rectangle(feature, next_line_index, 0.0, 0.0, 40.0, 20.0);
+  add_sketch_line(feature, next_line_index++, 20.0, 0.0, 20.0, 20.0);
+  set_sketch_midpoint_anchor(feature, "point-line-5-start", "line-1");
+  set_sketch_midpoint_anchor(feature, "point-line-5-end", "line-3");
+
+  // line-2 is the right vertical side of the rectangle (length 20).
+  // Drive it to length 10 — the rectangle's height halves.
+  update_sketch_dimension(feature, "dim-line-line-2", 10.0);
+
+  const auto& line5 = feature.sketch_parameters->lines.back();
+  const double length = std::hypot(line5.end_x - line5.start_x,
+                                   line5.end_y - line5.start_y);
+  return expect(std::abs(length - 10.0) < 1e-6,
+                "perpendicular resize: line-5 length should match rect height") &&
+         expect(std::abs(line5.start_x - 20.0) < 1e-6 &&
+                    std::abs(line5.end_x - 20.0) < 1e-6,
+                "perpendicular resize: line-5 should stay vertical at x=20") &&
+         expect(std::min(line5.start_y, line5.end_y) >= -1e-6 &&
+                    std::max(line5.start_y, line5.end_y) <= 10.0 + 1e-6,
+                "perpendicular resize: line-5 must lie inside [0, 10]");
+}
+
+bool test_midpoint_anchor_both_ends_follow_host_length_change() {
+  // User-reported repro: rectangle, draw a vertical line from
+  // bottom-midpoint to top-midpoint (so both endpoints carry a
+  // midpoint anchor), then increase the rectangle's length.
+  FeatureEntry feature = create_sketch_feature(10, "ref-plane-xy");
+  int next_line_index = 1;
+  add_sketch_rectangle(feature, next_line_index, 0.0, 0.0, 40.0, 20.0);
+  add_sketch_line(feature, next_line_index++, 20.0, 0.0, 20.0, 20.0);
+  set_sketch_midpoint_anchor(feature, "point-line-5-start", "line-1");
+  set_sketch_midpoint_anchor(feature, "point-line-5-end", "line-3");
+
+  update_sketch_dimension(feature, "dim-line-line-1", 60.0);
+
+  const auto& line5 = feature.sketch_parameters->lines.back();
+  return expect(std::abs(line5.start_x - 30.0) < 1e-6,
+                "two anchors: start_x should track new bottom midpoint") &&
+         expect(std::abs(line5.end_x - 30.0) < 1e-6,
+                "two anchors: end_x should track new top midpoint");
+}
+
+bool test_midpoint_anchor_follows_indirect_host_length_change() {
+  // Anchor to the OPPOSITE side from the one being driven — that
+  // side moves only via equal_length propagation, so this exercises
+  // the multi-pass solver path.
+  FeatureEntry feature = create_sketch_feature(9, "ref-plane-xy");
+  int next_line_index = 1;
+  add_sketch_rectangle(feature, next_line_index, 0.0, 0.0, 40.0, 20.0);
+  // line-3 is the y=end_y horizontal (the "bottom" in code naming).
+  add_sketch_line(feature, next_line_index++, 20.0, 20.0, 20.0, 0.0);
+  set_sketch_midpoint_anchor(feature, "point-line-5-start", "line-3");
+
+  update_sketch_dimension(feature, "dim-line-line-1", 60.0);
+
+  const auto& line5 = feature.sketch_parameters->lines.back();
+  return expect(std::abs(line5.start_x - 30.0) < 1e-6,
+                "midpoint anchor (indirect host): start_x") &&
+         expect(std::abs(line5.start_y - 20.0) < 1e-6,
+                "midpoint anchor (indirect host): start_y");
+}
+
 bool test_rejects_dimension_drive_when_both_endpoints_are_fixed() {
   FeatureEntry feature = create_sketch_feature(7, "ref-plane-xy");
   int next_line_index = 1;
@@ -237,6 +328,18 @@ int main() {
     return EXIT_FAILURE;
   }
   if (!test_fixed_points_persist_through_rebuilds()) {
+    return EXIT_FAILURE;
+  }
+  if (!test_midpoint_anchor_follows_host_length_change()) {
+    return EXIT_FAILURE;
+  }
+  if (!test_midpoint_anchor_follows_indirect_host_length_change()) {
+    return EXIT_FAILURE;
+  }
+  if (!test_midpoint_anchor_both_ends_follow_host_length_change()) {
+    return EXIT_FAILURE;
+  }
+  if (!test_midpoint_anchor_both_ends_follow_perpendicular_resize()) {
     return EXIT_FAILURE;
   }
   if (!test_fixed_endpoint_stays_put_when_redimensioning()) {

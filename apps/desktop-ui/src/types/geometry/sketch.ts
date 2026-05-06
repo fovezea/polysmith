@@ -112,6 +112,10 @@ export interface SketchFeatureParameters {
   line_relations: SketchLineRelationEntry[];
   // Midpoint anchors. Empty on older saves; the schema fills in [].
   midpoint_anchors: SketchMidpointAnchorEntry[];
+  // Point-line anchors: parametric `t` position of a bound point
+  // along a host line. Generalization of midpoint anchors used by
+  // line-body and sub-segment midpoint snaps. Empty on older saves.
+  point_line_anchors: SketchPointLineAnchorEntry[];
   profiles: SketchProfileRegionEntry[];
   // Optional pending mirror tool state. Null when no mirror is in
   // progress.
@@ -122,6 +126,13 @@ export interface SketchMidpointAnchorEntry {
   anchor_id: string;
   point_id: string;
   line_id: string;
+}
+
+export interface SketchPointLineAnchorEntry {
+  anchor_id: string;
+  point_id: string;
+  line_id: string;
+  t: number;
 }
 
 export interface FilletFeatureParameters {

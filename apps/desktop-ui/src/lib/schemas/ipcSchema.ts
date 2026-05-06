@@ -149,6 +149,21 @@ const documentStateSchema = z.object({
               }),
             )
             .default([]),
+          // Point-line anchors are the parametric generalization of
+          // midpoint anchors: the bound point sits at fraction `t`
+          // along the host line and rides with edits. Used by the
+          // sub-segment midpoint snap and the line-body snap.
+          // Defaulted to empty for older saves.
+          point_line_anchors: z
+            .array(
+              z.object({
+                anchor_id: z.string(),
+                point_id: z.string(),
+                line_id: z.string(),
+                t: z.number(),
+              }),
+            )
+            .default([]),
           circles: z.array(
             z.object({
               circle_id: z.string(),
