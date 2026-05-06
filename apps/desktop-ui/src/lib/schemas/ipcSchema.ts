@@ -208,6 +208,23 @@ const documentStateSchema = z.object({
           // Body face / edge ids that have been projected onto this
           // sketch. Used for idempotency. Defaulted to [].
           projected_sources: z.array(z.string()).default([]),
+          // Live-link records — see SketchProjectionEntry. Defaulted
+          // to [] so older saves / pre-live-link cores parse cleanly.
+          projections: z
+            .array(
+              z.object({
+                projection_id: z.string(),
+                source_id: z.string(),
+                source_kind: z.enum(["face", "edge", "vertex"]),
+                generated_line_ids: z.array(z.string()).default([]),
+                generated_circle_ids: z.array(z.string()).default([]),
+                generated_arc_ids: z.array(z.string()).default([]),
+                generated_point_id: z.string().default(""),
+                dependency_broken: z.boolean().default(false),
+                dependency_warning: z.string().default(""),
+              }),
+            )
+            .default([]),
           circles: z.array(
             z.object({
               circle_id: z.string(),

@@ -312,6 +312,11 @@ class DocumentManager {
   // points ("projected-point-N"). Kept separate from the line / arc
   // endpoint counter so user-visible debug ids stay readable.
   int next_sketch_projected_point_id_ = 1;
+  // Counter for `SketchProjection` record ids ("projection-N"). The
+  // record itself isn't user-visible (it's an internal link between
+  // a body source and the sketch entities it generated), but a
+  // monotonic id keeps debugging and serialization predictable.
+  int next_sketch_projection_id_ = 1;
   int document_count_ = 0;
   std::optional<DocumentState> document_;
   std::vector<DocumentState> undo_stack_;

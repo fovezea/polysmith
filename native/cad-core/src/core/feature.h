@@ -200,6 +200,42 @@ struct SketchProjectedPoint {
   double y;
 };
 
+// Live link between a body face / edge / vertex and the sketch
+// entities that the Project tool generated from it. Stored on the
+// sketch so that `refresh_sketch_projections` (run as part of the
+// dependency walker before the sketch's derived-state pass) can
+// re-resolve the source on every recompute and patch the cached
+// coords on the matching `lines` / `circles` / `arcs` /
+// `projected_points` entries in place. End result: editing an
+// upstream feature whose body the projection points at moves the
+// projected geometry in lockstep, mirroring Fusion 360's behaviour.
+//
+// `source_kind` mirrors the topology id's middle segment ("face",
+// "edge", "vertex") so the refresher can pick the right resolver
+// without re-parsing the id. `generated_*` ids are the entity ids
+// the project methods minted; the refresher walks them by id,
+// finds the entity in the sketch, and rewrites its coords.
+//
+// `dependency_broken` is true when the most recent refresh failed
+// to resolve the source (body deleted, edge curve type changed
+// into something we can't project, etc.). The generated entities
+// are left frozen at their last-known coords and the parent
+// feature surfaces a warning via the existing `dependency_broken`
+// machinery.
+struct SketchProjection {
+  std::string id;
+  std::string source_id;
+  std::string source_kind; // "face" | "edge" | "vertex"
+  std::vector<std::string> generated_line_ids;
+  std::vector<std::string> generated_circle_ids;
+  std::vector<std::string> generated_arc_ids;
+  // For vertex projections only — the `SketchProjectedPoint::id`
+  // that was minted. Empty for face / edge projections.
+  std::string generated_point_id;
+  bool dependency_broken = false;
+  std::string dependency_warning;
+};
+
 struct SketchDimension {
   std::string id;
   std::string kind;
@@ -349,13 +385,20 @@ struct SketchFeatureParameters {
   // `is_fixed = true` so the user can't drag them; deduplicated by
   // `source_id` so a second click on the same vertex is a no-op.
   std::vector<SketchProjectedPoint> projected_points;
-  // Body face / edge ids that have already been projected onto this
-  // sketch. Used by the Project tool to skip duplicate work when the
-  // user clicks the same face / edge a second time. Vertex
-  // projections live in `projected_points` directly (their id field
-  // doubles as the dedup key); face / edge projections write their
-  // generated geometry straight into `lines` / `circles` / `arcs`
-  // and only need this set to remember "already done".
+  // Live links between body sources (face / edge / vertex) and the
+  // sketch entities the Project tool generated from them. Walked
+  // by `refresh_sketch_projections` on every recompute so that
+  // editing the upstream geometry moves the projected lines /
+  // circles / arcs / points in lockstep. Doubles as the dedup
+  // index for the Project tool: a second click on the same source
+  // is a no-op when an entry with that `source_id` already exists.
+  std::vector<SketchProjection> projections;
+  // Legacy ids-only field. Kept only for backwards-compatible
+  // deserialization of older `.polysmith` documents — those saves
+  // didn't record per-projection generated entity ids, so they
+  // can't participate in live linking until re-projected. New
+  // project actions only push to `projections`; this vector is
+  // never read at runtime.
   std::vector<std::string> projected_sources;
   std::vector<SketchProfileRegion> profiles;
 

@@ -169,6 +169,13 @@ export interface SketchFeatureParameters {
   // sketch. Used by the Project tool to short-circuit duplicate
   // clicks. Empty on older saves; the schema defaults to [].
   projected_sources: string[];
+  // Live links between body sources and the sketch entities the
+  // Project tool generated from them. Re-resolved by the core's
+  // `refresh_sketch_projections` pass on every recompute so that
+  // edits to the upstream geometry move the projected sketch
+  // entities in lockstep. Empty on older saves; the schema
+  // defaults to [].
+  projections: SketchProjectionEntry[];
   profiles: SketchProfileRegionEntry[];
   // Optional pending mirror tool state. Null when no mirror is in
   // progress.
@@ -199,6 +206,30 @@ export interface SketchProjectedPointEntry {
   source_id: string;
   x: number;
   y: number;
+}
+
+// One live-link record produced by the Project tool. The core's
+// `refresh_sketch_projections` pass re-resolves `source_id` against
+// the latest body geometry on every recompute and patches the
+// matching `generated_*_ids` entities in place. The UI doesn't
+// dispatch these directly — they ride along in the document state
+// for round-trip serialization and so future "fix broken
+// projection" UX has a place to point at.
+export interface SketchProjectionEntry {
+  projection_id: string;
+  source_id: string;
+  source_kind: "face" | "edge" | "vertex";
+  generated_line_ids: string[];
+  generated_circle_ids: string[];
+  generated_arc_ids: string[];
+  // Empty unless `source_kind === "vertex"`.
+  generated_point_id: string;
+  // True when the most recent recompute couldn't re-resolve the
+  // source (body deleted, curve type changed). The generated
+  // entities stay frozen at their last-known coords; the parent
+  // sketch surfaces a feature-level dependency_broken warning.
+  dependency_broken: boolean;
+  dependency_warning: string;
 }
 
 export interface FilletFeatureParameters {

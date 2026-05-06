@@ -2685,13 +2685,13 @@ DocumentState DocumentManager::project_face_into_sketch(
   // accidentally click the same face twice), skip the rebuild and
   // return the current document state unchanged. Matches Fusion's
   // "second click is a no-op" behaviour. Vertex / edge projections
-  // share this set so all three project_* methods de-duplicate
-  // through a single source-id list.
-  if (std::find(sketch_it->sketch_parameters->projected_sources.begin(),
-                sketch_it->sketch_parameters->projected_sources.end(),
-                face_id) !=
-      sketch_it->sketch_parameters->projected_sources.end()) {
-    return document_.value();
+  // share this dedup index so all three project_* methods walk a
+  // single `projections` list.
+  for (const auto& projection :
+       sketch_it->sketch_parameters->projections) {
+    if (projection.source_id == face_id) {
+      return document_.value();
+    }
   }
 
   const auto outline = compute_face_outline(*document_, face_id);
@@ -2716,6 +2716,16 @@ DocumentState DocumentManager::project_face_into_sketch(
 
   push_undo_state();
   clear_redo_stack();
+
+  // We capture the ids of every sketch entity this projection emits
+  // so `refresh_sketch_projections` can later patch their cached
+  // coords when the upstream face moves. Faces only ever produce
+  // lines (rectangle / polygon outline) or one circle.
+  SketchProjection record;
+  record.id =
+      "projection-" + std::to_string(next_sketch_projection_id_++);
+  record.source_id = face_id;
+  record.source_kind = "face";
 
   if (outline->kind == "rectangle") {
     if (outline->rectangle_corners.size() != 4) {
@@ -2751,14 +2761,22 @@ DocumentState DocumentManager::project_face_into_sketch(
       polysmith::core::set_sketch_point_fixed(*sketch_it,
                                               line.end_point_id,
                                               true);
+      record.generated_line_ids.push_back(line.id);
     }
   } else if (outline->kind == "circle") {
     const auto center_local = project_to_sketch_local(outline->circle_center);
+    const size_t circles_before =
+        sketch_it->sketch_parameters->circles.size();
     polysmith::core::add_sketch_circle(*sketch_it,
                                        next_sketch_circle_id_++,
                                        center_local.first,
                                        center_local.second,
                                        outline->circle_radius);
+    for (size_t i = circles_before;
+         i < sketch_it->sketch_parameters->circles.size(); ++i) {
+      record.generated_circle_ids.push_back(
+          sketch_it->sketch_parameters->circles[i].id);
+    }
   } else if (outline->kind == "polygon") {
     if (outline->polygon_corners.size() < 3) {
       throw std::runtime_error("Polygon outline must have at least 3 corners");
@@ -2794,14 +2812,16 @@ DocumentState DocumentManager::project_face_into_sketch(
       polysmith::core::set_sketch_point_fixed(*sketch_it,
                                               line.end_point_id,
                                               true);
+      record.generated_line_ids.push_back(line.id);
     }
   } else {
     throw std::runtime_error("Unsupported projected face kind: " + outline->kind);
   }
 
-  // Record the face id so a follow-up click on the same face is a
-  // no-op (see the idempotency check at the top of this method).
-  sketch_it->sketch_parameters->projected_sources.push_back(face_id);
+  // Register the live link so any future upstream edit of `face_id`
+  // can re-derive these generated entities (see
+  // `refresh_sketch_projections`).
+  sketch_it->sketch_parameters->projections.push_back(std::move(record));
 
   refresh_linked_extrudes(*document_, *sketch_it);
   document_->selected_feature_id = sketch_it->id;
@@ -2901,12 +2921,12 @@ DocumentState DocumentManager::project_edge_into_sketch(
     }
   }
 
-  // Idempotency.
-  if (std::find(sketch_it->sketch_parameters->projected_sources.begin(),
-                sketch_it->sketch_parameters->projected_sources.end(),
-                edge_id) !=
-      sketch_it->sketch_parameters->projected_sources.end()) {
-    return document_.value();
+  // Idempotency: same dedup index that face projection uses.
+  for (const auto& projection :
+       sketch_it->sketch_parameters->projections) {
+    if (projection.source_id == edge_id) {
+      return document_.value();
+    }
   }
 
   const auto edge_geometry = compute_edge_geometry(*document_, edge_id);
@@ -2920,6 +2940,15 @@ DocumentState DocumentManager::project_edge_into_sketch(
 
   push_undo_state();
   clear_redo_stack();
+
+  // See `project_face_into_sketch` for the rationale: we capture the
+  // ids of every emitted entity so `refresh_sketch_projections` can
+  // re-derive them from the upstream edge on every recompute.
+  SketchProjection record;
+  record.id =
+      "projection-" + std::to_string(next_sketch_projection_id_++);
+  record.source_id = edge_id;
+  record.source_kind = "edge";
 
   if (edge_geometry->kind == "line") {
     const auto a = world_to_sketch_local(frame,
@@ -2958,6 +2987,7 @@ DocumentState DocumentManager::project_edge_into_sketch(
           *sketch_it, line.start_point_id, true);
       polysmith::core::set_sketch_point_fixed(
           *sketch_it, line.end_point_id, true);
+      record.generated_line_ids.push_back(line.id);
     }
   } else if (edge_geometry->kind == "circle" || edge_geometry->kind == "arc") {
     if (!circle_axis_parallel_to_sketch(frame, edge_geometry->axis)) {
@@ -2973,11 +3003,18 @@ DocumentState DocumentManager::project_edge_into_sketch(
                               edge_geometry->center.z);
 
     if (edge_geometry->kind == "circle") {
+      const size_t circles_before =
+          sketch_it->sketch_parameters->circles.size();
       polysmith::core::add_sketch_circle(*sketch_it,
                                          next_sketch_circle_id_++,
                                          center.first,
                                          center.second,
                                          edge_geometry->radius);
+      for (size_t i = circles_before;
+           i < sketch_it->sketch_parameters->circles.size(); ++i) {
+        record.generated_circle_ids.push_back(
+            sketch_it->sketch_parameters->circles[i].id);
+      }
     } else {
       const auto start = world_to_sketch_local(frame,
                                                edge_geometry->start.x,
@@ -2997,6 +3034,7 @@ DocumentState DocumentManager::project_edge_into_sketch(
       const bool ccw = dot > 0.0;
       const int start_point_index = next_sketch_line_id_++;
       const int end_point_index = next_sketch_line_id_++;
+      const size_t arcs_before = sketch_it->sketch_parameters->arcs.size();
       polysmith::core::add_sketch_arc(*sketch_it,
                                       next_sketch_arc_id_++,
                                       start_point_index,
@@ -3009,6 +3047,11 @@ DocumentState DocumentManager::project_edge_into_sketch(
                                       center.second,
                                       edge_geometry->radius,
                                       ccw);
+      for (size_t i = arcs_before;
+           i < sketch_it->sketch_parameters->arcs.size(); ++i) {
+        record.generated_arc_ids.push_back(
+            sketch_it->sketch_parameters->arcs[i].id);
+      }
     }
   } else {
     // "unsupported" — propagate as a controlled error. Caller (the
@@ -3017,7 +3060,7 @@ DocumentState DocumentManager::project_edge_into_sketch(
         "Edge type is not supported by the Project tool yet: " + edge_id);
   }
 
-  sketch_it->sketch_parameters->projected_sources.push_back(edge_id);
+  sketch_it->sketch_parameters->projections.push_back(std::move(record));
 
   refresh_linked_extrudes(*document_, *sketch_it);
   document_->selected_feature_id = sketch_it->id;
@@ -3035,14 +3078,10 @@ DocumentState DocumentManager::project_vertex_into_sketch(
   require_document();
   const auto sketch_it = require_projection_target(*document_);
 
-  // Idempotency: search both `projected_sources` (face / edge) and
-  // existing `projected_points[*].source_id`. We could store vertex
-  // ids in `projected_sources` too, but keeping the canonical record
-  // on the projected_points entry itself simplifies "delete this
-  // projected point and forget its source" if we add that later.
-  for (const auto& projected :
-       sketch_it->sketch_parameters->projected_points) {
-    if (projected.source_id == vertex_id) {
+  // Idempotency: same dedup index that face / edge projection uses.
+  for (const auto& projection :
+       sketch_it->sketch_parameters->projections) {
+    if (projection.source_id == vertex_id) {
       return document_.value();
     }
   }
@@ -3063,14 +3102,27 @@ DocumentState DocumentManager::project_vertex_into_sketch(
   push_undo_state();
   clear_redo_stack();
 
+  const std::string point_id = "projected-point-" +
+                               std::to_string(next_sketch_projected_point_id_++);
   sketch_it->sketch_parameters->projected_points.push_back(
       SketchProjectedPoint{
-          .id = "projected-point-" +
-                std::to_string(next_sketch_projected_point_id_++),
+          .id = point_id,
           .source_id = vertex_id,
           .x = local.first,
           .y = local.second,
       });
+
+  // Live-link record. Same shape as face / edge but only points to a
+  // single `SketchProjectedPoint`; `refresh_sketch_projections` uses
+  // `generated_point_id` to find and patch the cached (x, y).
+  SketchProjection projection_record;
+  projection_record.id =
+      "projection-" + std::to_string(next_sketch_projection_id_++);
+  projection_record.source_id = vertex_id;
+  projection_record.source_kind = "vertex";
+  projection_record.generated_point_id = point_id;
+  sketch_it->sketch_parameters->projections.push_back(
+      std::move(projection_record));
 
   // Force the points list to pick up the new projected point in this
   // frame. (`refresh_linked_extrudes` won't run sketch derived state
@@ -3307,6 +3359,11 @@ DocumentState DocumentManager::load_document_from_path(
       next_sketch_projected_point_id_ = std::max(
           next_sketch_projected_point_id_,
           trailing_integer(projected.id) + 1);
+    }
+    for (const auto& projection : sketch.projections) {
+      next_sketch_projection_id_ = std::max(
+          next_sketch_projection_id_,
+          trailing_integer(projection.id) + 1);
     }
   }
 

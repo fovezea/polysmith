@@ -276,6 +276,60 @@ sketch_parameters_from_payload(const json& payload) {
       params.projected_sources.push_back(source_payload.get<std::string>());
     }
   }
+  // Live-link projection records. Saves predating the live-link work
+  // (or a save that came from a build with the old face-only Project
+  // tool) won't include this key — those documents lose the live
+  // link until the user re-projects, which gracefully degrades to
+  // the previous "frozen at projection time" behaviour.
+  if (payload.contains("projections") &&
+      payload.at("projections").is_array()) {
+    for (const auto& projection_payload : payload.at("projections")) {
+      polysmith::core::SketchProjection projection{};
+      projection.id = read_string(projection_payload, "projection_id");
+      projection.source_id = read_string(projection_payload, "source_id");
+      projection.source_kind = read_string(projection_payload, "source_kind");
+      if (projection_payload.contains("generated_line_ids") &&
+          projection_payload.at("generated_line_ids").is_array()) {
+        for (const auto& id : projection_payload.at("generated_line_ids")) {
+          if (id.is_string()) {
+            projection.generated_line_ids.push_back(id.get<std::string>());
+          }
+        }
+      }
+      if (projection_payload.contains("generated_circle_ids") &&
+          projection_payload.at("generated_circle_ids").is_array()) {
+        for (const auto& id : projection_payload.at("generated_circle_ids")) {
+          if (id.is_string()) {
+            projection.generated_circle_ids.push_back(id.get<std::string>());
+          }
+        }
+      }
+      if (projection_payload.contains("generated_arc_ids") &&
+          projection_payload.at("generated_arc_ids").is_array()) {
+        for (const auto& id : projection_payload.at("generated_arc_ids")) {
+          if (id.is_string()) {
+            projection.generated_arc_ids.push_back(id.get<std::string>());
+          }
+        }
+      }
+      if (projection_payload.contains("generated_point_id") &&
+          projection_payload.at("generated_point_id").is_string()) {
+        projection.generated_point_id =
+            projection_payload.at("generated_point_id").get<std::string>();
+      }
+      if (projection_payload.contains("dependency_broken") &&
+          projection_payload.at("dependency_broken").is_boolean()) {
+        projection.dependency_broken =
+            projection_payload.at("dependency_broken").get<bool>();
+      }
+      if (projection_payload.contains("dependency_warning") &&
+          projection_payload.at("dependency_warning").is_string()) {
+        projection.dependency_warning =
+            projection_payload.at("dependency_warning").get<std::string>();
+      }
+      params.projections.push_back(std::move(projection));
+    }
+  }
   // Older saves predate point-line anchors — silently default to none.
   if (payload.contains("point_line_anchors") &&
       payload.at("point_line_anchors").is_array()) {
@@ -671,6 +725,39 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                       sources.push_back(source);
                     }
                     return sources;
+                  }()},
+                 {"projections",
+                  [&feature]() {
+                    json projections_payload = json::array();
+                    for (const auto& projection :
+                         feature.sketch_parameters->projections) {
+                      json line_ids = json::array();
+                      for (const auto& id : projection.generated_line_ids) {
+                        line_ids.push_back(id);
+                      }
+                      json circle_ids = json::array();
+                      for (const auto& id : projection.generated_circle_ids) {
+                        circle_ids.push_back(id);
+                      }
+                      json arc_ids = json::array();
+                      for (const auto& id : projection.generated_arc_ids) {
+                        arc_ids.push_back(id);
+                      }
+                      projections_payload.push_back({
+                          {"projection_id", projection.id},
+                          {"source_id", projection.source_id},
+                          {"source_kind", projection.source_kind},
+                          {"generated_line_ids", line_ids},
+                          {"generated_circle_ids", circle_ids},
+                          {"generated_arc_ids", arc_ids},
+                          {"generated_point_id",
+                           projection.generated_point_id},
+                          {"dependency_broken", projection.dependency_broken},
+                          {"dependency_warning",
+                           projection.dependency_warning},
+                      });
+                    }
+                    return projections_payload;
                   }()},
                  {"profiles",
                   [&feature]() {
