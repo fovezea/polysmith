@@ -238,6 +238,18 @@ class DocumentManager {
                                double anchor_x,
                                double anchor_y,
                                const std::string& mode);
+  // Sketch fillet — round a corner shared by two sketch lines into
+  // a tangent arc. The corner is identified by the sketch point id
+  // shared by both lines; the relationship is parametric (see
+  // `SketchFillet` in feature.h) so the fillet survives subsequent
+  // sketch edits and has its own update / delete commands.
+  DocumentState add_sketch_fillet(const std::string& corner_point_id,
+                                  const std::string& line_a_id,
+                                  const std::string& line_b_id,
+                                  double radius);
+  DocumentState update_sketch_fillet_radius(const std::string& fillet_id,
+                                            double radius);
+  DocumentState delete_sketch_fillet(const std::string& fillet_id);
   DocumentState select_sketch_point(const std::string& point_id);
   DocumentState select_sketch_entity(const std::string& entity_id);
   DocumentState select_sketch_dimension(const std::string& dimension_id);
@@ -274,6 +286,10 @@ class DocumentManager {
   // line endpoints share the same id space, keeping the points
   // graph uniform.
   int next_sketch_arc_id_ = 1;
+  // Independent counter for sketch fillet ids ("fillet-N"). Trim
+  // points and the generated arc still come from the existing line /
+  // arc counters so the id namespaces stay uniform.
+  int next_sketch_fillet_id_ = 1;
   int document_count_ = 0;
   std::optional<DocumentState> document_;
   std::vector<DocumentState> undo_stack_;

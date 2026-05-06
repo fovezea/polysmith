@@ -109,6 +109,14 @@ These three close the gap between fancy demo and real workflow:
   Endpoints are stored fixed for v1 (no post-creation reshape /
   constraints / dimension drive); slots, polygons, and offset-curve
   remain.
+- ✅ **2D sketch fillets** — shipped. Parametric corner fillet between
+  two sketch lines: click the Fillet tool, click a shared corner, and
+  the floating `SketchFilletPanel` drives live `update_sketch_fillet_radius`
+  previews. Cancel calls `delete_sketch_fillet` to restore the
+  original corner. The recompute pass keeps the fillet tangent under
+  subsequent line edits, so dragging the far end of a filleted line
+  preserves the rounded corner. v1 limits to line-line corners; line-
+  arc and arc-arc are follow-ups.
 - **Construction axes** through edges and through two points.
 - ✅ **Project sketch tool** — shipped. Projects extrude faces (rectangle
   and circle profiles) onto the active sketch as fixed-endpoint lines or

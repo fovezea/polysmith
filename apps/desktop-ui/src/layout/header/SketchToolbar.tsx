@@ -43,6 +43,7 @@ const sketchTools: Array<{
   { id: "rectangle", label: "Rectangle", shortcut: "R", enabled: true },
   { id: "circle", label: "Circle", shortcut: "C", enabled: true },
   { id: "arc", label: "Arc", enabled: true },
+  { id: "fillet", label: "Fillet", enabled: true },
   { id: "trim", label: "Trim", enabled: false },
 ];
 
@@ -100,7 +101,8 @@ export function SketchToolbar({
                 tool.id !== "line" &&
                 tool.id !== "rectangle" &&
                 tool.id !== "circle" &&
-                tool.id !== "arc")
+                tool.id !== "arc" &&
+                tool.id !== "fillet")
             ) {
               return;
             }

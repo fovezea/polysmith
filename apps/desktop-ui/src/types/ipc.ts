@@ -604,6 +604,37 @@ export interface AddSketchArcCommand {
   };
 }
 
+// Round a corner shared by two sketch lines into a tangent arc.
+// `corner_point_id` must be an endpoint of both lines; the v1 core
+// rejects mismatches and oversized radii with a structured error.
+export interface AddSketchFilletCommand {
+  id: string;
+  type: "add_sketch_fillet";
+  payload: {
+    corner_point_id: string;
+    line_a_id: string;
+    line_b_id: string;
+    radius: number;
+  };
+}
+
+export interface UpdateSketchFilletRadiusCommand {
+  id: string;
+  type: "update_sketch_fillet_radius";
+  payload: {
+    fillet_id: string;
+    radius: number;
+  };
+}
+
+export interface DeleteSketchFilletCommand {
+  id: string;
+  type: "delete_sketch_fillet";
+  payload: {
+    fillet_id: string;
+  };
+}
+
 export interface SetSketchToolCommand {
   id: string;
   type: "set_sketch_tool";
@@ -911,6 +942,9 @@ export type CoreCommand =
   | AddSketchRectangleCommand
   | AddSketchCircleCommand
   | AddSketchArcCommand
+  | AddSketchFilletCommand
+  | UpdateSketchFilletRadiusCommand
+  | DeleteSketchFilletCommand
   | SelectSketchPointCommand
   | SelectSketchEntityCommand
   | SelectSketchDimensionCommand

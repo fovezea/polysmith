@@ -10,6 +10,7 @@ import {
   DocumentHierarchyPanel,
   EdgeOpPreviewPanel,
   ExtrudePreviewPanel,
+  SketchFilletPanel,
   MirrorToolPanel,
   FeatureTimeline,
   MessageLog,
@@ -100,6 +101,16 @@ function App() {
   const [arcToolMode, setArcToolMode] = useState<
     "three_point" | "center_start_end"
   >("three_point");
+  // Sketch fillet panel state. Set to a non-null fillet id when the
+  // user clicks an eligible corner under the Fillet tool — at that
+  // point the core has already created the fillet record (so the
+  // viewport shows real preview geometry) and the panel is the
+  // edit + confirm/cancel surface for the radius. Cancel calls
+  // `delete_sketch_fillet` to undo the create cleanly.
+  const [sketchFilletAction, setSketchFilletAction] = useState<{
+    filletId: string;
+    initialRadius: number;
+  } | null>(null);
   const [edgeOpAction, setEdgeOpAction] = useState<ActiveEdgeOpAction | null>(
     null,
   );
@@ -234,6 +245,9 @@ function App() {
     addSketchRectangle,
     addSketchCircle,
     addSketchArc,
+    addSketchFillet,
+    updateSketchFilletRadius,
+    deleteSketchFillet,
     selectSketchPoint,
     selectSketchEntity,
     selectSketchDimension,
@@ -251,6 +265,13 @@ function App() {
       // already gone with the sketch, so there's nothing else to
       // clean up here.
       setMirrorFocusedSlot(null);
+      // Same reasoning for the in-progress sketch fillet: the
+      // fillet record lives on the sketch, so once the sketch
+      // closes the panel has nothing to drive. We don't try to
+      // commit or cancel implicitly; the user's `finishSketch`
+      // already left the fillet in the sketch in its current
+      // committed state.
+      setSketchFilletAction(null);
     }
   }, [activeSketchPlaneId]);
 
@@ -1392,6 +1413,71 @@ function App() {
                 });
               }}
               arcToolMode={arcToolMode}
+              onAddSketchFillet={async (
+                cornerPointId,
+                lineAId,
+                lineBId,
+                radius,
+              ) => {
+                if (sketchFilletAction) {
+                  return;
+                }
+                // Same fire-and-forget IPC trick as the extrude /
+                // edge-op flows: subscribe to the next document
+                // update that adds a new fillet on the active
+                // sketch so we can pick up the real fillet id and
+                // pass it to the floating panel.
+                const documentPromise = awaitDocumentChange(
+                  (next, previous) => {
+                    if (!next.active_sketch_feature_id) {
+                      return false;
+                    }
+                    const nextSketch = next.feature_history.find(
+                      (entry) =>
+                        entry.feature_id === next.active_sketch_feature_id,
+                    );
+                    const prevSketch = previous?.feature_history.find(
+                      (entry) =>
+                        entry.feature_id === next.active_sketch_feature_id,
+                    );
+                    const nextFillets =
+                      nextSketch?.sketch_parameters?.fillets ?? [];
+                    const prevFillets =
+                      prevSketch?.sketch_parameters?.fillets ?? [];
+                    return nextFillets.length > prevFillets.length;
+                  },
+                );
+
+                await runAction(async () => {
+                  await addSketchFillet(
+                    cornerPointId,
+                    lineAId,
+                    lineBId,
+                    radius,
+                  );
+                });
+
+                try {
+                  const nextDocument = await documentPromise;
+                  const nextSketch = nextDocument.feature_history.find(
+                    (entry) =>
+                      entry.feature_id ===
+                      nextDocument.active_sketch_feature_id,
+                  );
+                  const fillets = nextSketch?.sketch_parameters?.fillets ?? [];
+                  const newFillet = fillets[fillets.length - 1];
+                  if (!newFillet) {
+                    return;
+                  }
+                  setSketchFilletAction({
+                    filletId: newFillet.fillet_id,
+                    initialRadius: newFillet.radius,
+                  });
+                } catch {
+                  // Document watcher timed out — leave the panel
+                  // closed. The user can re-invoke the tool.
+                }
+              }}
               onSelectSketchEntity={async (entityId) => {
                 await runAction(async () => {
                   await handleSketchConstraintLinePick(entityId);
@@ -1800,6 +1886,33 @@ function App() {
                     }
                     activeEdgeIdsRef.current = [];
                     setEdgeOpAction(null);
+                  }}
+                />
+              ) : null}
+              {sketchFilletAction ? (
+                <SketchFilletPanel
+                  initialValue={sketchFilletAction.initialRadius}
+                  disabled={status !== "connected"}
+                  onPreviewValue={async (value) => {
+                    await runAction(async () => {
+                      await updateSketchFilletRadius(
+                        sketchFilletAction.filletId,
+                        value,
+                      );
+                    });
+                  }}
+                  onConfirm={() => {
+                    setSketchFilletAction(null);
+                  }}
+                  onCancel={async () => {
+                    // Cancel = undo the create. The fillet record
+                    // and its generated arc/trim points get removed
+                    // and the original corner is restored. Same
+                    // contract as the 3D EdgeOpPreviewPanel cancel.
+                    await runAction(async () => {
+                      await deleteSketchFillet(sketchFilletAction.filletId);
+                    });
+                    setSketchFilletAction(null);
                   }}
                 />
               ) : null}

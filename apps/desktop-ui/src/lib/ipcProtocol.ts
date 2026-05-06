@@ -858,6 +858,52 @@ export function makeSelectSketchPointCommand(pointId: string): CoreCommand {
   };
 }
 
+// Sketch fillet — round a corner shared by two sketch lines into a
+// tangent arc. The corner is identified by the sketch point id
+// shared by both lines. v1 fillets are line-line only; line-arc
+// and arc-arc remain follow-ups.
+export function makeAddSketchFilletCommand(
+  cornerPointId: string,
+  lineAId: string,
+  lineBId: string,
+  radius: number,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "add_sketch_fillet",
+    payload: {
+      corner_point_id: cornerPointId,
+      line_a_id: lineAId,
+      line_b_id: lineBId,
+      radius,
+    },
+  };
+}
+
+export function makeUpdateSketchFilletRadiusCommand(
+  filletId: string,
+  radius: number,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_sketch_fillet_radius",
+    payload: {
+      fillet_id: filletId,
+      radius,
+    },
+  };
+}
+
+export function makeDeleteSketchFilletCommand(filletId: string): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "delete_sketch_fillet",
+    payload: {
+      fillet_id: filletId,
+    },
+  };
+}
+
 export function makeSelectSketchEntityCommand(entityId: string): CoreCommand {
   return {
     id: crypto.randomUUID(),

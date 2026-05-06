@@ -15,14 +15,17 @@ using polysmith::core::SketchFeatureParameters;
 using polysmith::core::SketchLine;
 using polysmith::core::add_sketch_arc;
 using polysmith::core::add_sketch_circle;
+using polysmith::core::add_sketch_fillet;
 using polysmith::core::add_sketch_line;
 using polysmith::core::add_sketch_rectangle;
 using polysmith::core::create_sketch_feature;
+using polysmith::core::delete_sketch_fillet;
 using polysmith::core::detect_sketch_profiles;
 using polysmith::core::set_sketch_midpoint_anchor;
 using polysmith::core::set_sketch_point_fixed;
 using polysmith::core::set_sketch_point_line_anchor;
 using polysmith::core::update_sketch_dimension;
+using polysmith::core::update_sketch_fillet_radius;
 using polysmith::core::build_sketch_profile_regions;
 
 bool expect(bool condition, const char* message) {
@@ -422,6 +425,213 @@ bool test_detects_polygon_loop_with_line_and_arc_edges() {
                 "expected polygon to reach y = 10");
 }
 
+// Find the line in `feature` whose start or end matches the given
+// 2D coordinate (within `tolerance`). Returns nullptr if none.
+const polysmith::core::SketchLine* find_line_with_endpoint_at(
+    const FeatureEntry& feature,
+    double x,
+    double y,
+    double tolerance = 0.01) {
+  for (const auto& line : feature.sketch_parameters->lines) {
+    if ((std::abs(line.start_x - x) < tolerance &&
+         std::abs(line.start_y - y) < tolerance) ||
+        (std::abs(line.end_x - x) < tolerance &&
+         std::abs(line.end_y - y) < tolerance)) {
+      return &line;
+    }
+  }
+  return nullptr;
+}
+
+// Adds a 40x20 rectangle whose top-left corner is the origin and
+// returns the feature plus the corner point id at (40, 0). v1
+// fillets pin themselves to a shared point id, so the test needs
+// that id to call add_sketch_fillet.
+struct RectWithCorner {
+  FeatureEntry feature;
+  std::string top_right_corner_id;
+  std::string top_line_id;
+  std::string right_line_id;
+};
+
+RectWithCorner make_rect_with_top_right_corner(int feature_index) {
+  RectWithCorner result{};
+  result.feature = create_sketch_feature(feature_index, "ref-plane-xy");
+  int next_line_index = 1;
+  add_sketch_rectangle(
+      result.feature, next_line_index, 0.0, 0.0, 40.0, 20.0);
+
+  // Locate the two lines that meet at (40, 0): the top edge runs
+  // along y=0 from (0,0) to (40,0), and the right edge runs along
+  // x=40 from (40, 0) to (40, 20). The order add_sketch_rectangle
+  // emits is start→x, x→corner, corner→y, y→start (from inspecting
+  // the builder) but we don't rely on that — we look up by coords.
+  for (const auto& line : result.feature.sketch_parameters->lines) {
+    const bool start_at_corner =
+        std::abs(line.start_x - 40.0) < 0.01 &&
+        std::abs(line.start_y - 0.0) < 0.01;
+    const bool end_at_corner =
+        std::abs(line.end_x - 40.0) < 0.01 &&
+        std::abs(line.end_y - 0.0) < 0.01;
+    if (!start_at_corner && !end_at_corner) {
+      continue;
+    }
+    const std::string corner_id =
+        start_at_corner ? line.start_point_id : line.end_point_id;
+    if (result.top_right_corner_id.empty()) {
+      result.top_right_corner_id = corner_id;
+    }
+    // Distinguish top vs right by inspecting the *other* endpoint:
+    // top edge's other end is at (0, 0); right edge's other end is at
+    // (40, 20).
+    const double other_x = start_at_corner ? line.end_x : line.start_x;
+    const double other_y = start_at_corner ? line.end_y : line.start_y;
+    if (std::abs(other_x - 0.0) < 0.01 &&
+        std::abs(other_y - 0.0) < 0.01) {
+      result.top_line_id = line.id;
+    } else if (std::abs(other_x - 40.0) < 0.01 &&
+               std::abs(other_y - 20.0) < 0.01) {
+      result.right_line_id = line.id;
+    }
+  }
+  return result;
+}
+
+bool test_fillet_creates_arc_and_trims_lines() {
+  RectWithCorner setup = make_rect_with_top_right_corner(20);
+  if (setup.top_right_corner_id.empty() || setup.top_line_id.empty() ||
+      setup.right_line_id.empty()) {
+    return expect(false, "fillet test setup: failed to locate corner / lines");
+  }
+
+  add_sketch_fillet(setup.feature,
+                    /*fillet_index=*/1,
+                    /*trim_a_point_index=*/100,
+                    /*trim_b_point_index=*/101,
+                    /*arc_index=*/1,
+                    setup.top_right_corner_id,
+                    setup.top_line_id,
+                    setup.right_line_id,
+                    /*radius=*/5.0);
+
+  const auto& params = setup.feature.sketch_parameters.value();
+
+  if (!expect(params.fillets.size() == 1,
+              "expected exactly one fillet record")) {
+    return false;
+  }
+  if (!expect(params.arcs.size() == 1,
+              "expected exactly one generated arc")) {
+    return false;
+  }
+  const auto& arc = params.arcs.front();
+  if (!expect(std::abs(arc.radius - 5.0) < 1e-6,
+              "expected the fillet arc to honor the requested radius")) {
+    return false;
+  }
+
+  // Top edge originally ended at (40, 0); trim distance = r/tan(45°)
+  // = 5 for a 90° corner, so the trimmed end should be at (35, 0).
+  const polysmith::core::SketchLine* trimmed_top =
+      find_line_with_endpoint_at(setup.feature, 35.0, 0.0);
+  if (!expect(trimmed_top != nullptr,
+              "expected the top edge to be trimmed to (35, 0)")) {
+    return false;
+  }
+  const polysmith::core::SketchLine* trimmed_right =
+      find_line_with_endpoint_at(setup.feature, 40.0, 5.0);
+  if (!expect(trimmed_right != nullptr,
+              "expected the right edge to be trimmed to (40, 5)")) {
+    return false;
+  }
+
+  // Arc center for a 90° corner with r=5 sits at (35, 5) (corner -
+  // r along the bisector toward the rectangle interior).
+  return expect(std::abs(arc.center_x - 35.0) < 1e-6 &&
+                    std::abs(arc.center_y - 5.0) < 1e-6,
+                "expected the fillet arc center at (35, 5)");
+}
+
+bool test_fillet_radius_update_re_derives_geometry() {
+  RectWithCorner setup = make_rect_with_top_right_corner(21);
+  add_sketch_fillet(setup.feature,
+                    /*fillet_index=*/1,
+                    /*trim_a_point_index=*/100,
+                    /*trim_b_point_index=*/101,
+                    /*arc_index=*/1,
+                    setup.top_right_corner_id,
+                    setup.top_line_id,
+                    setup.right_line_id,
+                    /*radius=*/5.0);
+
+  const std::string fillet_id =
+      setup.feature.sketch_parameters->fillets.front().id;
+  update_sketch_fillet_radius(setup.feature, fillet_id, /*radius=*/8.0);
+
+  const auto& arc = setup.feature.sketch_parameters->arcs.front();
+  if (!expect(std::abs(arc.radius - 8.0) < 1e-6,
+              "expected arc radius to update to the new fillet radius")) {
+    return false;
+  }
+  // Trimmed top edge should now end at (40 - 8, 0) = (32, 0).
+  return expect(find_line_with_endpoint_at(setup.feature, 32.0, 0.0) != nullptr,
+                "expected the top edge to retrim to (32, 0) at r=8");
+}
+
+bool test_fillet_delete_restores_corner() {
+  RectWithCorner setup = make_rect_with_top_right_corner(22);
+  add_sketch_fillet(setup.feature,
+                    /*fillet_index=*/1,
+                    /*trim_a_point_index=*/100,
+                    /*trim_b_point_index=*/101,
+                    /*arc_index=*/1,
+                    setup.top_right_corner_id,
+                    setup.top_line_id,
+                    setup.right_line_id,
+                    /*radius=*/5.0);
+
+  const std::string fillet_id =
+      setup.feature.sketch_parameters->fillets.front().id;
+  delete_sketch_fillet(setup.feature, fillet_id);
+
+  const auto& params = setup.feature.sketch_parameters.value();
+  if (!expect(params.fillets.empty(),
+              "expected fillet record to be removed on delete")) {
+    return false;
+  }
+  if (!expect(params.arcs.empty(),
+              "expected the fillet's generated arc to be removed on delete")) {
+    return false;
+  }
+  // After delete, top and right edges must once again share an
+  // endpoint at the original corner (40, 0).
+  return expect(
+      find_line_with_endpoint_at(setup.feature, 40.0, 0.0) != nullptr,
+      "expected the original (40, 0) corner to be restored after fillet delete");
+}
+
+bool test_fillet_rejects_oversized_radius() {
+  RectWithCorner setup = make_rect_with_top_right_corner(23);
+  // The right edge is 20 long; with a 90° corner the trim distance
+  // equals the radius, so r=25 won't fit on the 20-tall edge.
+  bool threw = false;
+  try {
+    add_sketch_fillet(setup.feature,
+                      /*fillet_index=*/1,
+                      /*trim_a_point_index=*/100,
+                      /*trim_b_point_index=*/101,
+                      /*arc_index=*/1,
+                      setup.top_right_corner_id,
+                      setup.top_line_id,
+                      setup.right_line_id,
+                      /*radius=*/25.0);
+  } catch (const std::exception&) {
+    threw = true;
+  }
+  return expect(threw,
+                "expected oversized fillet radius to throw a structured error");
+}
+
 }  // namespace
 
 int main() {
@@ -459,6 +669,18 @@ int main() {
     return EXIT_FAILURE;
   }
   if (!test_detects_polygon_loop_with_line_and_arc_edges()) {
+    return EXIT_FAILURE;
+  }
+  if (!test_fillet_creates_arc_and_trims_lines()) {
+    return EXIT_FAILURE;
+  }
+  if (!test_fillet_radius_update_re_derives_geometry()) {
+    return EXIT_FAILURE;
+  }
+  if (!test_fillet_delete_restores_corner()) {
+    return EXIT_FAILURE;
+  }
+  if (!test_fillet_rejects_oversized_radius()) {
     return EXIT_FAILURE;
   }
 

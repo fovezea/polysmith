@@ -186,6 +186,25 @@ sketch_parameters_from_payload(const json& payload) {
       params.arcs.push_back(arc);
     }
   }
+  // Older saves predate fillets; absence of the key just means no
+  // fillets exist (lines/arcs that originated as fillet outputs are
+  // already round-tripped above as plain entities).
+  if (payload.contains("fillets") && payload.at("fillets").is_array()) {
+    for (const auto& fillet_payload : payload.at("fillets")) {
+      polysmith::core::SketchFillet fillet{};
+      fillet.id = read_string(fillet_payload, "fillet_id");
+      fillet.corner_point_id = read_string(fillet_payload, "corner_point_id");
+      fillet.corner_x = read_number(fillet_payload, "corner_x");
+      fillet.corner_y = read_number(fillet_payload, "corner_y");
+      fillet.line_a_id = read_string(fillet_payload, "line_a_id");
+      fillet.line_b_id = read_string(fillet_payload, "line_b_id");
+      fillet.trim_a_point_id = read_string(fillet_payload, "trim_a_point_id");
+      fillet.trim_b_point_id = read_string(fillet_payload, "trim_b_point_id");
+      fillet.arc_id = read_string(fillet_payload, "arc_id");
+      fillet.radius = read_number(fillet_payload, "radius");
+      params.fillets.push_back(fillet);
+    }
+  }
   if (payload.contains("points") && payload.at("points").is_array()) {
     for (const auto& point_payload : payload.at("points")) {
       polysmith::core::SketchPoint point{};
@@ -517,6 +536,25 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                       });
                     }
                     return arcs;
+                  }()},
+                 {"fillets",
+                  [&feature]() {
+                    json fillets = json::array();
+                    for (const auto& fillet : feature.sketch_parameters->fillets) {
+                      fillets.push_back({
+                          {"fillet_id", fillet.id},
+                          {"corner_point_id", fillet.corner_point_id},
+                          {"corner_x", fillet.corner_x},
+                          {"corner_y", fillet.corner_y},
+                          {"line_a_id", fillet.line_a_id},
+                          {"line_b_id", fillet.line_b_id},
+                          {"trim_a_point_id", fillet.trim_a_point_id},
+                          {"trim_b_point_id", fillet.trim_b_point_id},
+                          {"arc_id", fillet.arc_id},
+                          {"radius", fillet.radius},
+                      });
+                    }
+                    return fillets;
                   }()},
                  {"points",
                   [&feature]() {

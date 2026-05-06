@@ -140,6 +140,18 @@ interface ViewportPanelProps {
   // the SketchToolbar can render the segmented control. Defaults to
   // "three_point"; the toolbar updates it through `onSetArcToolMode`.
   arcToolMode: "three_point" | "center_start_end";
+  // Sketch fillet — fired when the user clicks an eligible corner
+  // point under the Fillet tool. Eligible = sketch point shared by
+  // exactly two non-construction sketch lines that are not already
+  // filleted at this corner. The viewport resolves the corner /
+  // line ids from the click and hands them up; App owns the
+  // floating panel that the core spawns on the back of this call.
+  onAddSketchFillet: (
+    cornerPointId: string,
+    lineAId: string,
+    lineBId: string,
+    radius: number,
+  ) => Promise<void>;
   onSelectSketchEntity: (entityId: string) => Promise<void>;
   onPickSketchPoint: (
     pointId: string,
@@ -197,6 +209,7 @@ export function ViewportPanel({
   onAddSketchCircle,
   onAddSketchArc,
   arcToolMode,
+  onAddSketchFillet,
   onSelectSketchEntity,
   onPickSketchPoint,
   armedSketchConstraint,
@@ -275,6 +288,11 @@ export function ViewportPanel({
   const sketchGroupRef = useRef<THREE.Group | null>(null);
   const previewLineRef = useRef<THREE.Line | null>(null);
   const previewCircleRef = useRef<THREE.LineLoop | null>(null);
+  // Mirrors `previewLineRef` / `previewCircleRef` for the arc tool.
+  // Carries the dashed in-progress arc preview rendered while the
+  // user is between clicks 2 and 3 (or, in center+start+end mode, a
+  // dashed circle while between clicks 1 and 2).
+  const previewArcRef = useRef<THREE.Line | null>(null);
   const lineDraftStartRef = useRef<[number, number] | null>(null);
   const previousReferencePlaneVisibilityRef = useRef<boolean | null>(null);
   const primitiveVisualsRef = useRef(new Map<string, PrimitiveVisual>());
@@ -325,6 +343,7 @@ export function ViewportPanel({
   const addSketchCircleRef = useRef(onAddSketchCircle);
   const addSketchArcRef = useRef(onAddSketchArc);
   const arcToolModeRef = useRef(arcToolMode);
+  const addSketchFilletRef = useRef(onAddSketchFillet);
   // Arc placement requires three clicks. The first click goes through
   // `lineDraftStartRef` (shared with line/rect/circle to keep the
   // start-snap pipeline uniform); the second click lands here and
@@ -712,6 +731,19 @@ export function ViewportPanel({
     previewCircle.geometry.dispose();
     disposeMaterial(previewCircle.material);
     previewCircleRef.current = null;
+  }
+
+  function clearPreviewArc() {
+    const previewArc = previewArcRef.current;
+    const sketchGroup = sketchGroupRef.current;
+    if (!previewArc || !sketchGroup) {
+      return;
+    }
+
+    sketchGroup.remove(previewArc);
+    previewArc.geometry.dispose();
+    disposeMaterial(previewArc.material);
+    previewArcRef.current = null;
   }
 
   function resolveSnappedSketchPoint(rawPoint: {
@@ -1243,6 +1275,7 @@ export function ViewportPanel({
     addSketchCircleRef.current = onAddSketchCircle;
     addSketchArcRef.current = onAddSketchArc;
     arcToolModeRef.current = arcToolMode;
+    addSketchFilletRef.current = onAddSketchFillet;
     selectSketchEntityRef.current = onSelectSketchEntity;
     pickSketchPointRef.current = onPickSketchPoint;
     selectSketchDimensionRef.current = onSelectSketchDimension;
@@ -1267,6 +1300,7 @@ export function ViewportPanel({
     onAddSketchCircle,
     onAddSketchArc,
     arcToolMode,
+    onAddSketchFillet,
     onSelectSketchEntity,
     onPickSketchPoint,
     onSelectSketchDimension,
@@ -1780,6 +1814,7 @@ export function ViewportPanel({
         if (activeSketchToolRef.current === "select") {
           clearPreviewLine();
           clearPreviewCircle();
+          clearPreviewArc();
           setSketchSnapLabel(null);
           setConstraintPreview(null);
           return;
@@ -1868,6 +1903,198 @@ export function ViewportPanel({
 
         clearPreviewLine();
         clearPreviewCircle();
+        clearPreviewArc();
+        if (activeSketchToolRef.current === "arc") {
+          // Arc preview branches on the user's progress through the
+          // three-click sequence and the active arc creation mode.
+          // Goal: the dashed preview should always show the *exact*
+          // arc the next click will commit (or, for the early
+          // single-click states, an unambiguous hint about what is
+          // currently locked in).
+          const arcSecondPoint = arcSecondPointRef.current;
+          const cursor = sketchPoint.local;
+          const arcMode = arcToolModeRef.current;
+
+          // Build a SketchArcScene-shaped preview from a 2D
+          // (center, radius, start, end, ccw) tuple. The
+          // `buildSketchArcObject` renderer projects coords back
+          // through the plane frame so we can hand it world-space
+          // coords directly.
+          const buildArcPreview = (
+            centerLocal: [number, number],
+            radius: number,
+            startLocal: [number, number],
+            endLocal: [number, number],
+            ccw: boolean,
+          ) => {
+            if (radius < 1e-3) {
+              return null;
+            }
+            return buildSketchArcObject(
+              {
+                arcId: "preview-arc",
+                startPointId: "preview-arc-start",
+                endPointId: "preview-arc-end",
+                planeId: activeSketchPlaneId,
+                center: toWorldPoint(
+                  activeSketchPlaneId,
+                  centerLocal,
+                  activeSketchPlaneFrame,
+                ),
+                radius,
+                start: toWorldPoint(
+                  activeSketchPlaneId,
+                  startLocal,
+                  activeSketchPlaneFrame,
+                ),
+                end: toWorldPoint(
+                  activeSketchPlaneId,
+                  endLocal,
+                  activeSketchPlaneFrame,
+                ),
+                ccw,
+                isSelected: false,
+                isConstruction: false,
+                isPreview: true,
+              },
+              activeSketchPlaneFrame,
+            );
+          };
+
+          if (arcMode === "three_point") {
+            if (!arcSecondPoint) {
+              // Click 2 still pending. We don't know enough to draw
+              // an arc yet, so render a dashed line from start to
+              // cursor as a chord-of-the-future-end hint. Mirrors
+              // the existing "line preview while drafting" cue but
+              // dashed so it reads as not-yet-an-arc.
+              const preview = new THREE.Line(
+                new THREE.BufferGeometry().setFromPoints([
+                  new THREE.Vector3(
+                    ...toWorldPoint(
+                      activeSketchPlaneId,
+                      draftStart,
+                      activeSketchPlaneFrame,
+                    ),
+                  ),
+                  new THREE.Vector3(...sketchPoint.world),
+                ]),
+                new THREE.LineDashedMaterial({
+                  color: themeColor("--color-tertiary-plane-edge", "#ffe784"),
+                  transparent: true,
+                  opacity: 0.65,
+                  dashSize: 1,
+                  gapSize: 0.6,
+                }),
+              );
+              preview.computeLineDistances();
+              previewArcRef.current = preview;
+              sketchGroupRefValue.add(preview);
+            } else {
+              // Click 2 captured: cursor is the bulge anchor. Solve
+              // the circumcircle of (start, cursor, end) — same
+              // formula as `DocumentManager::add_sketch_arc` so the
+              // preview lands exactly on what we'll commit. Falls
+              // through to a no-preview state when the three points
+              // are colinear (degenerate arc).
+              const [sx, sy] = draftStart;
+              const [ex, ey] = arcSecondPoint;
+              const [ax, ay] = cursor;
+              const d = 2 * (sx * (ey - ay) + ex * (ay - sy) + ax * (sy - ey));
+              if (Math.abs(d) > 1e-9) {
+                const s2 = sx * sx + sy * sy;
+                const e2 = ex * ex + ey * ey;
+                const a2 = ax * ax + ay * ay;
+                const cx =
+                  (s2 * (ey - ay) + e2 * (ay - sy) + a2 * (sy - ey)) / d;
+                const cy =
+                  (s2 * (ax - ex) + e2 * (sx - ax) + a2 * (ex - sx)) / d;
+                const radius = Math.hypot(sx - cx, sy - cy);
+                const cross = (ax - sx) * (ey - sy) - (ay - sy) * (ex - sx);
+                const ccw = cross > 0;
+                const preview = buildArcPreview(
+                  [cx, cy],
+                  radius,
+                  [sx, sy],
+                  [ex, ey],
+                  ccw,
+                );
+                if (preview) {
+                  previewArcRef.current = preview;
+                  sketchGroupRefValue.add(preview);
+                }
+              }
+            }
+          } else {
+            // center_start_end mode.
+            if (!arcSecondPoint) {
+              // Click 2 still pending. Center is locked; draw a
+              // dashed full circle of radius |cursor - center| so
+              // the user can see the radius they're about to
+              // commit. Once they click, the start position will be
+              // the cursor's current position.
+              const radius = Math.hypot(
+                cursor[0] - draftStart[0],
+                cursor[1] - draftStart[1],
+              );
+              if (radius >= 1e-3) {
+                const preview = buildSketchCircleObject(
+                  {
+                    circleId: "preview-arc-circle",
+                    planeId: activeSketchPlaneId,
+                    center: toWorldPoint(
+                      activeSketchPlaneId,
+                      draftStart,
+                      activeSketchPlaneFrame,
+                    ),
+                    radius,
+                    isSelected: false,
+                    // Mark as preview so it renders dashed +
+                    // translucent. (LineLoop is fine here even
+                    // though the ref is typed as Line — the
+                    // dispose path only touches geometry/material.)
+                    isPreview: true,
+                  },
+                  activeSketchPlaneFrame,
+                );
+                previewArcRef.current = preview as unknown as THREE.Line;
+                sketchGroupRefValue.add(preview);
+              }
+            } else {
+              // Click 2 captured (= start). Cursor is the end; we
+              // snap it onto the circle established by
+              // |center → start| just like the core does, then
+              // render the arc.
+              const cx = draftStart[0];
+              const cy = draftStart[1];
+              const sx = arcSecondPoint[0];
+              const sy = arcSecondPoint[1];
+              const radius = Math.hypot(sx - cx, sy - cy);
+              const endDx = cursor[0] - cx;
+              const endDy = cursor[1] - cy;
+              const endLen = Math.hypot(endDx, endDy);
+              if (radius >= 1e-3 && endLen >= 1e-3) {
+                const finalEx = cx + (endDx * radius) / endLen;
+                const finalEy = cy + (endDy * radius) / endLen;
+                const cross =
+                  (sx - cx) * (finalEy - cy) - (sy - cy) * (finalEx - cx);
+                const ccw = cross > 0;
+                const preview = buildArcPreview(
+                  [cx, cy],
+                  radius,
+                  [sx, sy],
+                  [finalEx, finalEy],
+                  ccw,
+                );
+                if (preview) {
+                  previewArcRef.current = preview;
+                  sketchGroupRefValue.add(preview);
+                }
+              }
+            }
+          }
+          return;
+        }
         if (activeSketchToolRef.current === "circle") {
           const radius = distanceBetweenPoints(draftStart, sketchPoint.local);
           if (radius > 0.001) {
@@ -2148,6 +2375,92 @@ export function ViewportPanel({
           return;
         }
 
+        // Sketch fillet tool. Clicks must land on a sketch point that
+        // is shared by exactly two non-construction sketch lines and
+        // is not already filleted. Anything else is a no-op (the
+        // user can switch back to Select if they want to inspect).
+        // Eligibility is resolved against the *current* sketch
+        // snapshot in `sketchLinesRef`, not the document store, so
+        // it stays in sync with what the user just sees.
+        if (activeSketchToolRef.current === "fillet") {
+          const filletRawPoint = resolveSketchPlanePoint(
+            event,
+            renderer,
+            camera,
+            activeSketchPlaneId,
+            activeSketchPlaneFrame,
+          );
+          if (!filletRawPoint) {
+            return;
+          }
+          const filletSnapped = resolveSnappedSketchPoint(filletRawPoint);
+          const params = sketchLinesRef.current;
+          if (!params) {
+            return;
+          }
+
+          // Find the sketch point id that matches the snapped click
+          // location within `kCoincidentTolerance` (same fudge the
+          // core uses). We don't rely on `endpointHostLineId` from
+          // the snap candidate because a corner is by definition
+          // shared by *two* lines and the snap only carries one
+          // host id.
+          const tolerance = 0.05;
+          const cornerPoint = params.points.find(
+            (point) =>
+              Math.hypot(
+                point.x - filletSnapped.local[0],
+                point.y - filletSnapped.local[1],
+              ) <= tolerance,
+          );
+          if (!cornerPoint) {
+            return;
+          }
+
+          // Lines that reference this point as an endpoint and are
+          // not construction-only (construction lines don't
+          // contribute to closed loops, so filleting them would
+          // produce nothing useful).
+          const incidentLines = params.lines.filter(
+            (line) =>
+              !line.is_construction &&
+              (line.start_point_id === cornerPoint.point_id ||
+                line.end_point_id === cornerPoint.point_id),
+          );
+          if (incidentLines.length !== 2) {
+            return;
+          }
+
+          // Reject corners that already host a fillet referencing
+          // either of the same lines — same guard the core enforces
+          // in `add_sketch_fillet`. Surfaced here too so the click
+          // doesn't bother round-tripping a doomed command.
+          const alreadyFilleted = (params.fillets ?? []).some((fillet) =>
+            incidentLines.some(
+              (line) =>
+                (fillet.line_a_id === line.line_id ||
+                  fillet.line_b_id === line.line_id) &&
+                (fillet.trim_a_point_id === cornerPoint.point_id ||
+                  fillet.trim_b_point_id === cornerPoint.point_id),
+            ),
+          );
+          if (alreadyFilleted) {
+            return;
+          }
+
+          // Default radius — small enough to fit on most user-drawn
+          // corners; the floating panel takes over after this point
+          // so the user can dial in the exact value.
+          const DEFAULT_FILLET_RADIUS_MM = 5;
+          void addSketchFilletRef.current(
+            cornerPoint.point_id,
+            incidentLines[0].line_id,
+            incidentLines[1].line_id,
+            DEFAULT_FILLET_RADIUS_MM,
+          );
+          return;
+        }
+
         // In a draft tool (line / rectangle / circle), clicks on an
         // existing line / dimension MUST NOT select. They should
         // fall through to the plane-projection path so the snap
@@ -2225,6 +2538,7 @@ export function ViewportPanel({
         const [startX, startY] = lineDraftStartRef.current;
         clearPreviewLine();
         clearPreviewCircle();
+        clearPreviewArc();
 
         if (activeSketchToolRef.current === "arc") {
           // Three-click arc placement. The first click landed in the
@@ -2235,19 +2549,44 @@ export function ViewportPanel({
             arcSecondPointRef.current = sketchPoint.local;
             return;
           }
-          const [endX, endY] = arcSecondPointRef.current;
-          const [anchorX, anchorY] = sketchPoint.local;
+          const [secondX, secondY] = arcSecondPointRef.current;
+          const [thirdX, thirdY] = sketchPoint.local;
           arcSecondPointRef.current = null;
           lineDraftStartRef.current = null;
-          void addSketchArcRef.current(
-            startX,
-            startY,
-            endX,
-            endY,
-            anchorX,
-            anchorY,
-            arcToolModeRef.current,
-          );
+          // Click order differs by mode. In `three_point` the user
+          // clicks (start, end, point-on-arc), which lines up 1:1
+          // with the IPC's (start, end, anchor) params. In
+          // `center_start_end` the user clicks (center, start, end)
+          // — center is the *third* IPC param, so we have to
+          // permute. The preview rendering above already follows
+          // the same per-mode interpretation; without the permute
+          // here the committed arc lands on the opposite side from
+          // what the preview showed because the core then treats
+          // click 1 (center) as if it were the arc's start.
+          const mode = arcToolModeRef.current;
+          if (mode === "three_point") {
+            void addSketchArcRef.current(
+              startX,
+              startY,
+              secondX,
+              secondY,
+              thirdX,
+              thirdY,
+              mode,
+            );
+          } else {
+            // center_start_end: IPC params are
+            // (start=click2, end=click3, anchor=click1).
+            void addSketchArcRef.current(
+              secondX,
+              secondY,
+              thirdX,
+              thirdY,
+              startX,
+              startY,
+              mode,
+            );
+          }
           return;
         }
 
@@ -2541,6 +2880,7 @@ export function ViewportPanel({
       gridRef.current = null;
       previewLineRef.current = null;
       previewCircleRef.current = null;
+      previewArcRef.current = null;
       lineDraftStartRef.current = null;
       lastGeometryKeyRef.current = "";
     };
@@ -2591,6 +2931,7 @@ export function ViewportPanel({
     hoveredVertexIdRef.current = null;
     previewLineRef.current = null;
     previewCircleRef.current = null;
+    previewArcRef.current = null;
 
     if (gridRef.current) {
       scene.remove(gridRef.current);
@@ -2786,6 +3127,7 @@ export function ViewportPanel({
     arcSecondPointRef.current = null;
     clearPreviewLine();
     clearPreviewCircle();
+    clearPreviewArc();
     setSketchSnapLabel(null);
     setConstraintPreview(null);
     // Reset the dimension tool's pending first-line on every tool
@@ -2820,6 +3162,7 @@ export function ViewportPanel({
         arcSecondPointRef.current = null;
         clearPreviewLine();
         clearPreviewCircle();
+        clearPreviewArc();
         setSketchSnapLabel(null);
         setConstraintPreview(null);
         void setSketchToolRef.current("select");

@@ -117,6 +117,25 @@ export interface SketchArcEntry {
   is_construction: boolean;
 }
 
+// Parametric corner fillet on the sketch. Mirrors C++ `SketchFillet`.
+// `corner_x` / `corner_y` are denormalized so the corner point can
+// be re-emitted into the points table even when no other entity
+// references it; the core refreshes them on every recompute.
+// `radius` is the user-controlled parameter; everything else is
+// generated geometry kept in sync with `lines` and `arcs`.
+export interface SketchFilletEntry {
+  fillet_id: string;
+  corner_point_id: string;
+  corner_x: number;
+  corner_y: number;
+  line_a_id: string;
+  line_b_id: string;
+  trim_a_point_id: string;
+  trim_b_point_id: string;
+  arc_id: string;
+  radius: number;
+}
+
 export interface SketchFeatureParameters {
   plane_id: string;
   plane_frame: {
@@ -129,6 +148,7 @@ export interface SketchFeatureParameters {
   lines: SketchLineEntry[];
   circles: SketchCircleEntry[];
   arcs: SketchArcEntry[];
+  fillets: SketchFilletEntry[];
   points: SketchPointEntry[];
   dimensions: SketchDimensionEntry[];
   line_relations: SketchLineRelationEntry[];

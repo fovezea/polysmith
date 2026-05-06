@@ -10,6 +10,7 @@ export type Shape2D =
   | "polygon"
   | "line"
   | "arc"
+  | "fillet"
   | "trim";
 
 export type Axis = "x" | "y" | "z";

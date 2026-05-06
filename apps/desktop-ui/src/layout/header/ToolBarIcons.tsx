@@ -243,6 +243,8 @@ export function SketchToolIcon({ tool }: { tool: SketchTool }) {
       return <CircleIcon />;
     case "arc":
       return <ArcIcon />;
+    case "fillet":
+      return <FilletIcon />;
     default:
       return <TrimIcon />;
   }

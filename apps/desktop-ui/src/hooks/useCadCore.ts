@@ -10,6 +10,9 @@ import {
   makeAddBoxFeatureCommand,
   makeAddCylinderFeatureCommand,
   makeAddSketchArcCommand,
+  makeAddSketchFilletCommand,
+  makeUpdateSketchFilletRadiusCommand,
+  makeDeleteSketchFilletCommand,
   makeAddSketchCircleCommand,
   makeAddSketchLineCommand,
   makeSetSketchLineConstructionCommand,
@@ -537,6 +540,27 @@ export function useCadCore() {
           mode,
         ),
       );
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    addSketchFillet: async (
+      cornerPointId: string,
+      lineAId: string,
+      lineBId: string,
+      radius: number,
+    ) => {
+      await sendCoreCommand(
+        makeAddSketchFilletCommand(cornerPointId, lineAId, lineBId, radius),
+      );
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateSketchFilletRadius: async (filletId: string, radius: number) => {
+      await sendCoreCommand(
+        makeUpdateSketchFilletRadiusCommand(filletId, radius),
+      );
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    deleteSketchFillet: async (filletId: string) => {
+      await sendCoreCommand(makeDeleteSketchFilletCommand(filletId));
       await sendCoreCommand(makeGetViewportStateCommand());
     },
     selectSketchPoint: async (pointId: string) => {

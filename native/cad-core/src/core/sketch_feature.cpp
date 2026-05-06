@@ -205,7 +205,8 @@ void validate_constraint(const std::optional<std::string>& constraint) {
 
 void validate_tool(const std::string& tool) {
   if (tool != "select" && tool != "line" && tool != "rectangle" &&
-      tool != "circle" && tool != "arc" && tool != "dimension") {
+      tool != "circle" && tool != "arc" && tool != "fillet" &&
+      tool != "dimension") {
     throw std::runtime_error("Unsupported sketch tool: " + tool);
   }
 }
@@ -471,6 +472,20 @@ void rebuild_sketch_points(SketchFeatureParameters& parameters) {
     append_point(
         "point-circle-" + circle.id + "-center", "center", circle.center_x, circle.center_y);
   }
+
+  // Re-emit the original corner point of every fillet. After
+  // `add_sketch_fillet` mutates lines A and B to reference the new
+  // trim points, no line / arc / circle references the original
+  // corner anymore, so without this pass `rebuild_sketch_points`
+  // would silently drop it. The fillet record carries the cached
+  // (`corner_x`, `corner_y`) precisely for this purpose; they're
+  // refreshed every recompute by `enforce_sketch_fillets`.
+  for (const auto& fillet : parameters.fillets) {
+    append_point(fillet.corner_point_id,
+                 "endpoint",
+                 fillet.corner_x,
+                 fillet.corner_y);
+  }
 }
 
 void sync_fixed_point_flags(SketchFeatureParameters& parameters,
@@ -490,6 +505,204 @@ void rebuild_sketch_profiles(SketchFeatureParameters& parameters) {
   parameters.profiles = build_sketch_profile_regions(parameters);
 }
 
+// For each `SketchFillet`, re-derive the trim point coords + the
+// generated arc's cached params from the *current* line endpoints.
+// Runs as part of `refresh_sketch_derived_state` after every sketch
+// edit, so dragging the "far" endpoint of a filleted line keeps the
+// fillet tangent.
+//
+// Per-fillet algorithm:
+//   1. Locate lines A and B and identify which endpoint of each is
+//      the fillet's trim point. The opposite endpoint is "far".
+//   2. Project each line as an infinite ray from `far` through its
+//      *current* trim coord — that direction continues to the
+//      virtual corner. Solve the two-line intersection in 2D for
+//      the virtual corner coordinates.
+//   3. With `theta` = angle between the two outgoing directions
+//      (corner→far_a) and (corner→far_b), compute trim distance
+//      `d = radius / tan(theta/2)` and shift the trim points to
+//      `corner + d * (far - corner) / |far - corner|`.
+//   4. Push the new trim coords back onto the lines' cached
+//      endpoint fields and onto the arc's cached params (center,
+//      radius, ccw, start/end).
+//
+// If validation fails for any reason (line missing, lines became
+// parallel, trim no longer fits) we leave the fillet's cached
+// geometry as-is and skip — the previous frame's render survives,
+// which is preferable to a corrupted partial update. The fillet
+// still survives; the user can drag the lines back into a valid
+// configuration to recover.
+void enforce_sketch_fillets(SketchFeatureParameters& parameters) {
+  for (auto& fillet : parameters.fillets) {
+    const auto line_a_it = std::find_if(
+        parameters.lines.begin(),
+        parameters.lines.end(),
+        [&](const SketchLine& line) { return line.id == fillet.line_a_id; });
+    const auto line_b_it = std::find_if(
+        parameters.lines.begin(),
+        parameters.lines.end(),
+        [&](const SketchLine& line) { return line.id == fillet.line_b_id; });
+    if (line_a_it == parameters.lines.end() ||
+        line_b_it == parameters.lines.end()) {
+      continue;
+    }
+
+    // Identify which end of each line is the trim point. `is_start_a`
+    // / `is_start_b` capture this so we know which fields to update
+    // when we push the new trim coords back onto the line.
+    const bool is_start_a = line_a_it->start_point_id == fillet.trim_a_point_id;
+    const bool is_end_a = line_a_it->end_point_id == fillet.trim_a_point_id;
+    if (!is_start_a && !is_end_a) {
+      continue;
+    }
+    const bool is_start_b = line_b_it->start_point_id == fillet.trim_b_point_id;
+    const bool is_end_b = line_b_it->end_point_id == fillet.trim_b_point_id;
+    if (!is_start_b && !is_end_b) {
+      continue;
+    }
+
+    const double trim_a_x = is_start_a ? line_a_it->start_x : line_a_it->end_x;
+    const double trim_a_y = is_start_a ? line_a_it->start_y : line_a_it->end_y;
+    const double far_a_x = is_start_a ? line_a_it->end_x : line_a_it->start_x;
+    const double far_a_y = is_start_a ? line_a_it->end_y : line_a_it->start_y;
+    const double trim_b_x = is_start_b ? line_b_it->start_x : line_b_it->end_x;
+    const double trim_b_y = is_start_b ? line_b_it->start_y : line_b_it->end_y;
+    const double far_b_x = is_start_b ? line_b_it->end_x : line_b_it->start_x;
+    const double far_b_y = is_start_b ? line_b_it->end_y : line_b_it->start_y;
+
+    // Direction A: from far_a toward (and past) the virtual corner.
+    // Currently the line ends at trim_a, but the corner is further
+    // along the same direction.
+    const double dir_ax = trim_a_x - far_a_x;
+    const double dir_ay = trim_a_y - far_a_y;
+    const double dir_bx = trim_b_x - far_b_x;
+    const double dir_by = trim_b_y - far_b_y;
+    const double len_a = std::hypot(dir_ax, dir_ay);
+    const double len_b = std::hypot(dir_bx, dir_by);
+    if (len_a <= kMinimumSketchDimensionValue ||
+        len_b <= kMinimumSketchDimensionValue) {
+      continue;
+    }
+
+    // Virtual corner = intersection of (far_a + t*dir_a) and
+    // (far_b + s*dir_b). Solve 2x2 system using the cross-product
+    // form. Reject parallel lines (cross ~= 0).
+    const double cross = dir_ax * dir_by - dir_ay * dir_bx;
+    if (std::abs(cross) <= kMinimumSketchDimensionValue) {
+      continue;
+    }
+    const double dx = far_b_x - far_a_x;
+    const double dy = far_b_y - far_a_y;
+    const double t = (dx * dir_by - dy * dir_bx) / cross;
+    const double corner_x = far_a_x + t * dir_ax;
+    const double corner_y = far_a_y + t * dir_ay;
+
+    // Cache the live corner position on the fillet so the next
+    // `rebuild_sketch_points` can re-emit the corner point with
+    // current coords. See `rebuild_sketch_points` for why.
+    fillet.corner_x = corner_x;
+    fillet.corner_y = corner_y;
+
+    // Outgoing unit directions from the corner toward each far end.
+    const double out_ax = far_a_x - corner_x;
+    const double out_ay = far_a_y - corner_y;
+    const double out_bx = far_b_x - corner_x;
+    const double out_by = far_b_y - corner_y;
+    const double out_a_len = std::hypot(out_ax, out_ay);
+    const double out_b_len = std::hypot(out_bx, out_by);
+    if (out_a_len <= kMinimumSketchDimensionValue ||
+        out_b_len <= kMinimumSketchDimensionValue) {
+      continue;
+    }
+    const double ux_a = out_ax / out_a_len;
+    const double uy_a = out_ay / out_a_len;
+    const double ux_b = out_bx / out_b_len;
+    const double uy_b = out_by / out_b_len;
+
+    // Half-angle between the two outgoing directions. theta in
+    // (0, pi). Reject configurations that have collapsed (parallel
+    // case is caught above; this catches the colinear-but-opposite
+    // case where dot ≈ -1 and tan(theta/2) blows up — which would
+    // give an infinite trim distance).
+    const double dot = ux_a * ux_b + uy_a * uy_b;
+    const double clamped_dot = std::max(-1.0, std::min(1.0, dot));
+    const double theta = std::acos(clamped_dot);
+    if (theta <= kMinimumSketchDimensionValue ||
+        theta >= 3.141592653589793 - kMinimumSketchDimensionValue) {
+      continue;
+    }
+    const double half_theta = theta * 0.5;
+    const double trim_distance = fillet.radius / std::tan(half_theta);
+    if (trim_distance + kMinimumSketchDimensionValue >= out_a_len ||
+        trim_distance + kMinimumSketchDimensionValue >= out_b_len) {
+      // Trim no longer fits on at least one of the lines. Leave the
+      // cached geometry alone for now; the user may resize the
+      // lines back into a valid range.
+      continue;
+    }
+
+    const double new_trim_a_x = corner_x + trim_distance * ux_a;
+    const double new_trim_a_y = corner_y + trim_distance * uy_a;
+    const double new_trim_b_x = corner_x + trim_distance * ux_b;
+    const double new_trim_b_y = corner_y + trim_distance * uy_b;
+
+    // Arc center sits along the angle bisector at distance
+    // r / sin(theta/2). The bisector direction is the normalized
+    // sum of the two outgoing unit vectors.
+    const double bisector_x = ux_a + ux_b;
+    const double bisector_y = uy_a + uy_b;
+    const double bisector_len = std::hypot(bisector_x, bisector_y);
+    if (bisector_len <= kMinimumSketchDimensionValue) {
+      continue;
+    }
+    const double center_distance = fillet.radius / std::sin(half_theta);
+    const double arc_center_x =
+        corner_x + center_distance * (bisector_x / bisector_len);
+    const double arc_center_y =
+        corner_y + center_distance * (bisector_y / bisector_len);
+
+    // CCW: positive cross product (start - center) x (end - center)
+    // means the sweep from start to end is CCW. Mirrors the
+    // convention `add_sketch_arc` already follows.
+    const double arc_cross =
+        (new_trim_a_x - arc_center_x) * (new_trim_b_y - arc_center_y) -
+        (new_trim_a_y - arc_center_y) * (new_trim_b_x - arc_center_x);
+    const bool arc_ccw = arc_cross > 0.0;
+
+    // Push back to the line cache.
+    if (is_start_a) {
+      line_a_it->start_x = new_trim_a_x;
+      line_a_it->start_y = new_trim_a_y;
+    } else {
+      line_a_it->end_x = new_trim_a_x;
+      line_a_it->end_y = new_trim_a_y;
+    }
+    if (is_start_b) {
+      line_b_it->start_x = new_trim_b_x;
+      line_b_it->start_y = new_trim_b_y;
+    } else {
+      line_b_it->end_x = new_trim_b_x;
+      line_b_it->end_y = new_trim_b_y;
+    }
+
+    // Update the generated arc.
+    const auto arc_it = std::find_if(
+        parameters.arcs.begin(),
+        parameters.arcs.end(),
+        [&](const SketchArc& arc) { return arc.id == fillet.arc_id; });
+    if (arc_it != parameters.arcs.end()) {
+      arc_it->start_x = new_trim_a_x;
+      arc_it->start_y = new_trim_a_y;
+      arc_it->end_x = new_trim_b_x;
+      arc_it->end_y = new_trim_b_y;
+      arc_it->center_x = arc_center_x;
+      arc_it->center_y = arc_center_y;
+      arc_it->radius = fillet.radius;
+      arc_it->ccw = arc_ccw;
+    }
+  }
+}
+
 void refresh_sketch_derived_state(FeatureEntry& feature) {
   if (!feature.sketch_parameters.has_value()) {
     return;
@@ -502,6 +715,12 @@ void refresh_sketch_derived_state(FeatureEntry& feature) {
   enforce_midpoint_anchors(*feature.sketch_parameters);
   enforce_point_line_anchors(*feature.sketch_parameters);
   enforce_tangent_line_circle_relations(*feature.sketch_parameters);
+
+  // Fillets must run *after* the anchor / tangent passes (so they
+  // see the latest line endpoints) and *before* `rebuild_sketch_points`
+  // (which pulls cached coords off lines and arcs into the points
+  // vector — we want it to see the fillet-corrected values).
+  enforce_sketch_fillets(*feature.sketch_parameters);
 
   const std::vector<SketchPoint> previous_points = feature.sketch_parameters->points;
   rebuild_sketch_points(*feature.sketch_parameters);
@@ -2698,6 +2917,305 @@ void add_sketch_arc(FeatureEntry& feature,
       point.is_fixed = true;
     }
   }
+}
+
+namespace {
+
+// Helper: which endpoint of `line` references `point_id`. Returns
+// `true` for the start endpoint, `false` for the end endpoint.
+// Caller must have already verified one of them does match.
+bool line_start_matches(const SketchLine& line, const std::string& point_id) {
+  return line.start_point_id == point_id;
+}
+
+}  // namespace
+
+void add_sketch_fillet(FeatureEntry& feature,
+                       int fillet_index,
+                       int trim_a_point_index,
+                       int trim_b_point_index,
+                       int arc_index,
+                       const std::string& corner_point_id,
+                       const std::string& line_a_id,
+                       const std::string& line_b_id,
+                       double radius) {
+  if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+    throw std::runtime_error("Only sketch features can accept sketch fillets");
+  }
+  if (radius <= kMinimumSketchDimensionValue) {
+    throw std::runtime_error("Sketch fillets must have a positive radius");
+  }
+  if (line_a_id == line_b_id) {
+    throw std::runtime_error("Sketch fillet requires two distinct lines");
+  }
+
+  auto& parameters = *feature.sketch_parameters;
+  auto& line_a = require_line(parameters, line_a_id);
+  auto& line_b = require_line(parameters, line_b_id);
+
+  // Both lines must reference the corner point as one of their
+  // endpoints — otherwise the user clicked a point that isn't shared.
+  const bool a_at_start = line_a.start_point_id == corner_point_id;
+  const bool a_at_end = line_a.end_point_id == corner_point_id;
+  const bool b_at_start = line_b.start_point_id == corner_point_id;
+  const bool b_at_end = line_b.end_point_id == corner_point_id;
+  if ((!a_at_start && !a_at_end) || (!b_at_start && !b_at_end)) {
+    throw std::runtime_error(
+        "Sketch fillet: corner point must be shared by both lines");
+  }
+
+  // Refuse to fillet a line that's already part of another fillet at
+  // this corner — the lines need a clean shared endpoint to start
+  // from. Lines filleted at the *other* end are fine.
+  for (const auto& existing : parameters.fillets) {
+    const bool a_collides =
+        (existing.line_a_id == line_a_id || existing.line_b_id == line_a_id) &&
+        (existing.trim_a_point_id == corner_point_id ||
+         existing.trim_b_point_id == corner_point_id);
+    const bool b_collides =
+        (existing.line_a_id == line_b_id || existing.line_b_id == line_b_id) &&
+        (existing.trim_a_point_id == corner_point_id ||
+         existing.trim_b_point_id == corner_point_id);
+    if (a_collides || b_collides) {
+      throw std::runtime_error(
+          "Sketch fillet: this corner is already filleted");
+    }
+  }
+
+  // "Far" endpoint of each line — the one opposite the corner.
+  const double far_a_x = a_at_start ? line_a.end_x : line_a.start_x;
+  const double far_a_y = a_at_start ? line_a.end_y : line_a.start_y;
+  const double far_b_x = b_at_start ? line_b.end_x : line_b.start_x;
+  const double far_b_y = b_at_start ? line_b.end_y : line_b.start_y;
+  const double corner_x = a_at_start ? line_a.start_x : line_a.end_x;
+  const double corner_y = a_at_start ? line_a.start_y : line_a.end_y;
+
+  // Outgoing directions from the corner toward each far endpoint.
+  const double out_ax = far_a_x - corner_x;
+  const double out_ay = far_a_y - corner_y;
+  const double out_bx = far_b_x - corner_x;
+  const double out_by = far_b_y - corner_y;
+  const double len_a = std::hypot(out_ax, out_ay);
+  const double len_b = std::hypot(out_bx, out_by);
+  if (len_a <= kMinimumSketchDimensionValue ||
+      len_b <= kMinimumSketchDimensionValue) {
+    throw std::runtime_error(
+        "Sketch fillet: both lines must have non-zero length");
+  }
+  const double ux_a = out_ax / len_a;
+  const double uy_a = out_ay / len_a;
+  const double ux_b = out_bx / len_b;
+  const double uy_b = out_by / len_b;
+
+  const double cross = ux_a * uy_b - uy_a * ux_b;
+  if (std::abs(cross) <= kMinimumSketchDimensionValue) {
+    throw std::runtime_error(
+        "Sketch fillet: the two lines are parallel or colinear");
+  }
+
+  const double dot = ux_a * ux_b + uy_a * uy_b;
+  const double clamped_dot = std::max(-1.0, std::min(1.0, dot));
+  const double theta = std::acos(clamped_dot);
+  if (theta <= kMinimumSketchDimensionValue) {
+    throw std::runtime_error(
+        "Sketch fillet: the two lines have no measurable angle between them");
+  }
+  const double half_theta = theta * 0.5;
+  const double trim_distance = radius / std::tan(half_theta);
+  if (trim_distance + kMinimumSketchDimensionValue >= len_a ||
+      trim_distance + kMinimumSketchDimensionValue >= len_b) {
+    throw std::runtime_error(
+        "Sketch fillet: radius is too large for at least one of the lines");
+  }
+
+  // New trim point coordinates and arc center.
+  const double trim_a_x = corner_x + trim_distance * ux_a;
+  const double trim_a_y = corner_y + trim_distance * uy_a;
+  const double trim_b_x = corner_x + trim_distance * ux_b;
+  const double trim_b_y = corner_y + trim_distance * uy_b;
+  const double bisector_x = ux_a + ux_b;
+  const double bisector_y = uy_a + uy_b;
+  const double bisector_len = std::hypot(bisector_x, bisector_y);
+  // bisector_len > 0 here because we rejected near-180° above.
+  const double center_distance = radius / std::sin(half_theta);
+  const double arc_center_x =
+      corner_x + center_distance * (bisector_x / bisector_len);
+  const double arc_center_y =
+      corner_y + center_distance * (bisector_y / bisector_len);
+  const double arc_cross =
+      (trim_a_x - arc_center_x) * (trim_b_y - arc_center_y) -
+      (trim_a_y - arc_center_y) * (trim_b_x - arc_center_x);
+  const bool arc_ccw = arc_cross > 0.0;
+
+  // Allocate generated entity ids. Trim points share the same
+  // namespace as line endpoints (point-N), the arc its own (arc-N).
+  // The fillet itself uses fillet-N.
+  const std::string trim_a_id = "point-" + std::to_string(trim_a_point_index);
+  const std::string trim_b_id = "point-" + std::to_string(trim_b_point_index);
+  const std::string arc_id = "arc-" + std::to_string(arc_index);
+  const std::string fillet_id = "fillet-" + std::to_string(fillet_index);
+
+  // Mutate the lines: replace their corner-pointing endpoint with
+  // the new trim point. Also update the cached coords so they match
+  // the trim position right away. The recompute pass will refresh
+  // these on every subsequent edit.
+  if (a_at_start) {
+    line_a.start_point_id = trim_a_id;
+    line_a.start_x = trim_a_x;
+    line_a.start_y = trim_a_y;
+  } else {
+    line_a.end_point_id = trim_a_id;
+    line_a.end_x = trim_a_x;
+    line_a.end_y = trim_a_y;
+  }
+  if (b_at_start) {
+    line_b.start_point_id = trim_b_id;
+    line_b.start_x = trim_b_x;
+    line_b.start_y = trim_b_y;
+  } else {
+    line_b.end_point_id = trim_b_id;
+    line_b.end_x = trim_b_x;
+    line_b.end_y = trim_b_y;
+  }
+
+  // Append the generated arc (its endpoints reference the new trim
+  // points) and the fillet record.
+  parameters.arcs.push_back(SketchArc{
+      .id = arc_id,
+      .start_point_id = trim_a_id,
+      .end_point_id = trim_b_id,
+      .center_x = arc_center_x,
+      .center_y = arc_center_y,
+      .radius = radius,
+      .start_x = trim_a_x,
+      .start_y = trim_a_y,
+      .end_x = trim_b_x,
+      .end_y = trim_b_y,
+      .ccw = arc_ccw,
+  });
+  parameters.fillets.push_back(SketchFillet{
+      .id = fillet_id,
+      .corner_point_id = corner_point_id,
+      .corner_x = corner_x,
+      .corner_y = corner_y,
+      .line_a_id = line_a_id,
+      .line_b_id = line_b_id,
+      .trim_a_point_id = trim_a_id,
+      .trim_b_point_id = trim_b_id,
+      .arc_id = arc_id,
+      .radius = radius,
+  });
+
+  refresh_sketch_derived_state(feature);
+
+  // Trim points are fixed by the fillet's parametric solve — the
+  // user can't drag them. Same convention as bare arcs.
+  for (auto& point : feature.sketch_parameters->points) {
+    if (point.id == trim_a_id || point.id == trim_b_id) {
+      point.is_fixed = true;
+    }
+  }
+}
+
+void update_sketch_fillet_radius(FeatureEntry& feature,
+                                 const std::string& fillet_id,
+                                 double radius) {
+  if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+    throw std::runtime_error("Only sketch features can update sketch fillets");
+  }
+  if (radius <= kMinimumSketchDimensionValue) {
+    throw std::runtime_error("Sketch fillets must have a positive radius");
+  }
+
+  auto& parameters = *feature.sketch_parameters;
+  const auto fillet_it = std::find_if(
+      parameters.fillets.begin(),
+      parameters.fillets.end(),
+      [&](const SketchFillet& fillet) { return fillet.id == fillet_id; });
+  if (fillet_it == parameters.fillets.end()) {
+    throw std::runtime_error("Sketch fillet not found: " + fillet_id);
+  }
+
+  // Defer the validity check (radius too large) to the recompute
+  // pass: it'll silently skip the update if the new radius doesn't
+  // fit, leaving the previous radius's geometry in place. We do
+  // *commit* the new radius value so the user can drag a line longer
+  // and see the requested radius take effect — symmetric with how
+  // line-length / dimension drives behave around fixed-point
+  // conflicts.
+  fillet_it->radius = radius;
+  refresh_sketch_derived_state(feature);
+}
+
+void delete_sketch_fillet(FeatureEntry& feature,
+                          const std::string& fillet_id) {
+  if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+    throw std::runtime_error("Only sketch features can delete sketch fillets");
+  }
+
+  auto& parameters = *feature.sketch_parameters;
+  const auto fillet_it = std::find_if(
+      parameters.fillets.begin(),
+      parameters.fillets.end(),
+      [&](const SketchFillet& fillet) { return fillet.id == fillet_id; });
+  if (fillet_it == parameters.fillets.end()) {
+    throw std::runtime_error("Sketch fillet not found: " + fillet_id);
+  }
+
+  const SketchFillet fillet_copy = *fillet_it;
+
+  // Restore from the fillet's cached corner coords (refreshed on
+  // every recompute) rather than re-reading the points table. The
+  // points table is rebuilt from the fillet on every refresh, so
+  // these two values are always in sync; the cache is what makes
+  // the round-trip work even when no other entity references the
+  // corner anymore.
+  const double corner_x = fillet_copy.corner_x;
+  const double corner_y = fillet_copy.corner_y;
+
+  // Restore line A's filleted endpoint (the trim point) back to the
+  // corner point. Same for line B.
+  const auto restore_line = [&](const std::string& line_id,
+                                const std::string& trim_point_id) {
+    const auto line_it = std::find_if(
+        parameters.lines.begin(),
+        parameters.lines.end(),
+        [&](const SketchLine& line) { return line.id == line_id; });
+    if (line_it == parameters.lines.end()) {
+      return;
+    }
+    if (line_start_matches(*line_it, trim_point_id)) {
+      line_it->start_point_id = fillet_copy.corner_point_id;
+      line_it->start_x = corner_x;
+      line_it->start_y = corner_y;
+    } else if (line_it->end_point_id == trim_point_id) {
+      line_it->end_point_id = fillet_copy.corner_point_id;
+      line_it->end_x = corner_x;
+      line_it->end_y = corner_y;
+    }
+  };
+  restore_line(fillet_copy.line_a_id, fillet_copy.trim_a_point_id);
+  restore_line(fillet_copy.line_b_id, fillet_copy.trim_b_point_id);
+
+  // Remove the generated arc.
+  parameters.arcs.erase(
+      std::remove_if(
+          parameters.arcs.begin(),
+          parameters.arcs.end(),
+          [&](const SketchArc& arc) { return arc.id == fillet_copy.arc_id; }),
+      parameters.arcs.end());
+
+  // Remove the fillet record itself; trim points get cleaned up on
+  // the next `rebuild_sketch_points` because nothing references
+  // them anymore.
+  parameters.fillets.erase(
+      std::remove_if(
+          parameters.fillets.begin(),
+          parameters.fillets.end(),
+          [&](const SketchFillet& fillet) { return fillet.id == fillet_id; }),
+      parameters.fillets.end());
+
+  refresh_sketch_derived_state(feature);
 }
 
 }  // namespace polysmith::core

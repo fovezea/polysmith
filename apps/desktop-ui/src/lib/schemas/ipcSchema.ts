@@ -23,7 +23,15 @@ const documentStateSchema = z.object({
   active_sketch_face_id: z.string().nullable(),
   active_sketch_feature_id: z.string().nullable(),
   active_sketch_tool: z
-    .enum(["select", "line", "rectangle", "circle", "arc", "dimension"])
+    .enum([
+      "select",
+      "line",
+      "rectangle",
+      "circle",
+      "arc",
+      "fillet",
+      "dimension",
+    ])
     .nullable(),
   selected_sketch_point_id: z.string().nullable(),
   selected_sketch_entity_id: z.string().nullable(),
@@ -119,6 +127,7 @@ const documentStateSchema = z.object({
             "rectangle",
             "circle",
             "arc",
+            "fillet",
             "dimension",
           ]),
           lines: z.array(
@@ -191,6 +200,25 @@ const documentStateSchema = z.object({
                 end_y: z.number(),
                 ccw: z.boolean(),
                 is_construction: z.boolean().default(false),
+              }),
+            )
+            .default([]),
+          // Parametric corner fillets. Defaulted to `[]` so older
+          // saves (or messages from a core that pre-dates fillet
+          // support) keep parsing cleanly.
+          fillets: z
+            .array(
+              z.object({
+                fillet_id: z.string(),
+                corner_point_id: z.string(),
+                corner_x: z.number(),
+                corner_y: z.number(),
+                line_a_id: z.string(),
+                line_b_id: z.string(),
+                trim_a_point_id: z.string(),
+                trim_b_point_id: z.string(),
+                arc_id: z.string(),
+                radius: z.number(),
               }),
             )
             .default([]),
