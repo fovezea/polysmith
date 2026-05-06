@@ -23,10 +23,11 @@ codebase now has:
 - a JSON IPC bridge with documented commands and a versioned schema
 - a real document model with feature history, undo/redo, and core-owned
   selection state
-- 2D sketch entities (lines, rectangles, circles), points, dimensions,
-  constraints (horizontal/vertical/perpendicular/parallel/equal-length/
-  coincident/fixed), and stored sketch profiles
-- closed-profile detection that survives parametric edits and point merges
+- 2D sketch entities (lines, rectangles, circles, arcs), points,
+  dimensions, constraints (horizontal/vertical/perpendicular/parallel/
+  equal-length/coincident/fixed), and stored sketch profiles
+- closed-profile detection that survives parametric edits and point
+  merges, including loops that mix line and arc edges
 - extrude features that target sketch profiles, with editable depth via
   `update_extrude_depth`
 - selectable solid faces and reference planes; sketches can start on any
@@ -100,7 +101,14 @@ These three close the gap between fancy demo and real workflow:
 
 - **Offset construction plane.** Sketch on a plane offset from a face or
   reference plane.
-- **Sketch arcs, slots, polygons, and offset-curve.**
+- ⚠️ **Sketch arcs, slots, polygons, and offset-curve.** Arcs shipped
+  in v1: `add_sketch_arc` supports three-point and center+start+end
+  modes through a Fusion-style segmented toolbar control, the closed-
+  profile detector walks lines and arcs uniformly so loops mixing the
+  two extrude cleanly, and arc endpoints share the SketchPoint graph.
+  Endpoints are stored fixed for v1 (no post-creation reshape /
+  constraints / dimension drive); slots, polygons, and offset-curve
+  remain.
 - **Construction axes** through edges and through two points.
 - ✅ **Project sketch tool** — shipped. Projects extrude faces (rectangle
   and circle profiles) onto the active sketch as fixed-endpoint lines or
