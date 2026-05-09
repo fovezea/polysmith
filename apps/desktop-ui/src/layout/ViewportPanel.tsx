@@ -49,7 +49,21 @@ import {
   SKETCH_SNAP_DISTANCE,
   themeColor,
   toWorldPoint,
+  buildViewCubeGroup,
+  createViewCubeScene,
+  createViewCubeCamera,
+  getCubeViewportRect,
+  isPointerInCubeArea,
+  syncCubeCamera,
+  raycastViewCube,
+  getCubeHitTargetDirection,
+  animateCameraTowardTarget,
+  applyCubeHover,
+  clearCubeHover,
+  applyCubeDragOrbit,
+  disposeViewCubeGroup,
 } from "@/utils";
+import type { ViewCubeHit } from "@/utils";
 
 interface ViewportPanelProps {
   status: "idle" | "starting" | "connected" | "error" | "stopped";
@@ -295,6 +309,17 @@ export function ViewportPanel({
   // user is between clicks 2 and 3 (or, in center+start+end mode, a
   // dashed circle while between clicks 1 and 2).
   const previewArcRef = useRef<THREE.Line | null>(null);
+  const viewCubeGroupRef = useRef<THREE.Group | null>(null);
+  const viewCubeSceneRef = useRef<THREE.Scene | null>(null);
+  const viewCubeCameraRef = useRef<THREE.OrthographicCamera | null>(null);
+  const viewCubeRaycasterRef = useRef<THREE.Raycaster | null>(null);
+  const viewCubeHoveredRef = useRef<ViewCubeHit>(null);
+  const viewCubeAnimatingRef = useRef(false);
+  const viewCubeAnimStartRef = useRef(0);
+  const viewCubeAnimStartPosRef = useRef(new THREE.Vector3());
+  const viewCubeAnimTargetPosRef = useRef(new THREE.Vector3());
+  const viewCubeDraggingRef = useRef(false);
+  const viewCubeDragStartRef = useRef<{ x: number; y: number } | null>(null);
   const lineDraftStartRef = useRef<[number, number] | null>(null);
   const previousReferencePlaneVisibilityRef = useRef<boolean | null>(null);
   const primitiveVisualsRef = useRef(new Map<string, PrimitiveVisual>());
@@ -1581,8 +1606,7 @@ export function ViewportPanel({
     fillLight.position.set(-1.5, 0.8, -1.1);
     scene.add(fillLight);
 
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.08;
+    controls.enableDamping = false;
     controls.screenSpacePanning = true;
     controls.minDistance = 24;
     controls.maxDistance = 6000;
@@ -1596,6 +1620,16 @@ export function ViewportPanel({
       canvas.classList.remove("cad-viewport-canvas-dragging");
     });
 
+    // -- view cube setup -------------------------------------------------
+    const cubeGroup = buildViewCubeGroup();
+    const cubeScene = createViewCubeScene(cubeGroup);
+    const cubeCamera = createViewCubeCamera();
+    const cubeRaycaster = new THREE.Raycaster();
+    viewCubeGroupRef.current = cubeGroup;
+    viewCubeSceneRef.current = cubeScene;
+    viewCubeCameraRef.current = cubeCamera;
+    viewCubeRaycasterRef.current = cubeRaycaster;
+
     function resizeRenderer() {
       const width = Math.max(host?.clientWidth ?? 0, 1);
       const height = Math.max(host?.clientHeight ?? 0, 1);
@@ -1607,6 +1641,7 @@ export function ViewportPanel({
     function render() {
       controls.update();
       renderer.render(scene, camera);
+      renderViewCube();
 
       const editor = dimensionEditorRef.current;
       const dimension = selectedSketchDimensionRef.current;
@@ -1631,6 +1666,55 @@ export function ViewportPanel({
 
       editor.style.opacity = "1";
       editor.style.transform = `translate(${projectedPosition.x}px, ${projectedPosition.y}px) translate(-50%, -50%)`;
+    }
+
+    function renderViewCube() {
+      const cubeGroup = viewCubeGroupRef.current;
+      const cubeScene = viewCubeSceneRef.current;
+      const cubeCam = viewCubeCameraRef.current;
+      if (!cubeGroup || !cubeScene || !cubeCam) return;
+
+      // Sync cube camera to main view direction
+      syncCubeCamera(camera, controls.target, cubeCam);
+
+      // Camera animation tick
+      if (viewCubeAnimatingRef.current) {
+        const done = animateCameraTowardTarget(
+          camera,
+          controls,
+          viewCubeAnimStartPosRef.current,
+          viewCubeAnimTargetPosRef.current,
+          viewCubeAnimStartRef.current,
+          performance.now(),
+        );
+        if (done) {
+          viewCubeAnimatingRef.current = false;
+          controls.enabled = true;
+        }
+      }
+
+      const dpr = renderer.getPixelRatio();
+      const w = renderer.domElement.width;
+      const h = renderer.domElement.height;
+      const rect = getCubeViewportRect(w, h, dpr);
+
+      const oldAutoClear = renderer.autoClear;
+      const oldViewport = new THREE.Vector4();
+      const oldScissor = new THREE.Vector4();
+      renderer.getViewport(oldViewport);
+      renderer.getScissor(oldScissor);
+
+      renderer.autoClear = false;
+      renderer.setViewport(rect.x, rect.y, rect.width, rect.height);
+      renderer.setScissor(rect.x, rect.y, rect.width, rect.height);
+      renderer.setScissorTest(true);
+      renderer.clear(true, true, false);
+      renderer.render(cubeScene, cubeCam);
+
+      renderer.setViewport(oldViewport);
+      renderer.setScissor(oldScissor);
+      renderer.setScissorTest(false);
+      renderer.autoClear = oldAutoClear;
     }
 
     function intersectSceneTargets(event: PointerEvent) {
@@ -1808,10 +1892,72 @@ export function ViewportPanel({
         return;
       }
 
+      // Cube-area drag start
+      if (
+        isPointerInCubeArea(
+          event,
+          renderer.domElement.getBoundingClientRect(),
+          renderer.getPixelRatio(),
+        )
+      ) {
+        viewCubeDraggingRef.current = true;
+        viewCubeDragStartRef.current = { x: event.clientX, y: event.clientY };
+        controls.enabled = false;
+        pointerDown = null;
+        return;
+      }
+
       pointerDown = { x: event.clientX, y: event.clientY };
     }
 
     function handlePointerMove(event: PointerEvent) {
+      // -- cube-area interaction ---------------------------------------
+      const cubeDpr = renderer.getPixelRatio();
+      const cubeCanvasRect = renderer.domElement.getBoundingClientRect();
+      const inCube = isPointerInCubeArea(event, cubeCanvasRect, cubeDpr);
+
+      if (viewCubeDraggingRef.current) {
+        if (viewCubeDragStartRef.current) {
+          const deltaX = event.clientX - viewCubeDragStartRef.current.x;
+          const deltaY = event.clientY - viewCubeDragStartRef.current.y;
+          viewCubeDragStartRef.current = { x: event.clientX, y: event.clientY };
+          applyCubeDragOrbit(camera, controls, deltaX, deltaY, 0.005);
+        }
+        return;
+      }
+
+      if (inCube) {
+        const cubeGroup = viewCubeGroupRef.current;
+        const cubeCam = viewCubeCameraRef.current;
+        const cubeRaycaster = viewCubeRaycasterRef.current;
+        if (cubeGroup && cubeCam && cubeRaycaster) {
+          const canvasWidth = renderer.domElement.width;
+          const canvasHeight = renderer.domElement.height;
+          const rect = getCubeViewportRect(canvasWidth, canvasHeight, cubeDpr);
+          // Pointer in GL coords (origin at bottom-left)
+          const glX = (event.clientX - cubeCanvasRect.left) * cubeDpr;
+          const glY = canvasHeight - (event.clientY - cubeCanvasRect.top) * cubeDpr;
+          const ndcX = ((glX - rect.x) / rect.width) * 2 - 1;
+          const ndcY = ((glY - rect.y) / rect.height) * 2 - 1;
+          cubeRaycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), cubeCam);
+          const hit = raycastViewCube(cubeRaycaster, cubeGroup);
+          applyCubeHover(cubeGroup, hit);
+          viewCubeHoveredRef.current = hit;
+        }
+        (renderer.domElement as HTMLCanvasElement).style.cursor = "pointer";
+        return;
+      }
+
+      // Clear cube hover when pointer leaves cube area
+      if (viewCubeHoveredRef.current) {
+        const cubeGroup = viewCubeGroupRef.current;
+        if (cubeGroup) {
+          clearCubeHover(cubeGroup);
+        }
+        viewCubeHoveredRef.current = null;
+        (renderer.domElement as HTMLCanvasElement).style.cursor = "";
+      }
+
       if (activeSketchPlaneId) {
         if (activeSketchToolRef.current === "select") {
           clearPreviewLine();
@@ -2246,6 +2392,10 @@ export function ViewportPanel({
         setHoveredEdge(null);
         setHoveredVertex(null);
       }
+      if (viewCubeGroupRef.current) {
+        clearCubeHover(viewCubeGroupRef.current);
+      }
+      viewCubeHoveredRef.current = null;
     }
 
     function handlePointerUp(event: PointerEvent) {
@@ -2257,6 +2407,52 @@ export function ViewportPanel({
 
       if (event.button !== 0) {
         pointerDown = null;
+        return;
+      }
+
+      // -- cube-area click ---------------------------------------------
+      if (viewCubeDraggingRef.current) {
+        viewCubeDraggingRef.current = false;
+        const dragStart = viewCubeDragStartRef.current;
+        viewCubeDragStartRef.current = null;
+
+        // If it was a click (minimal drag), snap camera
+        if (
+          dragStart &&
+          Math.abs(event.clientX - dragStart.x) <= 4 &&
+          Math.abs(event.clientY - dragStart.y) <= 4
+        ) {
+          const cubeGroup = viewCubeGroupRef.current;
+          const cubeCam = viewCubeCameraRef.current;
+          const cubeRaycaster = viewCubeRaycasterRef.current;
+          if (cubeGroup && cubeCam && cubeRaycaster) {
+            const cubeDpr = renderer.getPixelRatio();
+            const cubeCanvasRect = renderer.domElement.getBoundingClientRect();
+            const canvasWidth = renderer.domElement.width;
+            const canvasHeight = renderer.domElement.height;
+            const rect = getCubeViewportRect(canvasWidth, canvasHeight, cubeDpr);
+            const glX = (event.clientX - cubeCanvasRect.left) * cubeDpr;
+            const glY = canvasHeight - (event.clientY - cubeCanvasRect.top) * cubeDpr;
+            const ndcX = ((glX - rect.x) / rect.width) * 2 - 1;
+            const ndcY = ((glY - rect.y) / rect.height) * 2 - 1;
+            cubeRaycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), cubeCam);
+            const hit = raycastViewCube(cubeRaycaster, cubeGroup);
+            if (hit) {
+              const direction = getCubeHitTargetDirection(hit);
+              const distance = camera.position.distanceTo(controls.target);
+              const targetPos = controls.target.clone().add(
+                direction.multiplyScalar(distance),
+              );
+              viewCubeAnimStartPosRef.current.copy(camera.position);
+              viewCubeAnimTargetPosRef.current.copy(targetPos);
+              viewCubeAnimStartRef.current = performance.now();
+              viewCubeAnimatingRef.current = true;
+              // controls.enabled stays false (already set on pointerDown)
+            } else {
+              controls.enabled = true;
+            }
+          }
+        }
         return;
       }
 
@@ -2903,6 +3099,13 @@ export function ViewportPanel({
       disposeGroup(contentGroup);
       disposeGroup(referenceGroup);
       disposeGroup(sketchGroup);
+      if (viewCubeGroupRef.current) {
+        disposeViewCubeGroup(viewCubeGroupRef.current);
+        viewCubeGroupRef.current = null;
+      }
+      viewCubeSceneRef.current = null;
+      viewCubeCameraRef.current = null;
+      viewCubeRaycasterRef.current = null;
       renderer.dispose();
       gridRef.current?.geometry.dispose();
       disposeMaterial(gridRef.current?.material ?? []);
