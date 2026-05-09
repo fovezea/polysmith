@@ -1098,9 +1098,9 @@ void enforce_equal_length_relations(SketchFeatureParameters& parameters,
 void drive_line_perpendicular_to_reference(SketchLine& driven_line,
                                            const SketchLine& reference_line,
                                            const SketchFeatureParameters& parameters) {
-  if (driven_line.constraint.has_value() || reference_line.constraint.has_value()) {
+  if (driven_line.constraint.has_value()) {
     throw std::runtime_error(
-        "Perpendicular relations do not support horizontal or vertical constrained lines");
+        "Cannot drive a perpendicular relation on a line that still has an axis constraint");
   }
 
   const double reference_dx = reference_line.end_x - reference_line.start_x;
@@ -1146,9 +1146,9 @@ void drive_line_perpendicular_to_reference(SketchLine& driven_line,
 void drive_line_parallel_to_reference(SketchLine& driven_line,
                                       const SketchLine& reference_line,
                                       const SketchFeatureParameters& parameters) {
-  if (driven_line.constraint.has_value() || reference_line.constraint.has_value()) {
+  if (driven_line.constraint.has_value()) {
     throw std::runtime_error(
-        "Parallel relations do not support horizontal or vertical constrained lines");
+        "Cannot drive a parallel relation on a line that still has an axis constraint");
   }
 
   const double reference_dx = reference_line.end_x - reference_line.start_x;
@@ -1794,10 +1794,11 @@ void set_sketch_perpendicular_constraint(
   }
 
   auto& other_line = require_line(parameters, other_line_id.value());
-  if (line.constraint.has_value() || other_line.constraint.has_value()) {
-    throw std::runtime_error(
-        "Perpendicular relations require both lines to have no direct axis constraint");
-  }
+
+  // Clear the driven line's axis constraint so the relation can
+  // reorient it. The reference line keeps whatever constraints it
+  // already has (they won't be disturbed).
+  line.constraint = std::nullopt;
 
   parameters.line_relations.push_back(SketchLineRelation{
       .id = "rel-perpendicular-" + line_id,
@@ -1908,10 +1909,11 @@ void set_sketch_parallel_constraint(
   }
 
   auto& other_line = require_line(parameters, other_line_id.value());
-  if (line.constraint.has_value() || other_line.constraint.has_value()) {
-    throw std::runtime_error(
-        "Parallel relations require both lines to have no direct axis constraint");
-  }
+
+  // Clear the driven line's axis constraint so the relation can
+  // reorient it. The reference line keeps whatever constraints it
+  // already has (they won't be disturbed).
+  line.constraint = std::nullopt;
 
   parameters.line_relations.push_back(SketchLineRelation{
       .id = "rel-parallel-" + line_id,
