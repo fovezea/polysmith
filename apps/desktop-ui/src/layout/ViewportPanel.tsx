@@ -1943,8 +1943,10 @@ export function ViewportPanel({
           const hit = raycastViewCube(cubeRaycaster, cubeGroup);
           applyCubeHover(cubeGroup, hit);
           viewCubeHoveredRef.current = hit;
+          (renderer.domElement as HTMLCanvasElement).style.cursor = hit
+            ? "pointer"
+            : "";
         }
-        (renderer.domElement as HTMLCanvasElement).style.cursor = "pointer";
         return;
       }
 
