@@ -93,6 +93,10 @@ std::string make_parameters_summary(const ExtrudeFeatureParameters& parameters) 
   return stream.str();
 }
 
+std::string make_default_name(const ExtrudeFeatureParameters& parameters) {
+  return parameters.mode == "new_body" ? "Body" : "Extrude";
+}
+
 }  // namespace
 
 FeatureEntry create_extrude_feature(int feature_index,
@@ -103,7 +107,7 @@ FeatureEntry create_extrude_feature(int feature_index,
   return FeatureEntry{
       .id = "feature-" + std::to_string(feature_index),
       .kind = "extrude",
-      .name = "Extrude",
+      .name = make_default_name(parameters),
       .status = "healthy",
       .parameters_summary = make_parameters_summary(parameters),
       .box_parameters = std::nullopt,

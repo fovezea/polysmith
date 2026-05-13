@@ -593,6 +593,9 @@ DocumentState DocumentManager::update_extrude_mode(
   push_undo_state();
   clear_redo_stack();
   feature_it->extrude_parameters->mode = mode;
+  if (feature_it->name == "Extrude" || feature_it->name == "Body") {
+    feature_it->name = mode == "new_body" ? "Body" : "Extrude";
+  }
   bump_geometry_revision();
   return document_.value();
 }

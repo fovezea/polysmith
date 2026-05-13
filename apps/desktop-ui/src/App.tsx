@@ -831,6 +831,23 @@ function App() {
 
       const isMod = event.metaKey || event.ctrlKey;
 
+      if (
+        event.code === "Escape" &&
+        !activeSketchPlaneId &&
+        !extrudeAction &&
+        !edgeOpAction &&
+        document &&
+        (document.selected_feature_id ||
+          document.selected_reference_id ||
+          document.selected_face_id ||
+          document.selected_edge_ids.length > 0 ||
+          document.selected_vertex_ids.length > 0)
+      ) {
+        event.preventDefault();
+        void runAction(clearSelection);
+        return;
+      }
+
       // Undo: Cmd/Ctrl+Z (no Shift). Redo: Cmd/Ctrl+Shift+Z, or Cmd/Ctrl+Y.
       if (isMod && !event.altKey && event.code === "KeyZ") {
         event.preventDefault();
@@ -914,6 +931,9 @@ function App() {
     activeSketchTool,
     document?.selected_edge_ids,
     document?.selected_face_id,
+    document?.selected_feature_id,
+    document?.selected_reference_id,
+    document?.selected_vertex_ids,
     viewport?.solid_faces,
     session?.can_undo,
     session?.can_redo,
