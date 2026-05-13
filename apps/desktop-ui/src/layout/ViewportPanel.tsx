@@ -3038,6 +3038,7 @@ export function ViewportPanel({
         );
         draftDimensionSessionRef.current = session;
         setDraftDimensionSession(session);
+        focusDraftField(session.activeField);
       }
     }
 
@@ -4161,6 +4162,7 @@ export function ViewportPanel({
         );
         draftDimensionSessionRef.current = nextLineSession;
         setDraftDimensionSession(nextLineSession);
+        focusDraftField(nextLineSession.activeField);
         void addSketchLineRef.current(
           startX,
           startY,
