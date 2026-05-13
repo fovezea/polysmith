@@ -719,6 +719,12 @@ DocumentState DocumentManager::delete_feature(const std::string& feature_id) {
     throw std::runtime_error("The root feature cannot be deleted");
   }
 
+  if (feature_it->kind == "sketch" &&
+      document_->active_sketch_feature_id.has_value() &&
+      document_->active_sketch_feature_id.value() == feature_id) {
+    throw std::runtime_error("Finish the active sketch before deleting it");
+  }
+
   push_undo_state();
   clear_redo_stack();
 

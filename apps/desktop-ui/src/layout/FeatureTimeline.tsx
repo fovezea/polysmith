@@ -84,7 +84,10 @@ export function FeatureTimeline({
 
   const canEdit = contextMenu ? EDITABLE_KINDS.has(contextMenu.kind) : false;
   const canSuppress = contextMenu ? contextMenu.kind !== "root_part" : false;
-  const canDelete = canSuppress;
+  const isActiveSketch =
+    contextMenu?.kind === "sketch" &&
+    contextMenu.featureId === document.active_sketch_feature_id;
+  const canDelete = canSuppress && !isActiveSketch;
 
   return (
     <div className="cad-timeline pointer-events-auto px-4 py-2.5">
@@ -196,6 +199,11 @@ export function FeatureTimeline({
                 <button
                   type="button"
                   disabled={!canDelete}
+                  title={
+                    isActiveSketch
+                      ? "Finish the active sketch before deleting it"
+                      : undefined
+                  }
                   className="flex w-full items-center rounded-lg px-3 py-1.5 text-left text-sm text-red-300 transition-colors hover:bg-red-500/15 disabled:cursor-not-allowed disabled:text-on-surface-dim disabled:hover:bg-transparent"
                   onClick={() => {
                     const id = contextMenu.featureId;

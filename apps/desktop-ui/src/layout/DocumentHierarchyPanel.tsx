@@ -449,6 +449,14 @@ export function DocumentHierarchyPanel({
   }, [contextMenu]);
 
   const features = document?.feature_history ?? [];
+  const contextFeature = contextMenu
+    ? features.find((feature) => feature.feature_id === contextMenu.featureId)
+    : null;
+  const contextIsActiveSketch =
+    contextFeature?.kind === "sketch" &&
+    contextMenu?.featureId === document?.active_sketch_feature_id;
+  const contextCanDelete =
+    contextFeature?.kind !== "root_part" && !contextIsActiveSketch;
   const sketches = useMemo(
     () => features.filter((feature) => feature.kind === "sketch"),
     [features],
@@ -757,7 +765,13 @@ export function DocumentHierarchyPanel({
               ) : null}
               <button
                 type="button"
-                className="flex w-full items-center rounded-lg px-3 py-1.5 text-left text-sm text-red-300 transition-colors hover:bg-red-500/15"
+                disabled={!contextCanDelete}
+                title={
+                  contextIsActiveSketch
+                    ? "Finish the active sketch before deleting it"
+                    : undefined
+                }
+                className="flex w-full items-center rounded-lg px-3 py-1.5 text-left text-sm text-red-300 transition-colors hover:bg-red-500/15 disabled:cursor-not-allowed disabled:text-on-surface-dim disabled:hover:bg-transparent"
                 onClick={() => {
                   const id = contextMenu.featureId;
                   setContextMenu(null);

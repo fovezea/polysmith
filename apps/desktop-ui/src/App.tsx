@@ -1212,6 +1212,16 @@ function App() {
     if (!document) {
       return;
     }
+    const feature = document.feature_history.find(
+      (entry) => entry.feature_id === featureId,
+    );
+    if (
+      feature?.kind === "sketch" &&
+      document.active_sketch_feature_id === featureId
+    ) {
+      addMessage("Finish the active sketch before deleting it.");
+      return;
+    }
     const dependents = findDependents(document, featureId);
     if (dependents.length > 0) {
       const names = dependents
