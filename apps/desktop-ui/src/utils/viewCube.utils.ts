@@ -551,6 +551,56 @@ export function getCubeHitTargetDirection(
   return dir.normalize();
 }
 
+export function isCardinalCubeDirection(direction: THREE.Vector3): boolean {
+  const normalized = direction.clone().normalize();
+  return Object.values(FACE_NORMALS).some(
+    (normal) => Math.abs(normalized.dot(normal)) > 0.985,
+  );
+}
+
+function getDefaultUpForDirection(direction: THREE.Vector3): THREE.Vector3 {
+  const worldUp = new THREE.Vector3(0, 1, 0);
+  if (Math.abs(direction.dot(worldUp)) > 0.95) {
+    return new THREE.Vector3(0, 0, -1);
+  }
+  return worldUp;
+}
+
+export function getQuantizedCubeUp(
+  targetDirection: THREE.Vector3,
+  currentUp: THREE.Vector3,
+): THREE.Vector3 {
+  const axis = targetDirection.clone().normalize();
+  const defaultUp = getDefaultUpForDirection(axis);
+  const baseUp = defaultUp
+    .clone()
+    .addScaledVector(axis, -defaultUp.dot(axis))
+    .normalize();
+  const projectedCurrentUp = currentUp
+    .clone()
+    .addScaledVector(axis, -currentUp.dot(axis));
+
+  if (projectedCurrentUp.lengthSq() < 1e-6) {
+    return baseUp;
+  }
+
+  projectedCurrentUp.normalize();
+  let bestUp = baseUp.clone();
+  let bestDot = -Infinity;
+  for (let step = 0; step < 4; step += 1) {
+    const candidate = baseUp
+      .clone()
+      .applyAxisAngle(axis, step * (Math.PI / 2))
+      .normalize();
+    const dot = candidate.dot(projectedCurrentUp);
+    if (dot > bestDot) {
+      bestDot = dot;
+      bestUp = candidate;
+    }
+  }
+  return bestUp;
+}
+
 // ---------------------------------------------------------------------------
 // Camera animation
 // ---------------------------------------------------------------------------

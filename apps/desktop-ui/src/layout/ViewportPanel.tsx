@@ -70,6 +70,8 @@ import {
   updateSketchRotationArrows,
   raycastViewCube,
   getCubeHitTargetDirection,
+  getQuantizedCubeUp,
+  isCardinalCubeDirection,
   animateCameraTowardTarget,
   applyCubeHover,
   clearCubeHover,
@@ -2684,59 +2686,30 @@ export function ViewportPanel({
       editor.style.transform = `translate(${projectedPosition.x}px, ${projectedPosition.y}px) translate(-50%, -50%)`;
     }
 
-    function getActiveSketchPlaneNormal() {
-      const planeId = activeSketchPlaneIdRef.current;
-      if (!planeId) {
-        return null;
-      }
-
-      const planeFrame = activeSketchPlaneFrameRef.current;
-      if (planeFrame) {
-        return new THREE.Vector3(
-          planeFrame.normal.x,
-          planeFrame.normal.y,
-          planeFrame.normal.z,
-        ).normalize();
-      }
-
-      if (planeId === "ref-plane-xy") {
-        return new THREE.Vector3(0, 1, 0);
-      }
-      if (planeId === "ref-plane-yz") {
-        return new THREE.Vector3(1, 0, 0);
-      }
-      return new THREE.Vector3(0, 0, 1);
-    }
-
-    function isFacingActiveSketchPlane() {
-      const normal = getActiveSketchPlaneNormal();
-      if (!normal) {
-        return false;
-      }
+    function isFacingCardinalCubeFace() {
       const viewOffset = new THREE.Vector3()
         .copy(camera.position)
         .sub(controls.target)
         .normalize();
-      return Math.abs(viewOffset.dot(normal)) > 0.985;
+      return isCardinalCubeDirection(viewOffset);
     }
 
-    function rotateCameraAroundActiveSketchPlane(direction: -1 | 1) {
-      const normal = getActiveSketchPlaneNormal();
-      if (!normal) {
+    function rotateCameraAroundCurrentView(direction: -1 | 1) {
+      const viewOffset = new THREE.Vector3()
+        .copy(camera.position)
+        .sub(controls.target);
+      if (viewOffset.lengthSq() < 1e-6) {
         return;
       }
+      const axis = viewOffset.clone().normalize();
 
       const angle = direction * (Math.PI / 2);
-      const offset = new THREE.Vector3()
-        .copy(camera.position)
-        .sub(controls.target)
-        .applyAxisAngle(normal, angle);
       viewCubeAnimStartPosRef.current.copy(camera.position);
-      viewCubeAnimTargetPosRef.current.copy(controls.target.clone().add(offset));
+      viewCubeAnimTargetPosRef.current.copy(camera.position);
       viewCubeAnimStartUpRef.current.copy(camera.up).normalize();
       viewCubeAnimTargetUpRef.current
         .copy(camera.up)
-        .applyAxisAngle(normal, angle)
+        .applyAxisAngle(axis, angle)
         .normalize();
       viewCubeAnimStartRef.current = performance.now();
       viewCubeAnimatingRef.current = true;
@@ -2754,7 +2727,7 @@ export function ViewportPanel({
       updateSketchRotationArrows(
         cubeGroup,
         cubeCam,
-        isFacingActiveSketchPlane(),
+        isFacingCardinalCubeFace(),
       );
 
       // Camera animation tick
@@ -3733,10 +3706,11 @@ export function ViewportPanel({
             const hit = raycastViewCube(cubeRaycaster, cubeGroup);
             if (hit) {
               if (hit.type === "rotation_arrow") {
-                rotateCameraAroundActiveSketchPlane(-hit.direction as -1 | 1);
+                rotateCameraAroundCurrentView(-hit.direction as -1 | 1);
                 return;
               }
               const direction = getCubeHitTargetDirection(hit);
+              const targetUp = getQuantizedCubeUp(direction, camera.up);
               const distance = camera.position.distanceTo(controls.target);
               const targetPos = controls.target.clone().add(
                 direction.multiplyScalar(distance),
@@ -3744,7 +3718,7 @@ export function ViewportPanel({
               viewCubeAnimStartPosRef.current.copy(camera.position);
               viewCubeAnimTargetPosRef.current.copy(targetPos);
               viewCubeAnimStartUpRef.current.copy(camera.up).normalize();
-              viewCubeAnimTargetUpRef.current.copy(camera.up).normalize();
+              viewCubeAnimTargetUpRef.current.copy(targetUp);
               viewCubeAnimStartRef.current = performance.now();
               viewCubeAnimatingRef.current = true;
               // controls.enabled stays false (already set on pointerDown)
