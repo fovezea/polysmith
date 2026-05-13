@@ -256,6 +256,16 @@ export interface SolidFaceInteractionState {
   isHovered: boolean;
 }
 
+export interface SketchProfileVisual {
+  fillMaterial: THREE.MeshBasicMaterial;
+  edgeMaterials: THREE.LineBasicMaterial[];
+}
+
+export interface SketchProfileInteractionState {
+  isSelected: boolean;
+  isHovered: boolean;
+}
+
 export interface ViewportContextMenuState {
   x: number;
   y: number;

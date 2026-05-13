@@ -366,6 +366,127 @@ function makeSketchProfileFromDocument(
   };
 }
 
+function polygonArea2d(points: Array<[number, number]>) {
+  let area = 0;
+  for (let index = 0; index < points.length; index += 1) {
+    const current = points[index];
+    const next = points[(index + 1) % points.length];
+    area += current[0] * next[1] - next[0] * current[1];
+  }
+  return Math.abs(area * 0.5);
+}
+
+function pointInPolygon2d(
+  point: [number, number],
+  polygon: Array<[number, number]>,
+) {
+  if (polygon.length < 3) {
+    return false;
+  }
+  let inside = false;
+  for (
+    let index = 0, previous = polygon.length - 1;
+    index < polygon.length;
+    previous = index, index += 1
+  ) {
+    const current = polygon[index];
+    const prior = polygon[previous];
+    const crosses =
+      current[1] > point[1] !== prior[1] > point[1] &&
+      point[0] <
+        ((prior[0] - current[0]) * (point[1] - current[1])) /
+          (prior[1] - current[1]) +
+          current[0];
+    if (crosses) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function profileContour(profile: SketchProfileScene): [number, number][] {
+  if (profile.profileKind === "circle") {
+    const points: [number, number][] = [];
+    const segmentCount = 64;
+    for (let index = 0; index < segmentCount; index += 1) {
+      const angle = (index / segmentCount) * Math.PI * 2;
+      points.push([
+        profile.start[0] + profile.radius * Math.cos(angle),
+        profile.start[1] + profile.radius * Math.sin(angle),
+      ]);
+    }
+    return points;
+  }
+  return profile.profilePoints;
+}
+
+function profileContainmentPoint(profile: SketchProfileScene): [number, number] {
+  if (profile.profileKind === "circle") {
+    return profile.start;
+  }
+  if (profile.profilePoints.length === 0) {
+    return [0, 0];
+  }
+  const sum = profile.profilePoints.reduce(
+    (accumulator, point) =>
+      [accumulator[0] + point[0], accumulator[1] + point[1]] as [
+        number,
+        number,
+      ],
+    [0, 0] as [number, number],
+  );
+  const count = profile.profilePoints.length;
+  return [sum[0] / count, sum[1] / count];
+}
+
+function loopAlreadyPresent(
+  loops: [number, number][][],
+  point: [number, number],
+) {
+  return loops.some((loop) => pointInPolygon2d(point, loop));
+}
+
+function withDisplayProfileHoles(
+  profiles: SketchProfileScene[],
+): SketchProfileScene[] {
+  return profiles.map((profile) => {
+    if (profile.profileKind !== "polygon" || profile.profilePoints.length < 3) {
+      return profile;
+    }
+
+    const profileArea = polygonArea2d(profile.profilePoints);
+    const nextLoops = profile.innerLoops.map((loop) => [...loop]);
+    for (const candidate of profiles) {
+      if (candidate.profileId === profile.profileId) {
+        continue;
+      }
+      const contour = profileContour(candidate);
+      if (contour.length < 3) {
+        continue;
+      }
+      if (polygonArea2d(contour) >= profileArea) {
+        continue;
+      }
+      const containmentPoint = profileContainmentPoint(candidate);
+      if (!pointInPolygon2d(containmentPoint, profile.profilePoints)) {
+        continue;
+      }
+      if (loopAlreadyPresent(nextLoops, containmentPoint)) {
+        continue;
+      }
+      nextLoops.push(contour);
+    }
+
+    if (nextLoops.length === profile.innerLoops.length) {
+      return profile;
+    }
+    return {
+      ...profile,
+      innerLoops: nextLoops,
+    };
+  });
+}
+
 function makeSolidFace(face: ViewportSolidFace): SolidFaceScene {
   return {
     faceId: face.face_id,
@@ -515,7 +636,7 @@ export function createViewportScene(
   const sketchConstraints = viewport.sketch_constraints
     .filter((constraint) => isSketchPlaneVisible(constraint.plane_id))
     .map(makeSketchConstraint);
-  const sketchProfiles = viewport.sketch_profiles
+  let sketchProfiles = viewport.sketch_profiles
     .filter((profile) => isSketchPlaneVisible(profile.plane_id))
     .map(makeSketchProfile);
   const profileIds = new Set(sketchProfiles.map((profile) => profile.profileId));
@@ -547,6 +668,7 @@ export function createViewportScene(
       }
     }
   }
+  sketchProfiles = withDisplayProfileHoles(sketchProfiles);
   const solidFaces = viewport.solid_faces
     .filter((face) => !hiddenFeatureIds.has(face.owner_id))
     .map(makeSolidFace);

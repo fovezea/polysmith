@@ -16,6 +16,8 @@ import type {
   ReferencePlaneInteractionState,
   SolidFaceVisual,
   SolidFaceInteractionState,
+  SketchProfileVisual,
+  SketchProfileInteractionState,
   ViewportContextMenuState,
   SketchPreviewPoint,
   SketchProfileScene,
@@ -23,6 +25,7 @@ import type {
 import {
   applyPrimitiveVisualState,
   applyReferencePlaneVisualState,
+  applySketchProfileVisualState,
   applySolidFaceVisualState,
   buildPrimitiveObject,
   buildReferenceAxisObject,
@@ -345,7 +348,11 @@ export function ViewportPanel({
   const sketchDimensionObjectsRef = useRef<Array<THREE.Object3D>>([]);
   const sketchConstraintObjectsRef = useRef<Array<THREE.Object3D>>([]);
   const sketchPointObjectsRef = useRef<THREE.Mesh[]>([]);
-  const sketchProfileMeshesRef = useRef<THREE.Mesh[]>([]);
+  const sketchProfileObjectsRef = useRef<THREE.Group[]>([]);
+  const sketchProfileVisualsRef = useRef(new Map<string, SketchProfileVisual>());
+  const sketchProfileStatesRef = useRef(
+    new Map<string, SketchProfileInteractionState>(),
+  );
   const faceMeshesRef = useRef<THREE.Mesh[]>([]);
   // Body edges materialized as THREE.Line objects. Raycasting against
   // these (with a small `params.Line.threshold`) drives edge picking
@@ -1185,6 +1192,20 @@ export function ViewportPanel({
     }
   }
 
+  function syncSketchProfileVisuals() {
+    for (const [
+      profileId,
+      visual,
+    ] of sketchProfileVisualsRef.current.entries()) {
+      const state = sketchProfileStatesRef.current.get(profileId);
+      if (!state) {
+        continue;
+      }
+
+      applySketchProfileVisualState(visual, state);
+    }
+  }
+
   function setHoveredFace(faceId: string | null) {
     let changed = false;
 
@@ -1201,6 +1222,25 @@ export function ViewportPanel({
 
     if (changed) {
       syncSolidFaceVisuals();
+    }
+  }
+
+  function setHoveredSketchProfile(profileId: string | null) {
+    let changed = false;
+
+    for (const [id, state] of sketchProfileStatesRef.current.entries()) {
+      const nextHovered = id === profileId;
+      if (state.isHovered !== nextHovered) {
+        sketchProfileStatesRef.current.set(id, {
+          ...state,
+          isHovered: nextHovered,
+        });
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      syncSketchProfileVisuals();
     }
   }
 
@@ -2114,6 +2154,15 @@ export function ViewportPanel({
           clearPreviewArc();
           setSketchSnapLabel(null);
           setConstraintPreview(null);
+          const hit = intersectSceneTargets(event);
+          setHoveredReference(null);
+          setHoveredPrimitive(null);
+          setHoveredFace(null);
+          setHoveredEdge(null);
+          setHoveredVertex(null);
+          setHoveredSketchProfile(
+            hit?.kind === "sketch_profile" ? hit.id : null,
+          );
           return;
         }
 
@@ -2134,6 +2183,7 @@ export function ViewportPanel({
           const projectHit = intersectSceneTargets(event);
           setHoveredReference(null);
           setHoveredPrimitive(null);
+          setHoveredSketchProfile(null);
           setHoveredFace(projectHit?.kind === "face" ? projectHit.id : null);
           setHoveredEdge(projectHit?.kind === "edge" ? projectHit.id : null);
           setHoveredVertex(
@@ -2142,6 +2192,7 @@ export function ViewportPanel({
           return;
         }
 
+        setHoveredSketchProfile(null);
         const draftStart = lineDraftStartRef.current;
         const rawPoint = resolveSketchPlanePoint(
           event,
@@ -2512,12 +2563,14 @@ export function ViewportPanel({
       if (hit?.kind === "sketch_dimension" || hit?.kind === "sketch_entity") {
         setHoveredReference(null);
         setHoveredPrimitive(null);
+        setHoveredSketchProfile(null);
         setHoveredFace(null);
         setHoveredEdge(null);
         setHoveredVertex(null);
         return;
       }
       setHoveredReference(hit?.kind === "reference" ? hit.id : null);
+      setHoveredSketchProfile(hit?.kind === "sketch_profile" ? hit.id : null);
       setHoveredFace(hit?.kind === "face" ? hit.id : null);
       // Edges and vertices are mutually exclusive with each other (the
       // raycaster prioritizes vertex over edge over face), so only one
@@ -2534,6 +2587,7 @@ export function ViewportPanel({
       pointerDown = null;
       setSketchSnapLabel(null);
       setConstraintPreview(null);
+      setHoveredSketchProfile(null);
       if (!activeSketchPlaneId) {
         setHoveredReference(null);
         setHoveredPrimitive(null);
@@ -3277,12 +3331,14 @@ export function ViewportPanel({
       referencePlaneStatesRef.current.clear();
       solidFaceVisualsRef.current.clear();
       solidFaceStatesRef.current.clear();
+      sketchProfileVisualsRef.current.clear();
+      sketchProfileStatesRef.current.clear();
       referencePlaneMeshesRef.current = [];
       sketchEntityObjectsRef.current = [];
       sketchDimensionObjectsRef.current = [];
       sketchConstraintObjectsRef.current = [];
       sketchPointObjectsRef.current = [];
-      sketchProfileMeshesRef.current = [];
+      sketchProfileObjectsRef.current = [];
       meshesRef.current = [];
       faceMeshesRef.current = [];
       edgeLineObjectsRef.current = [];
@@ -3325,12 +3381,14 @@ export function ViewportPanel({
     referencePlaneStatesRef.current.clear();
     solidFaceVisualsRef.current.clear();
     solidFaceStatesRef.current.clear();
+    sketchProfileVisualsRef.current.clear();
+    sketchProfileStatesRef.current.clear();
     referencePlaneMeshesRef.current = [];
     sketchEntityObjectsRef.current = [];
     sketchDimensionObjectsRef.current = [];
     sketchConstraintObjectsRef.current = [];
     sketchPointObjectsRef.current = [];
-    sketchProfileMeshesRef.current = [];
+    sketchProfileObjectsRef.current = [];
     meshesRef.current = [];
     faceMeshesRef.current = [];
     edgeLineObjectsRef.current = [];
@@ -3494,9 +3552,17 @@ export function ViewportPanel({
     }
 
     for (const sketchProfile of sceneData.sketchProfiles) {
-      const sketchProfileMesh = buildSketchProfileObject(sketchProfile);
-      sketchProfileMeshesRef.current.push(sketchProfileMesh);
-      sketchGroup.add(sketchProfileMesh);
+      const sketchProfileObject = buildSketchProfileObject(sketchProfile);
+      sketchProfileObjectsRef.current.push(sketchProfileObject.group);
+      sketchProfileVisualsRef.current.set(
+        sketchProfile.profileId,
+        sketchProfileObject.visual,
+      );
+      sketchProfileStatesRef.current.set(sketchProfile.profileId, {
+        isSelected: sketchProfile.isSelected,
+        isHovered: false,
+      });
+      sketchGroup.add(sketchProfileObject.group);
     }
 
     for (const sketchPoint of sceneData.sketchPoints) {
@@ -3508,6 +3574,7 @@ export function ViewportPanel({
     syncPrimitiveVisuals();
     syncReferencePlaneVisuals();
     syncSolidFaceVisuals();
+    syncSketchProfileVisuals();
 
     if (sceneData.geometryKey !== lastGeometryKeyRef.current) {
       // Auto-frame the camera ONLY on the very first scene load (when

@@ -18,7 +18,9 @@ import {
   CutPreviewScene,
   SketchPlaneFrame,
   SketchPointScene,
+  SketchProfileInteractionState,
   SketchProfileScene,
+  SketchProfileVisual,
   SolidFaceScene,
 } from "@/types";
 import * as THREE from "three";
@@ -68,6 +70,11 @@ export function disposeMaterial(material: THREE.Material | THREE.Material[]) {
 export function disposeGroup(group: THREE.Group) {
   for (const child of [...group.children]) {
     group.remove(child);
+
+    if (child instanceof THREE.Group) {
+      disposeGroup(child);
+      continue;
+    }
 
     if (
       child instanceof THREE.Mesh ||
@@ -808,6 +815,36 @@ export function applySolidFaceVisualState(
   visual.fillMaterial.opacity = 0;
 }
 
+export function applySketchProfileVisualState(
+  visual: SketchProfileVisual,
+  state: SketchProfileInteractionState,
+) {
+  if (state.isHovered || state.isSelected) {
+    visual.fillMaterial.color.set(
+      state.isSelected
+        ? themeColor("--color-primary-soft", "#c3f5ff")
+        : themeColor("--color-tertiary-plane-fill", "#fff7c0"),
+    );
+    visual.fillMaterial.opacity = state.isSelected ? 0.24 : 0.18;
+    for (const material of visual.edgeMaterials) {
+      material.color.set(
+        state.isSelected
+          ? themeColor("--color-primary-edge-active", "#c3f5ff")
+          : themeColor("--color-tertiary-plane-edge-hover", "#fff2b2"),
+      );
+      material.opacity = 0.98;
+      material.linewidth = state.isSelected ? 3 : 2.5;
+    }
+    return;
+  }
+
+  visual.fillMaterial.opacity = 0;
+  for (const material of visual.edgeMaterials) {
+    material.opacity = 0;
+    material.linewidth = 1;
+  }
+}
+
 export function buildSketchLineObject(line: SketchLineScene) {
   // Tool-generated preview lines (e.g. Mirror's reflected
   // entities) render dashed and translucent so they read as
@@ -1194,15 +1231,32 @@ export function buildSketchConstraintObject(constraint: SketchConstraintScene) {
 }
 
 export function buildSketchProfileObject(profile: SketchProfileScene) {
-  const material = new THREE.MeshBasicMaterial({
-    color: profile.isSelected
-      ? themeColor("--color-primary-soft", "#c3f5ff")
-      : themeColor("--color-tertiary-plane-fill", "#fff7c0"),
+  const group = new THREE.Group();
+  group.userData.sketchProfileId = profile.profileId;
+  const fillMaterial = new THREE.MeshBasicMaterial({
+    color: themeColor("--color-tertiary-plane-fill", "#fff7c0"),
     transparent: true,
-    opacity: profile.isSelected ? 0.26 : 0.14,
+    opacity: 0,
     side: THREE.DoubleSide,
     depthWrite: false,
   });
+  const edgeMaterials: THREE.LineBasicMaterial[] = [];
+
+  const makeEdgeLoop = (points: Array<[number, number]>) => {
+    const geometry = new THREE.BufferGeometry().setFromPoints(
+      points.map((point) => new THREE.Vector3(point[0], point[1], 0)),
+    );
+    const material = new THREE.LineBasicMaterial({
+      color: themeColor("--color-tertiary-plane-edge-hover", "#fff2b2"),
+      transparent: true,
+      opacity: 0,
+      linewidth: 1,
+    });
+    edgeMaterials.push(material);
+    const line = new THREE.LineLoop(geometry, material);
+    line.renderOrder = 7;
+    return line;
+  };
 
   if (profile.profileKind === "circle") {
     const geometry = new THREE.CircleGeometry(profile.radius, 48);
@@ -1213,23 +1267,47 @@ export function buildSketchProfileObject(profile: SketchProfileScene) {
     // disk lands at the plane's origin instead of where the user sees
     // the circle, and Extrude can't hit it.
     geometry.translate(profile.start[0], profile.start[1], 0);
-    const mesh = new THREE.Mesh(geometry, material);
-    if (profile.planeFrame) {
-      mesh.applyMatrix4(
-        makePlaneTransformMatrixFromFrame(
-          profile.planeFrame,
-          SKETCH_PLANE_OFFSET,
-        ),
-      );
-    } else {
-      orientPlaneMesh(mesh, planeOrientationFromId(profile.planeId));
-      // Legacy ref-plane fallback: use the plane id mapping. The
-      // geometry already carries the (start_x, start_y) translation,
-      // so we don't add it again here — just orient the plane.
-    }
-    mesh.userData.sketchProfileId = profile.profileId;
-    mesh.userData.sketchProfileArea = Math.PI * profile.radius * profile.radius;
-    return mesh;
+    const mesh = new THREE.Mesh(geometry, fillMaterial);
+    mesh.renderOrder = 6;
+    const points = new THREE.EllipseCurve(
+      profile.start[0],
+      profile.start[1],
+      profile.radius,
+      profile.radius,
+      0,
+      Math.PI * 2,
+      false,
+    ).getPoints(96);
+    group.add(mesh);
+    group.add(
+      makeEdgeLoop(points.map((point) => [point.x, point.y] as [number, number])),
+    );
+    group.applyMatrix4(
+      profile.planeFrame
+        ? makePlaneTransformMatrixFromFrame(
+            profile.planeFrame,
+            SKETCH_PLANE_OFFSET,
+          )
+        : makePlaneTransformMatrix(profile.planeId, SKETCH_PLANE_OFFSET),
+    );
+    group.userData.sketchProfileArea = Math.PI * profile.radius * profile.radius;
+    return {
+      group,
+      visual: {
+        fillMaterial,
+        edgeMaterials,
+      },
+    };
+  }
+
+  if (profile.profilePoints.length < 3) {
+    return {
+      group,
+      visual: {
+        fillMaterial,
+        edgeMaterials,
+      },
+    };
   }
 
   const shape = new THREE.Shape();
@@ -1259,7 +1337,14 @@ export function buildSketchProfileObject(profile: SketchProfileScene) {
   }
 
   const geometry = new THREE.ShapeGeometry(shape);
-  geometry.applyMatrix4(
+  const mesh = new THREE.Mesh(geometry, fillMaterial);
+  mesh.renderOrder = 6;
+  group.add(mesh);
+  group.add(makeEdgeLoop(profile.profilePoints));
+  for (const loop of profile.innerLoops) {
+    group.add(makeEdgeLoop(loop));
+  }
+  group.applyMatrix4(
     profile.planeFrame
       ? makePlaneTransformMatrixFromFrame(
           profile.planeFrame,
@@ -1267,15 +1352,19 @@ export function buildSketchProfileObject(profile: SketchProfileScene) {
         )
       : makePlaneTransformMatrix(profile.planeId, SKETCH_PLANE_OFFSET),
   );
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.userData.sketchProfileId = profile.profileId;
-  mesh.userData.sketchProfileArea =
+  group.userData.sketchProfileArea =
     Math.abs(polygonArea2d(profile.profilePoints)) -
     profile.innerLoops.reduce(
       (sum, loop) => sum + Math.abs(polygonArea2d(loop)),
       0,
     );
-  return mesh;
+  return {
+    group,
+    visual: {
+      fillMaterial,
+      edgeMaterials,
+    },
+  };
 }
 
 export function frameCamera(
