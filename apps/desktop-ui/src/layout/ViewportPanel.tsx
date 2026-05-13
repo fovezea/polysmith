@@ -103,6 +103,8 @@ const GRID_MAJOR_EVERY = 10;
 const GRID_CAMERA_SCALE = 40;
 const SKETCH_GRID_BACK_OFFSET = 0.015;
 const SKETCH_SCREEN_SPRITE_BASE_HEIGHT = 900;
+const ORTHO_FRUSTUM_HEIGHT = 220;
+const CARDINAL_VIEW_DOT_THRESHOLD = 0.985;
 
 interface ViewportPanelProps {
   status: "idle" | "starting" | "connected" | "error" | "stopped";
@@ -239,17 +241,6 @@ interface ViewportPanelProps {
   hiddenFeatureIds?: ReadonlySet<string>;
   hiddenSketchPlaneIds?: ReadonlySet<string>;
   hideReferences?: boolean;
-}
-
-function selectGridSpacing(cameraDistance: number): number {
-  const desiredSpacing = Math.max(
-    cameraDistance / GRID_CAMERA_SCALE,
-    GRID_STEPS_MM[0],
-  );
-  return (
-    GRID_STEPS_MM.find((spacing) => spacing >= desiredSpacing) ??
-    GRID_STEPS_MM[GRID_STEPS_MM.length - 1]
-  );
 }
 
 function snapGridCenter(value: number, spacing: number): number {
@@ -433,6 +424,76 @@ function gridHalfLineCount(cameraDistance: number, spacing: number): number {
   );
 }
 
+function getOrthographicViewHeight(camera: THREE.OrthographicCamera): number {
+  return (camera.top - camera.bottom) / Math.max(camera.zoom, 0.0001);
+}
+
+function selectOrthographicGridSpacing(
+  camera: THREE.OrthographicCamera,
+): number {
+  const desiredSpacing = Math.max(
+    getOrthographicViewHeight(camera) / GRID_CAMERA_SCALE,
+    GRID_STEPS_MM[0],
+  );
+  return (
+    GRID_STEPS_MM.find((spacing) => spacing >= desiredSpacing) ??
+    GRID_STEPS_MM[GRID_STEPS_MM.length - 1]
+  );
+}
+
+function nearestCardinalAxis(viewOffset: THREE.Vector3): THREE.Vector3 | null {
+  const candidates = [
+    new THREE.Vector3(1, 0, 0),
+    new THREE.Vector3(-1, 0, 0),
+    new THREE.Vector3(0, 1, 0),
+    new THREE.Vector3(0, -1, 0),
+    new THREE.Vector3(0, 0, 1),
+    new THREE.Vector3(0, 0, -1),
+  ];
+  let best: THREE.Vector3 | null = null;
+  let bestDot = -1;
+  for (const candidate of candidates) {
+    const dot = viewOffset.dot(candidate);
+    if (dot > bestDot) {
+      best = candidate;
+      bestDot = dot;
+    }
+  }
+  return best && bestDot >= CARDINAL_VIEW_DOT_THRESHOLD ? best : null;
+}
+
+function getCardinalGridFrame(viewOffset: THREE.Vector3): GridPlaneFrame | null {
+  const axis = nearestCardinalAxis(viewOffset);
+  if (!axis) {
+    return null;
+  }
+
+  if (Math.abs(axis.x) > 0.5) {
+    return {
+      origin: new THREE.Vector3(0, 0, 0),
+      xAxis: new THREE.Vector3(0, 1, 0),
+      yAxis: new THREE.Vector3(0, 0, 1),
+      normal: axis,
+    };
+  }
+
+  if (Math.abs(axis.z) > 0.5) {
+    return {
+      origin: new THREE.Vector3(0, 0, 0),
+      xAxis: new THREE.Vector3(1, 0, 0),
+      yAxis: new THREE.Vector3(0, 1, 0),
+      normal: axis,
+    };
+  }
+
+  return {
+    origin: new THREE.Vector3(0, 0, 0),
+    xAxis: new THREE.Vector3(1, 0, 0),
+    yAxis: new THREE.Vector3(0, 0, 1),
+    normal: axis,
+  };
+}
+
 export function ViewportPanel({
   status,
   document,
@@ -528,7 +589,7 @@ export function ViewportPanel({
   const dimensionInputRef = useRef<HTMLInputElement | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
-  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const cameraRef = useRef<THREE.OrthographicCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const contentGroupRef = useRef<THREE.Group | null>(null);
   const referenceGroupRef = useRef<THREE.Group | null>(null);
@@ -1848,7 +1909,14 @@ export function ViewportPanel({
       alpha: true,
     });
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(46, 1, 0.1, 10000);
+    const camera = new THREE.OrthographicCamera(
+      -ORTHO_FRUSTUM_HEIGHT / 2,
+      ORTHO_FRUSTUM_HEIGHT / 2,
+      ORTHO_FRUSTUM_HEIGHT / 2,
+      -ORTHO_FRUSTUM_HEIGHT / 2,
+      0.1,
+      10000,
+    );
     const controls = new OrbitControls(camera, renderer.domElement);
     const contentGroup = new THREE.Group();
     const referenceGroup = new THREE.Group();
@@ -1947,43 +2015,52 @@ export function ViewportPanel({
         return;
       }
 
-      const distance = camera.position.distanceTo(controls.target);
-      const spacing = selectGridSpacing(distance);
-      const halfLineCount = gridHalfLineCount(distance, spacing);
-      const worldFrame: GridPlaneFrame = {
+      const viewHeight = getOrthographicViewHeight(camera);
+      const spacing = selectOrthographicGridSpacing(camera);
+      const halfLineCount = gridHalfLineCount(viewHeight, spacing);
+      const viewOffset = new THREE.Vector3()
+        .copy(camera.position)
+        .sub(controls.target)
+        .normalize();
+      const cardinalFrame = getCardinalGridFrame(viewOffset);
+      const worldFrame: GridPlaneFrame = cardinalFrame ?? {
         origin: new THREE.Vector3(0, 0, 0),
         xAxis: new THREE.Vector3(1, 0, 0),
         yAxis: new THREE.Vector3(0, 0, 1),
         normal: new THREE.Vector3(0, 1, 0),
       };
-      const worldCenterU = snapGridCenter(controls.target.x, spacing);
-      const worldCenterV = snapGridCenter(controls.target.z, spacing);
-      ensureDynamicGrid(
-        worldGridRef,
-        `world:${spacing}:${halfLineCount}:${worldCenterU}:${worldCenterV}`,
-        () => {
-          const worldGrid = buildDynamicGrid(
-            worldFrame,
-            worldCenterU,
-            worldCenterV,
-            spacing,
-            halfLineCount,
-            new THREE.Color(themeColor("--color-cad-grid", "#3f4648")),
-            new THREE.Color(themeColor("--color-cad-grid-axis", "#5e696c")),
-            new THREE.Color(themeColor("--color-cad-grid-axis", "#7a7a7c")),
-            0.34,
-          );
-          worldGrid.renderOrder = -10;
-          return worldGrid;
-        },
-      );
 
       const sketchPlaneId = activeSketchPlaneIdRef.current;
       if (!sketchPlaneId) {
+        const worldCenter = projectPointToGridFrame(controls.target, worldFrame);
+        const worldCenterU = snapGridCenter(worldCenter.u, spacing);
+        const worldCenterV = snapGridCenter(worldCenter.v, spacing);
+        ensureDynamicGrid(
+          worldGridRef,
+          `world:${
+            cardinalFrame ? "cardinal" : "floor"
+          }:${spacing}:${halfLineCount}:${worldCenterU}:${worldCenterV}`,
+          () => {
+            const worldGrid = buildDynamicGrid(
+              worldFrame,
+              worldCenterU,
+              worldCenterV,
+              spacing,
+              halfLineCount,
+              new THREE.Color(themeColor("--color-cad-grid", "#3f4648")),
+              new THREE.Color(themeColor("--color-cad-grid-axis", "#5e696c")),
+              new THREE.Color(themeColor("--color-cad-grid-axis", "#7a7a7c")),
+              0.34,
+            );
+            worldGrid.renderOrder = -10;
+            return worldGrid;
+          },
+        );
         clearDynamicGrid(sketchGridRef);
         return;
       }
 
+      clearDynamicGrid(worldGridRef);
       const sketchFrame = getSketchGridFrame(
         sketchPlaneId,
         activeSketchPlaneFrameRef.current,
@@ -2018,8 +2095,8 @@ export function ViewportPanel({
         Math.max(viewportHeight / SKETCH_SCREEN_SPRITE_BASE_HEIGHT, 0.82),
         1.18,
       );
-      const fov = THREE.MathUtils.degToRad(camera.fov);
-      const cameraPosition = camera.position;
+      const worldUnitsPerPixel =
+        getOrthographicViewHeight(camera) / viewportHeight;
       const spriteObjects = [
         ...sketchDimensionObjectsRef.current,
         ...sketchConstraintObjectsRef.current,
@@ -2034,11 +2111,6 @@ export function ViewportPanel({
           continue;
         }
 
-        const distance = cameraPosition.distanceTo(
-          sprite.getWorldPosition(new THREE.Vector3()),
-        );
-        const worldUnitsPerPixel =
-          (2 * Math.tan(fov / 2) * distance) / viewportHeight;
         sprite.scale.set(
           screenSize.width * viewportScale * worldUnitsPerPixel,
           screenSize.height * viewportScale * worldUnitsPerPixel,
@@ -2051,7 +2123,11 @@ export function ViewportPanel({
       const width = Math.max(host?.clientWidth ?? 0, 1);
       const height = Math.max(host?.clientHeight ?? 0, 1);
       renderer.setSize(width, height, false);
-      camera.aspect = width / height;
+      const aspect = width / height;
+      camera.left = (-ORTHO_FRUSTUM_HEIGHT * aspect) / 2;
+      camera.right = (ORTHO_FRUSTUM_HEIGHT * aspect) / 2;
+      camera.top = ORTHO_FRUSTUM_HEIGHT / 2;
+      camera.bottom = -ORTHO_FRUSTUM_HEIGHT / 2;
       camera.updateProjectionMatrix();
     }
 

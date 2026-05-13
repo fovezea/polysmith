@@ -440,7 +440,7 @@ export function isPointerInCubeArea(
 // ---------------------------------------------------------------------------
 
 export function syncCubeCamera(
-  mainCamera: THREE.PerspectiveCamera,
+  mainCamera: THREE.Camera,
   controlsTarget: THREE.Vector3,
   cubeCamera: THREE.OrthographicCamera,
 ): void {
@@ -556,7 +556,7 @@ export function getCubeHitTargetDirection(
 // ---------------------------------------------------------------------------
 
 export function animateCameraTowardTarget(
-  camera: THREE.PerspectiveCamera,
+  camera: THREE.Camera,
   controls: { target: THREE.Vector3; update: () => void },
   startPosition: THREE.Vector3,
   targetPosition: THREE.Vector3,
@@ -648,7 +648,7 @@ export function clearCubeHover(cubeGroup: THREE.Group): void {
 // ---------------------------------------------------------------------------
 
 export function applyCubeDragOrbit(
-  camera: THREE.PerspectiveCamera,
+  camera: THREE.Camera,
   controls: { target: THREE.Vector3; update: () => void },
   deltaX: number,
   deltaY: number,

@@ -195,6 +195,7 @@ When adding a new entity, grep `ipcSchema.ts` for the union literally and walk e
 - restyled the orbit view cube to use the Midnight Carbon palette instead of axis-colored faces, and added sketch-only 2D rotation arrows in the cube overlay. The arrows appear only when the camera is aligned to the active sketch plane and rotate the camera roll around that plane normal by 90 degrees without changing the sketch target.
 - replaced the finite `THREE.GridHelper` floor with renderer-owned dynamic line grids that recenter around the camera target and step through millimetric spacing thresholds as the camera zooms. Sketch mode now also renders a matching back grid on the active sketch plane, giving the upcoming grid-snapping work a visible threshold ladder without moving any snapping/modeling state into React.
 - extended the dynamic grid coverage from camera distance so shallow views keep the back grid filled across the viewport, and made sketch dimension labels / constraint badges screen-scaled sprites so they no longer balloon when the camera zooms close to the sketch.
+- switched the main viewport camera to orthographic projection so cube face snaps and sketch-plane views read as true 2D CAD views. Cardinal view snaps now render the grid on the viewed plane instead of showing a receding floor grid, and active sketch mode suppresses the world floor grid so only the sketch-plane grid remains.
 
 ### Pre-existing Test Failure (Not Introduced By This Work)
 

@@ -1376,29 +1376,35 @@ export function buildSketchProfileObject(profile: SketchProfileScene) {
 }
 
 export function frameCamera(
-  camera: THREE.PerspectiveCamera,
+  camera: THREE.OrthographicCamera,
   controls: OrbitControls,
   center: [number, number, number],
   maxDimension: number,
 ) {
   const distance = Math.max(maxDimension * 1.8, 160);
+  const viewHeight = Math.max(maxDimension * 2.4, 120);
   camera.position.set(
     center[0] + distance,
     center[1] + distance * 0.8,
     center[2] + distance,
   );
+  camera.zoom = Math.max((camera.top - camera.bottom) / viewHeight, 0.01);
+  camera.updateProjectionMatrix();
   controls.target.set(...center);
   controls.update();
 }
 
 export function frameCameraToSketchPlane(
-  camera: THREE.PerspectiveCamera,
+  camera: THREE.OrthographicCamera,
   controls: OrbitControls,
   activePlaneId: string,
   planeFrame: SketchPlaneFrame | null,
   maxDimension: number,
 ) {
   const distance = Math.max(maxDimension * 1.6, 120);
+  const viewHeight = Math.max(maxDimension * 1.35, 80);
+  camera.zoom = Math.max((camera.top - camera.bottom) / viewHeight, 0.01);
+  camera.updateProjectionMatrix();
 
   if (planeFrame) {
     const origin = new THREE.Vector3(
