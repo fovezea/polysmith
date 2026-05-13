@@ -150,10 +150,6 @@ interface ViewportPanelProps {
     endY: number,
     isConstruction: boolean,
   ) => Promise<void>;
-  onSetSketchLineConstruction: (
-    lineId: string,
-    isConstruction: boolean,
-  ) => Promise<void>;
   onSetSketchMidpointAnchor: (
     pointId: string,
     hostLineId: string,
@@ -596,7 +592,6 @@ export function ViewportPanel({
   onStartSketch,
   onStartSketchOnFace,
   onAddSketchLine,
-  onSetSketchLineConstruction,
   onSetSketchMidpointAnchor,
   onSetSketchPointLineAnchor,
   onAddSketchAngleDimension,
@@ -1019,24 +1014,6 @@ export function ViewportPanel({
         : null,
     [document?.selected_sketch_dimension_id, sketchFeature],
   );
-  // The currently-selected sketch line, if any. Used by the Line Tool
-  // panel to surface a "Construction" toggle for the existing line so
-  // the user can flip an already-drawn line into reference geometry
-  // (Fusion convention).
-  const selectedSketchLine = useMemo(() => {
-    if (!sketchFeature?.sketch_parameters) {
-      return null;
-    }
-    const entityId = document?.selected_sketch_entity_id;
-    if (!entityId) {
-      return null;
-    }
-    return (
-      sketchFeature.sketch_parameters.lines.find(
-        (line) => line.line_id === entityId,
-      ) ?? null
-    );
-  }, [sketchFeature, document?.selected_sketch_entity_id]);
   const sketchSnapCandidates = useMemo(() => {
     if (!sketchFeature?.sketch_parameters) {
       return [];
@@ -4921,8 +4898,8 @@ export function ViewportPanel({
         offset = [DRAFT_DIMENSION_OFFSET_PX, 0];
       }
     } else {
-      local = session.current;
-      offset = [DRAFT_DIMENSION_OFFSET_PX, 0];
+      local = session.start;
+      offset = [0, -DRAFT_DIMENSION_OFFSET_PX];
     }
 
     const world = toWorldPoint(
@@ -5110,8 +5087,7 @@ export function ViewportPanel({
               );
             })
           : null}
-        {activeSketchPlaneId &&
-        (isDrawableSketchTool(activeSketchTool) || selectedSketchLine) ? (
+        {activeSketchPlaneId && isDrawableSketchTool(activeSketchTool) ? (
           <section className="pointer-events-auto cad-floating-panel absolute right-4 top-4 z-20 w-72 px-5 py-5">
             <p className="cad-kicker">Sketch · Tool</p>
             <h2 className="cad-title mt-2">
@@ -5163,22 +5139,6 @@ export function ViewportPanel({
                     ))}
                   </div>
                 </div>
-              ) : null}
-              {selectedSketchLine ? (
-                <label className="flex items-center justify-between gap-4 border-t border-white/10 pt-4 text-sm text-on-surface">
-                  <span>Selected line</span>
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 cursor-pointer accent-cyan-300"
-                    checked={selectedSketchLine.is_construction}
-                    onChange={(event) => {
-                      void onSetSketchLineConstruction(
-                        selectedSketchLine.line_id,
-                        event.target.checked,
-                      );
-                    }}
-                  />
-                </label>
               ) : null}
             </div>
           </section>

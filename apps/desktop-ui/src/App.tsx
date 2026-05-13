@@ -290,7 +290,6 @@ function App() {
     updateExtrudeProfiles,
     updateExtrudeTargetBody,
     addSketchLine,
-    setSketchLineConstruction,
     setSketchMidpointAnchor,
     setSketchPointLineAnchor,
     addSketchAngleDimension,
@@ -1570,11 +1569,6 @@ function App() {
                     endY,
                     isConstruction,
                   );
-                });
-              }}
-              onSetSketchLineConstruction={async (lineId, isConstruction) => {
-                await runAction(async () => {
-                  await setSketchLineConstruction(lineId, isConstruction);
                 });
               }}
               onSetSketchMidpointAnchor={async (pointId, hostLineId) => {
