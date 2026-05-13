@@ -1230,6 +1230,22 @@ export function ViewportPanel({
     void selectSketchDimensionRef.current(dimensionId);
   }
 
+  function cancelActiveSketchDraft() {
+    if (armedSketchConstraintRef.current) {
+      cancelSketchConstraintRef.current();
+      return;
+    }
+    lineDraftStartRef.current = null;
+    arcSecondPointRef.current = null;
+    clearPreviewLine();
+    clearPreviewCircle();
+    clearPreviewArc();
+    clearDraftDimensionSession();
+    setSketchSnapLabel(null);
+    setConstraintPreview(null);
+    void setSketchToolRef.current("select");
+  }
+
   function renderDraftPreview(session: DraftDimensionSession) {
     const sketchGroup = sketchGroupRef.current;
     if (!sketchGroup || !activeSketchPlaneId) {
@@ -4602,18 +4618,7 @@ export function ViewportPanel({
 
       if (event.code === "Escape") {
         event.preventDefault();
-        if (armedSketchConstraintRef.current) {
-          cancelSketchConstraintRef.current();
-          return;
-        }
-        lineDraftStartRef.current = null;
-        arcSecondPointRef.current = null;
-        clearPreviewLine();
-        clearPreviewCircle();
-        clearPreviewArc();
-        setSketchSnapLabel(null);
-        setConstraintPreview(null);
-        void setSketchToolRef.current("select");
+        cancelActiveSketchDraft();
         return;
       }
 
@@ -4905,6 +4910,12 @@ export function ViewportPanel({
     if (event.key === "Enter") {
       event.preventDefault();
       void commitDraftDimensionSession(session);
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      cancelActiveSketchDraft();
       return;
     }
     if (event.key !== "Tab") {
