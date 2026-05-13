@@ -519,6 +519,7 @@ export function ViewportPanel({
             hiddenSketchPlaneIds,
             hideReferences,
             pendingEdgeOpBodyIds,
+            document,
           })
         : null,
     [
@@ -527,6 +528,7 @@ export function ViewportPanel({
       hiddenSketchPlaneIds,
       hideReferences,
       pendingEdgeOpBodyIds,
+      document,
     ],
   );
   const sceneDataRef = useRef(sceneData);

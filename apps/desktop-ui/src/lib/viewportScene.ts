@@ -29,6 +29,9 @@ import type {
   SceneVertex,
   CutPreviewScene,
   ViewportScene,
+  DocumentState,
+  FeatureEntry,
+  SketchProfileRegionEntry,
 } from "@/types";
 
 function clampDimension(value: number) {
@@ -312,6 +315,57 @@ function makeSketchProfile(profile: ViewportSketchProfile): SketchProfileScene {
   };
 }
 
+function makeSketchProfileFromDocument(
+  feature: FeatureEntry,
+  profile: SketchProfileRegionEntry,
+  selectedProfileIds: ReadonlySet<string>,
+): SketchProfileScene | null {
+  const sketch = feature.sketch_parameters;
+  if (!sketch) {
+    return null;
+  }
+  return {
+    profileId: profile.profile_id,
+    planeId: sketch.plane_id,
+    planeFrame: sketch.plane_frame
+      ? {
+          origin: [
+            sketch.plane_frame.origin.x,
+            sketch.plane_frame.origin.y,
+            sketch.plane_frame.origin.z,
+          ],
+          xAxis: [
+            sketch.plane_frame.x_axis.x,
+            sketch.plane_frame.x_axis.y,
+            sketch.plane_frame.x_axis.z,
+          ],
+          yAxis: [
+            sketch.plane_frame.y_axis.x,
+            sketch.plane_frame.y_axis.y,
+            sketch.plane_frame.y_axis.z,
+          ],
+          normal: [
+            sketch.plane_frame.normal.x,
+            sketch.plane_frame.normal.y,
+            sketch.plane_frame.normal.z,
+          ],
+        }
+      : null,
+    profileKind: profile.kind,
+    profilePoints: profile.points.map(
+      (point) => [point.x, point.y] as [number, number],
+    ),
+    innerLoops: profile.inner_loops.map((loop) =>
+      loop.map((point) => [point.x, point.y] as [number, number]),
+    ),
+    start: [profile.center_x, profile.center_y],
+    width: 0,
+    height: 0,
+    radius: profile.radius,
+    isSelected: selectedProfileIds.has(profile.profile_id),
+  };
+}
+
 function makeSolidFace(face: ViewportSolidFace): SolidFaceScene {
   return {
     faceId: face.face_id,
@@ -368,6 +422,10 @@ export interface ViewportSceneOptions {
   // default; the viewport can flip them visible when the user holds
   // the wireframe-toggle key.
   pendingEdgeOpBodyIds?: ReadonlySet<string>;
+  // Optional core-owned document snapshot. Used only as a fallback
+  // source for sketch profile regions when the viewport snapshot lags
+  // behind a just-completed sketch edit.
+  document?: DocumentState | null;
 }
 
 export function createViewportScene(
@@ -380,6 +438,7 @@ export function createViewportScene(
   const hideReferences = options.hideReferences ?? false;
   const pendingEdgeOpBodyIds =
     options.pendingEdgeOpBodyIds ?? new Set<string>();
+  const document = options.document ?? null;
 
   const primitives = [
     ...viewport.boxes.map(makeBoxPrimitive),
@@ -459,6 +518,35 @@ export function createViewportScene(
   const sketchProfiles = viewport.sketch_profiles
     .filter((profile) => isSketchPlaneVisible(profile.plane_id))
     .map(makeSketchProfile);
+  const profileIds = new Set(sketchProfiles.map((profile) => profile.profileId));
+  if (document) {
+    const selectedProfileIds = new Set(document.selected_sketch_profile_ids);
+    for (const feature of document.feature_history) {
+      const sketch = feature.sketch_parameters;
+      if (
+        feature.kind !== "sketch" ||
+        !sketch ||
+        hiddenFeatureIds.has(feature.feature_id) ||
+        !isSketchPlaneVisible(sketch.plane_id)
+      ) {
+        continue;
+      }
+      for (const profile of sketch.profiles) {
+        if (profileIds.has(profile.profile_id)) {
+          continue;
+        }
+        const sceneProfile = makeSketchProfileFromDocument(
+          feature,
+          profile,
+          selectedProfileIds,
+        );
+        if (sceneProfile) {
+          sketchProfiles.push(sceneProfile);
+          profileIds.add(sceneProfile.profileId);
+        }
+      }
+    }
+  }
   const solidFaces = viewport.solid_faces
     .filter((face) => !hiddenFeatureIds.has(face.owner_id))
     .map(makeSolidFace);
