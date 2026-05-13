@@ -201,6 +201,7 @@ When adding a new entity, grep `ipcSchema.ts` for the union literally and walk e
 - tuned draft grid snapping to engage only within a small screen-space distance of the visible grid lines, and return focus to the canvas after committing a draft shape so the transient dimension field does not stay active.
 - changed circle dimensions to present diameter in the viewport and editor (`D ... mm`) while preserving the core's existing radius-backed dimension storage and update path.
 - fixed chained line drafting after the draft-dimension overlay landed: after a line segment commits, the transient preview session now resets its start to the segment's endpoint so the next preview matches the line that will actually be created.
+- stopped click-to-finish sketch creation from leaving dimension inputs focused. First-click drafting no longer auto-focuses a draft field; line / rectangle / circle commits now blur draft inputs and suppress the persistent dimension editor's one-shot auto-open for generated dimensions, while explicit dimension clicks still open the editor.
 
 ### Pre-existing Test Failure (Not Introduced By This Work)
 

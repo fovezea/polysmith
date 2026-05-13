@@ -755,6 +755,7 @@ export function ViewportPanel({
   const selectSketchProfileRef = useRef(onSelectSketchProfile);
   const selectedSketchDimensionRef = useRef<SketchDimensionScene | null>(null);
   const isDimensionEditorOpenRef = useRef(false);
+  const suppressNextDimensionEditorOpenRef = useRef(false);
   useEffect(() => {
     isDimensionEditorOpenRef.current = isDimensionEditorOpen;
   }, [isDimensionEditorOpen]);
@@ -1210,8 +1211,23 @@ export function ViewportPanel({
   }
 
   function clearDraftDimensionSession() {
+    Object.values(draftDimensionInputRefs.current).forEach((input) => {
+      input?.blur();
+    });
     setDraftDimensionSession(null);
     draftDimensionSessionRef.current = null;
+  }
+
+  function suppressDimensionEditorAfterSketchCommit() {
+    suppressNextDimensionEditorOpenRef.current = true;
+    dimensionInputRef.current?.blur();
+    setIsDimensionEditorOpen(false);
+  }
+
+  function selectSketchDimensionForEdit(dimensionId: string) {
+    suppressNextDimensionEditorOpenRef.current = false;
+    setIsDimensionEditorOpen(true);
+    void selectSketchDimensionRef.current(dimensionId);
   }
 
   function renderDraftPreview(session: DraftDimensionSession) {
@@ -1350,6 +1366,7 @@ export function ViewportPanel({
     clearPreviewArc();
     lineDraftStartRef.current = null;
     clearDraftDimensionSession();
+    suppressDimensionEditorAfterSketchCommit();
     rendererRef.current?.domElement.focus();
 
     if (session.tool === "rectangle") {
@@ -2174,6 +2191,13 @@ export function ViewportPanel({
 
   useEffect(() => {
     if (!selectedSketchDimension) {
+      setIsDimensionEditorOpen(false);
+      return;
+    }
+
+    if (suppressNextDimensionEditorOpenRef.current) {
+      suppressNextDimensionEditorOpenRef.current = false;
+      dimensionInputRef.current?.blur();
       setIsDimensionEditorOpen(false);
       return;
     }
@@ -3014,10 +3038,6 @@ export function ViewportPanel({
         );
         draftDimensionSessionRef.current = session;
         setDraftDimensionSession(session);
-        window.requestAnimationFrame(() => {
-          draftDimensionInputRefs.current[session.activeField]?.focus();
-          draftDimensionInputRefs.current[session.activeField]?.select();
-        });
       }
     }
 
@@ -3659,7 +3679,7 @@ export function ViewportPanel({
           }
 
           if (hit?.kind === "sketch_dimension") {
-            void selectSketchDimensionRef.current(hit.id);
+            selectSketchDimensionForEdit(hit.id);
             return;
           }
 
@@ -3697,7 +3717,7 @@ export function ViewportPanel({
           if (hit?.kind === "sketch_dimension") {
             dimensionToolFirstLineRef.current = null;
             setDimensionToolFirstLine(null);
-            void selectSketchDimensionRef.current(hit.id);
+            selectSketchDimensionForEdit(hit.id);
             return;
           }
           if (hit?.kind === "sketch_entity") {
@@ -3710,7 +3730,7 @@ export function ViewportPanel({
                   (dim) => dim.dimension_id === dimensionId,
                 ) ?? false;
               if (dimensionExists) {
-                void selectSketchDimensionRef.current(dimensionId);
+                selectSketchDimensionForEdit(dimensionId);
               } else {
                 void selectSketchEntityRef.current(hit.id);
               }
@@ -3747,7 +3767,7 @@ export function ViewportPanel({
                 (dim) => dim.dimension_id === dimensionId,
               ) ?? false;
             if (dimensionExists) {
-              void selectSketchDimensionRef.current(dimensionId);
+              selectSketchDimensionForEdit(dimensionId);
             } else {
               void selectSketchEntityRef.current(hit.id);
             }
@@ -4002,6 +4022,8 @@ export function ViewportPanel({
 
         if (activeSketchToolRef.current === "rectangle") {
           lineDraftStartRef.current = null;
+          clearDraftDimensionSession();
+          suppressDimensionEditorAfterSketchCommit();
           void addSketchRectangleRef.current(
             startX,
             startY,
@@ -4013,6 +4035,8 @@ export function ViewportPanel({
 
         if (activeSketchToolRef.current === "circle") {
           lineDraftStartRef.current = null;
+          clearDraftDimensionSession();
+          suppressDimensionEditorAfterSketchCommit();
           const radius = distanceBetweenPoints(
             [startX, startY],
             sketchPoint.local,
@@ -4126,6 +4150,10 @@ export function ViewportPanel({
         // Same chaining for the line-body host: the next draft
         // segment's start is the end we just committed.
         draftStartLineBodyHostRef.current = endLineBodyHost;
+        Object.values(draftDimensionInputRefs.current).forEach((input) => {
+          input?.blur();
+        });
+        suppressDimensionEditorAfterSketchCommit();
         const nextLineSession = createDraftDimensionSession(
           "line",
           sketchPoint.local,
