@@ -184,11 +184,33 @@ function AxisIcon() {
   );
 }
 
+function WarningIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="13"
+      height="13"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M8 2 14 13H2Z" />
+      <path d="M8 6v3" />
+      <path d="M8 11.5h.01" />
+    </svg>
+  );
+}
+
 interface RowProps {
   icon: React.ReactNode;
   label: string;
   isSelected?: boolean;
   isHidden?: boolean;
+  hasWarning?: boolean;
+  warningText?: string;
   isRenaming?: boolean;
   onSelect?: () => void;
   onActivate?: () => void;
@@ -204,6 +226,8 @@ function Row({
   label,
   isSelected,
   isHidden,
+  hasWarning,
+  warningText,
   isRenaming,
   onSelect,
   onActivate,
@@ -236,7 +260,7 @@ function Row({
         isSelected
           ? "bg-white/10 text-on-surface"
           : "text-on-surface-muted hover:bg-white/[0.04]"
-      } ${isHidden ? "opacity-50" : ""}`}
+      } ${hasWarning && !isHidden ? "ring-1 ring-amber-400/60 text-amber-200" : ""} ${isHidden ? "opacity-50" : ""}`}
       onClick={isRenaming ? undefined : onSelect}
       onDoubleClick={isRenaming ? undefined : onActivate}
       onContextMenu={onContextMenu}
@@ -279,6 +303,15 @@ function Row({
         <span className="min-w-0 flex-1 truncate">{label}</span>
       )}
       {rightContent}
+      {hasWarning ? (
+        <span
+          className="flex h-5 w-5 shrink-0 items-center justify-center text-amber-300"
+          title={warningText || "Needs attention"}
+          aria-label={warningText || "Needs attention"}
+        >
+          <WarningIcon />
+        </span>
+      ) : null}
       {onToggleVisibility ? (
         <button
           type="button"
@@ -560,6 +593,8 @@ export function DocumentHierarchyPanel({
                 document.selected_feature_id === plane.feature_id
               }
               isHidden={isHidden}
+              hasWarning={plane.dependency_broken === true}
+              warningText={plane.dependency_warning}
               isRenaming={renamingFeatureId === plane.feature_id}
               onSelect={() => {
                 // Treat construction planes as references when
@@ -603,6 +638,8 @@ export function DocumentHierarchyPanel({
               label={sketch.name}
               isSelected={document.selected_feature_id === sketch.feature_id}
               isHidden={isHidden}
+              hasWarning={sketch.dependency_broken === true}
+              warningText={sketch.dependency_warning}
               isRenaming={renamingFeatureId === sketch.feature_id}
               onSelect={() => {
                 void onSelectFeature(sketch.feature_id);
@@ -646,6 +683,8 @@ export function DocumentHierarchyPanel({
               label={body.name}
               isSelected={document.selected_feature_id === body.feature_id}
               isHidden={isHidden}
+              hasWarning={body.dependency_broken === true}
+              warningText={body.dependency_warning}
               isRenaming={renamingFeatureId === body.feature_id}
               onSelect={() => {
                 void onSelectFeature(body.feature_id);

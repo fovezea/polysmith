@@ -1108,11 +1108,87 @@ function App() {
     };
   }
 
-  function confirmAndDeleteSketchSelection() {
+  function sketchSelectionAffectsExtrude(selection: {
+    entityIds: string[];
+    pointIds: string[];
+    profileIds: string[];
+  }) {
+    if (!document?.active_sketch_feature_id || !activeSketchFeature) {
+      return [];
+    }
+    const sketch = activeSketchFeature.sketch_parameters;
+    if (!sketch) {
+      return [];
+    }
+
+    const entityIds = new Set(selection.entityIds);
+    for (const pointId of selection.pointIds) {
+      for (const line of sketch.lines) {
+        if (
+          line.start_point_id === pointId ||
+          line.end_point_id === pointId
+        ) {
+          entityIds.add(line.line_id);
+        }
+      }
+      for (const arc of sketch.arcs ?? []) {
+        if (arc.start_point_id === pointId || arc.end_point_id === pointId) {
+          entityIds.add(arc.arc_id);
+        }
+      }
+      for (const circle of sketch.circles) {
+        if (`point-circle-${circle.circle_id}-center` === pointId) {
+          entityIds.add(circle.circle_id);
+        }
+      }
+    }
+
+    const affectedProfileIds = new Set(selection.profileIds);
+    for (const profile of sketch.profiles) {
+      const usesSelectedLine = profile.line_ids.some((id) =>
+        entityIds.has(id),
+      );
+      const usesSelectedCircle =
+        profile.source_circle_id !== null &&
+        entityIds.has(profile.source_circle_id);
+      if (usesSelectedLine || usesSelectedCircle) {
+        affectedProfileIds.add(profile.profile_id);
+      }
+    }
+
+    if (affectedProfileIds.size === 0) {
+      return [];
+    }
+
+    return document.feature_history.filter((feature) => {
+      if (
+        feature.kind !== "extrude" ||
+        !feature.extrude_parameters ||
+        feature.extrude_parameters.sketch_feature_id !==
+          document.active_sketch_feature_id
+      ) {
+        return false;
+      }
+      const sourceProfileIds =
+        feature.extrude_parameters.profile_ids.length > 0
+          ? feature.extrude_parameters.profile_ids
+          : [feature.extrude_parameters.profile_id];
+      return sourceProfileIds.some((profileId) =>
+        affectedProfileIds.has(profileId),
+      );
+    });
+  }
+
+  function confirmAndDeleteSketchSelection(selection?: {
+    entityIds: string[];
+    pointIds: string[];
+    profileIds: string[];
+  }) {
     if (!document?.active_sketch_feature_id) {
       return;
     }
-    const { entityIds, pointIds, profileIds } = currentSketchSelection();
+    const { entityIds, pointIds, profileIds } =
+      selection ?? currentSketchSelection();
     if (
       entityIds.length === 0 &&
       pointIds.length === 0 &&
@@ -1121,16 +1197,17 @@ function App() {
       return;
     }
 
-    const dependents = findDependents(
-      document,
-      document.active_sketch_feature_id,
-    );
+    const dependents = sketchSelectionAffectsExtrude({
+      entityIds,
+      pointIds,
+      profileIds,
+    });
     if (dependents.length > 0) {
       const names = dependents
         .map((entry) => entry.name || entry.kind)
         .join(", ");
       const confirmed = window.confirm(
-        `Deleting sketch geometry may break ${dependents.length} downstream feature(s): ${names}. Delete anyway?`,
+        `Deleting this sketch geometry will break ${dependents.length} downstream feature(s): ${names}. Delete anyway?`,
       );
       if (!confirmed) {
         return;
@@ -1894,8 +1971,8 @@ function App() {
                   );
                 });
               }}
-              onDeleteSketchSelection={async () => {
-                confirmAndDeleteSketchSelection();
+              onDeleteSketchSelection={async (selection) => {
+                confirmAndDeleteSketchSelection(selection);
               }}
               onSetSketchTool={async (tool) => {
                 await runAction(async () => {

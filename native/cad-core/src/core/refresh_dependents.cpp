@@ -648,6 +648,11 @@ void refresh_history_dependencies(DocumentState& document) {
     // always come before their extrude in feature_history), so we get
     // the up-to-date frame here.
     if (feature.kind == "extrude" && feature.extrude_parameters.has_value()) {
+      if (feature.status == "warning" && feature.dependency_broken) {
+        // Source-profile breakage is set by the sketch refresh path.
+        // Do not clear it just because the sketch plane still resolves.
+        continue;
+      }
       const FeatureEntry* sketch = find_feature(
           document, feature.extrude_parameters->sketch_feature_id);
       if (sketch == nullptr || !sketch->sketch_parameters.has_value()) {

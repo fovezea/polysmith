@@ -253,7 +253,13 @@ interface ViewportPanelProps {
     value: number,
   ) => Promise<void>;
   onSelectSketchProfile: (profileId: string, additive: boolean) => Promise<void>;
-  onDeleteSketchSelection: () => Promise<void>;
+  onDeleteSketchSelection: (
+    selection?: {
+      entityIds: string[];
+      pointIds: string[];
+      profileIds: string[];
+    },
+  ) => Promise<void>;
   onSetSketchTool: (tool: SketchTool) => Promise<void>;
   hiddenFeatureIds?: ReadonlySet<string>;
   hiddenSketchPlaneIds?: ReadonlySet<string>;
@@ -4366,7 +4372,67 @@ export function ViewportPanel({
       event.preventDefault();
 
       if (activeSketchPlaneId) {
-        setContextMenu(null);
+        const hit = intersectSceneTargets(event as PointerEvent);
+        if (
+          hit?.kind !== "sketch_entity" &&
+          hit?.kind !== "sketch_point" &&
+          hit?.kind !== "sketch_profile"
+        ) {
+          setContextMenu(null);
+          return;
+        }
+
+        const selectedEntityIds = [
+          ...(document?.selected_sketch_entity_ids ?? []),
+          ...(document?.selected_sketch_entity_id
+            ? [document.selected_sketch_entity_id]
+            : []),
+        ];
+        const selectedPointIds = [
+          ...(document?.selected_sketch_point_ids ?? []),
+          ...(document?.selected_sketch_point_id
+            ? [document.selected_sketch_point_id]
+            : []),
+        ];
+        const selectedProfileIds = [
+          ...(document?.selected_sketch_profile_ids ?? []),
+          ...(document?.selected_sketch_profile_id
+            ? [document.selected_sketch_profile_id]
+            : []),
+        ];
+        const currentSelection = {
+          entityIds: [...new Set(selectedEntityIds)],
+          pointIds: [...new Set(selectedPointIds)],
+          profileIds: [...new Set(selectedProfileIds)],
+        };
+        const clickedSelection =
+          hit.kind === "sketch_entity"
+            ? { entityIds: [hit.id], pointIds: [], profileIds: [] }
+            : hit.kind === "sketch_point"
+              ? { entityIds: [], pointIds: [hit.id], profileIds: [] }
+              : { entityIds: [], pointIds: [], profileIds: [hit.id] };
+        const clickedIsSelected =
+          (hit.kind === "sketch_entity" &&
+            currentSelection.entityIds.includes(hit.id)) ||
+          (hit.kind === "sketch_point" &&
+            currentSelection.pointIds.includes(hit.id)) ||
+          (hit.kind === "sketch_profile" &&
+            currentSelection.profileIds.includes(hit.id));
+        const selection =
+          clickedIsSelected &&
+          (currentSelection.entityIds.length > 0 ||
+            currentSelection.pointIds.length > 0 ||
+            currentSelection.profileIds.length > 0)
+            ? currentSelection
+            : clickedSelection;
+        const rect = renderer.domElement.getBoundingClientRect();
+        setContextMenu({
+          x: event.clientX - rect.left,
+          y: event.clientY - rect.top,
+          referenceId: null,
+          faceId: null,
+          sketchDeleteSelection: selection,
+        });
         return;
       }
 
@@ -4382,6 +4448,7 @@ export function ViewportPanel({
         y: event.clientY - rect.top,
         referenceId: hit.kind === "reference" ? hit.id : null,
         faceId: hit.kind === "face" ? hit.id : null,
+        sketchDeleteSelection: null,
       });
     }
 
@@ -4967,6 +5034,15 @@ export function ViewportPanel({
     await startSketchOnFaceRef.current(solidFace.faceId, solidFace.planeFrame);
   }
 
+  async function handleDeleteSketchFromContextMenu() {
+    const selection = contextMenu?.sketchDeleteSelection;
+    if (!selection) {
+      return;
+    }
+    setContextMenu(null);
+    await deleteSketchSelectionRef.current(selection);
+  }
+
   const lineCount = sketchFeature?.sketch_parameters?.lines.length ?? 0;
   const circleCount = sketchFeature?.sketch_parameters?.circles.length ?? 0;
 
@@ -5113,13 +5189,23 @@ export function ViewportPanel({
               transform: "translate(8px, 8px)",
             }}
           >
-            <button
-              type="button"
-              className="cad-context-menu-item flex w-full items-center justify-start rounded-xl px-3 py-2 text-sm text-on-surface transition-colors duration-200"
-              onClick={handleCreateSketchFromContextMenu}
-            >
-              Create Sketch
-            </button>
+            {contextMenu.sketchDeleteSelection ? (
+              <button
+                type="button"
+                className="cad-context-menu-item flex w-full items-center justify-start rounded-xl px-3 py-2 text-sm text-on-surface transition-colors duration-200"
+                onClick={handleDeleteSketchFromContextMenu}
+              >
+                Delete
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="cad-context-menu-item flex w-full items-center justify-start rounded-xl px-3 py-2 text-sm text-on-surface transition-colors duration-200"
+                onClick={handleCreateSketchFromContextMenu}
+              >
+                Create Sketch
+              </button>
+            )}
           </div>
         ) : null}
         <canvas

@@ -272,6 +272,11 @@ export interface ViewportContextMenuState {
   y: number;
   referenceId: string | null;
   faceId: string | null;
+  sketchDeleteSelection?: {
+    entityIds: string[];
+    pointIds: string[];
+    profileIds: string[];
+  } | null;
 }
 
 export interface SketchEntityInteractionState {

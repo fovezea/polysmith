@@ -269,6 +269,9 @@ CompiledBodies compile_bodies(const DocumentState& document) {
     if (feature.suppressed) {
       continue;
     }
+    if (feature.dependency_broken || feature.status == "warning") {
+      continue;
+    }
     if (feature.kind == "extrude" &&
         feature.extrude_parameters.has_value()) {
       if (feature.extrude_parameters->mode != "new_body") {
@@ -315,6 +318,9 @@ CompiledBodies compile_bodies(const DocumentState& document) {
     // renderer skips them via the same flag, so a suppressed box just
     // disappears until unsuppressed.
     if (feature.suppressed) {
+      continue;
+    }
+    if (feature.dependency_broken || feature.status == "warning") {
       continue;
     }
     // Fillet / chamfer modify an existing body in place rather than
