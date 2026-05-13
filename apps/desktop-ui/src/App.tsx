@@ -56,6 +56,12 @@ interface ActiveExtrudeAction {
   } | null;
 }
 
+interface SketchDeleteSelection {
+  entityIds: string[];
+  pointIds: string[];
+  profileIds: string[];
+}
+
 // In-progress fillet or chamfer feature. Two-phase Fusion-style flow:
 //
 //   - phase "pending": panel is open but no feature exists yet. The
@@ -124,6 +130,11 @@ function App() {
     | { phase: "active"; radius: number; filletIds: string[] };
   const [sketchFilletAction, setSketchFilletAction] =
     useState<SketchFilletAction | null>(null);
+  const [pendingSketchDeleteConfirmation, setPendingSketchDeleteConfirmation] =
+    useState<{
+      selection: SketchDeleteSelection;
+      affectedFeatureNames: string[];
+    } | null>(null);
   // Mirror of `sketchFilletAction.filletIds` for the inline
   // viewport callback. Same trick as `activeEdgeIdsRef` in the 3D
   // edge-op flow: the click handler runs inside a closure that
@@ -1108,11 +1119,7 @@ function App() {
     };
   }
 
-  function sketchSelectionAffectsExtrude(selection: {
-    entityIds: string[];
-    pointIds: string[];
-    profileIds: string[];
-  }) {
+  function sketchSelectionAffectsExtrude(selection: SketchDeleteSelection) {
     if (!document?.active_sketch_feature_id || !activeSketchFeature) {
       return [];
     }
@@ -1179,16 +1186,22 @@ function App() {
     });
   }
 
-  function confirmAndDeleteSketchSelection(selection?: {
-    entityIds: string[];
-    pointIds: string[];
-    profileIds: string[];
-  }) {
+  function deleteSketchSelectionNow(selection: SketchDeleteSelection) {
+    void runAction(async () => {
+      await deleteSketchSelection(
+        selection.entityIds,
+        selection.pointIds,
+        selection.profileIds,
+      );
+    });
+  }
+
+  function confirmAndDeleteSketchSelection(selection?: SketchDeleteSelection) {
     if (!document?.active_sketch_feature_id) {
       return;
     }
-    const { entityIds, pointIds, profileIds } =
-      selection ?? currentSketchSelection();
+    const deleteSelection = selection ?? currentSketchSelection();
+    const { entityIds, pointIds, profileIds } = deleteSelection;
     if (
       entityIds.length === 0 &&
       pointIds.length === 0 &&
@@ -1203,20 +1216,16 @@ function App() {
       profileIds,
     });
     if (dependents.length > 0) {
-      const names = dependents
-        .map((entry) => entry.name || entry.kind)
-        .join(", ");
-      const confirmed = window.confirm(
-        `Deleting this sketch geometry will break ${dependents.length} downstream feature(s): ${names}. Delete anyway?`,
-      );
-      if (!confirmed) {
-        return;
-      }
+      setPendingSketchDeleteConfirmation({
+        selection: deleteSelection,
+        affectedFeatureNames: dependents.map(
+          (entry) => entry.name || entry.kind,
+        ),
+      });
+      return;
     }
 
-    void runAction(async () => {
-      await deleteSketchSelection(entityIds, pointIds, profileIds);
-    });
+    deleteSketchSelectionNow(deleteSelection);
   }
 
   return (
@@ -2445,6 +2454,53 @@ function App() {
                     });
                   }}
                 />
+              ) : null}
+              {pendingSketchDeleteConfirmation ? (
+                <section className="pointer-events-auto cad-floating-panel px-5 py-5">
+                  <p className="cad-kicker">Warning</p>
+                  <h2 className="mt-2 font-display text-lg text-on-surface">
+                    Delete sketch geometry?
+                  </h2>
+                  <p className="mt-3 text-sm leading-5 text-on-surface-muted">
+                    This will break{" "}
+                    {
+                      pendingSketchDeleteConfirmation.affectedFeatureNames
+                        .length
+                    }{" "}
+                    downstream feature
+                    {pendingSketchDeleteConfirmation.affectedFeatureNames
+                      .length === 1
+                      ? ""
+                      : "s"}
+                    :{" "}
+                    {pendingSketchDeleteConfirmation.affectedFeatureNames.join(
+                      ", ",
+                    )}
+                    .
+                  </p>
+                  <div className="mt-5 grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-on-primary transition-opacity hover:opacity-90"
+                      onClick={() => {
+                        const { selection } = pendingSketchDeleteConfirmation;
+                        setPendingSketchDeleteConfirmation(null);
+                        deleteSketchSelectionNow(selection);
+                      }}
+                    >
+                      OK
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-md bg-white/8 px-4 py-2 text-sm text-on-surface transition-colors hover:bg-white/12"
+                      onClick={() => {
+                        setPendingSketchDeleteConfirmation(null);
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </section>
               ) : null}
               {SHOW_DEBUG_MESSAGE_LOG ? (
                 <MessageLog messages={messages} />
