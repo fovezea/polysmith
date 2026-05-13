@@ -94,6 +94,13 @@ extrude_parameters_from_payload(const json& payload) {
   polysmith::core::ExtrudeFeatureParameters params{};
   params.sketch_feature_id = read_string(payload, "sketch_feature_id");
   params.profile_id = read_string(payload, "profile_id");
+  if (payload.contains("profile_ids") && payload.at("profile_ids").is_array()) {
+    for (const auto& id_value : payload.at("profile_ids")) {
+      params.profile_ids.push_back(id_value.get<std::string>());
+    }
+  } else if (!params.profile_id.empty()) {
+    params.profile_ids.push_back(params.profile_id);
+  }
   params.plane_id = read_string(payload, "plane_id");
   if (payload.contains("plane_frame") && !payload.at("plane_frame").is_null()) {
     params.plane_frame = plane_frame_from_payload(payload.at("plane_frame"));
@@ -110,6 +117,48 @@ extrude_parameters_from_payload(const json& payload) {
           .x = point_payload.at("x").get<double>(),
           .y = point_payload.at("y").get<double>(),
       });
+    }
+  }
+  if (payload.contains("inner_loops") && payload.at("inner_loops").is_array()) {
+    for (const auto& loop_payload : payload.at("inner_loops")) {
+      std::vector<polysmith::core::SketchProfilePoint> loop;
+      for (const auto& point_payload : loop_payload) {
+        loop.push_back(polysmith::core::SketchProfilePoint{
+            .x = point_payload.at("x").get<double>(),
+            .y = point_payload.at("y").get<double>(),
+        });
+      }
+      params.inner_loops.push_back(std::move(loop));
+    }
+  }
+  if (payload.contains("additional_profile_points") &&
+      payload.at("additional_profile_points").is_array()) {
+    for (const auto& profile_payload : payload.at("additional_profile_points")) {
+      std::vector<polysmith::core::SketchProfilePoint> profile;
+      for (const auto& point_payload : profile_payload) {
+        profile.push_back(polysmith::core::SketchProfilePoint{
+            .x = point_payload.at("x").get<double>(),
+            .y = point_payload.at("y").get<double>(),
+        });
+      }
+      params.additional_profile_points.push_back(std::move(profile));
+    }
+  }
+  if (payload.contains("additional_inner_loops") &&
+      payload.at("additional_inner_loops").is_array()) {
+    for (const auto& profile_payload : payload.at("additional_inner_loops")) {
+      std::vector<std::vector<polysmith::core::SketchProfilePoint>> loops;
+      for (const auto& loop_payload : profile_payload) {
+        std::vector<polysmith::core::SketchProfilePoint> loop;
+        for (const auto& point_payload : loop_payload) {
+          loop.push_back(polysmith::core::SketchProfilePoint{
+              .x = point_payload.at("x").get<double>(),
+              .y = point_payload.at("y").get<double>(),
+          });
+        }
+        loops.push_back(std::move(loop));
+      }
+      params.additional_inner_loops.push_back(std::move(loops));
     }
   }
   params.depth = read_number(payload, "depth");
@@ -371,6 +420,19 @@ sketch_parameters_from_payload(const json& payload) {
           });
         }
       }
+      if (profile_payload.contains("inner_loops") &&
+          profile_payload.at("inner_loops").is_array()) {
+        for (const auto& loop_payload : profile_payload.at("inner_loops")) {
+          std::vector<polysmith::core::SketchProfilePoint> loop;
+          for (const auto& pt_payload : loop_payload) {
+            loop.push_back(polysmith::core::SketchProfilePoint{
+                .x = pt_payload.at("x").get<double>(),
+                .y = pt_payload.at("y").get<double>(),
+            });
+          }
+          profile.inner_loops.push_back(std::move(loop));
+        }
+      }
       profile.source_circle_id =
           read_optional_string(profile_payload, "source_circle_id");
       profile.center_x = read_number(profile_payload, "center_x");
@@ -469,6 +531,14 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                  {"sketch_feature_id",
                   feature.extrude_parameters->sketch_feature_id},
                  {"profile_id", feature.extrude_parameters->profile_id},
+                 {"profile_ids",
+                  [&feature]() {
+                    json ids = json::array();
+                    for (const auto& id : feature.extrude_parameters->profile_ids) {
+                      ids.push_back(id);
+                    }
+                    return ids;
+                  }()},
                  {"plane_id", feature.extrude_parameters->plane_id},
                  {"plane_frame",
                   feature.extrude_parameters->plane_frame.has_value()
@@ -516,6 +586,49 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                       });
                     }
                     return points;
+                  }()},
+                 {"inner_loops",
+                  [&feature]() {
+                    json loops = json::array();
+                    for (const auto& loop :
+                         feature.extrude_parameters->inner_loops) {
+                      json loop_payload = json::array();
+                      for (const auto& point : loop) {
+                        loop_payload.push_back({{"x", point.x}, {"y", point.y}});
+                      }
+                      loops.push_back(loop_payload);
+                    }
+                    return loops;
+                  }()},
+                 {"additional_profile_points",
+                  [&feature]() {
+                    json profiles = json::array();
+                    for (const auto& profile :
+                         feature.extrude_parameters->additional_profile_points) {
+                      json points = json::array();
+                      for (const auto& point : profile) {
+                        points.push_back({{"x", point.x}, {"y", point.y}});
+                      }
+                      profiles.push_back(points);
+                    }
+                    return profiles;
+                  }()},
+                 {"additional_inner_loops",
+                  [&feature]() {
+                    json profiles = json::array();
+                    for (const auto& profile_loops :
+                         feature.extrude_parameters->additional_inner_loops) {
+                      json loops = json::array();
+                      for (const auto& loop : profile_loops) {
+                        json loop_payload = json::array();
+                        for (const auto& point : loop) {
+                          loop_payload.push_back({{"x", point.x}, {"y", point.y}});
+                        }
+                        loops.push_back(loop_payload);
+                      }
+                      profiles.push_back(loops);
+                    }
+                    return profiles;
                   }()},
                  {"depth", feature.extrude_parameters->depth},
                  {"mode", feature.extrude_parameters->mode},
@@ -780,6 +893,17 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                             {"y", point.y},
                         });
                       }
+                      json inner_loops = json::array();
+                      for (const auto& loop : profile.inner_loops) {
+                        json loop_payload = json::array();
+                        for (const auto& point : loop) {
+                          loop_payload.push_back({
+                              {"x", point.x},
+                              {"y", point.y},
+                          });
+                        }
+                        inner_loops.push_back(loop_payload);
+                      }
 
                       profiles.push_back({
                           {"profile_id", profile.id},
@@ -787,6 +911,7 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                           {"point_ids", point_ids},
                           {"line_ids", line_ids},
                           {"points", points},
+                          {"inner_loops", inner_loops},
                           {"source_circle_id",
                            profile.source_circle_id.has_value()
                                ? json(profile.source_circle_id.value())
@@ -974,6 +1099,14 @@ json to_payload(const polysmith::core::DocumentState& document) {
        document.selected_sketch_profile_id.has_value()
            ? json(document.selected_sketch_profile_id.value())
            : json(nullptr)},
+      {"selected_sketch_profile_ids",
+       [&document]() {
+         json ids = json::array();
+         for (const auto& id : document.selected_sketch_profile_ids) {
+           ids.push_back(id);
+         }
+         return ids;
+       }()},
       {"feature_history", feature_history},
   };
 }
@@ -1037,6 +1170,17 @@ json to_payload(const polysmith::core::ViewportPolygonExtrudePrimitive& primitiv
         {"x", point.x},
         {"y", point.y},
     });
+  }
+  json inner_loops = json::array();
+  for (const auto& loop : primitive.inner_loops) {
+    json loop_payload = json::array();
+    for (const auto& point : loop) {
+      loop_payload.push_back({
+          {"x", point.x},
+          {"y", point.y},
+      });
+    }
+    inner_loops.push_back(loop_payload);
   }
 
   return {
@@ -1371,6 +1515,17 @@ json to_payload(const polysmith::core::ViewportSketchProfilePrimitive& primitive
         {"y", point.y},
     });
   }
+  json inner_loops = json::array();
+  for (const auto& loop : primitive.inner_loops) {
+    json loop_payload = json::array();
+    for (const auto& point : loop) {
+      loop_payload.push_back({
+          {"x", point.x},
+          {"y", point.y},
+      });
+    }
+    inner_loops.push_back(loop_payload);
+  }
 
   return {
       {"profile_id", primitive.profile_id},
@@ -1406,6 +1561,7 @@ json to_payload(const polysmith::core::ViewportSketchProfilePrimitive& primitive
            : json(nullptr)},
       {"profile_kind", primitive.profile_kind},
       {"profile_points", profile_points},
+      {"inner_loops", inner_loops},
       {"start_x", primitive.start_x},
       {"start_y", primitive.start_y},
       {"width", primitive.width},
@@ -1750,6 +1906,17 @@ polysmith::core::DocumentState document_from_payload(const json& payload) {
       read_optional_string(payload, "selected_sketch_dimension_id");
   document.selected_sketch_profile_id =
       read_optional_string(payload, "selected_sketch_profile_id");
+  if (payload.contains("selected_sketch_profile_ids") &&
+      payload.at("selected_sketch_profile_ids").is_array()) {
+    for (const auto& entry : payload.at("selected_sketch_profile_ids")) {
+      if (entry.is_string()) {
+        document.selected_sketch_profile_ids.push_back(entry.get<std::string>());
+      }
+    }
+  } else if (document.selected_sketch_profile_id.has_value()) {
+    document.selected_sketch_profile_ids.push_back(
+        document.selected_sketch_profile_id.value());
+  }
 
   if (payload.contains("feature_history") &&
       payload.at("feature_history").is_array()) {

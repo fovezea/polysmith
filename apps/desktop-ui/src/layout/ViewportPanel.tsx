@@ -18,6 +18,7 @@ import type {
   SolidFaceInteractionState,
   ViewportContextMenuState,
   SketchPreviewPoint,
+  SketchProfileScene,
 } from "@/types";
 import {
   applyPrimitiveVisualState,
@@ -46,6 +47,7 @@ import {
   frameCameraToSketchPlane,
   projectWorldPointToViewport,
   resolveSketchPlanePoint,
+  SKETCH_PLANE_OFFSET,
   SKETCH_SNAP_DISTANCE,
   themeColor,
   toWorldPoint,
@@ -195,7 +197,7 @@ interface ViewportPanelProps {
     dimensionId: string,
     value: number,
   ) => Promise<void>;
-  onSelectSketchProfile: (profileId: string) => Promise<void>;
+  onSelectSketchProfile: (profileId: string, additive: boolean) => Promise<void>;
   onSetSketchTool: (tool: SketchTool) => Promise<void>;
   hiddenFeatureIds?: ReadonlySet<string>;
   hiddenSketchPlaneIds?: ReadonlySet<string>;
@@ -1725,6 +1727,157 @@ export function ViewportPanel({
       raycaster.setFromCamera(pointer, camera);
       raycaster.params.Line = { threshold: 1.75 };
 
+      function pointInPolygon2d(
+        point: [number, number],
+        polygon: Array<[number, number]>,
+      ) {
+        if (polygon.length < 3) {
+          return false;
+        }
+        let inside = false;
+        for (
+          let index = 0, previous = polygon.length - 1;
+          index < polygon.length;
+          previous = index, index += 1
+        ) {
+          const currentPoint = polygon[index];
+          const previousPoint = polygon[previous];
+          const crosses =
+            currentPoint[1] > point[1] !== previousPoint[1] > point[1] &&
+            point[0] <
+              ((previousPoint[0] - currentPoint[0]) *
+                (point[1] - currentPoint[1])) /
+                (previousPoint[1] - currentPoint[1]) +
+                currentPoint[0];
+          if (crosses) {
+            inside = !inside;
+          }
+        }
+        return inside;
+      }
+
+      function profileArea(profile: SketchProfileScene) {
+        if (profile.profileKind === "circle") {
+          return Math.PI * profile.radius * profile.radius;
+        }
+        const polygonArea = (points: Array<[number, number]>) => {
+          let area = 0;
+          for (let index = 0; index < points.length; index += 1) {
+            const current = points[index];
+            const next = points[(index + 1) % points.length];
+            area += current[0] * next[1] - next[0] * current[1];
+          }
+          return Math.abs(area * 0.5);
+        };
+        return (
+          polygonArea(profile.profilePoints) -
+          profile.innerLoops.reduce((sum, loop) => sum + polygonArea(loop), 0)
+        );
+      }
+
+      function profileLocalPoint(profile: SketchProfileScene) {
+        if (profile.planeFrame) {
+          const origin = new THREE.Vector3(
+            profile.planeFrame.origin[0],
+            profile.planeFrame.origin[1],
+            profile.planeFrame.origin[2],
+          );
+          const normal = new THREE.Vector3(
+            profile.planeFrame.normal[0],
+            profile.planeFrame.normal[1],
+            profile.planeFrame.normal[2],
+          );
+          const xAxis = new THREE.Vector3(
+            profile.planeFrame.xAxis[0],
+            profile.planeFrame.xAxis[1],
+            profile.planeFrame.xAxis[2],
+          );
+          const yAxis = new THREE.Vector3(
+            profile.planeFrame.yAxis[0],
+            profile.planeFrame.yAxis[1],
+            profile.planeFrame.yAxis[2],
+          );
+          const renderOrigin = origin.clone().addScaledVector(
+            normal,
+            SKETCH_PLANE_OFFSET,
+          );
+          const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(
+            normal,
+            renderOrigin,
+          );
+          const hitPoint = new THREE.Vector3();
+          const hit = raycaster.ray.intersectPlane(plane, hitPoint);
+          if (!hit) {
+            return null;
+          }
+          const relative = hitPoint.sub(renderOrigin);
+          return [relative.dot(xAxis), relative.dot(yAxis)] as [number, number];
+        }
+
+        const plane =
+          profile.planeId === "ref-plane-xy"
+            ? new THREE.Plane(new THREE.Vector3(0, 1, 0), -SKETCH_PLANE_OFFSET)
+            : profile.planeId === "ref-plane-yz"
+              ? new THREE.Plane(
+                  new THREE.Vector3(1, 0, 0),
+                  -SKETCH_PLANE_OFFSET,
+                )
+              : new THREE.Plane(
+                  new THREE.Vector3(0, 0, 1),
+                  -SKETCH_PLANE_OFFSET,
+                );
+        const hitPoint = new THREE.Vector3();
+        const hit = raycaster.ray.intersectPlane(plane, hitPoint);
+        if (!hit) {
+          return null;
+        }
+        if (profile.planeId === "ref-plane-xy") {
+          return [hitPoint.x, hitPoint.z] as [number, number];
+        }
+        if (profile.planeId === "ref-plane-yz") {
+          return [hitPoint.y, hitPoint.z] as [number, number];
+        }
+        return [hitPoint.x, hitPoint.y] as [number, number];
+      }
+
+      function containsProfilePoint(
+        profile: SketchProfileScene,
+        point: [number, number],
+      ) {
+        if (profile.profileKind === "circle") {
+          const dx = point[0] - profile.start[0];
+          const dy = point[1] - profile.start[1];
+          return dx * dx + dy * dy <= profile.radius * profile.radius;
+        }
+        if (!pointInPolygon2d(point, profile.profilePoints)) {
+          return false;
+        }
+        return !profile.innerLoops.some((loop) => pointInPolygon2d(point, loop));
+      }
+
+      function pickSketchProfileId() {
+        const profiles = sceneDataRef.current?.sketchProfiles ?? [];
+        const hits = profiles
+          .map((profile) => {
+            const point = profileLocalPoint(profile);
+            if (!point || !containsProfilePoint(profile, point)) {
+              return null;
+            }
+            return {
+              profileId: profile.profileId,
+              area: profileArea(profile),
+            };
+          })
+          .filter(
+            (hit): hit is { profileId: string; area: number } => hit !== null,
+          );
+        if (hits.length === 0) {
+          return null;
+        }
+        hits.sort((left, right) => left.area - right.area);
+        return hits[0].profileId;
+      }
+
       if (activeSketchPlaneId) {
         const [sketchDimensionHit] = raycaster.intersectObjects(
           sketchDimensionObjectsRef.current,
@@ -1785,12 +1938,8 @@ export function ViewportPanel({
           };
         }
 
-        const [profileHit] = raycaster.intersectObjects(
-          sketchProfileMeshesRef.current,
-          false,
-        );
-        const profileId = profileHit?.object.userData.sketchProfileId;
-        if (typeof profileId === "string") {
+        const profileId = pickSketchProfileId();
+        if (profileId) {
           return { kind: "sketch_profile" as const, id: profileId };
         }
       }
@@ -1805,12 +1954,8 @@ export function ViewportPanel({
       // sketch was hidden (e.g. auto-hide-after-extrude) won't have a
       // mesh in the ref array, so they naturally drop out of the pick.
       {
-        const [profileHit] = raycaster.intersectObjects(
-          sketchProfileMeshesRef.current,
-          false,
-        );
-        const profileId = profileHit?.object.userData.sketchProfileId;
-        if (typeof profileId === "string") {
+        const profileId = pickSketchProfileId();
+        if (profileId) {
           return { kind: "sketch_profile" as const, id: profileId };
         }
       }
@@ -2517,7 +2662,10 @@ export function ViewportPanel({
           }
 
           if (hit?.kind === "sketch_profile") {
-            void selectSketchProfileRef.current(hit.id);
+            void selectSketchProfileRef.current(
+              hit.id,
+              event.shiftKey || event.ctrlKey || event.metaKey,
+            );
             return;
           }
 
@@ -2984,7 +3132,10 @@ export function ViewportPanel({
         // sketch (Fusion-style). Selection is a no-op on the core's
         // body picking path; the floating Extrude action consumes
         // `selected_sketch_profile_id` directly.
-        void selectSketchProfileRef.current(hit.id);
+        void selectSketchProfileRef.current(
+          hit.id,
+          event.shiftKey || event.ctrlKey || event.metaKey,
+        );
         return;
       }
 

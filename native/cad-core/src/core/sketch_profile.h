@@ -12,6 +12,7 @@ struct PolygonSketchProfile {
   std::string plane_id;
   std::optional<SketchFeatureParameters::SketchPlaneFrame> plane_frame;
   std::vector<SketchProfilePoint> points;
+  std::vector<std::vector<SketchProfilePoint>> inner_loops;
 };
 
 struct CircleSketchProfile {

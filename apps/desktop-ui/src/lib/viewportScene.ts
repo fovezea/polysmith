@@ -112,6 +112,9 @@ function makePolygonExtrudePrimitive(
     profilePoints: primitive.profile_points.map(
       (point) => [point.x, point.y] as [number, number],
     ),
+    innerLoops: (primitive.inner_loops ?? []).map((loop) =>
+      loop.map((point) => [point.x, point.y] as [number, number]),
+    ),
     depth: primitive.depth,
     isSelected: primitive.is_selected,
   };
@@ -287,6 +290,9 @@ function makeSketchProfile(profile: ViewportSketchProfile): SketchProfileScene {
     profileKind: profile.profile_kind,
     profilePoints: profile.profile_points.map(
       (point) => [point.x, point.y] as [number, number],
+    ),
+    innerLoops: (profile.inner_loops ?? []).map((loop) =>
+      loop.map((point) => [point.x, point.y] as [number, number]),
     ),
     start: [profile.start_x, profile.start_y],
     width: profile.width,
@@ -515,7 +521,7 @@ export function createViewportScene(
           case "cylinder":
             return `cyl:${primitive.primitiveId}:${primitive.radius}:${primitive.height}:${primitive.position.join(":")}`;
           case "polygon_extrude":
-            return `poly-extrude:${primitive.primitiveId}:${primitive.planeId}:${primitive.depth}:${primitive.profilePoints.map((point) => point.join(":")).join("|")}`;
+            return `poly-extrude:${primitive.primitiveId}:${primitive.planeId}:${primitive.depth}:${primitive.profilePoints.map((point) => point.join(":")).join("|")}:${primitive.innerLoops.map((loop) => loop.map((point) => point.join(":")).join(",")).join(";")}`;
           case "mesh":
             return `mesh:${primitive.primitiveId}:${primitive.positions.length}:${primitive.indices.length}`;
         }
@@ -602,7 +608,7 @@ export function createViewportScene(
       .concat(
         sketchProfiles.map(
           (profile) =>
-            `sketch-profile:${profile.profileId}:${profile.profileKind}:${profile.planeId}:${profile.profilePoints.map((point) => point.join(":")).join("|")}:${profile.start.join(":")}:${profile.width}:${profile.height}:${profile.radius}:${profile.isSelected}`,
+            `sketch-profile:${profile.profileId}:${profile.profileKind}:${profile.planeId}:${profile.profilePoints.map((point) => point.join(":")).join("|")}:${profile.innerLoops.map((loop) => loop.map((point) => point.join(":")).join(",")).join(";")}:${profile.start.join(":")}:${profile.width}:${profile.height}:${profile.radius}:${profile.isSelected}`,
         ),
       )
       .join("|"),

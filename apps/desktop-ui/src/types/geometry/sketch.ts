@@ -62,6 +62,7 @@ export interface SketchProfileRegionEntry {
   point_ids: string[];
   line_ids: string[];
   points: SketchProfilePoint[];
+  inner_loops: SketchProfilePoint[][];
   source_circle_id: string | null;
   center_x: number;
   center_y: number;

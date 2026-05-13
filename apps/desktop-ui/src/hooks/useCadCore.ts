@@ -82,6 +82,7 @@ import {
   makeUpdateCylinderFeatureCommand,
   makeUpdateExtrudeDepthCommand,
   makeUpdateExtrudeModeCommand,
+  makeUpdateExtrudeProfilesCommand,
   makeUpdateExtrudeTargetBodyCommand,
   parseCoreMessage,
 } from "@/lib";
@@ -601,18 +602,18 @@ export function useCadCore() {
       await sendCoreCommand(makeSelectSketchDimensionCommand(dimensionId));
       await sendCoreCommand(makeGetViewportStateCommand());
     },
-    selectSketchProfile: async (profileId: string) => {
-      await sendCoreCommand(makeSelectSketchProfileCommand(profileId));
+    selectSketchProfile: async (profileId: string, additive = false) => {
+      await sendCoreCommand(makeSelectSketchProfileCommand(profileId, additive));
       await sendCoreCommand(makeGetViewportStateCommand());
     },
     extrudeProfile: async (
-      profileId: string,
+      profileIds: string | readonly string[],
       depth: number,
       mode: ExtrudeMode = "new_body",
       targetBodyId: string | null = null,
     ) => {
       await sendCoreCommand(
-        makeExtrudeProfileCommand(profileId, depth, mode, targetBodyId),
+        makeExtrudeProfileCommand(profileIds, depth, mode, targetBodyId),
       );
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());
@@ -628,6 +629,16 @@ export function useCadCore() {
     ) => {
       await sendCoreCommand(
         makeUpdateExtrudeTargetBodyCommand(featureId, targetBodyId),
+      );
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateExtrudeProfiles: async (
+      featureId: string,
+      profileIds: readonly string[],
+    ) => {
+      await sendCoreCommand(
+        makeUpdateExtrudeProfilesCommand(featureId, profileIds),
       );
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());

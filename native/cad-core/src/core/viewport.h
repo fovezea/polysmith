@@ -53,6 +53,7 @@ struct ViewportPolygonExtrudePrimitive {
   std::string plane_id;
   std::optional<ViewportSketchPlaneFrame> plane_frame;
   std::vector<SketchProfilePoint> profile_points;
+  std::vector<std::vector<SketchProfilePoint>> inner_loops;
   double depth;
   bool is_selected;
 };
@@ -264,6 +265,7 @@ struct ViewportSketchProfilePrimitive {
   std::optional<ViewportSketchPlaneFrame> plane_frame;
   std::string profile_kind;
   std::vector<SketchProfilePoint> profile_points;
+  std::vector<std::vector<SketchProfilePoint>> inner_loops;
   double start_x;
   double start_y;
   double width;

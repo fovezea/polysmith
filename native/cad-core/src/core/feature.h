@@ -40,6 +40,7 @@ struct PlaneFrame {
 struct ExtrudeFeatureParameters {
   std::string sketch_feature_id;
   std::string profile_id;
+  std::vector<std::string> profile_ids;
   std::string plane_id;
   std::optional<PlaneFrame> plane_frame;
   std::string profile_kind;
@@ -49,6 +50,9 @@ struct ExtrudeFeatureParameters {
   double height;
   double radius;
   std::vector<SketchProfilePoint> profile_points;
+  std::vector<std::vector<SketchProfilePoint>> inner_loops;
+  std::vector<std::vector<SketchProfilePoint>> additional_profile_points;
+  std::vector<std::vector<std::vector<SketchProfilePoint>>> additional_inner_loops;
   double depth;
   // "new_body" (default): produces an independent solid body.
   // "join": fuses the extrude with `target_body_id` if set, else the
@@ -341,6 +345,11 @@ struct SketchProfileRegion {
   std::vector<std::string> point_ids;
   std::vector<std::string> line_ids;
   std::vector<SketchProfilePoint> points;
+  // Inner loops cut out of this profile region. v1 uses this for the
+  // common "circle inside polygon" case so selecting the outer area
+  // extrudes a face with a circular hole, while selecting the circle
+  // separately extrudes the disk.
+  std::vector<std::vector<SketchProfilePoint>> inner_loops;
   std::optional<std::string> source_circle_id;
   double center_x;
   double center_y;

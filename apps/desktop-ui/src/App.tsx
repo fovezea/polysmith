@@ -19,7 +19,7 @@ import {
 } from "./layout";
 import type { CategoryId } from "./layout";
 import { ArmedSketchConstraint } from "./types";
-import type { ExtrudeMode, ViewportSolidFace } from "./types";
+import type { ExtrudeMode } from "./types";
 
 const DEFAULT_EXTRUDE_DEPTH = 20;
 const DEFAULT_FILLET_RADIUS = 1;
@@ -36,9 +36,11 @@ const SHOW_DEBUG_MESSAGE_LOG =
   import.meta.env.VITE_SHOW_DEBUG_MESSAGE_LOG === "true";
 
 interface ActiveExtrudeAction {
-  featureId: string;
+  phase: "pending" | "active";
+  featureId: string | null;
   initialDepth: number;
   initialMode: ExtrudeMode;
+  profileCount: number;
   // Snapshot of "did the document have any other solid bodies before the
   // user invoked this extrude?" — drives whether Join/Cut are offered.
   canCombineWithExistingBody: boolean;
@@ -99,6 +101,8 @@ function App() {
   >(null);
   const [extrudeAction, setExtrudeAction] =
     useState<ActiveExtrudeAction | null>(null);
+  const extrudeCreateInFlightRef = useRef(false);
+  const lastExtrudeProfileUpdateRef = useRef("");
   // Arc tool creation mode. Defaults to three-point (Fusion's default
   // and the most ergonomic for shaping curves on the fly). The
   // SketchToolbar exposes a segmented control to toggle to
@@ -180,6 +184,13 @@ function App() {
     ) ?? null;
   const selectedSketchProfile =
     viewport?.sketch_profiles.find((profile) => profile.is_selected) ?? null;
+  const selectedSketchProfiles =
+    viewport?.sketch_profiles.filter((profile) => profile.is_selected) ?? [];
+  const selectedSketchProfileIds =
+    document?.selected_sketch_profile_ids ?? selectedSketchProfiles.map(
+      (profile) => profile.profile_id,
+    );
+  const selectedSketchProfileIdsKey = selectedSketchProfileIds.join("|");
   const activeSketchPlaneId = document?.active_sketch_plane_id ?? null;
   const activeSketchTool = document?.active_sketch_tool ?? null;
   // The active sketch's pending mirror state lives in the document.
@@ -276,6 +287,7 @@ function App() {
     selectSketchProfile,
     extrudeProfile,
     updateExtrudeMode,
+    updateExtrudeProfiles,
     updateExtrudeTargetBody,
     addSketchLine,
     setSketchLineConstruction,
@@ -414,104 +426,11 @@ function App() {
     return result;
   }, [document, effectiveHiddenFeatureIds]);
 
-  // Orchestrates the face → sketch → projected outline → profile pipeline
-  // so the user can press Extrude on a planar face of an existing body.
-  // Returns the new profile id (which the surrounding `triggerExtrudeAction`
-  // then feeds to `extrudeProfile`), or throws on failure.
-  //
-  // We rely on `awaitDocumentChange` between steps because each IPC
-  // command is fire-and-forget — the hook helpers `await` only the
-  // command being WRITTEN to cad_core stdin, not the document_state
-  // event that follows. Reading state directly out of the store after
-  // an `await` would race the event loop.
-  async function extrudeFromFace(
-    faceId: string,
-    planeFrame: ViewportSolidFace["plane_frame"],
-  ): Promise<string> {
-    const sketchActivePromise = awaitDocumentChange(
-      (next) =>
-        next.active_sketch_feature_id !== null &&
-        next.active_sketch_face_id === faceId,
-    );
-    await startSketchOnFace(faceId, planeFrame);
-    const documentWithSketch = await sketchActivePromise;
-    const sketchFeatureId = documentWithSketch.active_sketch_feature_id;
-    if (!sketchFeatureId) {
-      throw new Error(
-        "face extrude: sketch did not become active after start_sketch_on_face",
-      );
-    }
-
-    const profileReadyPromise = awaitDocumentChange((next) => {
-      const sketch = next.feature_history.find(
-        (entry) => entry.feature_id === sketchFeatureId,
-      );
-      return (sketch?.sketch_parameters?.profiles.length ?? 0) > 0;
-    });
-    await projectFaceIntoSketch(faceId);
-    const documentWithProfile = await profileReadyPromise;
-    const sketchWithProfile = documentWithProfile.feature_history.find(
-      (entry) => entry.feature_id === sketchFeatureId,
-    );
-    const newProfileId =
-      sketchWithProfile?.sketch_parameters?.profiles[0]?.profile_id ?? null;
-    if (!newProfileId) {
-      throw new Error(
-        "face extrude: no closed profile detected after projecting face",
-      );
-    }
-
-    const sketchExitedPromise = awaitDocumentChange(
-      (next) => next.active_sketch_feature_id === null,
-    );
-    await finishSketch();
-    await sketchExitedPromise;
-
-    return newProfileId;
-  }
-
   async function triggerExtrudeAction() {
-    if (extrudeAction) {
+    if (extrudeAction?.phase === "active") {
       return;
     }
 
-    // Fusion-style: Extrude can take either a closed sketch profile OR
-    // a planar face on an existing body. The face path orchestrates
-    // [start_sketch_on_face → project_face_into_sketch → finish_sketch
-    // → extrude_profile] using existing IPC primitives, so the user
-    // sees one button click that produces an extrude whose source is
-    // the selected face's outline. The intermediate sketch shows up in
-    // the timeline (and gets auto-hidden by the post-confirm hook
-    // below), keeping the feature graph reproducible.
-    let profileId = selectedSketchProfile?.profile_id ?? null;
-    if (!profileId) {
-      const faceId = document?.selected_face_id ?? null;
-      const face = faceId
-        ? (viewport?.solid_faces.find((entry) => entry.face_id === faceId) ??
-          null)
-        : null;
-      if (
-        faceId &&
-        face &&
-        face.sketchability === "planar" &&
-        face.plane_frame
-      ) {
-        try {
-          profileId = await extrudeFromFace(faceId, face.plane_frame);
-        } catch (error) {
-          addMessage(`face extrude error: ${String(error)}`);
-          return;
-        }
-      }
-    }
-
-    if (!profileId) {
-      return;
-    }
-
-    // Snapshot whether the document already contains a solid body before
-    // we issue the extrude. Cut/Join target the most recent existing body,
-    // so they're only meaningful when at least one is already there.
     const hasExistingBody =
       (document?.feature_history ?? []).some(
         (entry) =>
@@ -519,6 +438,31 @@ function App() {
           entry.kind === "cylinder" ||
           entry.kind === "extrude",
       ) ?? false;
+
+    setExtrudeAction({
+      phase: "pending",
+      featureId: null,
+      initialDepth: DEFAULT_EXTRUDE_DEPTH,
+      initialMode: "new_body",
+      profileCount: selectedSketchProfileIds.length,
+      originalSnapshot: null,
+      canCombineWithExistingBody: hasExistingBody,
+    });
+  }
+
+  async function createExtrudeFromSelectedProfiles(
+    depth: number,
+    mode: ExtrudeMode,
+    targetBodyId: string | null,
+  ) {
+    const profileIds = selectedSketchProfileIds;
+    if (profileIds.length === 0) {
+      return;
+    }
+    if (extrudeCreateInFlightRef.current) {
+      return;
+    }
+    extrudeCreateInFlightRef.current = true;
 
     // The IPC bridge is fire-and-forget: `extrudeProfile` returns as soon as
     // the command is written to cad_core stdin, before the core has emitted
@@ -541,26 +485,71 @@ function App() {
     });
 
     await runAction(async () => {
-      await extrudeProfile(profileId, DEFAULT_EXTRUDE_DEPTH);
       try {
+        await extrudeProfile(profileIds, depth, mode, targetBodyId);
         const nextDocument = await documentPromise;
         const newFeatureId = nextDocument.selected_feature_id ?? null;
         if (!newFeatureId) {
           return;
         }
+        lastExtrudeProfileUpdateRef.current = profileIds.join("|");
         setExtrudeAction({
+          phase: "active",
           featureId: newFeatureId,
-          initialDepth: DEFAULT_EXTRUDE_DEPTH,
-          initialMode: "new_body",
+          initialDepth: depth,
+          initialMode: mode,
+          profileCount: profileIds.length,
           // Newly-created extrude: cancel = undo (handled below).
           originalSnapshot: null,
-          canCombineWithExistingBody: hasExistingBody,
+          canCombineWithExistingBody:
+            (document?.feature_history ?? []).some(
+              (entry) =>
+                entry.kind === "box" ||
+                entry.kind === "cylinder" ||
+                entry.kind === "extrude",
+            ) ?? false,
         });
       } catch (error) {
         addMessage(`extrude action error: ${String(error)}`);
+      } finally {
+        extrudeCreateInFlightRef.current = false;
       }
     });
   }
+
+  useEffect(() => {
+    if (!extrudeAction || selectedSketchProfileIds.length === 0) {
+      return;
+    }
+
+    if (extrudeAction.phase === "pending") {
+      void createExtrudeFromSelectedProfiles(
+        extrudeAction.initialDepth,
+        extrudeAction.initialMode,
+        null,
+      );
+      return;
+    }
+
+    if (!extrudeAction.featureId) {
+      return;
+    }
+
+    if (lastExtrudeProfileUpdateRef.current === selectedSketchProfileIdsKey) {
+      return;
+    }
+
+    lastExtrudeProfileUpdateRef.current = selectedSketchProfileIdsKey;
+    const nextCount = selectedSketchProfileIds.length;
+    void runAction(async () => {
+      await updateExtrudeProfiles(extrudeAction.featureId!, selectedSketchProfileIds);
+      setExtrudeAction((current) =>
+        current?.phase === "active" && current.featureId === extrudeAction.featureId
+          ? {...current, profileCount: nextCount}
+          : current,
+      );
+    });
+  }, [extrudeAction, selectedSketchProfileIdsKey]);
 
   // Latest typed value while in the "pending" phase. The panel debounces
   // its onPreviewValue callback, so a click that lands mid-typing must
@@ -814,25 +803,6 @@ function App() {
       }
 
       if (event.code === "KeyE") {
-        // Extrude accepts either a selected closed profile or a
-        // selected planar face on an existing body. The face branch
-        // is handled inside triggerExtrudeAction by orchestrating
-        // sketch creation + face projection. We still gate the
-        // hotkey so an empty E press doesn't no-op silently when
-        // nothing is selected.
-        const hasFaceCandidate = (() => {
-          const faceId = document?.selected_face_id ?? null;
-          if (!faceId) {
-            return false;
-          }
-          const face = viewport?.solid_faces.find(
-            (entry) => entry.face_id === faceId,
-          );
-          return Boolean(face && face.sketchability === "planar");
-        })();
-        if (!selectedSketchProfile && !hasFaceCandidate) {
-          return;
-        }
         event.preventDefault();
         void triggerExtrudeAction();
         return;
@@ -1204,19 +1174,7 @@ function App() {
               await addCylinderFeature(radius, height);
             });
           }}
-          canExtrude={(() => {
-            if (selectedSketchProfile) {
-              return true;
-            }
-            const faceId = document?.selected_face_id ?? null;
-            if (!faceId) {
-              return false;
-            }
-            const face = viewport?.solid_faces.find(
-              (entry) => entry.face_id === faceId,
-            );
-            return Boolean(face && face.sketchability === "planar");
-          })()}
+          canExtrude={!extrudeAction || extrudeAction.phase === "pending"}
           onExtrude={triggerExtrudeAction}
           // Modify ribbon: Fillet / Chamfer can be invoked at any
           // time outside a sketch / other floating action. Edge
@@ -1843,9 +1801,12 @@ function App() {
                   await updateSketchDimension(dimensionId, value);
                 });
               }}
-              onSelectSketchProfile={async (profileId) => {
+              onSelectSketchProfile={async (profileId, additive) => {
                 await runAction(async () => {
-                  await selectSketchProfile(profileId);
+                  await selectSketchProfile(
+                    profileId,
+                    extrudeAction ? true : additive,
+                  );
                 });
               }}
               onSetSketchTool={async (tool) => {
@@ -1860,8 +1821,51 @@ function App() {
             />
 
             <div className="pointer-events-none absolute right-4 top-4 z-10 flex max-h-[calc(100%-1rem)] w-[340px] flex-col gap-3">
-              {extrudeAction
+              {extrudeAction?.phase === "pending" ? (
+                <ExtrudePreviewPanel
+                  phase="pending"
+                  initialDepth={extrudeAction.initialDepth}
+                  initialMode={extrudeAction.initialMode}
+                  selectedProfileCount={selectedSketchProfileIds.length}
+                  canCombineWithExistingBody={
+                    extrudeAction.canCombineWithExistingBody
+                  }
+                  availableTargetBodies={viewport?.bodies ?? []}
+                  initialTargetBodyId={null}
+                  disabled={status !== "connected"}
+                  onPreviewDepth={async (depth) => {
+                    setExtrudeAction((current) =>
+                      current?.phase === "pending"
+                        ? {...current, initialDepth: depth}
+                        : current,
+                    );
+                  }}
+                  onPreviewMode={async (mode) => {
+                    setExtrudeAction((current) =>
+                      current?.phase === "pending"
+                        ? {...current, initialMode: mode}
+                        : current,
+                    );
+                  }}
+                  onPreviewTargetBody={async () => {}}
+                  onConfirm={async (depth, mode, targetBodyId) => {
+                    await createExtrudeFromSelectedProfiles(
+                      depth,
+                      mode,
+                      targetBodyId,
+                    );
+                  }}
+                  onCancel={async () => {
+                    setExtrudeAction(null);
+                  }}
+                />
+              ) : null}
+              {extrudeAction?.phase === "active" && extrudeAction.featureId
                 ? (() => {
+                    const activeExtrudeFeatureId = extrudeAction.featureId;
+                    if (!activeExtrudeFeatureId) {
+                      return null;
+                    }
                     // Bodies that the in-progress extrude can target. We
                     // exclude the extrude itself: at this point the core
                     // already created the feature in `new_body` mode and
@@ -1875,6 +1879,7 @@ function App() {
                       <ExtrudePreviewPanel
                         initialDepth={extrudeAction.initialDepth}
                         initialMode={extrudeAction.initialMode}
+                        selectedProfileCount={extrudeAction.profileCount}
                         canCombineWithExistingBody={
                           extrudeAction.canCombineWithExistingBody
                         }
@@ -1884,7 +1889,7 @@ function App() {
                         onPreviewDepth={async (depth) => {
                           await runAction(async () => {
                             await updateExtrudeDepth(
-                              extrudeAction.featureId,
+                              activeExtrudeFeatureId,
                               depth,
                             );
                           });
@@ -1892,7 +1897,7 @@ function App() {
                         onPreviewMode={async (mode) => {
                           await runAction(async () => {
                             await updateExtrudeMode(
-                              extrudeAction.featureId,
+                              activeExtrudeFeatureId,
                               mode,
                             );
                           });
@@ -1900,7 +1905,7 @@ function App() {
                         onPreviewTargetBody={async (targetBodyId) => {
                           await runAction(async () => {
                             await updateExtrudeTargetBody(
-                              extrudeAction.featureId,
+                              activeExtrudeFeatureId,
                               targetBodyId,
                             );
                           });
@@ -1921,7 +1926,7 @@ function App() {
                           const confirmedFeature =
                             document?.feature_history.find(
                               (entry) =>
-                                entry.feature_id === extrudeAction.featureId,
+                                entry.feature_id === activeExtrudeFeatureId,
                             ) ?? null;
                           const sketchFeatureId =
                             confirmedFeature?.extrude_parameters
@@ -1956,15 +1961,15 @@ function App() {
                           if (snapshot) {
                             await runAction(async () => {
                               await updateExtrudeDepth(
-                                extrudeAction.featureId,
+                                activeExtrudeFeatureId,
                                 snapshot.depth,
                               );
                               await updateExtrudeMode(
-                                extrudeAction.featureId,
+                                activeExtrudeFeatureId,
                                 snapshot.mode,
                               );
                               await updateExtrudeTargetBody(
-                                extrudeAction.featureId,
+                                activeExtrudeFeatureId,
                                 snapshot.targetBodyId,
                               );
                             });
@@ -2323,9 +2328,11 @@ function App() {
                 (body) => body.id !== featureId,
               );
               setExtrudeAction({
+                phase: "active",
                 featureId,
                 initialDepth: params.depth,
                 initialMode: params.mode,
+                profileCount: params.profile_ids?.length || 1,
                 canCombineWithExistingBody: otherBodies.length > 0,
                 originalSnapshot: {
                   depth: params.depth,

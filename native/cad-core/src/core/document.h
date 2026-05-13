@@ -43,6 +43,7 @@ struct DocumentState {
   std::optional<std::string> selected_sketch_entity_id;
   std::optional<std::string> selected_sketch_dimension_id;
   std::optional<std::string> selected_sketch_profile_id;
+  std::vector<std::string> selected_sketch_profile_ids;
   std::vector<FeatureEntry> feature_history;
 };
 
@@ -70,6 +71,9 @@ class DocumentManager {
   DocumentState update_extrude_target_body(
       const std::string& feature_id,
       const std::optional<std::string>& target_body_id);
+  DocumentState update_extrude_profiles(
+      const std::string& feature_id,
+      const std::vector<std::string>& profile_ids);
   DocumentState rename_feature(const std::string& feature_id,
                                const std::string& name);
   // Toggle a feature's suppressed flag. Suppressed features are
@@ -199,9 +203,15 @@ class DocumentManager {
                                            const std::string& second_line_id);
   DocumentState update_sketch_dimension(const std::string& dimension_id,
                                         double value);
-  DocumentState select_sketch_profile(const std::string& profile_id);
+  DocumentState select_sketch_profile(const std::string& profile_id,
+                                      bool additive = false);
   DocumentState extrude_profile(
       const std::string& profile_id,
+      double depth,
+      const std::string& mode = "new_body",
+      const std::optional<std::string>& target_body_id = std::nullopt);
+  DocumentState extrude_profiles(
+      const std::vector<std::string>& profile_ids,
       double depth,
       const std::string& mode = "new_body",
       const std::optional<std::string>& target_body_id = std::nullopt);

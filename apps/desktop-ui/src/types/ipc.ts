@@ -36,6 +36,7 @@ export interface DocumentState {
   selected_sketch_entity_id: string | null;
   selected_sketch_dimension_id: string | null;
   selected_sketch_profile_id: string | null;
+  selected_sketch_profile_ids: string[];
   feature_history: FeatureEntry[];
 }
 
@@ -832,6 +833,7 @@ export interface SelectSketchProfileCommand {
   type: "select_sketch_profile";
   payload: {
     profile_id: string;
+    additive?: boolean;
   };
 }
 
@@ -841,7 +843,8 @@ export interface ExtrudeProfileCommand {
   id: string;
   type: "extrude_profile";
   payload: {
-    profile_id: string;
+    profile_id?: string;
+    profile_ids?: string[];
     depth: number;
     mode?: ExtrudeMode;
     target_body_id?: string;
@@ -865,6 +868,15 @@ export interface UpdateExtrudeTargetBodyCommand {
     // Omit (or set undefined) to clear the explicit target and fall back
     // to the most recent body.
     target_body_id?: string;
+  };
+}
+
+export interface UpdateExtrudeProfilesCommand {
+  id: string;
+  type: "update_extrude_profiles";
+  payload: {
+    feature_id: string;
+    profile_ids: string[];
   };
 }
 
@@ -937,6 +949,7 @@ export type CoreCommand =
   | UpdateExtrudeDepthCommand
   | UpdateExtrudeModeCommand
   | UpdateExtrudeTargetBodyCommand
+  | UpdateExtrudeProfilesCommand
   | RenameFeatureCommand
   | SetFeatureSuppressedCommand
   | DeleteFeatureCommand

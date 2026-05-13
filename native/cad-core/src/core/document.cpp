@@ -179,6 +179,23 @@ PlaneFrame make_plane_frame(
   };
 }
 
+std::vector<SketchProfilePoint> sample_circle_profile_points(
+    const SketchProfileRegion& profile) {
+  std::vector<SketchProfilePoint> points;
+  constexpr int kCircleSegments = 64;
+  points.reserve(kCircleSegments);
+  for (int index = 0; index < kCircleSegments; ++index) {
+    const double angle =
+        (static_cast<double>(index) / static_cast<double>(kCircleSegments)) *
+        2.0 * 3.14159265358979323846;
+    points.push_back(SketchProfilePoint{
+        .x = profile.center_x + profile.radius * std::cos(angle),
+        .y = profile.center_y + profile.radius * std::sin(angle),
+    });
+  }
+  return points;
+}
+
 std::optional<ExtrudeFeatureParameters> make_extrude_parameters_for_profile(
     const FeatureEntry& sketch_feature,
     const SketchProfileRegion& profile,
@@ -200,6 +217,7 @@ std::optional<ExtrudeFeatureParameters> make_extrude_parameters_for_profile(
     return ExtrudeFeatureParameters{
         .sketch_feature_id = sketch_feature.id,
         .profile_id = profile.id,
+        .profile_ids = {profile.id},
         .plane_id = plane_id,
         .plane_frame = plane_frame,
         .profile_kind = "polygon",
@@ -209,6 +227,7 @@ std::optional<ExtrudeFeatureParameters> make_extrude_parameters_for_profile(
         .height = 0.0,
         .radius = 0.0,
         .profile_points = profile.points,
+        .inner_loops = profile.inner_loops,
         .depth = depth,
     };
   }
@@ -217,6 +236,7 @@ std::optional<ExtrudeFeatureParameters> make_extrude_parameters_for_profile(
     return ExtrudeFeatureParameters{
         .sketch_feature_id = sketch_feature.id,
         .profile_id = profile.id,
+        .profile_ids = {profile.id},
         .plane_id = plane_id,
         .plane_frame = plane_frame,
         .profile_kind = "circle",
@@ -258,6 +278,8 @@ void refresh_linked_extrudes(DocumentState& document,
     }
 
     const double depth = feature.extrude_parameters->depth;
+    const std::string mode = feature.extrude_parameters->mode;
+    const auto target_body_id = feature.extrude_parameters->target_body_id;
     const auto next_parameters =
         make_extrude_parameters_for_profile(sketch_feature, *profile_it, depth);
     if (!next_parameters.has_value()) {
@@ -267,6 +289,8 @@ void refresh_linked_extrudes(DocumentState& document,
     }
 
     feature.extrude_parameters = next_parameters.value();
+    feature.extrude_parameters->mode = mode;
+    feature.extrude_parameters->target_body_id = target_body_id;
     feature.status = "healthy";
     feature.parameters_summary =
         feature.extrude_parameters->profile_id + " · " +
@@ -335,6 +359,7 @@ DocumentState DocumentManager::create_document() {
       .selected_sketch_entity_id = std::nullopt,
       .selected_sketch_dimension_id = std::nullopt,
       .selected_sketch_profile_id = std::nullopt,
+      .selected_sketch_profile_ids = {},
       .feature_history = {make_root_feature()},
   };
 
@@ -641,6 +666,7 @@ DocumentState DocumentManager::select_feature(const std::string& feature_id) {
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   return document_.value();
 }
 
@@ -660,6 +686,7 @@ DocumentState DocumentManager::select_reference(const std::string& reference_id)
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   return document_.value();
 }
 
@@ -706,6 +733,7 @@ DocumentState DocumentManager::start_sketch_on_plane(
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -735,6 +763,7 @@ DocumentState DocumentManager::select_face(const std::string& face_id) {
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   return document_.value();
 }
 
@@ -789,6 +818,7 @@ DocumentState DocumentManager::select_edge(const std::string& edge_id,
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   return document_.value();
 }
 
@@ -840,6 +870,7 @@ DocumentState DocumentManager::select_vertex(const std::string& vertex_id,
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   return document_.value();
 }
 
@@ -1279,6 +1310,7 @@ DocumentState DocumentManager::start_sketch_on_face(
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -1311,6 +1343,7 @@ DocumentState DocumentManager::set_sketch_tool(const std::string& tool) {
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   return document_.value();
 }
 
@@ -1346,6 +1379,7 @@ DocumentState DocumentManager::update_sketch_line(const std::string& line_id,
   document_->selected_sketch_entity_id = line_id;
   document_->selected_sketch_dimension_id = "dim-line-" + line_id;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -1379,6 +1413,7 @@ DocumentState DocumentManager::update_sketch_point(const std::string& point_id,
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -1412,6 +1447,7 @@ DocumentState DocumentManager::set_sketch_line_constraint(
   document_->selected_sketch_entity_id = line_id;
   document_->selected_sketch_dimension_id = "dim-line-" + line_id;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -1453,6 +1489,7 @@ DocumentState DocumentManager::set_sketch_line_construction(
     document_->selected_sketch_dimension_id = std::nullopt;
   }
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -1548,6 +1585,7 @@ DocumentState DocumentManager::set_sketch_equal_length_constraint(
   document_->selected_sketch_entity_id = line_id;
   document_->selected_sketch_dimension_id = "dim-line-" + line_id;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -1582,6 +1620,7 @@ DocumentState DocumentManager::set_sketch_perpendicular_constraint(
   document_->selected_sketch_entity_id = line_id;
   document_->selected_sketch_dimension_id = "dim-line-" + line_id;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -1720,6 +1759,7 @@ DocumentState DocumentManager::set_sketch_parallel_constraint(
   document_->selected_sketch_entity_id = line_id;
   document_->selected_sketch_dimension_id = "dim-line-" + line_id;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -1753,6 +1793,7 @@ DocumentState DocumentManager::set_sketch_coincident_constraint(
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -1785,6 +1826,7 @@ DocumentState DocumentManager::set_sketch_point_fixed(const std::string& point_i
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -1820,6 +1862,7 @@ DocumentState DocumentManager::update_sketch_circle(const std::string& circle_id
   document_->selected_sketch_entity_id = circle_id;
   document_->selected_sketch_dimension_id = "dim-circle-" + circle_id;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -1882,6 +1925,7 @@ DocumentState DocumentManager::update_sketch_dimension(
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   if (feature_it->sketch_parameters.has_value()) {
     const auto dimension_it = std::find_if(
         feature_it->sketch_parameters->dimensions.begin(),
@@ -1919,7 +1963,8 @@ std::vector<FeatureEntry>::iterator find_sketch_feature_owning_profile(
 
 }  // namespace
 
-DocumentState DocumentManager::select_sketch_profile(const std::string& profile_id) {
+DocumentState DocumentManager::select_sketch_profile(const std::string& profile_id,
+                                                     bool additive) {
   require_document();
 
   // Selection of profiles is allowed both inside and outside an active sketch.
@@ -1944,7 +1989,21 @@ DocumentState DocumentManager::select_sketch_profile(const std::string& profile_
   document_->selected_sketch_point_id = std::nullopt;
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
-  document_->selected_sketch_profile_id = profile_id;
+  if (additive) {
+    auto& selected = document_->selected_sketch_profile_ids;
+    const auto existing = std::find(selected.begin(), selected.end(), profile_id);
+    if (existing == selected.end()) {
+      selected.push_back(profile_id);
+    } else {
+      selected.erase(existing);
+    }
+  } else {
+    document_->selected_sketch_profile_ids = {profile_id};
+  }
+  document_->selected_sketch_profile_id =
+      document_->selected_sketch_profile_ids.empty()
+          ? std::optional<std::string>{}
+          : std::optional<std::string>{document_->selected_sketch_profile_ids.back()};
   return document_.value();
 }
 
@@ -1953,91 +2012,98 @@ DocumentState DocumentManager::extrude_profile(
     double depth,
     const std::string& mode,
     const std::optional<std::string>& target_body_id) {
+  return extrude_profiles({profile_id}, depth, mode, target_body_id);
+}
+
+DocumentState DocumentManager::extrude_profiles(
+    const std::vector<std::string>& profile_ids,
+    double depth,
+    const std::string& mode,
+    const std::optional<std::string>& target_body_id) {
   require_document();
+  if (profile_ids.empty()) {
+    throw std::runtime_error("No sketch profiles selected");
+  }
 
   // Extrusion runs on any sketch profile in the document, even if its parent
   // sketch is finished (i.e. not the active sketch).
   const auto feature_it = find_sketch_feature_owning_profile(
-      document_->feature_history, profile_id);
+      document_->feature_history, profile_ids.front());
 
   if (feature_it == document_->feature_history.end()) {
-    throw std::runtime_error("Sketch profile not found: " + profile_id);
+    throw std::runtime_error("Sketch profile not found: " + profile_ids.front());
+  }
+
+  const auto& sketch = feature_it->sketch_parameters.value();
+  std::vector<SketchProfileRegion> selected_profiles;
+  for (const auto& profile_id : profile_ids) {
+    const auto owner_it = find_sketch_feature_owning_profile(
+        document_->feature_history, profile_id);
+    if (owner_it == document_->feature_history.end() ||
+        owner_it->id != feature_it->id) {
+      throw std::runtime_error(
+          "Selected profiles must belong to the same sketch plane");
+    }
+    const auto profile_it = std::find_if(
+        sketch.profiles.begin(), sketch.profiles.end(),
+        [&](const SketchProfileRegion& profile) { return profile.id == profile_id; });
+    if (profile_it == sketch.profiles.end()) {
+      throw std::runtime_error("Sketch profile not found: " + profile_id);
+    }
+    selected_profiles.push_back(*profile_it);
   }
 
   std::optional<ExtrudeFeatureParameters> extrude_parameters;
-
-  for (const auto& profile : feature_it->sketch_parameters->profiles) {
-    if (profile.id != profile_id || profile.kind != "polygon") {
-      continue;
+  if (selected_profiles.size() == 1 && selected_profiles.front().kind == "circle") {
+    extrude_parameters =
+        make_extrude_parameters_for_profile(*feature_it,
+                                            selected_profiles.front(),
+                                            depth);
+  } else {
+    const auto& first = selected_profiles.front();
+    const std::string plane_id =
+        sketch.plane_frame.has_value() ? plane_id_from_frame(sketch.plane_frame.value())
+                                       : sketch.plane_id;
+    const std::optional<PlaneFrame> plane_frame =
+        sketch.plane_frame.has_value()
+            ? std::optional<PlaneFrame>(make_plane_frame(sketch.plane_frame.value()))
+            : std::nullopt;
+    std::vector<std::string> ids;
+    for (const auto& profile : selected_profiles) {
+      ids.push_back(profile.id);
     }
-
+    auto first_points = first.kind == "circle"
+                            ? sample_circle_profile_points(first)
+                            : first.points;
     extrude_parameters = ExtrudeFeatureParameters{
         .sketch_feature_id = feature_it->id,
-        .profile_id = profile_id,
-        .plane_id = feature_it->sketch_parameters->plane_frame.has_value()
-                        ? plane_id_from_frame(
-                              feature_it->sketch_parameters->plane_frame.value())
-                        : feature_it->sketch_parameters->plane_id,
-        .plane_frame = feature_it->sketch_parameters->plane_frame.has_value()
-                           ? std::optional<PlaneFrame>(
-                                 make_plane_frame(
-                                     feature_it->sketch_parameters->plane_frame.value()))
-                           : std::nullopt,
+        .profile_id = ids.front(),
+        .profile_ids = ids,
+        .plane_id = plane_id,
+        .plane_frame = plane_frame,
         .profile_kind = "polygon",
         .start_x = 0.0,
         .start_y = 0.0,
         .width = 0.0,
         .height = 0.0,
         .radius = 0.0,
-        .profile_points = profile.points,
+        .profile_points = first_points,
+        .inner_loops = first.inner_loops,
         .depth = depth,
-        .mode = mode,
-        .target_body_id = target_body_id,
     };
-    break;
-  }
-
-  if (!extrude_parameters.has_value()) {
-    for (const auto& profile : feature_it->sketch_parameters->profiles) {
-      if (profile.id != profile_id || profile.kind != "circle") {
-        continue;
-      }
-
-      extrude_parameters = ExtrudeFeatureParameters{
-          .sketch_feature_id = feature_it->id,
-          .profile_id = profile_id,
-          .plane_id = feature_it->sketch_parameters->plane_frame.has_value()
-                          ? plane_id_from_frame(
-                                feature_it->sketch_parameters->plane_frame.value())
-                          : feature_it->sketch_parameters->plane_id,
-          .plane_frame = feature_it->sketch_parameters->plane_frame.has_value()
-                             ? std::optional<PlaneFrame>(
-                                   make_plane_frame(
-                                       feature_it->sketch_parameters->plane_frame.value()))
-                             : std::nullopt,
-          .profile_kind = "circle",
-          .start_x = profile.center_x,
-          .start_y = profile.center_y,
-          .width = 0.0,
-          .height = 0.0,
-          .radius = profile.radius,
-          .profile_points = {},
-          .depth = depth,
-          .mode = mode,
-          .target_body_id = target_body_id,
-      };
-
-      if (feature_it->sketch_parameters->plane_id != "ref-plane-xy") {
-        throw std::runtime_error(
-            "Circle extrude currently supports the XY plane only");
-      }
-      break;
+    for (size_t index = 1; index < selected_profiles.size(); ++index) {
+      const auto& profile = selected_profiles[index];
+      extrude_parameters->additional_profile_points.push_back(
+          profile.kind == "circle" ? sample_circle_profile_points(profile)
+                                   : profile.points);
+      extrude_parameters->additional_inner_loops.push_back(profile.inner_loops);
     }
   }
-
   if (!extrude_parameters.has_value()) {
-    throw std::runtime_error("Sketch profile not found: " + profile_id);
+    throw std::runtime_error("Sketch profile not found");
   }
+  extrude_parameters->mode = mode;
+  extrude_parameters->target_body_id = target_body_id;
 
   // Auto-cut detection (Fusion-style): when the user invokes a default
   // new_body extrude on a profile whose swept volume overlaps an
@@ -2066,7 +2132,113 @@ DocumentState DocumentManager::extrude_profile(
   document_->selected_sketch_point_id = std::nullopt;
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
-  document_->selected_sketch_profile_id = std::nullopt;
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::update_extrude_profiles(
+    const std::string& feature_id,
+    const std::vector<std::string>& profile_ids) {
+  require_document();
+  if (profile_ids.empty()) {
+    throw std::runtime_error("No sketch profiles selected");
+  }
+
+  const auto extrude_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+  if (extrude_it == document_->feature_history.end()) {
+    throw std::runtime_error("Feature not found: " + feature_id);
+  }
+  if (extrude_it->kind != "extrude" ||
+      !extrude_it->extrude_parameters.has_value()) {
+    throw std::runtime_error(
+        "update_extrude_profiles requires an extrude feature: " + feature_id);
+  }
+
+  const auto sketch_it = find_sketch_feature_owning_profile(
+      document_->feature_history, profile_ids.front());
+  if (sketch_it == document_->feature_history.end()) {
+    throw std::runtime_error("Sketch profile not found: " + profile_ids.front());
+  }
+
+  const auto& sketch = sketch_it->sketch_parameters.value();
+  std::vector<SketchProfileRegion> selected_profiles;
+  for (const auto& profile_id : profile_ids) {
+    const auto owner_it = find_sketch_feature_owning_profile(
+        document_->feature_history, profile_id);
+    if (owner_it == document_->feature_history.end() ||
+        owner_it->id != sketch_it->id) {
+      throw std::runtime_error(
+          "Selected profiles must belong to the same sketch plane");
+    }
+    const auto profile_it = std::find_if(
+        sketch.profiles.begin(), sketch.profiles.end(),
+        [&](const SketchProfileRegion& profile) { return profile.id == profile_id; });
+    if (profile_it == sketch.profiles.end()) {
+      throw std::runtime_error("Sketch profile not found: " + profile_id);
+    }
+    selected_profiles.push_back(*profile_it);
+  }
+
+  const double depth = extrude_it->extrude_parameters->depth;
+  const std::string mode = extrude_it->extrude_parameters->mode;
+  const auto target_body_id = extrude_it->extrude_parameters->target_body_id;
+  std::optional<ExtrudeFeatureParameters> next_parameters;
+  if (selected_profiles.size() == 1 && selected_profiles.front().kind == "circle") {
+    next_parameters =
+        make_extrude_parameters_for_profile(*sketch_it,
+                                            selected_profiles.front(),
+                                            depth);
+  } else {
+    const auto& first = selected_profiles.front();
+    const std::string plane_id =
+        sketch.plane_frame.has_value() ? plane_id_from_frame(sketch.plane_frame.value())
+                                       : sketch.plane_id;
+    const std::optional<PlaneFrame> plane_frame =
+        sketch.plane_frame.has_value()
+            ? std::optional<PlaneFrame>(make_plane_frame(sketch.plane_frame.value()))
+            : std::nullopt;
+    std::vector<std::string> ids;
+    for (const auto& profile : selected_profiles) {
+      ids.push_back(profile.id);
+    }
+    next_parameters = ExtrudeFeatureParameters{
+        .sketch_feature_id = sketch_it->id,
+        .profile_id = ids.front(),
+        .profile_ids = ids,
+        .plane_id = plane_id,
+        .plane_frame = plane_frame,
+        .profile_kind = "polygon",
+        .start_x = 0.0,
+        .start_y = 0.0,
+        .width = 0.0,
+        .height = 0.0,
+        .radius = 0.0,
+        .profile_points = first.kind == "circle"
+                              ? sample_circle_profile_points(first)
+                              : first.points,
+        .inner_loops = first.inner_loops,
+        .depth = depth,
+    };
+    for (size_t index = 1; index < selected_profiles.size(); ++index) {
+      const auto& profile = selected_profiles[index];
+      next_parameters->additional_profile_points.push_back(
+          profile.kind == "circle" ? sample_circle_profile_points(profile)
+                                   : profile.points);
+      next_parameters->additional_inner_loops.push_back(profile.inner_loops);
+    }
+  }
+  if (!next_parameters.has_value()) {
+    throw std::runtime_error("Sketch profile not found");
+  }
+  next_parameters->mode = mode;
+  next_parameters->target_body_id = target_body_id;
+  extrude_it->extrude_parameters = next_parameters.value();
+  extrude_it->parameters_summary =
+      extrude_it->extrude_parameters->profile_id + " · " +
+      std::to_string(extrude_it->extrude_parameters->depth) + " mm";
   bump_geometry_revision();
   return document_.value();
 }
@@ -2121,6 +2293,7 @@ DocumentState DocumentManager::add_sketch_line(double start_x,
       dim_it != dims.end() ? std::optional<std::string>{dim_it->id}
                            : std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   document_->active_sketch_tool = "line";
   bump_geometry_revision();
   return document_.value();
@@ -2159,6 +2332,7 @@ DocumentState DocumentManager::add_sketch_rectangle(double start_x,
   document_->selected_sketch_dimension_id =
       feature_it->sketch_parameters->dimensions.back().id;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   document_->active_sketch_tool = "rectangle";
   bump_geometry_revision();
   return document_.value();
@@ -2432,6 +2606,7 @@ DocumentState DocumentManager::add_sketch_circle(double center_x,
   document_->selected_sketch_dimension_id =
       feature_it->sketch_parameters->dimensions.back().id;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   document_->active_sketch_tool = "circle";
   bump_geometry_revision();
   return document_.value();
@@ -2469,6 +2644,7 @@ DocumentState DocumentManager::select_sketch_point(const std::string& point_id) 
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   return document_.value();
 }
 
@@ -2518,6 +2694,7 @@ DocumentState DocumentManager::select_sketch_entity(const std::string& entity_id
           ? std::make_optional(dimension_it->id)
           : std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   return document_.value();
 }
 
@@ -2555,6 +2732,7 @@ DocumentState DocumentManager::select_sketch_dimension(
   document_->selected_sketch_entity_id = dimension_it->entity_id;
   document_->selected_sketch_dimension_id = dimension_it->id;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   return document_.value();
 }
 
@@ -2588,6 +2766,7 @@ DocumentState DocumentManager::finish_sketch() {
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -2630,6 +2809,7 @@ DocumentState DocumentManager::reenter_sketch(const std::string& feature_id) {
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -2829,6 +3009,7 @@ DocumentState DocumentManager::project_face_into_sketch(
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   bump_geometry_revision();
 
   return document_.value();
@@ -3068,6 +3249,7 @@ DocumentState DocumentManager::project_edge_into_sketch(
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   bump_geometry_revision();
 
   return document_.value();
@@ -3134,6 +3316,7 @@ DocumentState DocumentManager::project_vertex_into_sketch(
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   bump_geometry_revision();
 
   return document_.value();
@@ -3178,6 +3361,7 @@ DocumentState DocumentManager::create_offset_plane(
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -3237,6 +3421,7 @@ DocumentState DocumentManager::clear_selection() {
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
   return document_.value();
 }
 

@@ -37,6 +37,7 @@ export interface PolygonExtrudeScenePrimitive {
     normal: [number, number, number];
   } | null;
   profilePoints: [number, number][];
+  innerLoops: [number, number][][];
   depth: number;
   isSelected: boolean;
 }
@@ -229,6 +230,7 @@ export interface SketchProfileScene {
   } | null;
   profileKind: "polygon" | "circle";
   profilePoints: [number, number][];
+  innerLoops: [number, number][][];
   start: [number, number];
   width: number;
   height: number;

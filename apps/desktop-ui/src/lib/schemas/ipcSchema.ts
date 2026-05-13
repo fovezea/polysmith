@@ -38,6 +38,7 @@ const documentStateSchema = z.object({
   selected_sketch_entity_id: z.string().nullable(),
   selected_sketch_dimension_id: z.string().nullable(),
   selected_sketch_profile_id: z.string().nullable(),
+  selected_sketch_profile_ids: z.array(z.string()).default([]),
   feature_history: z.array(
     z.object({
       feature_id: z.string(),
@@ -69,6 +70,7 @@ const documentStateSchema = z.object({
         .object({
           sketch_feature_id: z.string(),
           profile_id: z.string(),
+          profile_ids: z.array(z.string()).default([]),
           plane_id: z.string(),
           plane_frame: z
             .object({
@@ -90,6 +92,17 @@ const documentStateSchema = z.object({
               y: z.number(),
             }),
           ),
+          inner_loops: z
+            .array(z.array(z.object({ x: z.number(), y: z.number() })))
+            .default([]),
+          additional_profile_points: z
+            .array(z.array(z.object({ x: z.number(), y: z.number() })))
+            .default([]),
+          additional_inner_loops: z
+            .array(
+              z.array(z.array(z.object({ x: z.number(), y: z.number() }))),
+            )
+            .default([]),
           depth: z.number(),
           mode: z.enum(["new_body", "join", "cut"]).default("new_body"),
           target_body_id: z.string().nullable().default(null),
@@ -317,6 +330,9 @@ const documentStateSchema = z.object({
                   y: z.number(),
                 }),
               ),
+              inner_loops: z
+                .array(z.array(z.object({ x: z.number(), y: z.number() })))
+                .default([]),
               source_circle_id: z.string().nullable(),
               center_x: z.number(),
               center_y: z.number(),
@@ -419,6 +435,9 @@ const viewportStateSchema = z.object({
           y: z.number(),
         }),
       ),
+      inner_loops: z
+        .array(z.array(z.object({ x: z.number(), y: z.number() })))
+        .default([]),
       depth: z.number(),
       is_selected: z.boolean(),
     }),

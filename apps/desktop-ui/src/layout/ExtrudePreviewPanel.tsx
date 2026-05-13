@@ -10,8 +10,10 @@ interface ExtrudeTargetBodyOption {
 }
 
 interface ExtrudePreviewPanelProps {
+  phase?: "pending" | "active";
   initialDepth: number;
   initialMode: ExtrudeMode;
+  selectedProfileCount?: number;
   // True if there is at least one prior body that a join/cut can target.
   // When false, the cut/join radio choices are disabled (a non-empty target
   // body is required for boolean composition).
@@ -25,7 +27,11 @@ interface ExtrudePreviewPanelProps {
   onPreviewDepth: (depth: number) => Promise<void>;
   onPreviewMode: (mode: ExtrudeMode) => Promise<void>;
   onPreviewTargetBody: (targetBodyId: string | null) => Promise<void>;
-  onConfirm: () => void;
+  onConfirm: (
+    depth: number,
+    mode: ExtrudeMode,
+    targetBodyId: string | null,
+  ) => void | Promise<void>;
   onCancel: () => Promise<void>;
 }
 
@@ -34,8 +40,10 @@ interface ExtrudePreviewPanelProps {
 // viewport is showing a real preview. Typing here drives update_extrude_depth
 // for live updates; Enter/Confirm closes; Escape/Cancel undoes.
 export function ExtrudePreviewPanel({
+  phase = "active",
   initialDepth,
   initialMode,
+  selectedProfileCount = 1,
   canCombineWithExistingBody,
   availableTargetBodies,
   initialTargetBodyId,
@@ -74,6 +82,12 @@ export function ExtrudePreviewPanel({
   function handleDepthChange(nextValue: string) {
     setDepth(nextValue);
     const parsed = Number(nextValue);
+    if (phase === "pending") {
+      if (Number.isFinite(parsed) && parsed !== 0) {
+        void onPreviewDepthRef.current(parsed);
+      }
+      return;
+    }
     // Signed depth: a negative depth extrudes in the -normal direction.
     // Zero is rejected because it would build a degenerate (volumeless)
     // shape, so we don't fire a preview for it.
@@ -118,14 +132,25 @@ export function ExtrudePreviewPanel({
   }
 
   async function handleConfirm() {
-    await flushPendingDepth();
-    onConfirm();
+    if (phase === "active") {
+      await flushPendingDepth();
+    }
+    const parsed = Number(depth);
+    if (!Number.isFinite(parsed) || parsed === 0) {
+      return;
+    }
+    await onConfirm(parsed, mode, targetBodyId);
   }
 
   return (
     <section className="pointer-events-auto cad-floating-panel px-5 py-5">
       <p className="cad-kicker">Action</p>
       <h2 className="cad-title mt-2">Extrude</h2>
+      <div className="mt-3 rounded-md bg-surface-container-low px-3 py-2 text-xs uppercase tracking-[0.16em] text-on-surface-muted">
+        {selectedProfileCount === 1
+          ? "1 face selected"
+          : `${selectedProfileCount} faces selected`}
+      </div>
       <form
         className="mt-4 space-y-4"
         onSubmit={(event) => {
@@ -227,7 +252,10 @@ export function ExtrudePreviewPanel({
             type="submit"
             className="cad-action-primary flex-1"
             disabled={
-              disabled || Number(depth) === 0 || !Number.isFinite(Number(depth))
+              disabled ||
+              (phase === "pending" && selectedProfileCount === 0) ||
+              Number(depth) === 0 ||
+              !Number.isFinite(Number(depth))
             }
           >
             Confirm

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <deque>
+#include <limits>
 #include <map>
 #include <optional>
 #include <set>
@@ -192,6 +193,25 @@ struct EdgeLoopCandidate {
   std::vector<std::string> edge_ids;
 };
 
+struct LineSegment {
+  std::string line_id;
+  SketchProfilePoint start;
+  SketchProfilePoint end;
+};
+
+struct ArrangementEdge {
+  std::string line_id;
+  int start_node;
+  int end_node;
+};
+
+struct ArrangementFace {
+  std::vector<SketchProfilePoint> points;
+  std::vector<std::string> point_ids;
+  std::vector<std::string> line_ids;
+  double area;
+};
+
 std::optional<EdgeLoopCandidate> detect_edge_loop(
     const std::vector<ProfileEdge>& edges) {
   if (edges.size() < 2) {
@@ -376,6 +396,306 @@ std::vector<std::vector<ProfileEdge>> split_edge_components(
   return components;
 }
 
+double cross(double ax, double ay, double bx, double by) {
+  return ax * by - ay * bx;
+}
+
+double segment_parameter(const LineSegment& segment,
+                         const SketchProfilePoint& point) {
+  const double dx = segment.end.x - segment.start.x;
+  const double dy = segment.end.y - segment.start.y;
+  const double length_sq = dx * dx + dy * dy;
+  if (length_sq <= kProfileTolerance * kProfileTolerance) {
+    return 0.0;
+  }
+  return ((point.x - segment.start.x) * dx + (point.y - segment.start.y) * dy) /
+         length_sq;
+}
+
+std::optional<SketchProfilePoint> line_intersection(
+    const LineSegment& left, const LineSegment& right) {
+  const double px = left.start.x;
+  const double py = left.start.y;
+  const double rx = left.end.x - left.start.x;
+  const double ry = left.end.y - left.start.y;
+  const double qx = right.start.x;
+  const double qy = right.start.y;
+  const double sx = right.end.x - right.start.x;
+  const double sy = right.end.y - right.start.y;
+
+  const double denominator = cross(rx, ry, sx, sy);
+  if (std::abs(denominator) <= kProfileTolerance) {
+    return std::nullopt;
+  }
+
+  const double qpx = qx - px;
+  const double qpy = qy - py;
+  const double t = cross(qpx, qpy, sx, sy) / denominator;
+  const double u = cross(qpx, qpy, rx, ry) / denominator;
+  if (t < -kProfileTolerance || t > 1.0 + kProfileTolerance ||
+      u < -kProfileTolerance || u > 1.0 + kProfileTolerance) {
+    return std::nullopt;
+  }
+
+  return SketchProfilePoint{.x = px + rx * t, .y = py + ry * t};
+}
+
+bool point_in_polygon(const SketchProfilePoint& point,
+                      const std::vector<SketchProfilePoint>& polygon) {
+  bool inside = false;
+  for (size_t i = 0, j = polygon.size() - 1; i < polygon.size(); j = i++) {
+    const auto& a = polygon[i];
+    const auto& b = polygon[j];
+    const bool crosses = ((a.y > point.y) != (b.y > point.y)) &&
+                         (point.x < (b.x - a.x) * (point.y - a.y) /
+                                            (b.y - a.y) +
+                                        a.x);
+    if (crosses) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+SketchProfilePoint polygon_centroid(
+    const std::vector<SketchProfilePoint>& polygon) {
+  if (polygon.empty()) {
+    return SketchProfilePoint{.x = 0.0, .y = 0.0};
+  }
+
+  double x = 0.0;
+  double y = 0.0;
+  for (const auto& point : polygon) {
+    x += point.x;
+    y += point.y;
+  }
+  const double count = static_cast<double>(polygon.size());
+  return SketchProfilePoint{.x = x / count, .y = y / count};
+}
+
+void apply_nested_polygon_holes(std::vector<SketchProfileRegion>& profiles) {
+  for (auto& inner : profiles) {
+    if (inner.kind != "polygon" || inner.points.size() < 3) {
+      continue;
+    }
+
+    const SketchProfilePoint inner_center = polygon_centroid(inner.points);
+    const double inner_area = std::abs(polygon_signed_area(inner.points));
+    SketchProfileRegion* containing_profile = nullptr;
+    double containing_area = std::numeric_limits<double>::max();
+
+    for (auto& candidate : profiles) {
+      if (&candidate == &inner || candidate.kind != "polygon" ||
+          candidate.points.size() < 3) {
+        continue;
+      }
+
+      const double candidate_area =
+          std::abs(polygon_signed_area(candidate.points));
+      if (candidate_area <= inner_area + kProfileTolerance ||
+          candidate_area >= containing_area) {
+        continue;
+      }
+
+      if (point_in_polygon(inner_center, candidate.points)) {
+        containing_profile = &candidate;
+        containing_area = candidate_area;
+      }
+    }
+
+    if (containing_profile != nullptr) {
+      containing_profile->inner_loops.push_back(inner.points);
+      containing_profile->id += "-hole-" + inner.id;
+    }
+  }
+}
+
+std::vector<SketchProfilePoint> sample_circle_loop(const SketchCircle& circle) {
+  std::vector<SketchProfilePoint> points;
+  constexpr int kCircleSegments = 64;
+  points.reserve(kCircleSegments);
+  for (int index = 0; index < kCircleSegments; ++index) {
+    const double angle =
+        (static_cast<double>(index) / static_cast<double>(kCircleSegments)) *
+        2.0 * kPi;
+    points.push_back(SketchProfilePoint{
+        .x = circle.center_x + circle.radius * std::cos(angle),
+        .y = circle.center_y + circle.radius * std::sin(angle),
+    });
+  }
+  return points;
+}
+
+std::vector<ArrangementFace> detect_line_arrangement_faces(
+    const SketchFeatureParameters& parameters) {
+  std::vector<LineSegment> segments;
+  for (const auto& line : parameters.lines) {
+    if (line.is_construction) {
+      continue;
+    }
+    const SketchProfilePoint start{.x = line.start_x, .y = line.start_y};
+    const SketchProfilePoint end{.x = line.end_x, .y = line.end_y};
+    if (points_match(start, end)) {
+      continue;
+    }
+    segments.push_back(LineSegment{.line_id = line.id, .start = start, .end = end});
+  }
+
+  std::vector<std::vector<SketchProfilePoint>> split_points(segments.size());
+  for (size_t index = 0; index < segments.size(); ++index) {
+    split_points[index].push_back(segments[index].start);
+    split_points[index].push_back(segments[index].end);
+  }
+
+  for (size_t left = 0; left < segments.size(); ++left) {
+    for (size_t right = left + 1; right < segments.size(); ++right) {
+      if (const auto intersection =
+              line_intersection(segments[left], segments[right]);
+          intersection.has_value()) {
+        split_points[left].push_back(intersection.value());
+        split_points[right].push_back(intersection.value());
+      }
+    }
+  }
+
+  std::map<std::string, int> node_by_key;
+  std::vector<SketchProfilePoint> nodes;
+  auto node_index_for = [&](const SketchProfilePoint& point) {
+    const std::string key = make_node_key(point);
+    const auto existing = node_by_key.find(key);
+    if (existing != node_by_key.end()) {
+      return existing->second;
+    }
+    const int next_index = static_cast<int>(nodes.size());
+    node_by_key[key] = next_index;
+    nodes.push_back(point);
+    return next_index;
+  };
+
+  std::vector<ArrangementEdge> edges;
+  std::set<std::string> edge_keys;
+  for (size_t index = 0; index < segments.size(); ++index) {
+    auto points = split_points[index];
+    std::sort(points.begin(), points.end(), [&](const auto& left, const auto& right) {
+      return segment_parameter(segments[index], left) <
+             segment_parameter(segments[index], right);
+    });
+    points.erase(std::unique(points.begin(), points.end(), points_match),
+                 points.end());
+
+    for (size_t point_index = 1; point_index < points.size(); ++point_index) {
+      const int start_node = node_index_for(points[point_index - 1]);
+      const int end_node = node_index_for(points[point_index]);
+      if (start_node == end_node) {
+        continue;
+      }
+      const int low = std::min(start_node, end_node);
+      const int high = std::max(start_node, end_node);
+      const std::string key = std::to_string(low) + ":" + std::to_string(high);
+      if (edge_keys.contains(key)) {
+        continue;
+      }
+      edge_keys.insert(key);
+      edges.push_back(ArrangementEdge{
+          .line_id = segments[index].line_id,
+          .start_node = start_node,
+          .end_node = end_node,
+      });
+    }
+  }
+
+  std::vector<std::vector<int>> adjacency(nodes.size());
+  for (const auto& edge : edges) {
+    adjacency[edge.start_node].push_back(edge.end_node);
+    adjacency[edge.end_node].push_back(edge.start_node);
+  }
+  for (size_t node_index = 0; node_index < adjacency.size(); ++node_index) {
+    auto& neighbors = adjacency[node_index];
+    std::sort(neighbors.begin(), neighbors.end(), [&](int left, int right) {
+      const auto& origin = nodes[node_index];
+      const double left_angle =
+          std::atan2(nodes[left].y - origin.y, nodes[left].x - origin.x);
+      const double right_angle =
+          std::atan2(nodes[right].y - origin.y, nodes[right].x - origin.x);
+      return left_angle < right_angle;
+    });
+  }
+
+  std::map<std::pair<int, int>, std::string> line_for_directed_edge;
+  for (const auto& edge : edges) {
+    line_for_directed_edge[{edge.start_node, edge.end_node}] = edge.line_id;
+    line_for_directed_edge[{edge.end_node, edge.start_node}] = edge.line_id;
+  }
+
+  std::set<std::pair<int, int>> visited;
+  std::vector<ArrangementFace> faces;
+  for (const auto& edge : edges) {
+    for (const auto& directed :
+         {std::pair<int, int>{edge.start_node, edge.end_node},
+          std::pair<int, int>{edge.end_node, edge.start_node}}) {
+      if (visited.contains(directed)) {
+        continue;
+      }
+
+      std::vector<int> face_nodes;
+      std::vector<std::string> face_lines;
+      std::pair<int, int> current = directed;
+      bool closed = false;
+      for (size_t guard = 0; guard < edges.size() * 4 + 8; ++guard) {
+        if (visited.contains(current)) {
+          break;
+        }
+        visited.insert(current);
+        face_nodes.push_back(current.first);
+        face_lines.push_back(line_for_directed_edge[current]);
+
+        const int at = current.second;
+        const int from = current.first;
+        const auto& neighbors = adjacency[at];
+        const auto reverse_it = std::find(neighbors.begin(), neighbors.end(), from);
+        if (reverse_it == neighbors.end() || neighbors.empty()) {
+          break;
+        }
+        const size_t reverse_index =
+            static_cast<size_t>(std::distance(neighbors.begin(), reverse_it));
+        const size_t next_index =
+            (reverse_index + neighbors.size() - 1) % neighbors.size();
+        current = {at, neighbors[next_index]};
+        if (current == directed) {
+          closed = true;
+          break;
+        }
+      }
+
+      if (!closed || face_nodes.size() < 3) {
+        continue;
+      }
+
+      std::vector<SketchProfilePoint> face_points;
+      std::vector<std::string> face_point_ids;
+      for (const int node : face_nodes) {
+        face_points.push_back(nodes[node]);
+        face_point_ids.push_back(make_node_key(nodes[node]));
+      }
+      const double area = polygon_signed_area(face_points);
+      if (area <= kProfileTolerance) {
+        continue;
+      }
+      std::sort(face_lines.begin(), face_lines.end());
+      face_lines.erase(std::unique(face_lines.begin(), face_lines.end()),
+                       face_lines.end());
+      faces.push_back(ArrangementFace{
+          .points = face_points,
+          .point_ids = face_point_ids,
+          .line_ids = face_lines,
+          .area = area,
+      });
+    }
+  }
+
+  return faces;
+}
+
 }  // namespace
 
 std::vector<SketchProfileRegion> build_sketch_profile_regions(
@@ -399,34 +719,79 @@ std::vector<SketchProfileRegion> build_sketch_profile_regions(
     }
   }
 
-  for (const auto& component : split_edge_components(solid_edges)) {
-    if (const auto loop = detect_edge_loop(component); loop.has_value()) {
+  const bool has_solid_arcs = std::any_of(
+      solid_edges.begin(), solid_edges.end(), [](const ProfileEdge& edge) {
+        return edge.kind == ProfileEdge::Kind::Arc;
+      });
+
+  if (!has_solid_arcs) {
+    for (const auto& face : detect_line_arrangement_faces(parameters)) {
       profiles.push_back(SketchProfileRegion{
-          .id = make_polygon_profile_id(loop->edge_ids),
+          .id = make_polygon_profile_id(face.line_ids) + "-" +
+                make_polygon_profile_id(face.point_ids),
           .kind = "polygon",
-          .point_ids = loop->point_ids,
-          // `line_ids` historically held line ids; with arcs in the
-          // mix this field carries mixed line + arc edge ids. The
-          // downstream UI uses it to compute "which entities does
-          // this profile depend on" for cascade-delete, which works
-          // as long as the ids resolve to entities.
-          .line_ids = loop->edge_ids,
-          .points = loop->points,
+          .point_ids = face.point_ids,
+          .line_ids = face.line_ids,
+          .points = face.points,
+          .inner_loops = {},
           .source_circle_id = std::nullopt,
           .center_x = 0.0,
           .center_y = 0.0,
           .radius = 0.0,
       });
     }
+  } else {
+    for (const auto& component : split_edge_components(solid_edges)) {
+      if (const auto loop = detect_edge_loop(component); loop.has_value()) {
+        profiles.push_back(SketchProfileRegion{
+            .id = make_polygon_profile_id(loop->edge_ids),
+            .kind = "polygon",
+            .point_ids = loop->point_ids,
+            // `line_ids` historically held line ids; with arcs in the
+            // mix this field carries mixed line + arc edge ids. The
+            // downstream UI uses it to compute "which entities does
+            // this profile depend on" for cascade-delete, which works
+            // as long as the ids resolve to entities.
+            .line_ids = loop->edge_ids,
+            .points = loop->points,
+            .inner_loops = {},
+            .source_circle_id = std::nullopt,
+            .center_x = 0.0,
+            .center_y = 0.0,
+            .radius = 0.0,
+        });
+      }
+    }
   }
 
+  apply_nested_polygon_holes(profiles);
+
   for (const auto& circle : parameters.circles) {
+    const SketchProfilePoint center{.x = circle.center_x, .y = circle.center_y};
+    SketchProfileRegion* containing_profile = nullptr;
+    double containing_area = std::numeric_limits<double>::max();
+    for (auto& profile : profiles) {
+      if (profile.kind != "polygon" || !point_in_polygon(center, profile.points)) {
+        continue;
+      }
+      const double area = std::abs(polygon_signed_area(profile.points));
+      if (area < containing_area) {
+        containing_profile = &profile;
+        containing_area = area;
+      }
+    }
+    if (containing_profile != nullptr) {
+      containing_profile->inner_loops.push_back(sample_circle_loop(circle));
+      containing_profile->id += "-hole-" + circle.id;
+    }
+
     profiles.push_back(SketchProfileRegion{
         .id = "profile-circle-" + circle.id,
         .kind = "circle",
         .point_ids = {"point-circle-" + circle.id + "-center"},
         .line_ids = {},
         .points = {},
+        .inner_loops = {},
         .source_circle_id = circle.id,
         .center_x = circle.center_x,
         .center_y = circle.center_y,
@@ -453,6 +818,7 @@ DetectedSketchProfiles detect_sketch_profiles(const FeatureEntry& feature) {
           .plane_id = sketch.plane_id,
           .plane_frame = sketch.plane_frame,
           .points = profile.points,
+          .inner_loops = profile.inner_loops,
       });
       continue;
     }

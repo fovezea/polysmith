@@ -761,6 +761,7 @@ ViewportSketchProfilePrimitive make_rectangle_profile_primitive(
                          : std::nullopt,
       .profile_kind = "polygon",
       .profile_points = profile.points,
+      .inner_loops = profile.inner_loops,
       .start_x = 0.0,
       .start_y = 0.0,
       .width = 0.0,
@@ -781,6 +782,7 @@ ViewportSketchProfilePrimitive make_circle_profile_primitive(
                          : std::nullopt,
       .profile_kind = "circle",
       .profile_points = {},
+      .inner_loops = {},
       .start_x = profile.center_x,
       .start_y = profile.center_y,
       .width = 0.0,
@@ -1887,6 +1889,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
                   SketchProfilePoint{.x = parameters.start_x,
                                      .y = parameters.start_y + parameters.height},
               },
+              .inner_loops = {},
               .depth = parameters.depth,
               .is_selected = is_selected,
           });
@@ -2182,6 +2185,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
                                      make_sketch_plane_frame(parameters.plane_frame.value()))
                                : std::nullopt,
             .profile_points = parameters.profile_points,
+            .inner_loops = parameters.inner_loops,
             .depth = parameters.depth,
             .is_selected = is_selected,
         });
@@ -2764,16 +2768,19 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
 
       for (const auto& rectangle : profiles.polygons) {
         const bool is_selected_profile =
-            document->selected_sketch_profile_id.has_value() &&
-            document->selected_sketch_profile_id.value() == rectangle.id;
+            std::find(document->selected_sketch_profile_ids.begin(),
+                      document->selected_sketch_profile_ids.end(),
+                      rectangle.id) != document->selected_sketch_profile_ids.end();
         sketch_profiles.push_back(
             make_rectangle_profile_primitive(rectangle, is_selected_profile));
       }
 
       for (const auto& circle_profile : profiles.circles) {
         const bool is_selected_profile =
-            document->selected_sketch_profile_id.has_value() &&
-            document->selected_sketch_profile_id.value() == circle_profile.id;
+            std::find(document->selected_sketch_profile_ids.begin(),
+                      document->selected_sketch_profile_ids.end(),
+                      circle_profile.id) !=
+            document->selected_sketch_profile_ids.end();
         sketch_profiles.push_back(
             make_circle_profile_primitive(circle_profile, is_selected_profile));
       }

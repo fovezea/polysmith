@@ -56,6 +56,7 @@ export interface ViewportPolygonExtrudePrimitive {
   plane_id: string;
   plane_frame: PlaneFrame | null;
   profile_points: SketchProfilePoint[];
+  inner_loops: SketchProfilePoint[][];
   depth: number;
   is_selected: boolean;
 }
@@ -192,6 +193,7 @@ export interface ViewportSketchProfile {
   plane_frame: PlaneFrame | null;
   profile_kind: "polygon" | "circle";
   profile_points: SketchProfilePoint[];
+  inner_loops: SketchProfilePoint[][];
   start_x: number;
   start_y: number;
   width: number;

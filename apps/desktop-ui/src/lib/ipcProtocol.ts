@@ -708,27 +708,33 @@ export function makeUpdateSketchDimensionCommand(
   };
 }
 
-export function makeSelectSketchProfileCommand(profileId: string): CoreCommand {
+export function makeSelectSketchProfileCommand(
+  profileId: string,
+  additive = false,
+): CoreCommand {
   return {
     id: crypto.randomUUID(),
     type: "select_sketch_profile",
     payload: {
       profile_id: profileId,
+      additive,
     },
   };
 }
 
 export function makeExtrudeProfileCommand(
-  profileId: string,
+  profileIds: string | readonly string[],
   depth: number,
   mode: ExtrudeMode = "new_body",
   targetBodyId: string | null = null,
 ): CoreCommand {
+  const ids = Array.isArray(profileIds) ? [...profileIds] : [profileIds];
   return {
     id: crypto.randomUUID(),
     type: "extrude_profile",
     payload: {
-      profile_id: profileId,
+      profile_id: ids[0],
+      profile_ids: ids,
       depth,
       mode,
       ...(targetBodyId ? { target_body_id: targetBodyId } : {}),
@@ -760,6 +766,20 @@ export function makeUpdateExtrudeTargetBodyCommand(
     payload: {
       feature_id: featureId,
       ...(targetBodyId ? { target_body_id: targetBodyId } : {}),
+    },
+  };
+}
+
+export function makeUpdateExtrudeProfilesCommand(
+  featureId: string,
+  profileIds: readonly string[],
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_extrude_profiles",
+    payload: {
+      feature_id: featureId,
+      profile_ids: [...profileIds],
     },
   };
 }

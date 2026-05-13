@@ -41,6 +41,19 @@ export function themeColor(token: string, fallback: string) {
   return value || fallback;
 }
 
+function polygonArea2d(points: Array<[number, number]>) {
+  if (points.length < 3) {
+    return 0;
+  }
+  let area = 0;
+  for (let index = 0; index < points.length; index += 1) {
+    const current = points[index];
+    const next = points[(index + 1) % points.length];
+    area += current[0] * next[1] - next[0] * current[1];
+  }
+  return area * 0.5;
+}
+
 export function disposeMaterial(material: THREE.Material | THREE.Material[]) {
   if (Array.isArray(material)) {
     for (const entry of material) {
@@ -277,6 +290,22 @@ export function buildPrimitiveObject(primitive: ScenePrimitive) {
       shape.lineTo(point[0], point[1]);
     });
     shape.closePath();
+    for (const loop of primitive.innerLoops) {
+      const path = new THREE.Path();
+      // The core stores hole loops as profile contours. Three treats
+      // `shape.holes` as subtractive paths, so the preview primitive
+      // must carry those loops too; otherwise the temporary extrude
+      // appears as the old filled outer profile.
+      [...loop].reverse().forEach((point, index) => {
+        if (index === 0) {
+          path.moveTo(point[0], point[1]);
+          return;
+        }
+        path.lineTo(point[0], point[1]);
+      });
+      path.closePath();
+      shape.holes.push(path);
+    }
 
     geometry = new THREE.ExtrudeGeometry(shape, {
       depth: primitive.depth,
@@ -1199,6 +1228,7 @@ export function buildSketchProfileObject(profile: SketchProfileScene) {
       // so we don't add it again here — just orient the plane.
     }
     mesh.userData.sketchProfileId = profile.profileId;
+    mesh.userData.sketchProfileArea = Math.PI * profile.radius * profile.radius;
     return mesh;
   }
 
@@ -1211,6 +1241,22 @@ export function buildSketchProfileObject(profile: SketchProfileScene) {
     shape.lineTo(point[0], point[1]);
   });
   shape.closePath();
+  for (const loop of profile.innerLoops) {
+    const path = new THREE.Path();
+    // Three expects hole contours to wind opposite the outer shape.
+    // The core stores profile loops in a consistent CCW order, so
+    // reverse them here to make both rendering and raycasting match
+    // the actual ring-shaped face.
+    [...loop].reverse().forEach((point, index) => {
+      if (index === 0) {
+        path.moveTo(point[0], point[1]);
+        return;
+      }
+      path.lineTo(point[0], point[1]);
+    });
+    path.closePath();
+    shape.holes.push(path);
+  }
 
   const geometry = new THREE.ShapeGeometry(shape);
   geometry.applyMatrix4(
@@ -1223,6 +1269,12 @@ export function buildSketchProfileObject(profile: SketchProfileScene) {
   );
   const mesh = new THREE.Mesh(geometry, material);
   mesh.userData.sketchProfileId = profile.profileId;
+  mesh.userData.sketchProfileArea =
+    Math.abs(polygonArea2d(profile.profilePoints)) -
+    profile.innerLoops.reduce(
+      (sum, loop) => sum + Math.abs(polygonArea2d(loop)),
+      0,
+    );
   return mesh;
 }
 

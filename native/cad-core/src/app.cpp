@@ -756,8 +756,13 @@ void CadCoreApp::handle_command_line(const std::string& line) {
   }
 
   if (command.type == "select_sketch_profile") {
+    bool additive = false;
+    if (command.payload.contains("additive") &&
+        command.payload.at("additive").is_boolean()) {
+      additive = command.payload.at("additive").get<bool>();
+    }
     const auto document = document_manager().select_sketch_profile(
-        read_string(command.payload, "profile_id"));
+        read_string(command.payload, "profile_id"), additive);
 
     polysmith::protocol::write_message(
         polysmith::protocol::make_document_state_event(
@@ -781,11 +786,20 @@ void CadCoreApp::handle_command_line(const std::string& line) {
       target_body_id =
           command.payload.at("target_body_id").get<std::string>();
     }
-    const auto document = document_manager().extrude_profile(
-        read_string(command.payload, "profile_id"),
-        read_dimension(command.payload, "depth"),
-        mode,
-        target_body_id);
+    std::vector<std::string> profile_ids;
+    if (command.payload.contains("profile_ids") &&
+        command.payload.at("profile_ids").is_array()) {
+      for (const auto& id : command.payload.at("profile_ids")) {
+        if (id.is_string()) {
+          profile_ids.push_back(id.get<std::string>());
+        }
+      }
+    }
+    if (profile_ids.empty()) {
+      profile_ids.push_back(read_string(command.payload, "profile_id"));
+    }
+    const auto document = document_manager().extrude_profiles(
+        profile_ids, read_dimension(command.payload, "depth"), mode, target_body_id);
 
     polysmith::protocol::write_message(
         polysmith::protocol::make_document_state_event(
@@ -813,6 +827,25 @@ void CadCoreApp::handle_command_line(const std::string& line) {
     }
     const auto document = document_manager().update_extrude_target_body(
         read_string(command.payload, "feature_id"), target_body_id);
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "update_extrude_profiles") {
+    std::vector<std::string> profile_ids;
+    if (command.payload.contains("profile_ids") &&
+        command.payload.at("profile_ids").is_array()) {
+      for (const auto& id : command.payload.at("profile_ids")) {
+        if (id.is_string()) {
+          profile_ids.push_back(id.get<std::string>());
+        }
+      }
+    }
+    const auto document = document_manager().update_extrude_profiles(
+        read_string(command.payload, "feature_id"), profile_ids);
 
     polysmith::protocol::write_message(
         polysmith::protocol::make_document_state_event(

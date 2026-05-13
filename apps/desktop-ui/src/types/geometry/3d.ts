@@ -19,6 +19,7 @@ export interface CylinderFeatureParameters {
 export interface ExtrudeFeatureParameters {
   sketch_feature_id: string;
   profile_id: string;
+  profile_ids: string[];
   plane_id: string;
   plane_frame: PlaneFrame | null;
   profile_kind: Shape2D;
@@ -28,6 +29,9 @@ export interface ExtrudeFeatureParameters {
   height: number;
   radius: number;
   profile_points: SketchProfilePoint[];
+  inner_loops: SketchProfilePoint[][];
+  additional_profile_points: SketchProfilePoint[][];
+  additional_inner_loops: SketchProfilePoint[][][];
   depth: number;
   mode: ExtrudeMode;
   target_body_id: string | null;

@@ -5,6 +5,7 @@
 
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
+#include <BRep_Builder.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
@@ -12,6 +13,8 @@
 #include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Vec.hxx>
+#include <TopoDS_Compound.hxx>
+#include <TopoDS_Wire.hxx>
 
 namespace polysmith::core {
 namespace {
@@ -72,9 +75,12 @@ gp_Vec extrusion_vector(const PlaneFrame& frame, double depth) {
                 frame.normal_z * depth);
 }
 
-TopoDS_Shape make_polygon_prism_shape(const ExtrudeFeatureParameters& parameters) {
+TopoDS_Shape make_polygon_prism_shape(
+    const ExtrudeFeatureParameters& parameters,
+    const std::vector<SketchProfilePoint>& outer_points,
+    const std::vector<std::vector<SketchProfilePoint>>& inner_loops) {
   BRepBuilderAPI_MakePolygon polygon_builder;
-  for (const auto& point : parameters.profile_points) {
+  for (const auto& point : outer_points) {
     polygon_builder.Add(to_world_point(parameters, point.x, point.y));
   }
   polygon_builder.Close();
@@ -83,8 +89,24 @@ TopoDS_Shape make_polygon_prism_shape(const ExtrudeFeatureParameters& parameters
     throw std::runtime_error("Failed to build polygon wire");
   }
 
-  const TopoDS_Shape face =
-      BRepBuilderAPI_MakeFace(polygon_builder.Wire()).Shape();
+  BRepBuilderAPI_MakeFace face_builder(polygon_builder.Wire());
+  for (const auto& loop : inner_loops) {
+    if (loop.size() < 3) {
+      continue;
+    }
+    BRepBuilderAPI_MakePolygon hole_builder;
+    for (const auto& point : loop) {
+      hole_builder.Add(to_world_point(parameters, point.x, point.y));
+    }
+    hole_builder.Close();
+    if (hole_builder.IsDone()) {
+      TopoDS_Wire hole_wire = hole_builder.Wire();
+      hole_wire.Reverse();
+      face_builder.Add(hole_wire);
+    }
+  }
+
+  const TopoDS_Shape face = face_builder.Shape();
   if (face.IsNull()) {
     throw std::runtime_error("Failed to build polygon face");
   }
@@ -100,6 +122,30 @@ TopoDS_Shape make_polygon_prism_shape(const ExtrudeFeatureParameters& parameters
   }
 
   return shape;
+}
+
+TopoDS_Shape make_polygon_prism_shape(const ExtrudeFeatureParameters& parameters) {
+  TopoDS_Compound compound;
+  BRep_Builder builder;
+  builder.MakeCompound(compound);
+
+  builder.Add(compound,
+              make_polygon_prism_shape(parameters,
+                                       parameters.profile_points,
+                                       parameters.inner_loops));
+  for (size_t index = 0; index < parameters.additional_profile_points.size();
+       ++index) {
+    const std::vector<std::vector<SketchProfilePoint>> empty_inner_loops;
+    const auto& inner_loops = index < parameters.additional_inner_loops.size()
+                                  ? parameters.additional_inner_loops[index]
+                                  : empty_inner_loops;
+    builder.Add(compound,
+                make_polygon_prism_shape(parameters,
+                                         parameters.additional_profile_points[index],
+                                         inner_loops));
+  }
+
+  return compound;
 }
 
 }  // namespace

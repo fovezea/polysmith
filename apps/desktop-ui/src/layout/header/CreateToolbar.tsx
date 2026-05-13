@@ -12,10 +12,9 @@ export interface CreateToolbarProps {
     depth: number,
   ) => Promise<void>;
   onAddCylinderFeature: (radius: number, height: number) => Promise<void>;
-  // Whether the Extrude action has a valid input selected (a closed
-  // sketch profile or a planar body face). The toolbar disables the
-  // button when neither is selected so the user gets a tooltip and a
-  // greyed-out icon rather than a silent no-op.
+  // Whether a new Extrude action can be started. A profile/face does
+  // not need to be preselected; invoking Extrude can arm profile
+  // picking first.
   canExtrude: boolean;
   onExtrude: () => Promise<void>;
 }
