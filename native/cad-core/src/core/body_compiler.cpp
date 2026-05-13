@@ -287,6 +287,13 @@ CompiledBodies compile_bodies(const DocumentState& document) {
         any_boolean = true;
         break;
       }
+      // Circle extrudes can be created on arbitrary sketch planes.
+      // The legacy cylinder primitive only knows the old world-Y axis
+      // layout, so use OCCT tessellation for circular profiles.
+      if (feature.extrude_parameters->profile_kind == "circle") {
+        any_boolean = true;
+        break;
+      }
       // Profile holes and multi-profile extrudes are real native-core
       // topology. The legacy three.js polygon-extrude preview can show
       // simple prisms, but OCCT tessellation is the authoritative path
