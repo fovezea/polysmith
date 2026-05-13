@@ -10,6 +10,7 @@ export type ViewCubeHit =
   | { type: "face"; face: CubeFace }
   | { type: "edge"; face1: CubeFace; face2: CubeFace }
   | { type: "corner"; faces: [CubeFace, CubeFace, CubeFace] }
+  | { type: "rotation_arrow"; direction: -1 | 1 }
   | null;
 
 // ---------------------------------------------------------------------------
@@ -18,7 +19,7 @@ export type ViewCubeHit =
 
 const CUBE_SIZE = 1;
 const FACE_OFFSET = 0.49;
-const FACE_PANEL_SIZE = 0.88;
+const FACE_PANEL_SIZE = CUBE_SIZE;
 const FACE_THICKNESS = 0.02;
 const EDGE_THICKNESS = 0.04;
 const CORNER_RADIUS = 0.052;
@@ -36,37 +37,90 @@ const FACE_NORMALS: Record<CubeFace, THREE.Vector3> = {
 };
 
 const FACE_COLORS: Record<CubeFace, string> = {
-  RIGHT: "#e05568",
-  LEFT: "#b84455",
-  TOP: "#26cc6e",
-  BOTTOM: "#1fa358",
-  FRONT: "#5da3f0",
-  BACK: "#4a82c0",
+  RIGHT: "#242323",
+  LEFT: "#1f1f1f",
+  TOP: "#2b2a2a",
+  BOTTOM: "#1a1919",
+  FRONT: "#262525",
+  BACK: "#202020",
 };
 
-const EDGE_COLOR = "#1c1c1e";
-const CORNER_COLOR = "#353534";
+const FACE_LABEL_COLOR = "#e5e2e1";
+const FACE_BORDER_COLOR = "#3b494c";
+const EDGE_COLOR = "#2d3436";
+const CORNER_COLOR = "#3a4143";
 const HOVER_COLOR = "#00e5ff";
+const ARROW_COLOR = "#c3f5ff";
+const ARROW_MUTED_COLOR = "#5d6d70";
 
 // ---------------------------------------------------------------------------
 // Face label texture
 // ---------------------------------------------------------------------------
 
-function createFaceLabelTexture(label: string, bgColor: string): THREE.CanvasTexture {
+function createFaceLabelTexture(
+  label: string,
+  bgColor: string,
+): THREE.CanvasTexture {
   const size = 256;
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d")!;
 
-  ctx.fillStyle = bgColor;
+  const gradient = ctx.createLinearGradient(0, 0, size, size);
+  gradient.addColorStop(0, bgColor);
+  gradient.addColorStop(1, "#141414");
+  ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, size, size);
 
-  ctx.fillStyle = "#ffffff";
-  ctx.font = `700 44px "Space Grotesk", "Inter", sans-serif`;
+  ctx.strokeStyle = FACE_BORDER_COLOR;
+  ctx.lineWidth = 10;
+  ctx.strokeRect(8, 8, size - 16, size - 16);
+
+  ctx.fillStyle = FACE_LABEL_COLOR;
+  ctx.font = `700 38px "Space Grotesk", "Inter", sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(label, size / 2, size / 2);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function createRotationArrowTexture(direction: -1 | 1): THREE.CanvasTexture {
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+
+  ctx.clearRect(0, 0, size, size);
+  ctx.lineCap = "butt";
+  ctx.lineJoin = "round";
+
+  if (direction > 0) {
+    ctx.translate(size, 0);
+    ctx.scale(-1, 1);
+  }
+
+  ctx.strokeStyle = ARROW_COLOR;
+  ctx.fillStyle = ARROW_COLOR;
+  ctx.lineWidth = 58;
+
+  const center = 128;
+  const radius = 88;
+  ctx.beginPath();
+  ctx.arc(center, center + 16, radius, Math.PI * 1.5, Math.PI, true);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(198, 38);
+  ctx.lineTo(118, 0);
+  ctx.lineTo(126, 106);
+  ctx.closePath();
+  ctx.fill();
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -134,13 +188,25 @@ export function buildViewCubeGroup(): THREE.Group {
   ];
 
   for (const cfg of faceConfigs) {
-    const geometry = new THREE.BoxGeometry(FACE_PANEL_SIZE, FACE_PANEL_SIZE, FACE_THICKNESS);
+    const geometry = new THREE.BoxGeometry(
+      FACE_PANEL_SIZE,
+      FACE_PANEL_SIZE,
+      FACE_THICKNESS,
+    );
     const texture = createFaceLabelTexture(cfg.label, cfg.color);
-    const material = new THREE.MeshBasicMaterial({ map: texture });
+    const material = new THREE.MeshBasicMaterial({
+      map: texture,
+      color: "#ffffff",
+    });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(...cfg.position);
     mesh.rotation.set(...cfg.rotation);
-    mesh.userData = { cubePart: true, cubeType: "face", face: cfg.face, baseColor: cfg.color };
+    mesh.userData = {
+      cubePart: true,
+      cubeType: "face",
+      face: cfg.face,
+      baseColor: "#ffffff",
+    };
     mesh.renderOrder = 0;
     group.add(mesh);
   }
@@ -265,6 +331,29 @@ export function buildViewCubeGroup(): THREE.Group {
     group.add(mesh);
   }
 
+  for (const direction of [-1, 1] as const) {
+    const texture = createRotationArrowTexture(direction);
+    const material = new THREE.SpriteMaterial({
+      map: texture,
+      color: ARROW_MUTED_COLOR,
+      transparent: true,
+      opacity: 0.92,
+      depthTest: false,
+      depthWrite: false,
+    });
+    const sprite = new THREE.Sprite(material);
+    sprite.scale.set(0.5, 0.38, 1);
+    sprite.visible = false;
+    sprite.renderOrder = 10;
+    sprite.userData = {
+      cubePart: true,
+      cubeType: "rotation_arrow",
+      direction,
+      baseColor: ARROW_MUTED_COLOR,
+    };
+    group.add(sprite);
+  }
+
   return group;
 }
 
@@ -338,7 +427,12 @@ export function isPointerInCubeArea(
   const canvasRight = (canvasRect.right - canvasRect.left) * dpr;
   const px = (event.clientX - canvasRect.left) * dpr;
   const py = (event.clientY - canvasRect.top) * dpr;
-  return px >= canvasRight - size - margin && px <= canvasRight - margin && py >= margin && py <= margin + size;
+  return (
+    px >= canvasRight - size - margin &&
+    px <= canvasRight - margin &&
+    py >= margin &&
+    py <= margin + size
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -358,6 +452,33 @@ export function syncCubeCamera(
   cubeCamera.lookAt(0, 0, 0);
 }
 
+export function updateSketchRotationArrows(
+  cubeGroup: THREE.Group,
+  cubeCamera: THREE.OrthographicCamera,
+  visible: boolean,
+): void {
+  const right = new THREE.Vector3();
+  const up = new THREE.Vector3();
+  cubeCamera.updateMatrixWorld();
+  right.setFromMatrixColumn(cubeCamera.matrixWorld, 0).normalize();
+  up.setFromMatrixColumn(cubeCamera.matrixWorld, 1).normalize();
+
+  cubeGroup.traverse((child) => {
+    if (child.userData.cubeType !== "rotation_arrow") {
+      return;
+    }
+    child.visible = visible;
+    if (!visible) {
+      return;
+    }
+    const direction = child.userData.direction as -1 | 1;
+    child.position
+      .copy(up)
+      .multiplyScalar(0.58)
+      .add(right.clone().multiplyScalar(direction * 0.48));
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Raycast against cube meshes
 // ---------------------------------------------------------------------------
@@ -368,7 +489,11 @@ export function raycastViewCube(
 ): ViewCubeHit {
   const targets: THREE.Object3D[] = [];
   cubeGroup.traverse((child) => {
-    if ((child as THREE.Mesh).isMesh && child.userData.cubePart) {
+    if (
+      ((child as THREE.Mesh).isMesh || (child as THREE.Sprite).isSprite) &&
+      child.userData.cubePart &&
+      child.visible
+    ) {
       targets.push(child);
     }
   });
@@ -384,10 +509,20 @@ export function raycastViewCube(
     return { type: "face", face: ud.face as CubeFace };
   }
   if (ud.cubeType === "edge") {
-    return { type: "edge", face1: ud.face1 as CubeFace, face2: ud.face2 as CubeFace };
+    return {
+      type: "edge",
+      face1: ud.face1 as CubeFace,
+      face2: ud.face2 as CubeFace,
+    };
   }
   if (ud.cubeType === "corner") {
-    return { type: "corner", faces: ud.faces as [CubeFace, CubeFace, CubeFace] };
+    return {
+      type: "corner",
+      faces: ud.faces as [CubeFace, CubeFace, CubeFace],
+    };
+  }
+  if (ud.cubeType === "rotation_arrow") {
+    return { type: "rotation_arrow", direction: ud.direction as -1 | 1 };
   }
   return null;
 }
@@ -396,7 +531,9 @@ export function raycastViewCube(
 // Hit → world direction for snap
 // ---------------------------------------------------------------------------
 
-export function getCubeHitTargetDirection(hit: NonNullable<ViewCubeHit>): THREE.Vector3 {
+export function getCubeHitTargetDirection(
+  hit: Exclude<NonNullable<ViewCubeHit>, { type: "rotation_arrow" }>,
+): THREE.Vector3 {
   if (hit.type === "face") {
     return FACE_NORMALS[hit.face].clone();
   }
@@ -425,6 +562,8 @@ export function animateCameraTowardTarget(
   targetPosition: THREE.Vector3,
   startTime: number,
   currentTime: number,
+  startUp?: THREE.Vector3,
+  targetUp?: THREE.Vector3,
 ): boolean {
   const elapsed = currentTime - startTime;
   const t = Math.min(elapsed / ANIMATION_DURATION, 1);
@@ -432,6 +571,9 @@ export function animateCameraTowardTarget(
   const ease = 1 - Math.pow(1 - t, 3);
 
   camera.position.lerpVectors(startPosition, targetPosition, ease);
+  if (startUp && targetUp) {
+    camera.up.lerpVectors(startUp, targetUp, ease).normalize();
+  }
   camera.lookAt(controls.target);
   controls.update();
 
@@ -442,10 +584,7 @@ export function animateCameraTowardTarget(
 // Hover visual state
 // ---------------------------------------------------------------------------
 
-export function applyCubeHover(
-  cubeGroup: THREE.Group,
-  hit: ViewCubeHit,
-): void {
+export function applyCubeHover(cubeGroup: THREE.Group, hit: ViewCubeHit): void {
   clearCubeHover(cubeGroup);
 
   if (!hit) return;
@@ -455,11 +594,7 @@ export function applyCubeHover(
   cubeGroup.traverse((child) => {
     if (!(child as THREE.Mesh).isMesh || !child.userData.cubePart) return;
     const ud = child.userData;
-    if (
-      hit.type === "face" &&
-      ud.cubeType === "face" &&
-      ud.face === hit.face
-    ) {
+    if (hit.type === "face" && ud.cubeType === "face" && ud.face === hit.face) {
       target = child;
     } else if (
       hit.type === "edge" &&
@@ -476,20 +611,34 @@ export function applyCubeHover(
       hit.faces.every((f: CubeFace) => (ud.faces as CubeFace[]).includes(f))
     ) {
       target = child;
+    } else if (
+      hit.type === "rotation_arrow" &&
+      ud.cubeType === "rotation_arrow" &&
+      ud.direction === hit.direction
+    ) {
+      target = child;
     }
   });
 
   if (target) {
-    const mat = (target as THREE.Mesh).material as THREE.MeshBasicMaterial;
+    const mat = (target as THREE.Mesh | THREE.Sprite).material as
+      | THREE.MeshBasicMaterial
+      | THREE.SpriteMaterial;
     mat.color.set(HOVER_COLOR);
   }
 }
 
 export function clearCubeHover(cubeGroup: THREE.Group): void {
   cubeGroup.traverse((child) => {
-    if (!(child as THREE.Mesh).isMesh || !child.userData.cubePart) return;
+    if (
+      !((child as THREE.Mesh).isMesh || (child as THREE.Sprite).isSprite) ||
+      !child.userData.cubePart
+    )
+      return;
     const ud = child.userData;
-    const mat = (child as THREE.Mesh).material as THREE.MeshBasicMaterial;
+    const mat = (child as THREE.Mesh | THREE.Sprite).material as
+      | THREE.MeshBasicMaterial
+      | THREE.SpriteMaterial;
     mat.color.set(ud.baseColor as string);
   });
 }
@@ -513,7 +662,9 @@ export function applyCubeDragOrbit(
   spherical.phi -= deltaY * sensitivity;
   spherical.phi = Math.max(0.05, Math.min(Math.PI - 0.05, spherical.phi));
 
-  const newPos = new THREE.Vector3().setFromSpherical(spherical).add(controls.target);
+  const newPos = new THREE.Vector3()
+    .setFromSpherical(spherical)
+    .add(controls.target);
   camera.position.copy(newPos);
   camera.lookAt(controls.target);
   controls.update();
@@ -525,10 +676,15 @@ export function applyCubeDragOrbit(
 
 export function disposeViewCubeGroup(group: THREE.Group): void {
   group.traverse((child) => {
-    if (!(child as THREE.Mesh).isMesh) return;
-    const mesh = child as THREE.Mesh;
-    mesh.geometry.dispose();
-    const mat = mesh.material as THREE.MeshBasicMaterial;
+    if (!((child as THREE.Mesh).isMesh || (child as THREE.Sprite).isSprite))
+      return;
+    const object = child as THREE.Mesh | THREE.Sprite;
+    if ((object as THREE.Mesh).geometry) {
+      (object as THREE.Mesh).geometry.dispose();
+    }
+    const mat = object.material as
+      | THREE.MeshBasicMaterial
+      | THREE.SpriteMaterial;
     if (Array.isArray(mat)) {
       for (const m of mat) {
         const basicMat = m as THREE.MeshBasicMaterial;

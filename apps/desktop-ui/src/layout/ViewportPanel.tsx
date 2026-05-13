@@ -60,6 +60,7 @@ import {
   getCubeViewportRect,
   isPointerInCubeArea,
   syncCubeCamera,
+  updateSketchRotationArrows,
   raycastViewCube,
   getCubeHitTargetDirection,
   animateCameraTowardTarget,
@@ -323,6 +324,8 @@ export function ViewportPanel({
   const viewCubeAnimStartRef = useRef(0);
   const viewCubeAnimStartPosRef = useRef(new THREE.Vector3());
   const viewCubeAnimTargetPosRef = useRef(new THREE.Vector3());
+  const viewCubeAnimStartUpRef = useRef(new THREE.Vector3(0, 1, 0));
+  const viewCubeAnimTargetUpRef = useRef(new THREE.Vector3(0, 1, 0));
   const viewCubeDraggingRef = useRef(false);
   const viewCubeDragStartRef = useRef<{ x: number; y: number } | null>(null);
   const lineDraftStartRef = useRef<[number, number] | null>(null);
@@ -744,6 +747,12 @@ export function ViewportPanel({
   }, [sketchFeature]);
   const activeSketchPlaneFrame =
     sketchFeature?.sketch_parameters?.plane_frame ?? null;
+  const activeSketchPlaneIdRef = useRef(activeSketchPlaneId);
+  const activeSketchPlaneFrameRef = useRef(activeSketchPlaneFrame);
+  useEffect(() => {
+    activeSketchPlaneIdRef.current = activeSketchPlaneId;
+    activeSketchPlaneFrameRef.current = activeSketchPlaneFrame;
+  }, [activeSketchPlaneId, activeSketchPlaneFrame]);
 
   function clearPreviewLine() {
     const previewLine = previewLineRef.current;
@@ -1712,6 +1721,65 @@ export function ViewportPanel({
       editor.style.transform = `translate(${projectedPosition.x}px, ${projectedPosition.y}px) translate(-50%, -50%)`;
     }
 
+    function getActiveSketchPlaneNormal() {
+      const planeId = activeSketchPlaneIdRef.current;
+      if (!planeId) {
+        return null;
+      }
+
+      const planeFrame = activeSketchPlaneFrameRef.current;
+      if (planeFrame) {
+        return new THREE.Vector3(
+          planeFrame.normal.x,
+          planeFrame.normal.y,
+          planeFrame.normal.z,
+        ).normalize();
+      }
+
+      if (planeId === "ref-plane-xy") {
+        return new THREE.Vector3(0, 1, 0);
+      }
+      if (planeId === "ref-plane-yz") {
+        return new THREE.Vector3(1, 0, 0);
+      }
+      return new THREE.Vector3(0, 0, 1);
+    }
+
+    function isFacingActiveSketchPlane() {
+      const normal = getActiveSketchPlaneNormal();
+      if (!normal) {
+        return false;
+      }
+      const viewOffset = new THREE.Vector3()
+        .copy(camera.position)
+        .sub(controls.target)
+        .normalize();
+      return Math.abs(viewOffset.dot(normal)) > 0.985;
+    }
+
+    function rotateCameraAroundActiveSketchPlane(direction: -1 | 1) {
+      const normal = getActiveSketchPlaneNormal();
+      if (!normal) {
+        return;
+      }
+
+      const angle = direction * (Math.PI / 2);
+      const offset = new THREE.Vector3()
+        .copy(camera.position)
+        .sub(controls.target)
+        .applyAxisAngle(normal, angle);
+      viewCubeAnimStartPosRef.current.copy(camera.position);
+      viewCubeAnimTargetPosRef.current.copy(controls.target.clone().add(offset));
+      viewCubeAnimStartUpRef.current.copy(camera.up).normalize();
+      viewCubeAnimTargetUpRef.current
+        .copy(camera.up)
+        .applyAxisAngle(normal, angle)
+        .normalize();
+      viewCubeAnimStartRef.current = performance.now();
+      viewCubeAnimatingRef.current = true;
+      controls.enabled = false;
+    }
+
     function renderViewCube() {
       const cubeGroup = viewCubeGroupRef.current;
       const cubeScene = viewCubeSceneRef.current;
@@ -1720,6 +1788,11 @@ export function ViewportPanel({
 
       // Sync cube camera to main view direction
       syncCubeCamera(camera, controls.target, cubeCam);
+      updateSketchRotationArrows(
+        cubeGroup,
+        cubeCam,
+        isFacingActiveSketchPlane(),
+      );
 
       // Camera animation tick
       if (viewCubeAnimatingRef.current) {
@@ -1730,6 +1803,8 @@ export function ViewportPanel({
           viewCubeAnimTargetPosRef.current,
           viewCubeAnimStartRef.current,
           performance.now(),
+          viewCubeAnimStartUpRef.current,
+          viewCubeAnimTargetUpRef.current,
         );
         if (done) {
           viewCubeAnimatingRef.current = false;
@@ -2641,6 +2716,10 @@ export function ViewportPanel({
             cubeRaycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), cubeCam);
             const hit = raycastViewCube(cubeRaycaster, cubeGroup);
             if (hit) {
+              if (hit.type === "rotation_arrow") {
+                rotateCameraAroundActiveSketchPlane(-hit.direction as -1 | 1);
+                return;
+              }
               const direction = getCubeHitTargetDirection(hit);
               const distance = camera.position.distanceTo(controls.target);
               const targetPos = controls.target.clone().add(
@@ -2648,6 +2727,8 @@ export function ViewportPanel({
               );
               viewCubeAnimStartPosRef.current.copy(camera.position);
               viewCubeAnimTargetPosRef.current.copy(targetPos);
+              viewCubeAnimStartUpRef.current.copy(camera.up).normalize();
+              viewCubeAnimTargetUpRef.current.copy(camera.up).normalize();
               viewCubeAnimStartRef.current = performance.now();
               viewCubeAnimatingRef.current = true;
               // controls.enabled stays false (already set on pointerDown)

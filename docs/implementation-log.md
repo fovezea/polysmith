@@ -192,6 +192,7 @@ When adding a new entity, grep `ipcSchema.ts` for the union literally and walk e
 - fixed the legacy `polygon_extrudes` preview path to carry `inner_loops[]` into the scene object, geometry cache key, and `THREE.ExtrudeGeometry` holes. This keeps nested-profile previews from rendering the removed filled outer profile when the core emits an outer region with a hole.
 - moved hole and multi-profile extrude previews onto the native tessellated mesh path instead of the legacy polygon primitive path, and keyed mesh rebuilds by buffer content rather than only vertex/index counts. This keeps ring walls / top faces visible and makes live preview updates invalidate correctly when depth or selected profiles change without changing topology size.
 - made the viewport scene merge sketch profile regions from the core-owned document snapshot when they are missing from the viewport snapshot, so disconnected nested loops become selectable immediately after the sketch edit that created them instead of waiting for a later intersecting edit to refresh the viewport profile list.
+- restyled the orbit view cube to use the Midnight Carbon palette instead of axis-colored faces, and added sketch-only 2D rotation arrows in the cube overlay. The arrows appear only when the camera is aligned to the active sketch plane and rotate the camera roll around that plane normal by 90 degrees without changing the sketch target.
 
 ### Pre-existing Test Failure (Not Introduced By This Work)
 
