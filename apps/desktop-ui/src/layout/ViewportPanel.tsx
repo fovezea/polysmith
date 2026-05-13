@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type MutableRefObject,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
@@ -93,6 +94,15 @@ type ActiveSketchGridPlaneFrame = NonNullable<
     DocumentState["feature_history"][number]["sketch_parameters"]
   >["plane_frame"]
 >;
+type DraftDimensionTool = "line" | "rectangle" | "circle";
+type DraftDimensionField = "length" | "width" | "diameter";
+type DraftDimensionSession = {
+  tool: DraftDimensionTool;
+  start: [number, number];
+  current: [number, number];
+  values: Record<DraftDimensionField, string>;
+  activeField: DraftDimensionField;
+};
 
 const GRID_STEPS_MM = [
   0.1, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000,
@@ -103,8 +113,13 @@ const GRID_MAJOR_EVERY = 10;
 const GRID_CAMERA_SCALE = 40;
 const SKETCH_GRID_BACK_OFFSET = 0.015;
 const SKETCH_SCREEN_SPRITE_BASE_HEIGHT = 900;
+const SKETCH_LABEL_SCREEN_SCALE = 0.72;
+const SKETCH_CONSTRAINT_SCREEN_SIZE = 28;
+const SKETCH_LABEL_COLLISION_PADDING = 6;
 const ORTHO_FRUSTUM_HEIGHT = 220;
 const CARDINAL_VIEW_DOT_THRESHOLD = 0.985;
+const DRAFT_DIMENSION_OFFSET_PX = 36;
+const GRID_SNAP_SCREEN_DISTANCE_PX = 6;
 
 interface ViewportPanelProps {
   status: "idle" | "starting" | "connected" | "error" | "stopped";
@@ -494,6 +509,53 @@ function getCardinalGridFrame(viewOffset: THREE.Vector3): GridPlaneFrame | null 
   };
 }
 
+function isDraftDimensionTool(tool: SketchTool): tool is DraftDimensionTool {
+  return tool === "line" || tool === "rectangle" || tool === "circle";
+}
+
+function formatDraftDimension(value: number): string {
+  return Math.max(Math.abs(value), 0).toFixed(2);
+}
+
+function draftSessionValues(
+  tool: DraftDimensionTool,
+  start: [number, number],
+  current: [number, number],
+): Record<DraftDimensionField, string> {
+  const width = current[0] - start[0];
+  const length = current[1] - start[1];
+  const radius = distanceBetweenPoints(start, current);
+  return {
+    length:
+      tool === "line"
+        ? formatDraftDimension(radius)
+        : formatDraftDimension(length),
+    width: formatDraftDimension(width),
+    diameter: formatDraftDimension(radius * 2),
+  };
+}
+
+function draftSessionFields(tool: DraftDimensionTool): DraftDimensionField[] {
+  if (tool === "rectangle") {
+    return ["width", "length"];
+  }
+  if (tool === "circle") {
+    return ["diameter"];
+  }
+  return ["length"];
+}
+
+function updateDraftSessionCurrent(
+  session: DraftDimensionSession,
+  current: [number, number],
+): DraftDimensionSession {
+  return {
+    ...session,
+    current,
+    values: draftSessionValues(session.tool, session.start, current),
+  };
+}
+
 export function ViewportPanel({
   status,
   document,
@@ -583,6 +645,8 @@ export function ViewportPanel({
   const revealGhostEdgesRef = useRef(false);
   const [dimensionDraftValue, setDimensionDraftValue] = useState("");
   const [isDimensionEditorOpen, setIsDimensionEditorOpen] = useState(false);
+  const [draftDimensionSession, setDraftDimensionSession] =
+    useState<DraftDimensionSession | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const dimensionEditorRef = useRef<HTMLFormElement | null>(null);
@@ -615,6 +679,12 @@ export function ViewportPanel({
   const viewCubeDraggingRef = useRef(false);
   const viewCubeDragStartRef = useRef<{ x: number; y: number } | null>(null);
   const lineDraftStartRef = useRef<[number, number] | null>(null);
+  const currentGridSpacingRef = useRef(10);
+  const draftDimensionSessionRef = useRef<DraftDimensionSession | null>(null);
+  const draftDimensionInputRefs = useRef<
+    Partial<Record<DraftDimensionField, HTMLInputElement | null>>
+  >({});
+  const draftStartedOnPointerDownRef = useRef(false);
   const previousReferencePlaneVisibilityRef = useRef<boolean | null>(null);
   const primitiveVisualsRef = useRef(new Map<string, PrimitiveVisual>());
   const primitiveStatesRef = useRef(
@@ -1040,6 +1110,15 @@ export function ViewportPanel({
     activeSketchPlaneIdRef.current = activeSketchPlaneId;
     activeSketchPlaneFrameRef.current = activeSketchPlaneFrame;
   }, [activeSketchPlaneId, activeSketchPlaneFrame]);
+  useEffect(() => {
+    draftDimensionSessionRef.current = draftDimensionSession;
+  }, [draftDimensionSession]);
+  useEffect(() => {
+    if (!draftDimensionSession) {
+      return;
+    }
+    renderDraftPreview(draftDimensionSession);
+  }, [draftDimensionSession]);
 
   function clearPreviewLine() {
     const previewLine = previewLineRef.current;
@@ -1078,6 +1157,220 @@ export function ViewportPanel({
     previewArc.geometry.dispose();
     disposeMaterial(previewArc.material);
     previewArcRef.current = null;
+  }
+
+  function snapRawPointToGrid(
+    rawPoint: {
+      local: [number, number];
+      world: [number, number, number];
+    },
+    worldUnitsPerPixel: number,
+  ) {
+    const spacing = currentGridSpacingRef.current;
+    if (!Number.isFinite(spacing) || spacing <= 0) {
+      return rawPoint;
+    }
+    const threshold = worldUnitsPerPixel * GRID_SNAP_SCREEN_DISTANCE_PX;
+    const nearestX = Math.round(rawPoint.local[0] / spacing) * spacing;
+    const nearestY = Math.round(rawPoint.local[1] / spacing) * spacing;
+    const local: [number, number] = [
+      Math.abs(rawPoint.local[0] - nearestX) <= threshold
+        ? nearestX
+        : rawPoint.local[0],
+      Math.abs(rawPoint.local[1] - nearestY) <= threshold
+        ? nearestY
+        : rawPoint.local[1],
+    ];
+    if (local[0] === rawPoint.local[0] && local[1] === rawPoint.local[1]) {
+      return rawPoint;
+    }
+    return {
+      local,
+      world: toWorldPoint(
+        activeSketchPlaneId ?? "ref-plane-xy",
+        local,
+        activeSketchPlaneFrame,
+      ),
+    };
+  }
+
+  function createDraftDimensionSession(
+    tool: DraftDimensionTool,
+    start: [number, number],
+    current: [number, number],
+  ): DraftDimensionSession {
+    const fields = draftSessionFields(tool);
+    return {
+      tool,
+      start,
+      current,
+      values: draftSessionValues(tool, start, current),
+      activeField: fields[0],
+    };
+  }
+
+  function clearDraftDimensionSession() {
+    setDraftDimensionSession(null);
+    draftDimensionSessionRef.current = null;
+  }
+
+  function renderDraftPreview(session: DraftDimensionSession) {
+    const sketchGroup = sketchGroupRef.current;
+    if (!sketchGroup || !activeSketchPlaneId) {
+      return;
+    }
+
+    clearPreviewLine();
+    clearPreviewCircle();
+    clearPreviewArc();
+    const [sx, sy] = session.start;
+    const [ex, ey] = session.current;
+
+    if (session.tool === "circle") {
+      const radius = distanceBetweenPoints(session.start, session.current);
+      if (radius <= 0.001) {
+        return;
+      }
+      const preview = buildSketchCircleObject(
+        {
+          circleId: "preview-circle",
+          planeId: activeSketchPlaneId,
+          center: toWorldPoint(
+            activeSketchPlaneId,
+            session.start,
+            activeSketchPlaneFrame,
+          ),
+          radius,
+          isSelected: false,
+          isPreview: false,
+        },
+        activeSketchPlaneFrame,
+      );
+      previewCircleRef.current = preview;
+      sketchGroup.add(preview);
+      return;
+    }
+
+    const localPoints: Array<[number, number]> =
+      session.tool === "rectangle"
+        ? [
+            [sx, sy],
+            [ex, sy],
+            [ex, ey],
+            [sx, ey],
+            [sx, sy],
+          ]
+        : [session.start, session.current];
+    const preview = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(
+        localPoints.map(
+          (point) =>
+            new THREE.Vector3(
+              ...toWorldPoint(activeSketchPlaneId, point, activeSketchPlaneFrame),
+            ),
+        ),
+      ),
+      new THREE.LineBasicMaterial({
+        color: themeColor("--color-tertiary-plane-edge", "#ffe784"),
+        transparent: true,
+        opacity: 0.88,
+      }),
+    );
+    previewLineRef.current = preview;
+    sketchGroup.add(preview);
+  }
+
+  function updateDraftSessionFromPoint(point: [number, number]) {
+    const session = draftDimensionSessionRef.current;
+    if (!session) {
+      return;
+    }
+    const next = updateDraftSessionCurrent(session, point);
+    draftDimensionSessionRef.current = next;
+    setDraftDimensionSession(next);
+  }
+
+  function applyDraftDimensionField(
+    session: DraftDimensionSession,
+    field: DraftDimensionField,
+    rawValue: string,
+  ): DraftDimensionSession {
+    const numeric = Number(rawValue);
+    const nextValues = { ...session.values, [field]: rawValue };
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+      return { ...session, values: nextValues, activeField: field };
+    }
+
+    const dx = session.current[0] - session.start[0];
+    const dy = session.current[1] - session.start[1];
+    const signX = dx < 0 ? -1 : 1;
+    const signY = dy < 0 ? -1 : 1;
+    let current = session.current;
+    if (session.tool === "rectangle") {
+      current = [
+        field === "width" ? session.start[0] + signX * numeric : current[0],
+        field === "length" ? session.start[1] + signY * numeric : current[1],
+      ];
+    } else if (session.tool === "circle") {
+      const radius = numeric / 2;
+      const length = Math.hypot(dx, dy) || 1;
+      current = [
+        session.start[0] + (dx / length) * radius,
+        session.start[1] + (dy / length) * radius,
+      ];
+    } else {
+      const length = Math.hypot(dx, dy) || 1;
+      current = [
+        session.start[0] + (dx / length) * numeric,
+        session.start[1] + (dy / length) * numeric,
+      ];
+    }
+
+    return {
+      ...session,
+      current,
+      values: {
+        ...draftSessionValues(session.tool, session.start, current),
+        [field]: rawValue,
+      },
+      activeField: field,
+    };
+  }
+
+  async function commitDraftDimensionSession(
+    session = draftDimensionSessionRef.current,
+  ) {
+    if (!session) {
+      return;
+    }
+    const [startX, startY] = session.start;
+    const [endX, endY] = session.current;
+    clearPreviewLine();
+    clearPreviewCircle();
+    clearPreviewArc();
+    lineDraftStartRef.current = null;
+    clearDraftDimensionSession();
+    rendererRef.current?.domElement.focus();
+
+    if (session.tool === "rectangle") {
+      await addSketchRectangleRef.current(startX, startY, endX, endY);
+      return;
+    }
+    if (session.tool === "circle") {
+      await addSketchCircleRef.current(
+        startX,
+        startY,
+        distanceBetweenPoints(session.start, session.current),
+      );
+      return;
+    }
+    await addSketchLineRef.current(
+      startX,
+      startY,
+      endX,
+      endY,
+      lineToolConstructionRef.current,
+    );
   }
 
   function resolveSnappedSketchPoint(rawPoint: {
@@ -1443,8 +1736,13 @@ export function ViewportPanel({
     }
 
     return {
-      local: rawPoint.local,
-      world: rawPoint.world,
+      ...snapRawPointToGrid(
+        rawPoint,
+        cameraRef.current && rendererRef.current
+          ? getOrthographicViewHeight(cameraRef.current) /
+              Math.max(rendererRef.current.domElement.clientHeight, 1)
+          : 1,
+      ),
       snapLabel: null,
       snapMidpointHostLineId: null,
       snapPerpendicularHostLineId: null,
@@ -1861,10 +2159,12 @@ export function ViewportPanel({
     // Angle dims store radians internally but the editor shows
     // degrees (matches the on-screen badge), so convert before
     // populating. `selectedSketchDimension` is null-checked above.
-    const isAngle = selectedSketchDimension?.kind === "angle";
-    const displayValue = isAngle
-      ? selectedSketchDimensionValue * (180 / Math.PI)
-      : selectedSketchDimensionValue;
+    const displayValue =
+      selectedSketchDimension?.kind === "angle"
+        ? selectedSketchDimensionValue * (180 / Math.PI)
+        : selectedSketchDimension?.kind === "circle_radius"
+          ? selectedSketchDimensionValue * 2
+          : selectedSketchDimensionValue;
     setDimensionDraftValue(String(parseFloat(displayValue.toFixed(2))));
   }, [
     selectedSketchDimensionValue,
@@ -2017,6 +2317,7 @@ export function ViewportPanel({
 
       const viewHeight = getOrthographicViewHeight(camera);
       const spacing = selectOrthographicGridSpacing(camera);
+      currentGridSpacingRef.current = spacing;
       const halfLineCount = gridHalfLineCount(viewHeight, spacing);
       const viewOffset = new THREE.Vector3()
         .copy(camera.position)
@@ -2097,25 +2398,100 @@ export function ViewportPanel({
       );
       const worldUnitsPerPixel =
         getOrthographicViewHeight(camera) / viewportHeight;
-      const spriteObjects = [
-        ...sketchDimensionObjectsRef.current,
-        ...sketchConstraintObjectsRef.current,
-      ];
+      const cameraRight = new THREE.Vector3()
+        .setFromMatrixColumn(camera.matrixWorld, 0)
+        .normalize();
+      const cameraUp = new THREE.Vector3()
+        .setFromMatrixColumn(camera.matrixWorld, 1)
+        .normalize();
+      const dimensionRects: Array<{
+        center: { x: number; y: number };
+        width: number;
+        height: number;
+      }> = [];
 
-      for (const object of spriteObjects) {
+      function updateSpriteScale(object: THREE.Object3D, scale: number) {
         const sprite = object as THREE.Sprite;
         const screenSize = sprite.userData.screenSize as
           | { width: number; height: number }
           | undefined;
         if (!screenSize || !sprite.isSprite) {
-          continue;
+          return null;
         }
 
+        const basePosition = sprite.userData.basePosition as
+          | [number, number, number]
+          | null
+          | undefined;
+        if (basePosition) {
+          sprite.position.set(...basePosition);
+        }
         sprite.scale.set(
-          screenSize.width * viewportScale * worldUnitsPerPixel,
-          screenSize.height * viewportScale * worldUnitsPerPixel,
+          screenSize.width * scale * viewportScale * worldUnitsPerPixel,
+          screenSize.height * scale * viewportScale * worldUnitsPerPixel,
           1,
         );
+
+        const center = projectWorldPointToViewport(
+          [sprite.position.x, sprite.position.y, sprite.position.z],
+          camera,
+          renderer,
+        );
+        if (!center) {
+          return null;
+        }
+        return {
+          center,
+          width: screenSize.width * scale * viewportScale,
+          height: screenSize.height * scale * viewportScale,
+        };
+      }
+
+      for (const object of sketchDimensionObjectsRef.current) {
+        const rect = updateSpriteScale(object, SKETCH_LABEL_SCREEN_SCALE);
+        if (rect) {
+          dimensionRects.push(rect);
+        }
+      }
+
+      for (const object of sketchConstraintObjectsRef.current) {
+        const rect = updateSpriteScale(
+          object,
+          SKETCH_CONSTRAINT_SCREEN_SIZE / 42,
+        );
+        if (!rect) {
+          continue;
+        }
+        const sprite = object as THREE.Sprite;
+        for (const dimensionRect of dimensionRects) {
+          const dx = rect.center.x - dimensionRect.center.x;
+          const dy = rect.center.y - dimensionRect.center.y;
+          const overlapX =
+            (rect.width + dimensionRect.width) / 2 +
+            SKETCH_LABEL_COLLISION_PADDING -
+            Math.abs(dx);
+          const overlapY =
+            (rect.height + dimensionRect.height) / 2 +
+            SKETCH_LABEL_COLLISION_PADDING -
+            Math.abs(dy);
+          if (overlapX <= 0 || overlapY <= 0) {
+            continue;
+          }
+
+          const moveX =
+            overlapX < overlapY
+              ? (dx >= 0 ? 1 : -1) * overlapX
+              : 0;
+          const moveY =
+            overlapX < overlapY
+              ? 0
+              : (dy >= 0 ? 1 : -1) * overlapY;
+          sprite.position
+            .addScaledVector(cameraRight, moveX * worldUnitsPerPixel)
+            .addScaledVector(cameraUp, -moveY * worldUnitsPerPixel);
+          rect.center.x += moveX;
+          rect.center.y += moveY;
+        }
       }
     }
 
@@ -2612,6 +2988,37 @@ export function ViewportPanel({
       }
 
       pointerDown = { x: event.clientX, y: event.clientY };
+      renderer.domElement.setPointerCapture(event.pointerId);
+      if (
+        activeSketchPlaneIdRef.current &&
+        isDraftDimensionTool(activeSketchToolRef.current) &&
+        !lineDraftStartRef.current
+      ) {
+        const rawPoint = resolveSketchPlanePoint(
+          event,
+          renderer,
+          camera,
+          activeSketchPlaneIdRef.current,
+          activeSketchPlaneFrameRef.current,
+        );
+        if (!rawPoint) {
+          return;
+        }
+        const sketchPoint = resolveSnappedSketchPoint(rawPoint);
+        lineDraftStartRef.current = sketchPoint.local;
+        draftStartedOnPointerDownRef.current = true;
+        const session = createDraftDimensionSession(
+          activeSketchToolRef.current,
+          sketchPoint.local,
+          sketchPoint.local,
+        );
+        draftDimensionSessionRef.current = session;
+        setDraftDimensionSession(session);
+        window.requestAnimationFrame(() => {
+          draftDimensionInputRefs.current[session.activeField]?.focus();
+          draftDimensionInputRefs.current[session.activeField]?.select();
+        });
+      }
     }
 
     function handlePointerMove(event: PointerEvent) {
@@ -2671,6 +3078,7 @@ export function ViewportPanel({
           clearPreviewArc();
           setSketchSnapLabel(null);
           setConstraintPreview(null);
+          clearDraftDimensionSession();
           const hit = intersectSceneTargets(event);
           setHoveredReference(null);
           setHoveredPrimitive(null);
@@ -2697,6 +3105,7 @@ export function ViewportPanel({
           clearPreviewArc();
           setSketchSnapLabel(null);
           setConstraintPreview(null);
+          clearDraftDimensionSession();
           const projectHit = intersectSceneTargets(event);
           setHoveredReference(null);
           setHoveredPrimitive(null);
@@ -2724,6 +3133,12 @@ export function ViewportPanel({
 
         const sketchPoint = resolveSnappedSketchPoint(rawPoint);
         setSketchSnapLabel(sketchPoint.snapLabel);
+        if (
+          isDraftDimensionTool(activeSketchToolRef.current) &&
+          draftDimensionSessionRef.current
+        ) {
+          updateDraftSessionFromPoint(sketchPoint.local);
+        }
 
         // Hover-time constraint preview. The badge sits next to the
         // cursor in viewport-local coordinates so it stays glued to
@@ -3129,6 +3544,9 @@ export function ViewportPanel({
         pointerDown = null;
         return;
       }
+      if (renderer.domElement.hasPointerCapture(event.pointerId)) {
+        renderer.domElement.releasePointerCapture(event.pointerId);
+      }
 
       // -- cube-area click ---------------------------------------------
       if (viewCubeDraggingRef.current) {
@@ -3189,6 +3607,20 @@ export function ViewportPanel({
       const deltaX = Math.abs(event.clientX - pointerDown.x);
       const deltaY = Math.abs(event.clientY - pointerDown.y);
       pointerDown = null;
+
+      if (draftStartedOnPointerDownRef.current) {
+        draftStartedOnPointerDownRef.current = false;
+        if (deltaX > 4 || deltaY > 4) {
+          const field = draftDimensionSessionRef.current?.activeField;
+          if (field) {
+            window.requestAnimationFrame(() => {
+              draftDimensionInputRefs.current[field]?.focus();
+              draftDimensionInputRefs.current[field]?.select();
+            });
+          }
+        }
+        return;
+      }
 
       if (deltaX > 4 || deltaY > 4) {
         return;
@@ -3694,6 +4126,13 @@ export function ViewportPanel({
         // Same chaining for the line-body host: the next draft
         // segment's start is the end we just committed.
         draftStartLineBodyHostRef.current = endLineBodyHost;
+        const nextLineSession = createDraftDimensionSession(
+          "line",
+          sketchPoint.local,
+          sketchPoint.local,
+        );
+        draftDimensionSessionRef.current = nextLineSession;
+        setDraftDimensionSession(nextLineSession);
         void addSketchLineRef.current(
           startX,
           startY,
@@ -4108,6 +4547,7 @@ export function ViewportPanel({
     clearPreviewArc();
     setSketchSnapLabel(null);
     setConstraintPreview(null);
+    clearDraftDimensionSession();
     // Reset the dimension tool's pending first-line on every tool
     // switch so it can't leak across tools or sketches.
     dimensionToolFirstLineRef.current = null;
@@ -4344,11 +4784,13 @@ export function ViewportPanel({
       return;
     }
 
-    // Angle dims accept the user's input in degrees (matching the
-    // badge); convert back to radians before sending to the core.
+    // Angle dims accept degrees and circle dims accept diameter in
+    // the editor; convert both back to the core-owned values.
     const nextValue =
       selectedSketchDimension.kind === "angle"
         ? rawValue * (Math.PI / 180)
+        : selectedSketchDimension.kind === "circle_radius"
+          ? rawValue / 2
         : rawValue;
 
     await updateSketchDimensionRef.current(
@@ -4356,6 +4798,99 @@ export function ViewportPanel({
       nextValue,
     );
     setIsDimensionEditorOpen(false);
+  }
+
+  function draftFieldScreenPosition(field: DraftDimensionField) {
+    if (!draftDimensionSession || !cameraRef.current || !rendererRef.current) {
+      return null;
+    }
+    const session = draftDimensionSession;
+    const [sx, sy] = session.start;
+    const [ex, ey] = session.current;
+    let local: [number, number] = session.current;
+    let offset: [number, number] = [0, -DRAFT_DIMENSION_OFFSET_PX];
+
+    if (session.tool === "line") {
+      local = [(sx + ex) / 2, (sy + ey) / 2];
+    } else if (session.tool === "rectangle") {
+      if (field === "width") {
+        local = [(sx + ex) / 2, sy];
+        offset = [0, -DRAFT_DIMENSION_OFFSET_PX];
+      } else {
+        local = [ex, (sy + ey) / 2];
+        offset = [DRAFT_DIMENSION_OFFSET_PX, 0];
+      }
+    } else {
+      local = session.current;
+      offset = [DRAFT_DIMENSION_OFFSET_PX, 0];
+    }
+
+    const world = toWorldPoint(
+      activeSketchPlaneId ?? "ref-plane-xy",
+      local,
+      activeSketchPlaneFrame,
+    );
+    const point = projectWorldPointToViewport(
+      world,
+      cameraRef.current,
+      rendererRef.current,
+    );
+    if (!point) {
+      return null;
+    }
+    return {
+      x: point.x + offset[0],
+      y: point.y + offset[1],
+    };
+  }
+
+  function handleDraftDimensionChange(
+    field: DraftDimensionField,
+    value: string,
+  ) {
+    const session = draftDimensionSessionRef.current;
+    if (!session) {
+      return;
+    }
+    const next = applyDraftDimensionField(session, field, value);
+    draftDimensionSessionRef.current = next;
+    setDraftDimensionSession(next);
+  }
+
+  function focusDraftField(field: DraftDimensionField) {
+    window.requestAnimationFrame(() => {
+      draftDimensionInputRefs.current[field]?.focus();
+      draftDimensionInputRefs.current[field]?.select();
+    });
+  }
+
+  function handleDraftDimensionKeyDown(
+    event: ReactKeyboardEvent<HTMLInputElement>,
+    field: DraftDimensionField,
+  ) {
+    const session = draftDimensionSessionRef.current;
+    if (!session) {
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void commitDraftDimensionSession(session);
+      return;
+    }
+    if (event.key !== "Tab") {
+      return;
+    }
+    event.preventDefault();
+    const fields = draftSessionFields(session.tool);
+    const index = fields.indexOf(field);
+    const nextField =
+      fields[
+        (index + (event.shiftKey ? -1 : 1) + fields.length) % fields.length
+      ];
+    const next = { ...session, activeField: nextField };
+    draftDimensionSessionRef.current = next;
+    setDraftDimensionSession(next);
+    focusDraftField(nextField);
   }
 
   return (
@@ -4420,9 +4955,55 @@ export function ViewportPanel({
                     ? "V"
                     : constraintPreview.kind === "tangent"
                       ? "T"
-                      : "/"}
+              : "/"}
           </div>
         ) : null}
+        {draftDimensionSession
+          ? draftSessionFields(draftDimensionSession.tool).map((field) => {
+              const position = draftFieldScreenPosition(field);
+              if (!position) {
+                return null;
+              }
+              return (
+                <form
+                  key={field}
+                  className="pointer-events-auto absolute z-30 flex w-[92px] items-center rounded-md border border-cyan-100/55 bg-slate-950/80 px-2 py-1 shadow-[0_4px_12px_rgba(0,0,0,0.45)] backdrop-blur-md"
+                  style={{
+                    left: position.x,
+                    top: position.y,
+                    transform: "translate(-50%, -50%)",
+                  }}
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void commitDraftDimensionSession();
+                  }}
+                >
+                  <input
+                    ref={(input) => {
+                      draftDimensionInputRefs.current[field] = input;
+                    }}
+                    className="h-6 w-full bg-transparent text-center text-sm font-semibold text-on-surface tabular-nums outline-none"
+                    value={draftDimensionSession.values[field]}
+                    inputMode="decimal"
+                    onChange={(event) => {
+                      handleDraftDimensionChange(field, event.target.value);
+                    }}
+                    onFocus={() => {
+                      const next = {
+                        ...draftDimensionSession,
+                        activeField: field,
+                      };
+                      draftDimensionSessionRef.current = next;
+                      setDraftDimensionSession(next);
+                    }}
+                    onKeyDown={(event) => {
+                      handleDraftDimensionKeyDown(event, field);
+                    }}
+                  />
+                </form>
+              );
+            })
+          : null}
         {/*
           Floating Line Tool options panel (Fusion-style). Appears
           while the line tool is armed *or* while a sketch line is
@@ -4545,6 +5126,9 @@ export function ViewportPanel({
                           parseFloat(
                             (selectedSketchDimension?.kind === "angle"
                               ? selectedSketchDimensionValue * (180 / Math.PI)
+                              : selectedSketchDimension?.kind ===
+                                  "circle_radius"
+                                ? selectedSketchDimensionValue * 2
                               : selectedSketchDimensionValue
                             ).toFixed(2),
                           ),

@@ -1145,6 +1145,7 @@ export function makeDimensionLabelSprite(text: string) {
     width: canvas.width,
     height: canvas.height,
   };
+  sprite.userData.basePosition = null;
   return sprite;
 }
 
@@ -1220,6 +1221,7 @@ export function buildSketchDimensionObject(dimension: SketchDimensionScene) {
   label.position.set(...dimension.labelPosition);
   label.renderOrder = 7;
   label.userData.sketchDimensionId = dimension.dimensionId;
+  label.userData.basePosition = dimension.labelPosition;
 
   return { line, label };
 }
@@ -1231,6 +1233,7 @@ export function buildSketchConstraintObject(constraint: SketchConstraintScene) {
   );
   badge.position.set(...constraint.position);
   badge.renderOrder = 8;
+  badge.userData.basePosition = constraint.position;
   badge.userData.sketchConstraintId = constraint.constraintId;
   badge.userData.sketchConstraintKind = constraint.kind;
   badge.userData.sketchConstraintEntityId = constraint.entityId;
