@@ -387,8 +387,8 @@ export const SketchIcon = () => (
   </svg>
 );
 
-// "Project face" glyph: a planar face being dropped onto the active
-// sketch plane. Reads as "stamp this face onto the sketch grid".
+// Project glyph: source outline, projection rays, and target sketch
+// outline. Kept deliberately simple so it reads at toolbar size.
 export const ProjectFaceIcon = () => (
   <svg
     viewBox="0 0 24 24"
@@ -400,10 +400,11 @@ export const ProjectFaceIcon = () => (
     strokeLinejoin="round"
     aria-hidden="true"
   >
-    <path d="M5 16h14" />
-    <path d="M7 16l3-3h7l-3 3" />
-    <rect x="8" y="5" width="8" height="6" rx="1" />
-    <path d="M12 11v2" />
+    <rect x="5" y="5" width="7" height="7" rx="1" />
+    <rect x="12" y="12" width="7" height="7" rx="1" />
+    <path d="M12 8.5h3.5v3.5" />
+    <path d="M12 12 7.5 16.5" strokeDasharray="1.5 2" />
+    <path d="M15.5 8.5 8.5 15.5" />
   </svg>
 );
 

@@ -177,6 +177,8 @@ function App() {
   const [hiddenCategories, setHiddenCategories] = useState<Set<CategoryId>>(
     () => new Set<CategoryId>(),
   );
+  const originVisibilityManuallyChangedRef = useRef(false);
+  const previousDocumentIdRef = useRef<string | null>(null);
   // Hierarchy sidebar layout. Collapsed: shown as a thin vertical bar
   // labelled "Hierarchy" on the left edge. Width is user-resizable
   // via a drag handle on the sidebar's right edge.
@@ -386,6 +388,52 @@ function App() {
   // viewport snapshot does not carry the owning sketch feature id on each
   // sketch primitive.
   const BODY_KINDS = new Set(["box", "cylinder", "polygon_extrude", "extrude"]);
+  const hasSolidBody = useMemo(
+    () =>
+      (document?.feature_history ?? []).some(
+        (feature) =>
+          BODY_KINDS.has(feature.kind) &&
+          feature.suppressed !== true &&
+          feature.status !== "warning" &&
+          feature.dependency_broken !== true,
+      ),
+    [document],
+  );
+  useEffect(() => {
+    const documentId = document?.document_id ?? null;
+    if (previousDocumentIdRef.current !== documentId) {
+      previousDocumentIdRef.current = documentId;
+      originVisibilityManuallyChangedRef.current = false;
+      setHiddenCategories((current) => {
+        const next = new Set(current);
+        if (documentId && hasSolidBody) {
+          next.add("origin");
+        } else {
+          next.delete("origin");
+        }
+        return next;
+      });
+      return;
+    }
+
+    if (
+      !documentId ||
+      !hasSolidBody ||
+      originVisibilityManuallyChangedRef.current
+    ) {
+      return;
+    }
+
+    setHiddenCategories((current) => {
+      if (current.has("origin")) {
+        return current;
+      }
+      const next = new Set(current);
+      next.add("origin");
+      return next;
+    });
+  }, [document?.document_id, hasSolidBody]);
+
   const effectiveHiddenFeatureIds = useMemo(() => {
     const set = new Set<string>(hiddenFeatureIds);
     if (!document) {
@@ -1457,6 +1505,9 @@ function App() {
                     });
                   }}
                   onToggleCategoryVisibility={(category) => {
+                    if (category === "origin") {
+                      originVisibilityManuallyChangedRef.current = true;
+                    }
                     setHiddenCategories((current) => {
                       const next = new Set(current);
                       if (next.has(category)) {
@@ -2457,27 +2508,48 @@ function App() {
               ) : null}
               {pendingSketchDeleteConfirmation ? (
                 <section className="pointer-events-auto cad-floating-panel px-5 py-5">
-                  <p className="cad-kicker">Warning</p>
-                  <h2 className="mt-2 font-display text-lg text-on-surface">
-                    Delete sketch geometry?
-                  </h2>
-                  <p className="mt-3 text-sm leading-5 text-on-surface-muted">
-                    This will break{" "}
-                    {
-                      pendingSketchDeleteConfirmation.affectedFeatureNames
-                        .length
-                    }{" "}
-                    downstream feature
-                    {pendingSketchDeleteConfirmation.affectedFeatureNames
-                      .length === 1
-                      ? ""
-                      : "s"}
-                    :{" "}
-                    {pendingSketchDeleteConfirmation.affectedFeatureNames.join(
-                      ", ",
-                    )}
-                    .
-                  </p>
+                  <div className="flex items-start gap-3">
+                    <span className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-amber-400/15 text-amber-300 ring-1 ring-amber-300/35">
+                      <svg
+                        viewBox="0 0 16 16"
+                        width="20"
+                        height="20"
+                        aria-hidden="true"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M8 2 14 13H2Z" />
+                        <path d="M8 6v3" />
+                        <path d="M8 11.5h.01" />
+                      </svg>
+                    </span>
+                    <div>
+                      <p className="cad-kicker text-amber-300">Warning</p>
+                      <h2 className="mt-2 font-display text-lg text-on-surface">
+                        Delete sketch geometry?
+                      </h2>
+                      <p className="mt-3 text-sm leading-5 text-on-surface-muted">
+                        This will break{" "}
+                        {
+                          pendingSketchDeleteConfirmation.affectedFeatureNames
+                            .length
+                        }{" "}
+                        downstream feature
+                        {pendingSketchDeleteConfirmation.affectedFeatureNames
+                          .length === 1
+                          ? ""
+                          : "s"}
+                        :{" "}
+                        {pendingSketchDeleteConfirmation.affectedFeatureNames.join(
+                          ", ",
+                        )}
+                        .
+                      </p>
+                    </div>
+                  </div>
                   <div className="mt-5 grid grid-cols-2 gap-3">
                     <button
                       type="button"
