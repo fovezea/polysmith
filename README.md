@@ -130,6 +130,33 @@ This starts the Vite frontend and the Tauri desktop shell. `pnpm dev` expects `n
 
 ---
 
+## Release Build
+
+After completing the bootstrap step, build a release executable with:
+
+```bash
+pnpm build:release
+```
+
+Which runs this command:
+
+```bash
+cmake -S native/cad-core -B native/cad-core/build-release -DCMAKE_BUILD_TYPE=Release
+cmake --build native/cad-core/build-release --config Release
+pnpm --filter desktop-ui exec tauri build --bundles app
+```
+
+The script copies the release `cad_core` binary into the Tauri resources folder before packaging, so the built app uses the bundled CAD core instead of the workspace development path.
+
+On macOS, the main outputs are:
+
+```text
+apps/desktop-ui/src-tauri/target/release/polysmith
+apps/desktop-ui/src-tauri/target/release/bundle/macos/polysmith.app
+```
+
+---
+
 ## V1 Focus
 
 PolySmith v1 is intentionally narrow:

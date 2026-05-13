@@ -8,6 +8,7 @@ apps/desktop-ui/dist/
 apps/desktop-ui/src-tauri/target/
 
 native/cad-core/build/
+native/cad-core/build-release/
 
 .DS_Store
 *.log

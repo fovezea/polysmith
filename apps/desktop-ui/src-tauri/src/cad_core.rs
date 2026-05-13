@@ -3,9 +3,13 @@ use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::Mutex;
 
-use tauri::{AppHandle, Emitter};
+use tauri::{path::BaseDirectory, AppHandle, Emitter, Manager};
 
 use crate::protocol::{emit_core_error, emit_core_event, emit_core_log};
+
+mod cad_core_build_config {
+    include!(concat!(env!("OUT_DIR"), "/cad_core_build_config.rs"));
+}
 
 pub struct CadCoreState {
     pub child: Mutex<Option<CadCoreProcess>>,
@@ -17,12 +21,33 @@ pub struct CadCoreProcess {
     pub stdin: ChildStdin,
 }
 
-pub fn cad_core_path() -> Result<PathBuf, String> {
-    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.push("../../../native/cad-core/build/cad_core");
+pub fn cad_core_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let path = match cad_core_build_config::CAD_CORE_PATH_KIND {
+        "resource" => app
+            .path()
+            .resolve(
+                cad_core_build_config::CAD_CORE_RESOURCE_PATH,
+                BaseDirectory::Resource,
+            )
+            .map_err(|e| format!("failed to resolve bundled cad_core resource: {e}"))?,
+        "workspace" => {
+            let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            path.push(cad_core_build_config::CAD_CORE_WORKSPACE_PATH);
+            path
+        }
+        other => {
+            return Err(format!(
+                "unsupported cad_core path kind `{other}`; expected `workspace` or `resource`"
+            ));
+        }
+    };
 
     #[cfg(target_os = "windows")]
-    path.set_extension("exe");
+    let path = {
+        let mut path = path;
+        path.set_extension("exe");
+        path
+    };
 
     if !path.exists() {
         return Err(format!("cad_core not found at {}", path.display()));
@@ -41,7 +66,7 @@ pub fn start_cad_core_process(
         return Ok("cad_core already running".to_string());
     }
 
-    let core_path = cad_core_path()?;
+    let core_path = cad_core_path(&app)?;
     eprintln!("Starting cad_core from {}", core_path.display());
 
     let mut child = Command::new(&core_path)

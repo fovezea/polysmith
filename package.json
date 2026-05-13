@@ -10,6 +10,7 @@
     "ui:dev": "pnpm --filter desktop-ui dev",
     "ui:build": "pnpm --filter desktop-ui build",
     "ui:install": "pnpm install",
+    "build:release": "node scripts/build-release.mjs",
     "core:configure": "cmake -S native/cad-core -B native/cad-core/build",
     "core:build": "cmake --build native/cad-core/build",
     "core:rebuild": "pnpm core:configure && pnpm core:build",
