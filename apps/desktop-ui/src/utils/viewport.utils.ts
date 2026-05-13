@@ -1141,6 +1141,10 @@ export function makeDimensionLabelSprite(text: string) {
   });
   const sprite = new THREE.Sprite(material);
   sprite.scale.set(canvas.width / 9, canvas.height / 9, 1);
+  sprite.userData.screenSize = {
+    width: canvas.width,
+    height: canvas.height,
+  };
   return sprite;
 }
 
@@ -1184,6 +1188,10 @@ export function makeConstraintBadgeSprite(text: string, isSelected: boolean) {
   });
   const sprite = new THREE.Sprite(material);
   sprite.scale.set(5.4, 5.4, 1);
+  sprite.userData.screenSize = {
+    width: 42,
+    height: 42,
+  };
   return sprite;
 }
 

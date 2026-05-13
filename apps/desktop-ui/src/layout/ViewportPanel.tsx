@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MutableRefObject,
+} from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { createViewportScene } from "@/lib";
@@ -70,6 +76,33 @@ import {
   disposeViewCubeGroup,
 } from "@/utils";
 import type { ViewCubeHit } from "@/utils";
+
+type DynamicGridRef = {
+  key: string;
+  group: THREE.Group;
+};
+
+type GridPlaneFrame = {
+  origin: THREE.Vector3;
+  xAxis: THREE.Vector3;
+  yAxis: THREE.Vector3;
+  normal: THREE.Vector3;
+};
+type ActiveSketchGridPlaneFrame = NonNullable<
+  NonNullable<
+    DocumentState["feature_history"][number]["sketch_parameters"]
+  >["plane_frame"]
+>;
+
+const GRID_STEPS_MM = [
+  0.1, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000,
+];
+const GRID_MIN_HALF_LINE_COUNT = 80;
+const GRID_VIEW_COVERAGE_MULTIPLIER = 12;
+const GRID_MAJOR_EVERY = 10;
+const GRID_CAMERA_SCALE = 40;
+const SKETCH_GRID_BACK_OFFSET = 0.015;
+const SKETCH_SCREEN_SPRITE_BASE_HEIGHT = 900;
 
 interface ViewportPanelProps {
   status: "idle" | "starting" | "connected" | "error" | "stopped";
@@ -208,6 +241,198 @@ interface ViewportPanelProps {
   hideReferences?: boolean;
 }
 
+function selectGridSpacing(cameraDistance: number): number {
+  const desiredSpacing = Math.max(
+    cameraDistance / GRID_CAMERA_SCALE,
+    GRID_STEPS_MM[0],
+  );
+  return (
+    GRID_STEPS_MM.find((spacing) => spacing >= desiredSpacing) ??
+    GRID_STEPS_MM[GRID_STEPS_MM.length - 1]
+  );
+}
+
+function snapGridCenter(value: number, spacing: number): number {
+  return Math.round(value / spacing) * spacing;
+}
+
+function isGridMajorLine(value: number, spacing: number): boolean {
+  const majorSpacing = spacing * GRID_MAJOR_EVERY;
+  return (
+    Math.abs(value / majorSpacing - Math.round(value / majorSpacing)) < 1e-5
+  );
+}
+
+function pushGridLine(
+  positions: number[],
+  colors: number[],
+  start: THREE.Vector3,
+  end: THREE.Vector3,
+  color: THREE.Color,
+): void {
+  positions.push(start.x, start.y, start.z, end.x, end.y, end.z);
+  colors.push(color.r, color.g, color.b, color.r, color.g, color.b);
+}
+
+function buildDynamicGrid(
+  frame: GridPlaneFrame,
+  centerU: number,
+  centerV: number,
+  spacing: number,
+  halfLineCount: number,
+  minorColor: THREE.Color,
+  majorColor: THREE.Color,
+  axisColor: THREE.Color,
+  opacity: number,
+): THREE.LineSegments {
+  const positions: number[] = [];
+  const colors: number[] = [];
+  const start = new THREE.Vector3();
+  const end = new THREE.Vector3();
+  const extent = spacing * halfLineCount;
+
+  for (let i = -halfLineCount; i <= halfLineCount; i += 1) {
+    const u = centerU + i * spacing;
+    const v = centerV + i * spacing;
+    const uColor =
+      Math.abs(u) < spacing * 0.25
+        ? axisColor
+        : isGridMajorLine(u, spacing)
+          ? majorColor
+          : minorColor;
+    const vColor =
+      Math.abs(v) < spacing * 0.25
+        ? axisColor
+        : isGridMajorLine(v, spacing)
+          ? majorColor
+          : minorColor;
+
+    start
+      .copy(frame.origin)
+      .addScaledVector(frame.xAxis, u)
+      .addScaledVector(frame.yAxis, centerV - extent);
+    end
+      .copy(frame.origin)
+      .addScaledVector(frame.xAxis, u)
+      .addScaledVector(frame.yAxis, centerV + extent);
+    pushGridLine(positions, colors, start, end, uColor);
+
+    start
+      .copy(frame.origin)
+      .addScaledVector(frame.xAxis, centerU - extent)
+      .addScaledVector(frame.yAxis, v);
+    end
+      .copy(frame.origin)
+      .addScaledVector(frame.xAxis, centerU + extent)
+      .addScaledVector(frame.yAxis, v);
+    pushGridLine(positions, colors, start, end, vColor);
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(positions, 3),
+  );
+  geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+  const material = new THREE.LineBasicMaterial({
+    vertexColors: true,
+    transparent: true,
+    opacity,
+    depthWrite: false,
+  });
+  return new THREE.LineSegments(geometry, material);
+}
+
+function disposeDynamicGrid(grid: DynamicGridRef | null): void {
+  if (!grid) {
+    return;
+  }
+  disposeGroup(grid.group);
+}
+
+function getSketchGridFrame(
+  planeId: string,
+  planeFrame: ActiveSketchGridPlaneFrame | null,
+): GridPlaneFrame {
+  if (planeFrame) {
+    const normal = new THREE.Vector3(
+      planeFrame.normal.x,
+      planeFrame.normal.y,
+      planeFrame.normal.z,
+    ).normalize();
+    return {
+      origin: new THREE.Vector3(
+        planeFrame.origin.x,
+        planeFrame.origin.y,
+        planeFrame.origin.z,
+      ).addScaledVector(normal, -SKETCH_GRID_BACK_OFFSET),
+      xAxis: new THREE.Vector3(
+        planeFrame.x_axis.x,
+        planeFrame.x_axis.y,
+        planeFrame.x_axis.z,
+      ).normalize(),
+      yAxis: new THREE.Vector3(
+        planeFrame.y_axis.x,
+        planeFrame.y_axis.y,
+        planeFrame.y_axis.z,
+      ).normalize(),
+      normal,
+    };
+  }
+
+  if (planeId === "ref-plane-yz") {
+    return {
+      origin: new THREE.Vector3(
+        SKETCH_PLANE_OFFSET - SKETCH_GRID_BACK_OFFSET,
+        0,
+        0,
+      ),
+      xAxis: new THREE.Vector3(0, 1, 0),
+      yAxis: new THREE.Vector3(0, 0, 1),
+      normal: new THREE.Vector3(1, 0, 0),
+    };
+  }
+
+  if (planeId === "ref-plane-xz") {
+    return {
+      origin: new THREE.Vector3(
+        0,
+        0,
+        SKETCH_PLANE_OFFSET - SKETCH_GRID_BACK_OFFSET,
+      ),
+      xAxis: new THREE.Vector3(1, 0, 0),
+      yAxis: new THREE.Vector3(0, 1, 0),
+      normal: new THREE.Vector3(0, 0, 1),
+    };
+  }
+
+  return {
+    origin: new THREE.Vector3(
+      0,
+      SKETCH_PLANE_OFFSET - SKETCH_GRID_BACK_OFFSET,
+      0,
+    ),
+    xAxis: new THREE.Vector3(1, 0, 0),
+    yAxis: new THREE.Vector3(0, 0, 1),
+    normal: new THREE.Vector3(0, 1, 0),
+  };
+}
+
+function projectPointToGridFrame(point: THREE.Vector3, frame: GridPlaneFrame) {
+  const relative = point.clone().sub(frame.origin);
+  return {
+    u: relative.dot(frame.xAxis),
+    v: relative.dot(frame.yAxis),
+  };
+}
+
+function gridHalfLineCount(cameraDistance: number, spacing: number): number {
+  return Math.max(
+    GRID_MIN_HALF_LINE_COUNT,
+    Math.ceil((cameraDistance * GRID_VIEW_COVERAGE_MULTIPLIER) / spacing),
+  );
+}
+
 export function ViewportPanel({
   status,
   document,
@@ -344,7 +569,8 @@ export function ViewportPanel({
   const solidFaceStatesRef = useRef(
     new Map<string, SolidFaceInteractionState>(),
   );
-  const gridRef = useRef<THREE.GridHelper | null>(null);
+  const worldGridRef = useRef<DynamicGridRef | null>(null);
+  const sketchGridRef = useRef<DynamicGridRef | null>(null);
   const meshesRef = useRef<THREE.Mesh[]>([]);
   const referencePlaneMeshesRef = useRef<THREE.Mesh[]>([]);
   const sketchEntityObjectsRef = useRef<Array<THREE.Line | THREE.LineLoop>>([]);
@@ -1683,6 +1909,144 @@ export function ViewportPanel({
     viewCubeCameraRef.current = cubeCamera;
     viewCubeRaycasterRef.current = cubeRaycaster;
 
+    function ensureDynamicGrid(
+      ref: MutableRefObject<DynamicGridRef | null>,
+      key: string,
+      buildLine: () => THREE.LineSegments,
+    ) {
+      const current = ref.current;
+      if (current?.key === key) {
+        return;
+      }
+
+      if (current) {
+        scene.remove(current.group);
+        disposeDynamicGrid(current);
+      }
+
+      const group = new THREE.Group();
+      group.add(buildLine());
+      scene.add(group);
+      ref.current = { key, group };
+    }
+
+    function clearDynamicGrid(ref: MutableRefObject<DynamicGridRef | null>) {
+      const current = ref.current;
+      if (!current) {
+        return;
+      }
+      scene.remove(current.group);
+      disposeDynamicGrid(current);
+      ref.current = null;
+    }
+
+    function updateDynamicGrids() {
+      if (!sceneDataRef.current) {
+        clearDynamicGrid(worldGridRef);
+        clearDynamicGrid(sketchGridRef);
+        return;
+      }
+
+      const distance = camera.position.distanceTo(controls.target);
+      const spacing = selectGridSpacing(distance);
+      const halfLineCount = gridHalfLineCount(distance, spacing);
+      const worldFrame: GridPlaneFrame = {
+        origin: new THREE.Vector3(0, 0, 0),
+        xAxis: new THREE.Vector3(1, 0, 0),
+        yAxis: new THREE.Vector3(0, 0, 1),
+        normal: new THREE.Vector3(0, 1, 0),
+      };
+      const worldCenterU = snapGridCenter(controls.target.x, spacing);
+      const worldCenterV = snapGridCenter(controls.target.z, spacing);
+      ensureDynamicGrid(
+        worldGridRef,
+        `world:${spacing}:${halfLineCount}:${worldCenterU}:${worldCenterV}`,
+        () => {
+          const worldGrid = buildDynamicGrid(
+            worldFrame,
+            worldCenterU,
+            worldCenterV,
+            spacing,
+            halfLineCount,
+            new THREE.Color(themeColor("--color-cad-grid", "#3f4648")),
+            new THREE.Color(themeColor("--color-cad-grid-axis", "#5e696c")),
+            new THREE.Color(themeColor("--color-cad-grid-axis", "#7a7a7c")),
+            0.34,
+          );
+          worldGrid.renderOrder = -10;
+          return worldGrid;
+        },
+      );
+
+      const sketchPlaneId = activeSketchPlaneIdRef.current;
+      if (!sketchPlaneId) {
+        clearDynamicGrid(sketchGridRef);
+        return;
+      }
+
+      const sketchFrame = getSketchGridFrame(
+        sketchPlaneId,
+        activeSketchPlaneFrameRef.current,
+      );
+      const sketchCenter = projectPointToGridFrame(controls.target, sketchFrame);
+      const sketchCenterU = snapGridCenter(sketchCenter.u, spacing);
+      const sketchCenterV = snapGridCenter(sketchCenter.v, spacing);
+      ensureDynamicGrid(
+        sketchGridRef,
+        `sketch:${sketchPlaneId}:${spacing}:${halfLineCount}:${sketchCenterU}:${sketchCenterV}`,
+        () => {
+          const sketchGrid = buildDynamicGrid(
+            sketchFrame,
+            sketchCenterU,
+            sketchCenterV,
+            spacing,
+            halfLineCount,
+            new THREE.Color("#2a383b"),
+            new THREE.Color("#46585d"),
+            new THREE.Color("#7a8a8f"),
+            0.48,
+          );
+          sketchGrid.renderOrder = -9;
+          return sketchGrid;
+        },
+      );
+    }
+
+    function updateScreenSpaceSketchSprites() {
+      const viewportHeight = Math.max(renderer.domElement.clientHeight, 1);
+      const viewportScale = Math.min(
+        Math.max(viewportHeight / SKETCH_SCREEN_SPRITE_BASE_HEIGHT, 0.82),
+        1.18,
+      );
+      const fov = THREE.MathUtils.degToRad(camera.fov);
+      const cameraPosition = camera.position;
+      const spriteObjects = [
+        ...sketchDimensionObjectsRef.current,
+        ...sketchConstraintObjectsRef.current,
+      ];
+
+      for (const object of spriteObjects) {
+        const sprite = object as THREE.Sprite;
+        const screenSize = sprite.userData.screenSize as
+          | { width: number; height: number }
+          | undefined;
+        if (!screenSize || !sprite.isSprite) {
+          continue;
+        }
+
+        const distance = cameraPosition.distanceTo(
+          sprite.getWorldPosition(new THREE.Vector3()),
+        );
+        const worldUnitsPerPixel =
+          (2 * Math.tan(fov / 2) * distance) / viewportHeight;
+        sprite.scale.set(
+          screenSize.width * viewportScale * worldUnitsPerPixel,
+          screenSize.height * viewportScale * worldUnitsPerPixel,
+          1,
+        );
+      }
+    }
+
     function resizeRenderer() {
       const width = Math.max(host?.clientWidth ?? 0, 1);
       const height = Math.max(host?.clientHeight ?? 0, 1);
@@ -1693,6 +2057,8 @@ export function ViewportPanel({
 
     function render() {
       controls.update();
+      updateDynamicGrids();
+      updateScreenSpaceSketchSprites();
       renderer.render(scene, camera);
       renderViewCube();
 
@@ -3397,8 +3763,8 @@ export function ViewportPanel({
       viewCubeCameraRef.current = null;
       viewCubeRaycasterRef.current = null;
       renderer.dispose();
-      gridRef.current?.geometry.dispose();
-      disposeMaterial(gridRef.current?.material ?? []);
+      disposeDynamicGrid(worldGridRef.current);
+      disposeDynamicGrid(sketchGridRef.current);
       rendererRef.current = null;
       sceneRef.current = null;
       cameraRef.current = null;
@@ -3425,7 +3791,8 @@ export function ViewportPanel({
       edgeLineObjectsRef.current = [];
       vertexObjectsRef.current = [];
       cutPreviewObjectsRef.current = [];
-      gridRef.current = null;
+      worldGridRef.current = null;
+      sketchGridRef.current = null;
       previewLineRef.current = null;
       previewCircleRef.current = null;
       previewArcRef.current = null;
@@ -3483,34 +3850,10 @@ export function ViewportPanel({
     previewCircleRef.current = null;
     previewArcRef.current = null;
 
-    if (gridRef.current) {
-      scene.remove(gridRef.current);
-      gridRef.current.geometry.dispose();
-      disposeMaterial(gridRef.current.material);
-    }
-
-    gridRef.current = null;
-
     if (!sceneData) {
       lastGeometryKeyRef.current = "";
       return;
     }
-
-    // Neutral gray grid (axis line slightly lighter) so the floor reads
-    // as professional CAD chrome rather than the previous cyan glow.
-    const nextGrid = new THREE.GridHelper(
-      Math.max(sceneData.bounds.maxDimension * 2, 200),
-      20,
-      themeColor("--color-cad-grid-axis", "#7a7a7c"),
-      themeColor("--color-cad-grid", "#5a5a5c"),
-    );
-    nextGrid.position.set(
-      sceneData.bounds.center[0],
-      0,
-      sceneData.bounds.center[2],
-    );
-    scene.add(nextGrid);
-    gridRef.current = nextGrid;
 
     for (const primitive of sceneData.primitives) {
       const object = buildPrimitiveObject(primitive);
