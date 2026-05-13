@@ -40,6 +40,7 @@ interface ActiveExtrudeAction {
   featureId: string | null;
   initialDepth: number;
   initialMode: ExtrudeMode;
+  initialTargetBodyId: string | null;
   profileCount: number;
   // Snapshot of "did the document have any other solid bodies before the
   // user invoked this extrude?" — drives whether Join/Cut are offered.
@@ -60,6 +61,18 @@ interface SketchDeleteSelection {
   entityIds: string[];
   pointIds: string[];
   profileIds: string[];
+}
+
+function bodyIdFromFaceId(faceId: string | null | undefined) {
+  if (!faceId) {
+    return null;
+  }
+  const marker = ":face:";
+  const markerIndex = faceId.indexOf(marker);
+  if (markerIndex <= 0) {
+    return null;
+  }
+  return faceId.slice(0, markerIndex);
 }
 
 // In-progress fillet or chamfer feature. Two-phase Fusion-style flow:
@@ -497,16 +510,59 @@ function App() {
           entry.kind === "cylinder" ||
           entry.kind === "extrude",
       ) ?? false;
+    const defaultSettings = getDefaultExtrudeSettings(selectedSketchProfileIds);
 
     setExtrudeAction({
       phase: "pending",
       featureId: null,
       initialDepth: DEFAULT_EXTRUDE_DEPTH,
-      initialMode: "new_body",
+      initialMode: defaultSettings.mode,
+      initialTargetBodyId: defaultSettings.targetBodyId,
       profileCount: selectedSketchProfileIds.length,
       originalSnapshot: null,
       canCombineWithExistingBody: hasExistingBody,
     });
+  }
+
+  function getDefaultExtrudeSettings(profileIds: readonly string[]): {
+    mode: ExtrudeMode;
+    targetBodyId: string | null;
+  } {
+    const bodyIds = new Set((viewport?.bodies ?? []).map((body) => body.id));
+
+    if (profileIds.length === 0) {
+      const selectedFaceBodyId = bodyIdFromFaceId(document?.selected_face_id);
+      if (selectedFaceBodyId && bodyIds.has(selectedFaceBodyId)) {
+        return {mode: "join", targetBodyId: selectedFaceBodyId};
+      }
+      return {mode: "new_body", targetBodyId: null};
+    }
+
+    let sourceBodyId: string | null = null;
+    for (const profileId of profileIds) {
+      const sketchFeature = document?.feature_history.find((feature) => {
+        if (feature.kind !== "sketch" || !feature.sketch_parameters) {
+          return false;
+        }
+        return feature.sketch_parameters.profiles.some(
+          (profile) => profile.profile_id === profileId,
+        );
+      });
+      const nextBodyId = bodyIdFromFaceId(
+        sketchFeature?.sketch_parameters?.plane_id,
+      );
+      if (!nextBodyId || !bodyIds.has(nextBodyId)) {
+        return {mode: "new_body", targetBodyId: null};
+      }
+      if (sourceBodyId && sourceBodyId !== nextBodyId) {
+        return {mode: "new_body", targetBodyId: null};
+      }
+      sourceBodyId = nextBodyId;
+    }
+
+    return sourceBodyId
+      ? {mode: "join", targetBodyId: sourceBodyId}
+      : {mode: "new_body", targetBodyId: null};
   }
 
   async function createExtrudeFromSelectedProfiles(
@@ -552,11 +608,17 @@ function App() {
           return;
         }
         lastExtrudeProfileUpdateRef.current = profileIds.join("|");
+        const createdFeature = nextDocument.feature_history.find(
+          (entry) => entry.feature_id === newFeatureId,
+        );
+        const createdParams = createdFeature?.extrude_parameters;
         setExtrudeAction({
           phase: "active",
           featureId: newFeatureId,
           initialDepth: depth,
-          initialMode: mode,
+          initialMode: createdParams?.mode ?? mode,
+          initialTargetBodyId:
+            createdParams?.target_body_id ?? targetBodyId ?? null,
           profileCount: profileIds.length,
           // Newly-created extrude: cancel = undo (handled below).
           originalSnapshot: null,
@@ -582,10 +644,19 @@ function App() {
     }
 
     if (extrudeAction.phase === "pending") {
+      const defaultSettings = getDefaultExtrudeSettings(selectedSketchProfileIds);
+      const mode =
+        extrudeAction.initialMode === "new_body"
+          ? defaultSettings.mode
+          : extrudeAction.initialMode;
+      const targetBodyId =
+        mode === "new_body"
+          ? null
+          : extrudeAction.initialTargetBodyId ?? defaultSettings.targetBodyId;
       void createExtrudeFromSelectedProfiles(
         extrudeAction.initialDepth,
-        extrudeAction.initialMode,
-        null,
+        mode,
+        targetBodyId,
       );
       return;
     }
@@ -2076,7 +2147,7 @@ function App() {
                     extrudeAction.canCombineWithExistingBody
                   }
                   availableTargetBodies={viewport?.bodies ?? []}
-                  initialTargetBodyId={null}
+                  initialTargetBodyId={extrudeAction.initialTargetBodyId}
                   disabled={status !== "connected"}
                   onPreviewDepth={async (depth) => {
                     setExtrudeAction((current) =>
@@ -2088,11 +2159,27 @@ function App() {
                   onPreviewMode={async (mode) => {
                     setExtrudeAction((current) =>
                       current?.phase === "pending"
-                        ? {...current, initialMode: mode}
+                        ? {
+                            ...current,
+                            initialMode: mode,
+                            initialTargetBodyId:
+                              mode === "new_body"
+                                ? null
+                                : current.initialTargetBodyId ??
+                                  getDefaultExtrudeSettings(
+                                    selectedSketchProfileIds,
+                                  ).targetBodyId,
+                          }
                         : current,
                     );
                   }}
-                  onPreviewTargetBody={async () => {}}
+                  onPreviewTargetBody={async (targetBodyId) => {
+                    setExtrudeAction((current) =>
+                      current?.phase === "pending"
+                        ? {...current, initialTargetBodyId: targetBodyId}
+                        : current,
+                    );
+                  }}
                   onConfirm={async (depth, mode, targetBodyId) => {
                     await createExtrudeFromSelectedProfiles(
                       depth,
@@ -2129,7 +2216,7 @@ function App() {
                           extrudeAction.canCombineWithExistingBody
                         }
                         availableTargetBodies={availableTargetBodies}
-                        initialTargetBodyId={null}
+                        initialTargetBodyId={extrudeAction.initialTargetBodyId}
                         disabled={status !== "connected"}
                         onPreviewDepth={async (depth) => {
                           await runAction(async () => {
@@ -2645,6 +2732,7 @@ function App() {
                 featureId,
                 initialDepth: params.depth,
                 initialMode: params.mode,
+                initialTargetBodyId: params.target_body_id ?? null,
                 profileCount: params.profile_ids?.length || 1,
                 canCombineWithExistingBody: otherBodies.length > 0,
                 originalSnapshot: {

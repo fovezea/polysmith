@@ -43,6 +43,11 @@ export function themeColor(token: string, fallback: string) {
   return value || fallback;
 }
 
+function configureSketchOverlayMaterial(material: THREE.Material) {
+  material.depthTest = false;
+  material.depthWrite = false;
+}
+
 function polygonArea2d(points: Array<[number, number]>) {
   if (points.length < 3) {
     return 0;
@@ -332,15 +337,8 @@ export function buildPrimitiveObject(primitive: ScenePrimitive) {
       "position",
       new THREE.BufferAttribute(primitive.positions, 3),
     );
-    if (primitive.normals.length === primitive.positions.length) {
-      meshGeometry.setAttribute(
-        "normal",
-        new THREE.BufferAttribute(primitive.normals, 3),
-      );
-    } else {
-      meshGeometry.computeVertexNormals();
-    }
     meshGeometry.setIndex(new THREE.BufferAttribute(primitive.indices, 1));
+    meshGeometry.computeVertexNormals();
     geometry = meshGeometry;
   }
 
@@ -350,10 +348,11 @@ export function buildPrimitiveObject(primitive: ScenePrimitive) {
   }
   mesh.userData.primitiveId = primitive.primitiveId;
 
-  const edges = new THREE.LineSegments(
-    new THREE.EdgesGeometry(geometry),
-    edgeMaterial,
-  );
+  const edgeGeometry =
+    primitive.kind === "mesh" || primitive.kind === "cylinder"
+      ? new THREE.BufferGeometry()
+      : new THREE.EdgesGeometry(geometry);
+  const edges = new THREE.LineSegments(edgeGeometry, edgeMaterial);
   if (primitive.kind === "box" || primitive.kind === "cylinder") {
     edges.position.copy(mesh.position);
   }
@@ -743,6 +742,9 @@ export function buildSolidFaceObject(face: SolidFaceScene) {
     opacity: 0,
     side: THREE.DoubleSide,
     depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
   });
 
   // Body-derived faces ship a real triangulation in world space —
@@ -871,12 +873,14 @@ export function buildSketchLineObject(line: SketchLineScene) {
         opacity: 0.98,
         linewidth: line.isSelected ? 2 : 1,
       });
+  configureSketchOverlayMaterial(material);
   const points = [
     new THREE.Vector3(...line.start),
     new THREE.Vector3(...line.end),
   ];
   const geometry = new THREE.BufferGeometry().setFromPoints(points);
   const sketchLine = new THREE.Line(geometry, material);
+  sketchLine.renderOrder = 7;
   // `LineDashedMaterial` requires per-vertex distance data to render
   // the dash pattern; without this call the line renders solid.
   if (isDashed) {
@@ -920,6 +924,7 @@ export function buildSketchCircleObject(
         transparent: true,
         opacity: 0.98,
       });
+  configureSketchOverlayMaterial(material);
   const curve = new THREE.EllipseCurve(
     0,
     0,
@@ -961,6 +966,7 @@ export function buildSketchCircleObject(
     );
   const geometry = new THREE.BufferGeometry().setFromPoints(points);
   const sketchCircle = new THREE.LineLoop(geometry, material);
+  sketchCircle.renderOrder = 7;
   if (isDashed) {
     // Dashed materials need per-vertex distance; preview circles
     // also stay un-tagged so they're never raycast hits.
@@ -1000,6 +1006,7 @@ export function buildSketchArcObject(
         transparent: true,
         opacity: 0.98,
       });
+  configureSketchOverlayMaterial(material);
 
   // Resolve the sketch plane's local x / y world axes (same logic as
   // `buildSketchCircleObject`). Arc sampling parameterizes on angle
@@ -1070,6 +1077,7 @@ export function buildSketchArcObject(
 
   const geometry = new THREE.BufferGeometry().setFromPoints(points);
   const sketchArc = new THREE.Line(geometry, material);
+  sketchArc.renderOrder = 7;
   if (arc.isPreview) {
     sketchArc.computeLineDistances();
   } else {
@@ -1096,8 +1104,11 @@ export function buildSketchPointObject(point: SketchPointScene) {
           : themeColor("--color-tertiary-plane-edge", "#ffe784"),
     transparent: true,
     opacity: 0.95,
+    depthTest: false,
+    depthWrite: false,
   });
   const mesh = new THREE.Mesh(geometry, material);
+  mesh.renderOrder = 8;
   mesh.position.set(...point.position);
   mesh.userData.sketchPointId = point.pointId;
   mesh.userData.sketchPointKind = point.kind;
@@ -1253,6 +1264,7 @@ export function buildSketchProfileObject(profile: SketchProfileScene) {
     opacity: 0,
     side: THREE.DoubleSide,
     depthWrite: false,
+    depthTest: false,
   });
   const edgeMaterials: THREE.LineBasicMaterial[] = [];
 
@@ -1265,6 +1277,8 @@ export function buildSketchProfileObject(profile: SketchProfileScene) {
       transparent: true,
       opacity: 0,
       linewidth: 1,
+      depthTest: false,
+      depthWrite: false,
     });
     edgeMaterials.push(material);
     const line = new THREE.LineLoop(geometry, material);
