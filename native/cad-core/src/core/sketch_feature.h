@@ -77,7 +77,8 @@ void add_sketch_rectangle(FeatureEntry& feature,
                           double start_x,
                           double start_y,
                           double end_x,
-                          double end_y);
+                          double end_y,
+                          bool is_construction = false);
 // Toggle the construction-line flag on an existing line. Construction
 // lines render dashed in the viewport and are filtered out of profile
 // detection so they don't seal pickable faces / extrude sources.
@@ -115,7 +116,8 @@ void add_sketch_circle(FeatureEntry& feature,
                        int circle_index,
                        double center_x,
                        double center_y,
-                       double radius);
+                       double radius,
+                       bool is_construction = false);
 
 // Build a SketchArc on the feature. Caller is expected to have already
 // computed the arc's center, radius, and ccw direction from whichever
@@ -137,7 +139,8 @@ void add_sketch_arc(FeatureEntry& feature,
                     double center_x,
                     double center_y,
                     double radius,
-                    bool ccw);
+                    bool ccw,
+                    bool is_construction = false);
 
 // ---------------------------------------------------------------
 // Sketch fillet — parametric corner fillet between two sketch lines.

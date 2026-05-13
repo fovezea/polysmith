@@ -2302,7 +2302,8 @@ DocumentState DocumentManager::add_sketch_line(double start_x,
 DocumentState DocumentManager::add_sketch_rectangle(double start_x,
                                                     double start_y,
                                                     double end_x,
-                                                    double end_y) {
+                                                    double end_y,
+                                                    bool is_construction) {
   require_document();
 
   if (!document_->active_sketch_feature_id.has_value()) {
@@ -2323,14 +2324,17 @@ DocumentState DocumentManager::add_sketch_rectangle(double start_x,
   push_undo_state();
   clear_redo_stack();
   polysmith::core::add_sketch_rectangle(
-      *feature_it, next_sketch_line_id_, start_x, start_y, end_x, end_y);
+      *feature_it, next_sketch_line_id_, start_x, start_y, end_x, end_y,
+      is_construction);
   refresh_linked_extrudes(*document_, *feature_it);
   document_->selected_feature_id = feature_it->id;
   document_->selected_sketch_point_id = std::nullopt;
   document_->selected_sketch_entity_id =
       feature_it->sketch_parameters->lines.back().id;
   document_->selected_sketch_dimension_id =
-      feature_it->sketch_parameters->dimensions.back().id;
+      is_construction ? std::nullopt
+                      : std::make_optional(
+                            feature_it->sketch_parameters->dimensions.back().id);
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
   document_->active_sketch_tool = "rectangle";
@@ -2344,7 +2348,8 @@ DocumentState DocumentManager::add_sketch_arc(double start_x,
                                               double end_y,
                                               double anchor_x,
                                               double anchor_y,
-                                              const std::string& mode) {
+                                              const std::string& mode,
+                                              bool is_construction) {
   require_document();
 
   if (!document_->active_sketch_feature_id.has_value()) {
@@ -2461,7 +2466,8 @@ DocumentState DocumentManager::add_sketch_arc(double start_x,
                                   center_x,
                                   center_y,
                                   radius,
-                                  ccw);
+                                  ccw,
+                                  is_construction);
   refresh_linked_extrudes(*document_, *feature_it);
   document_->selected_feature_id = feature_it->id;
   document_->selected_sketch_point_id = std::nullopt;
@@ -2576,7 +2582,8 @@ DocumentState DocumentManager::delete_sketch_fillet(
 
 DocumentState DocumentManager::add_sketch_circle(double center_x,
                                                  double center_y,
-                                                 double radius) {
+                                                 double radius,
+                                                 bool is_construction) {
   require_document();
 
   if (!document_->active_sketch_feature_id.has_value()) {
@@ -2597,14 +2604,17 @@ DocumentState DocumentManager::add_sketch_circle(double center_x,
   push_undo_state();
   clear_redo_stack();
   polysmith::core::add_sketch_circle(
-      *feature_it, next_sketch_circle_id_++, center_x, center_y, radius);
+      *feature_it, next_sketch_circle_id_++, center_x, center_y, radius,
+      is_construction);
   refresh_linked_extrudes(*document_, *feature_it);
   document_->selected_feature_id = feature_it->id;
   document_->selected_sketch_point_id = std::nullopt;
   document_->selected_sketch_entity_id =
       feature_it->sketch_parameters->circles.back().id;
   document_->selected_sketch_dimension_id =
-      feature_it->sketch_parameters->dimensions.back().id;
+      is_construction ? std::nullopt
+                      : std::make_optional(
+                            feature_it->sketch_parameters->dimensions.back().id);
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
   document_->active_sketch_tool = "circle";

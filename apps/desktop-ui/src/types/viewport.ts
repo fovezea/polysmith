@@ -128,6 +128,7 @@ export interface ViewportSketchCircle {
   center: Vector3;
   radius: number;
   is_selected: boolean;
+  is_construction: boolean;
   is_preview: boolean;
 }
 

@@ -209,6 +209,11 @@ sketch_parameters_from_payload(const json& payload) {
       circle.center_x = read_number(circle_payload, "center_x");
       circle.center_y = read_number(circle_payload, "center_y");
       circle.radius = read_number(circle_payload, "radius");
+      if (circle_payload.contains("is_construction") &&
+          circle_payload.at("is_construction").is_boolean()) {
+        circle.is_construction =
+            circle_payload.at("is_construction").get<bool>();
+      }
       params.circles.push_back(circle);
     }
   }
@@ -486,6 +491,11 @@ sketch_parameters_from_payload(const json& payload) {
         circle.center_x = read_number(circle_payload, "center_x");
         circle.center_y = read_number(circle_payload, "center_y");
         circle.radius = read_number(circle_payload, "radius");
+        if (circle_payload.contains("is_construction") &&
+            circle_payload.at("is_construction").is_boolean()) {
+          circle.is_construction =
+              circle_payload.at("is_construction").get<bool>();
+        }
         pending.generated_circles.push_back(circle);
       }
     }
@@ -701,6 +711,7 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                           {"center_x", circle.center_x},
                           {"center_y", circle.center_y},
                           {"radius", circle.radius},
+                          {"is_construction", circle.is_construction},
                       });
                     }
                     return circles;
@@ -957,6 +968,7 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                                 {"center_x", circle.center_x},
                                 {"center_y", circle.center_y},
                                 {"radius", circle.radius},
+                                {"is_construction", circle.is_construction},
                             });
                           }
                           return json{
@@ -1393,6 +1405,7 @@ json to_payload(const polysmith::core::ViewportSketchCirclePrimitive& primitive)
        }},
       {"radius", primitive.radius},
       {"is_selected", primitive.is_selected},
+      {"is_construction", primitive.is_construction},
       {"is_preview", primitive.is_preview},
   };
 }

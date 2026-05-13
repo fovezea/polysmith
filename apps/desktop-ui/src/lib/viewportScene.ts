@@ -195,6 +195,7 @@ function makeSketchCircle(circle: ViewportSketchCircle): SketchCircleScene {
     center: [circle.center.x, circle.center.y, circle.center.z],
     radius: circle.radius,
     isSelected: circle.is_selected,
+    isConstruction: circle.is_construction,
   };
 }
 

@@ -184,11 +184,13 @@ interface ViewportPanelProps {
     startY: number,
     endX: number,
     endY: number,
+    isConstruction: boolean,
   ) => Promise<void>;
   onAddSketchCircle: (
     centerX: number,
     centerY: number,
     radius: number,
+    isConstruction: boolean,
   ) => Promise<void>;
   // Add an arc using one of two creation modes:
   //   - "three_point": (start, end, anchor) where anchor lies on the
@@ -205,11 +207,13 @@ interface ViewportPanelProps {
     anchorX: number,
     anchorY: number,
     mode: "three_point" | "center_start_end",
+    isConstruction: boolean,
   ) => Promise<void>;
   // Tool-level mode for the arc tool. Lifted out of ViewportPanel so
   // the SketchToolbar can render the segmented control. Defaults to
   // "three_point"; the toolbar updates it through `onSetArcToolMode`.
   arcToolMode: "three_point" | "center_start_end";
+  onSetArcToolMode: (mode: "three_point" | "center_start_end") => void;
   // Sketch fillet — fired when the user clicks an eligible corner
   // point under the Fillet tool. Eligible = sketch point shared by
   // exactly two non-construction sketch lines that are not already
@@ -513,6 +517,30 @@ function isDraftDimensionTool(tool: SketchTool): tool is DraftDimensionTool {
   return tool === "line" || tool === "rectangle" || tool === "circle";
 }
 
+function isDrawableSketchTool(
+  tool: SketchTool | null,
+): tool is DraftDimensionTool | "arc" {
+  return (
+    tool === "line" ||
+    tool === "rectangle" ||
+    tool === "circle" ||
+    tool === "arc"
+  );
+}
+
+function sketchToolLabel(tool: DraftDimensionTool | "arc"): string {
+  if (tool === "line") {
+    return "Line";
+  }
+  if (tool === "rectangle") {
+    return "Rectangle";
+  }
+  if (tool === "circle") {
+    return "Circle";
+  }
+  return "Arc";
+}
+
 function formatDraftDimension(value: number): string {
   return Math.max(Math.abs(value), 0).toFixed(2);
 }
@@ -579,6 +607,7 @@ export function ViewportPanel({
   onAddSketchCircle,
   onAddSketchArc,
   arcToolMode,
+  onSetArcToolMode,
   onAddSketchFillet,
   onSelectSketchEntity,
   onPickSketchPoint,
@@ -627,14 +656,12 @@ export function ViewportPanel({
     x: number;
     y: number;
   } | null>(null);
-  // Whether the next sketch line drop will be flagged as a
-  // construction line. Mirrors Fusion's "Construction" toggle in the
-  // line tool's options panel; bound to the X hotkey while the line
-  // tool is armed. Stored as state for the panel checkbox + as a ref
-  // so the pointer handler reads the latest value without forcing a
-  // re-attach of the listener.
-  const [lineToolConstruction, setLineToolConstruction] = useState(false);
-  const lineToolConstructionRef = useRef(false);
+  // Whether the next drawable sketch entity will be flagged as
+  // construction geometry. The core owns the resulting CAD state;
+  // this UI state is only the pending tool option sent with the
+  // add_* IPC command.
+  const [sketchToolConstruction, setSketchToolConstruction] = useState(false);
+  const sketchToolConstructionRef = useRef(false);
   // Held while the user holds the wireframe-toggle key (Tab) during a
   // pending fillet/chamfer panel session. Reveals every ghost edge
   // so the user can see and click the original sharp edges that
@@ -1119,7 +1146,7 @@ export function ViewportPanel({
       return;
     }
     renderDraftPreview(draftDimensionSession);
-  }, [draftDimensionSession]);
+  }, [draftDimensionSession, sketchToolConstruction]);
 
   function clearPreviewLine() {
     const previewLine = previewLineRef.current;
@@ -1246,6 +1273,23 @@ export function ViewportPanel({
     void setSketchToolRef.current("select");
   }
 
+  function makeDraftLineMaterial() {
+    if (sketchToolConstructionRef.current) {
+      return new THREE.LineDashedMaterial({
+        color: themeColor("--color-tertiary-plane-edge", "#ffe784"),
+        transparent: true,
+        opacity: 0.72,
+        dashSize: 1,
+        gapSize: 0.6,
+      });
+    }
+    return new THREE.LineBasicMaterial({
+      color: themeColor("--color-tertiary-plane-edge", "#ffe784"),
+      transparent: true,
+      opacity: 0.88,
+    });
+  }
+
   function renderDraftPreview(session: DraftDimensionSession) {
     const sketchGroup = sketchGroupRef.current;
     if (!sketchGroup || !activeSketchPlaneId) {
@@ -1274,6 +1318,7 @@ export function ViewportPanel({
           ),
           radius,
           isSelected: false,
+          isConstruction: sketchToolConstructionRef.current,
           isPreview: false,
         },
         activeSketchPlaneFrame,
@@ -1302,12 +1347,11 @@ export function ViewportPanel({
             ),
         ),
       ),
-      new THREE.LineBasicMaterial({
-        color: themeColor("--color-tertiary-plane-edge", "#ffe784"),
-        transparent: true,
-        opacity: 0.88,
-      }),
+      makeDraftLineMaterial(),
     );
+    if (sketchToolConstructionRef.current) {
+      preview.computeLineDistances();
+    }
     previewLineRef.current = preview;
     sketchGroup.add(preview);
   }
@@ -1386,7 +1430,13 @@ export function ViewportPanel({
     rendererRef.current?.domElement.focus();
 
     if (session.tool === "rectangle") {
-      await addSketchRectangleRef.current(startX, startY, endX, endY);
+      await addSketchRectangleRef.current(
+        startX,
+        startY,
+        endX,
+        endY,
+        sketchToolConstructionRef.current,
+      );
       return;
     }
     if (session.tool === "circle") {
@@ -1394,6 +1444,7 @@ export function ViewportPanel({
         startX,
         startY,
         distanceBetweenPoints(session.start, session.current),
+        sketchToolConstructionRef.current,
       );
       return;
     }
@@ -1402,7 +1453,7 @@ export function ViewportPanel({
       startY,
       endX,
       endY,
-      lineToolConstructionRef.current,
+      sketchToolConstructionRef.current,
     );
   }
 
@@ -2162,15 +2213,14 @@ export function ViewportPanel({
   }, [sketchFeature]);
 
   useEffect(() => {
-    lineToolConstructionRef.current = lineToolConstruction;
-  }, [lineToolConstruction]);
+    sketchToolConstructionRef.current = sketchToolConstruction;
+  }, [sketchToolConstruction]);
 
-  // Auto-clear the construction toggle when the user leaves the line
-  // tool (e.g. presses R or Escape). Otherwise the next time they
-  // re-enter the line tool the previous toggle would silently apply.
+  // Auto-clear the construction toggle when the user leaves drawable
+  // sketch tools so the option doesn't silently apply next time.
   useEffect(() => {
-    if (activeSketchTool !== "line") {
-      setLineToolConstruction(false);
+    if (!isDrawableSketchTool(activeSketchTool)) {
+      setSketchToolConstruction(false);
     }
   }, [activeSketchTool]);
 
@@ -3296,7 +3346,7 @@ export function ViewportPanel({
                 ),
                 ccw,
                 isSelected: false,
-                isConstruction: false,
+                isConstruction: sketchToolConstructionRef.current,
                 isPreview: true,
               },
               activeSketchPlaneFrame,
@@ -3391,6 +3441,7 @@ export function ViewportPanel({
                     ),
                     radius,
                     isSelected: false,
+                    isConstruction: sketchToolConstructionRef.current,
                     // Mark as preview so it renders dashed +
                     // translucent. (LineLoop is fine here even
                     // though the ref is typed as Line — the
@@ -3457,6 +3508,7 @@ export function ViewportPanel({
                 ),
                 radius,
                 isSelected: false,
+                isConstruction: sketchToolConstructionRef.current,
                 // The line/circle draft preview (drawn while the
                 // user is dragging out a new circle) is not a
                 // tool-generated preview entity; the renderer's
@@ -3496,12 +3548,11 @@ export function ViewportPanel({
           );
           const preview = new THREE.Line(
             new THREE.BufferGeometry().setFromPoints(worldCorners),
-            new THREE.LineBasicMaterial({
-              color: themeColor("--color-tertiary-plane-edge", "#ffe784"),
-              transparent: true,
-              opacity: 0.88,
-            }),
+            makeDraftLineMaterial(),
           );
+          if (sketchToolConstructionRef.current) {
+            preview.computeLineDistances();
+          }
           previewLineRef.current = preview;
           sketchGroupRefValue.add(preview);
         } else {
@@ -3516,12 +3567,11 @@ export function ViewportPanel({
               ),
               new THREE.Vector3(...sketchPoint.world),
             ]),
-            new THREE.LineBasicMaterial({
-              color: themeColor("--color-tertiary-plane-edge", "#ffe784"),
-              transparent: true,
-              opacity: 0.88,
-            }),
+            makeDraftLineMaterial(),
           );
+          if (sketchToolConstructionRef.current) {
+            preview.computeLineDistances();
+          }
           previewLineRef.current = preview;
           sketchGroupRefValue.add(preview);
         }
@@ -4020,6 +4070,7 @@ export function ViewportPanel({
               thirdX,
               thirdY,
               mode,
+              sketchToolConstructionRef.current,
             );
           } else {
             // center_start_end: IPC params are
@@ -4032,6 +4083,7 @@ export function ViewportPanel({
               startX,
               startY,
               mode,
+              sketchToolConstructionRef.current,
             );
           }
           return;
@@ -4046,6 +4098,7 @@ export function ViewportPanel({
             startY,
             sketchPoint.local[0],
             sketchPoint.local[1],
+            sketchToolConstructionRef.current,
           );
           return;
         }
@@ -4058,7 +4111,12 @@ export function ViewportPanel({
             [startX, startY],
             sketchPoint.local,
           );
-          void addSketchCircleRef.current(startX, startY, radius);
+          void addSketchCircleRef.current(
+            startX,
+            startY,
+            radius,
+            sketchToolConstructionRef.current,
+          );
           return;
         }
 
@@ -4184,7 +4242,7 @@ export function ViewportPanel({
           startY,
           sketchPoint.local[0],
           sketchPoint.local[1],
-          lineToolConstructionRef.current,
+          sketchToolConstructionRef.current,
         );
         return;
       }
@@ -4644,12 +4702,19 @@ export function ViewportPanel({
         return;
       }
 
-      // X toggles the construction-line flag while the line tool is
-      // armed. Outside the line tool it's a no-op (other tools don't
-      // have an equivalent setting yet).
-      if (event.code === "KeyX" && activeSketchToolRef.current === "line") {
+      // X toggles the construction flag while a drawable sketch tool
+      // is armed.
+      if (
+        event.code === "KeyX" &&
+        (isDraftDimensionTool(activeSketchToolRef.current) ||
+          activeSketchToolRef.current === "arc")
+      ) {
         event.preventDefault();
-        setLineToolConstruction((prev) => !prev);
+        setSketchToolConstruction((prev) => {
+          const next = !prev;
+          sketchToolConstructionRef.current = next;
+          return next;
+        });
         return;
       }
 
@@ -5045,61 +5110,78 @@ export function ViewportPanel({
               );
             })
           : null}
-        {/*
-          Floating Line Tool options panel (Fusion-style). Appears
-          while the line tool is armed *or* while a sketch line is
-          selected, so the user can:
-            * Toggle the construction flag for the next line they draw
-              (line tool only). Hotkey X.
-            * Toggle the construction flag on an already-drawn line
-              (selection only).
-          Pinned top-left of the viewport so it doesn't fight with the
-          bottom-right Selection panel or the dimension editor.
-        */}
         {activeSketchPlaneId &&
-        activeSketchTool !== "dimension" &&
-        (activeSketchTool === "line" || selectedSketchLine) ? (
-          <div className="cad-floating-panel pointer-events-auto absolute left-4 top-4 z-20 flex flex-col gap-2 px-3 py-2 text-xs">
-            <p className="text-[10px] uppercase tracking-[0.18em] text-on-surface-dim">
-              Line Tool
-            </p>
-            {activeSketchTool === "line" ? (
-              <label className="flex items-center gap-2 text-on-surface">
-                <input
-                  type="checkbox"
-                  className="h-3.5 w-3.5 cursor-pointer accent-amber-400"
-                  checked={lineToolConstruction}
-                  onChange={(event) => {
-                    setLineToolConstruction(event.target.checked);
-                  }}
-                />
-                <span>
-                  Construction <span className="text-on-surface-dim">(X)</span>
-                </span>
-              </label>
-            ) : null}
-            {selectedSketchLine ? (
-              <label className="flex items-center gap-2 text-on-surface">
-                <input
-                  type="checkbox"
-                  className="h-3.5 w-3.5 cursor-pointer accent-amber-400"
-                  checked={selectedSketchLine.is_construction}
-                  onChange={(event) => {
-                    void onSetSketchLineConstruction(
-                      selectedSketchLine.line_id,
-                      event.target.checked,
-                    );
-                  }}
-                />
-                <span>
-                  <span className="font-mono text-on-surface-muted">
-                    {selectedSketchLine.line_id}
-                  </span>{" "}
-                  is construction
-                </span>
-              </label>
-            ) : null}
-          </div>
+        (isDrawableSketchTool(activeSketchTool) || selectedSketchLine) ? (
+          <section className="pointer-events-auto cad-floating-panel absolute right-4 top-4 z-20 w-72 px-5 py-5">
+            <p className="cad-kicker">Sketch · Tool</p>
+            <h2 className="cad-title mt-2">
+              {isDrawableSketchTool(activeSketchTool)
+                ? sketchToolLabel(activeSketchTool)
+                : "Line"}
+            </h2>
+            <div className="mt-5 flex flex-col gap-4">
+              {isDrawableSketchTool(activeSketchTool) ? (
+                <label className="flex items-center justify-between gap-4 text-sm text-on-surface">
+                  <span>Construction</span>
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 cursor-pointer accent-cyan-300"
+                    checked={sketchToolConstruction}
+                    onChange={(event) => {
+                      sketchToolConstructionRef.current = event.target.checked;
+                      setSketchToolConstruction(event.target.checked);
+                    }}
+                  />
+                </label>
+              ) : null}
+              {activeSketchTool === "arc" ? (
+                <div>
+                  <p className="cad-kicker">Mode</p>
+                  <div className="mt-3 flex gap-2">
+                    {[
+                      { value: "three_point", label: "3 Point" },
+                      { value: "center_start_end", label: "Center" },
+                    ].map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={
+                          arcToolMode === option.value
+                            ? "cad-action-primary flex-1"
+                            : "cad-action-ghost flex-1"
+                        }
+                        onClick={() => {
+                          onSetArcToolMode(
+                            option.value as
+                              | "three_point"
+                              | "center_start_end",
+                          );
+                        }}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {selectedSketchLine ? (
+                <label className="flex items-center justify-between gap-4 border-t border-white/10 pt-4 text-sm text-on-surface">
+                  <span>Selected line</span>
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 cursor-pointer accent-cyan-300"
+                    checked={selectedSketchLine.is_construction}
+                    onChange={(event) => {
+                      void onSetSketchLineConstruction(
+                        selectedSketchLine.line_id,
+                        event.target.checked,
+                      );
+                    }}
+                  />
+                </label>
+              ) : null}
+            </div>
+          </section>
         ) : null}
         {/*
           Floating Dimension Tool hint panel. Active only while the

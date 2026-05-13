@@ -146,6 +146,7 @@ struct SketchCircle {
   double center_x;
   double center_y;
   double radius;
+  bool is_construction = false;
 };
 
 // 2D arc on the sketch plane. Stored as start/end endpoint ids (so it

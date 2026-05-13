@@ -244,6 +244,7 @@ const documentStateSchema = z.object({
               center_x: z.number(),
               center_y: z.number(),
               radius: z.number(),
+              is_construction: z.boolean().default(false),
             }),
           ),
           // Sketch arcs in the document state. Defaulted to `[]`
@@ -364,6 +365,7 @@ const documentStateSchema = z.object({
                   center_x: z.number(),
                   center_y: z.number(),
                   radius: z.number(),
+                  is_construction: z.boolean().default(false),
                 }),
               ),
             })
@@ -564,6 +566,7 @@ const viewportStateSchema = z.object({
       }),
       radius: z.number(),
       is_selected: z.boolean(),
+      is_construction: z.boolean().default(false),
       // See `sketch_lines.is_preview`.
       is_preview: z.boolean().default(false),
     }),

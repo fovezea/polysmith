@@ -1610,14 +1610,36 @@ function App() {
                   await setSketchTangentConstraint(lineId, circleId);
                 });
               }}
-              onAddSketchRectangle={async (startX, startY, endX, endY) => {
+              onAddSketchRectangle={async (
+                startX,
+                startY,
+                endX,
+                endY,
+                isConstruction,
+              ) => {
                 await runAction(async () => {
-                  await addSketchRectangle(startX, startY, endX, endY);
+                  await addSketchRectangle(
+                    startX,
+                    startY,
+                    endX,
+                    endY,
+                    isConstruction,
+                  );
                 });
               }}
-              onAddSketchCircle={async (centerX, centerY, radius) => {
+              onAddSketchCircle={async (
+                centerX,
+                centerY,
+                radius,
+                isConstruction,
+              ) => {
                 await runAction(async () => {
-                  await addSketchCircle(centerX, centerY, radius);
+                  await addSketchCircle(
+                    centerX,
+                    centerY,
+                    radius,
+                    isConstruction,
+                  );
                 });
               }}
               onAddSketchArc={async (
@@ -1628,6 +1650,7 @@ function App() {
                 anchorX,
                 anchorY,
                 mode,
+                isConstruction,
               ) => {
                 await runAction(async () => {
                   await addSketchArc(
@@ -1638,10 +1661,12 @@ function App() {
                     anchorX,
                     anchorY,
                     mode,
+                    isConstruction,
                   );
                 });
               }}
               arcToolMode={arcToolMode}
+              onSetArcToolMode={setArcToolMode}
               onAddSketchFillet={async (cornerPointId, lineAId, lineBId) => {
                 // Panel must be open in either phase for adds to be
                 // accepted. The viewport's eligibility filter is the

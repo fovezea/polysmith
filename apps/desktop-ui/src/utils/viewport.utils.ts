@@ -904,11 +904,12 @@ export function buildSketchCircleObject(
 ) {
   // See `buildSketchLineObject` for the rationale on the dashed +
   // translucent treatment of preview circles.
-  const material = circle.isPreview
+  const isDashed = circle.isPreview || circle.isConstruction;
+  const material = isDashed
     ? new THREE.LineDashedMaterial({
         color: themeColor("--color-tertiary-plane-fill", "#fff7c0"),
         transparent: true,
-        opacity: 0.55,
+        opacity: circle.isPreview ? 0.55 : 0.72,
         dashSize: 1,
         gapSize: 0.6,
       })
@@ -960,13 +961,15 @@ export function buildSketchCircleObject(
     );
   const geometry = new THREE.BufferGeometry().setFromPoints(points);
   const sketchCircle = new THREE.LineLoop(geometry, material);
-  if (circle.isPreview) {
+  if (isDashed) {
     // Dashed materials need per-vertex distance; preview circles
     // also stay un-tagged so they're never raycast hits.
     sketchCircle.computeLineDistances();
-  } else {
+  }
+  if (!circle.isPreview) {
     sketchCircle.userData.sketchEntityId = circle.circleId;
     sketchCircle.userData.sketchEntityKind = "circle";
+    sketchCircle.userData.sketchEntityIsConstruction = circle.isConstruction;
   }
   return sketchCircle;
 }

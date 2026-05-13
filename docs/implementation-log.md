@@ -203,6 +203,7 @@ When adding a new entity, grep `ipcSchema.ts` for the union literally and walk e
 - fixed chained line drafting after the draft-dimension overlay landed: after a line segment commits, the transient preview session now resets its start to the segment's endpoint so the next preview matches the line that will actually be created.
 - stopped click-to-finish sketch creation from leaving dimension inputs focused. Active line / rectangle / circle drafting still auto-focuses the transient draft field for immediate typed input, chained line drafting moves focus to each next segment's draft field, and commits suppress the persistent dimension editor's one-shot auto-open for generated dimensions; explicit dimension clicks still open the editor.
 - routed Escape from the focused draft dimension input through the same sketch cancel path as the global Escape shortcut, so active line / rectangle / circle creation can be cancelled immediately without first blurring the input.
+- replaced the old top-left Line options panel with a right-side sketch tool panel styled like the action panels. Line, Rectangle, Circle, and Arc now expose a construction toggle while active; Arc also exposes its creation mode there. The construction flag is sent through JSON IPC to the native core for line / rectangle / circle / arc creation, with construction circles and arcs owned by the core and excluded from profile detection.
 
 ### Pre-existing Test Failure (Not Introduced By This Work)
 

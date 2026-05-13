@@ -357,6 +357,7 @@ ViewportSketchCirclePrimitive make_sketch_circle_primitive(
       .center_z = center.z,
       .radius = circle.radius,
       .is_selected = is_selected,
+      .is_construction = circle.is_construction,
   };
 }
 

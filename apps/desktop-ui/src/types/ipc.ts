@@ -610,6 +610,7 @@ export interface AddSketchRectangleCommand {
     start_y: number;
     end_x: number;
     end_y: number;
+    is_construction: boolean;
   };
 }
 
@@ -620,6 +621,7 @@ export interface AddSketchCircleCommand {
     center_x: number;
     center_y: number;
     radius: number;
+    is_construction: boolean;
   };
 }
 
@@ -642,6 +644,7 @@ export interface AddSketchArcCommand {
     anchor_x: number;
     anchor_y: number;
     mode: "three_point" | "center_start_end";
+    is_construction: boolean;
   };
 }
 

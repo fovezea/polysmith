@@ -923,11 +923,17 @@ void CadCoreApp::handle_command_line(const std::string& line) {
   }
 
   if (command.type == "add_sketch_rectangle") {
+    bool is_construction = false;
+    if (command.payload.contains("is_construction") &&
+        command.payload.at("is_construction").is_boolean()) {
+      is_construction = command.payload.at("is_construction").get<bool>();
+    }
     const auto document = document_manager().add_sketch_rectangle(
         read_dimension(command.payload, "start_x"),
         read_dimension(command.payload, "start_y"),
         read_dimension(command.payload, "end_x"),
-        read_dimension(command.payload, "end_y"));
+        read_dimension(command.payload, "end_y"),
+        is_construction);
 
     polysmith::protocol::write_message(
         polysmith::protocol::make_document_state_event(
@@ -936,6 +942,11 @@ void CadCoreApp::handle_command_line(const std::string& line) {
   }
 
   if (command.type == "add_sketch_arc") {
+    bool is_construction = false;
+    if (command.payload.contains("is_construction") &&
+        command.payload.at("is_construction").is_boolean()) {
+      is_construction = command.payload.at("is_construction").get<bool>();
+    }
     const auto document = document_manager().add_sketch_arc(
         read_dimension(command.payload, "start_x"),
         read_dimension(command.payload, "start_y"),
@@ -943,7 +954,8 @@ void CadCoreApp::handle_command_line(const std::string& line) {
         read_dimension(command.payload, "end_y"),
         read_dimension(command.payload, "anchor_x"),
         read_dimension(command.payload, "anchor_y"),
-        read_string(command.payload, "mode"));
+        read_string(command.payload, "mode"),
+        is_construction);
 
     polysmith::protocol::write_message(
         polysmith::protocol::make_document_state_event(
@@ -952,10 +964,16 @@ void CadCoreApp::handle_command_line(const std::string& line) {
   }
 
   if (command.type == "add_sketch_circle") {
+    bool is_construction = false;
+    if (command.payload.contains("is_construction") &&
+        command.payload.at("is_construction").is_boolean()) {
+      is_construction = command.payload.at("is_construction").get<bool>();
+    }
     const auto document = document_manager().add_sketch_circle(
         read_dimension(command.payload, "center_x"),
         read_dimension(command.payload, "center_y"),
-        read_dimension(command.payload, "radius"));
+        read_dimension(command.payload, "radius"),
+        is_construction);
 
     polysmith::protocol::write_message(
         polysmith::protocol::make_document_state_event(

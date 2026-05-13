@@ -767,6 +767,9 @@ std::vector<SketchProfileRegion> build_sketch_profile_regions(
   apply_nested_polygon_holes(profiles);
 
   for (const auto& circle : parameters.circles) {
+    if (circle.is_construction) {
+      continue;
+    }
     const SketchProfilePoint center{.x = circle.center_x, .y = circle.center_y};
     SketchProfileRegion* containing_profile = nullptr;
     double containing_area = std::numeric_limits<double>::max();

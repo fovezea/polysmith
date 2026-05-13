@@ -178,6 +178,7 @@ struct ViewportSketchCirclePrimitive {
   double center_z;
   double radius;
   bool is_selected;
+  bool is_construction = false;
   // See `ViewportSketchLinePrimitive::is_preview`.
   bool is_preview = false;
 };

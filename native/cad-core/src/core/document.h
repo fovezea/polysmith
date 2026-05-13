@@ -238,10 +238,12 @@ class DocumentManager {
   DocumentState add_sketch_rectangle(double start_x,
                                      double start_y,
                                      double end_x,
-                                     double end_y);
+                                     double end_y,
+                                     bool is_construction = false);
   DocumentState add_sketch_circle(double center_x,
                                   double center_y,
-                                  double radius);
+                                  double radius,
+                                  bool is_construction = false);
   // Add an arc to the active sketch. `mode` selects how the three
   // input points are interpreted:
   //   - "three_point": (start, end, anchor) — anchor lies on the arc
@@ -259,7 +261,8 @@ class DocumentManager {
                                double end_y,
                                double anchor_x,
                                double anchor_y,
-                               const std::string& mode);
+                               const std::string& mode,
+                               bool is_construction = false);
   // Sketch fillet — round a corner shared by two sketch lines into
   // a tangent arc. The corner is identified by the sketch point id
   // shared by both lines; the relationship is parametric (see

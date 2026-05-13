@@ -2534,7 +2534,8 @@ void add_sketch_rectangle(FeatureEntry& feature,
                           double start_x,
                           double start_y,
                           double end_x,
-                          double end_y) {
+                          double end_y,
+                          bool is_construction) {
   // Stash the indices used for each side so we can build the
   // line-id pair for the equal-length relations after the loop.
   // `add_sketch_line` itself reads the line id from `line-{index}`,
@@ -2545,10 +2546,14 @@ void add_sketch_rectangle(FeatureEntry& feature,
   const int bottom_index = next_line_index++;
   const int left_index = next_line_index++;
 
-  add_sketch_line(feature, top_index, start_x, start_y, end_x, start_y);
-  add_sketch_line(feature, right_index, end_x, start_y, end_x, end_y);
-  add_sketch_line(feature, bottom_index, end_x, end_y, start_x, end_y);
-  add_sketch_line(feature, left_index, start_x, end_y, start_x, start_y);
+  add_sketch_line(feature, top_index, start_x, start_y, end_x, start_y,
+                  is_construction);
+  add_sketch_line(feature, right_index, end_x, start_y, end_x, end_y,
+                  is_construction);
+  add_sketch_line(feature, bottom_index, end_x, end_y, start_x, end_y,
+                  is_construction);
+  add_sketch_line(feature, left_index, start_x, end_y, start_x, start_y,
+                  is_construction);
 
   // H/V constraints on each side are already inferred by
   // `add_sketch_line` (via `infer_constraint_hint`) because the
@@ -2680,6 +2685,7 @@ void regenerate_mirror_preview(SketchFeatureParameters& parameters) {
       reflected.center_x = new_cx;
       reflected.center_y = new_cy;
       reflected.radius = circle_it->radius;
+      reflected.is_construction = circle_it->is_construction;
       pending.generated_circles.push_back(reflected);
       continue;
     }
@@ -2791,7 +2797,8 @@ void commit_mirror_preview(FeatureEntry& feature,
       const auto& circle = generated_circles[generated_circle_cursor++];
       const std::string new_id = "circle-" + std::to_string(next_circle_index);
       add_sketch_circle(feature, next_circle_index++, circle.center_x,
-                        circle.center_y, circle.radius);
+                        circle.center_y, circle.radius,
+                        circle.is_construction);
       source_to_mirror_circle.emplace(source_id, new_id);
     }
   }
@@ -2862,7 +2869,8 @@ void add_sketch_circle(FeatureEntry& feature,
                        int circle_index,
                        double center_x,
                        double center_y,
-                       double radius) {
+                       double radius,
+                       bool is_construction) {
   if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
     throw std::runtime_error("Only sketch features can accept sketch circles");
   }
@@ -2876,14 +2884,17 @@ void add_sketch_circle(FeatureEntry& feature,
       .center_x = center_x,
       .center_y = center_y,
       .radius = radius,
+      .is_construction = is_construction,
   });
   const auto& circle = feature.sketch_parameters->circles.back();
-  feature.sketch_parameters->dimensions.push_back(SketchDimension{
-      .id = "dim-circle-" + circle.id,
-      .kind = "circle_radius",
-      .entity_id = circle.id,
-      .value = circle.radius,
-  });
+  if (!is_construction) {
+    feature.sketch_parameters->dimensions.push_back(SketchDimension{
+        .id = "dim-circle-" + circle.id,
+        .kind = "circle_radius",
+        .entity_id = circle.id,
+        .value = circle.radius,
+    });
+  }
   refresh_sketch_derived_state(feature);
 }
 
@@ -2898,7 +2909,8 @@ void add_sketch_arc(FeatureEntry& feature,
                     double center_x,
                     double center_y,
                     double radius,
-                    bool ccw) {
+                    bool ccw,
+                    bool is_construction) {
   if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
     throw std::runtime_error("Only sketch features can accept sketch arcs");
   }
@@ -2939,6 +2951,7 @@ void add_sketch_arc(FeatureEntry& feature,
       .end_x = end_x,
       .end_y = end_y,
       .ccw = ccw,
+      .is_construction = is_construction,
   });
 
   refresh_sketch_derived_state(feature);

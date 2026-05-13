@@ -30,6 +30,7 @@ export interface SketchCircleEntry {
   center_x: number;
   center_y: number;
   radius: number;
+  is_construction: boolean;
 }
 
 export interface SketchPointEntry {
@@ -96,6 +97,7 @@ export interface PendingMirrorEntry {
     center_x: number;
     center_y: number;
     radius: number;
+    is_construction: boolean;
   }>;
 }
 

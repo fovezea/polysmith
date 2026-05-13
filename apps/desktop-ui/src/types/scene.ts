@@ -156,6 +156,7 @@ export interface SketchCircleScene {
   center: [number, number, number];
   radius: number;
   isSelected: boolean;
+  isConstruction: boolean;
 }
 
 // 2D arc derived from `ViewportSketchArc`. The renderer turns this

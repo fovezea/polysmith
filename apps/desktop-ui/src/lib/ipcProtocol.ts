@@ -867,6 +867,7 @@ export function makeAddSketchRectangleCommand(
   startY: number,
   endX: number,
   endY: number,
+  isConstruction = false,
 ): CoreCommand {
   return {
     id: crypto.randomUUID(),
@@ -876,6 +877,7 @@ export function makeAddSketchRectangleCommand(
       start_y: startY,
       end_x: endX,
       end_y: endY,
+      is_construction: isConstruction,
     },
   };
 }
@@ -884,6 +886,7 @@ export function makeAddSketchCircleCommand(
   centerX: number,
   centerY: number,
   radius: number,
+  isConstruction = false,
 ): CoreCommand {
   return {
     id: crypto.randomUUID(),
@@ -892,6 +895,7 @@ export function makeAddSketchCircleCommand(
       center_x: centerX,
       center_y: centerY,
       radius,
+      is_construction: isConstruction,
     },
   };
 }
@@ -908,6 +912,7 @@ export function makeAddSketchArcCommand(
   anchorX: number,
   anchorY: number,
   mode: "three_point" | "center_start_end",
+  isConstruction = false,
 ): CoreCommand {
   return {
     id: crypto.randomUUID(),
@@ -920,6 +925,7 @@ export function makeAddSketchArcCommand(
       anchor_x: anchorX,
       anchor_y: anchorY,
       mode,
+      is_construction: isConstruction,
     },
   };
 }

@@ -531,9 +531,16 @@ export function useCadCore() {
       startY: number,
       endX: number,
       endY: number,
+      isConstruction = false,
     ) => {
       await sendCoreCommand(
-        makeAddSketchRectangleCommand(startX, startY, endX, endY),
+        makeAddSketchRectangleCommand(
+          startX,
+          startY,
+          endX,
+          endY,
+          isConstruction,
+        ),
       );
       await sendCoreCommand(makeGetViewportStateCommand());
     },
@@ -541,9 +548,10 @@ export function useCadCore() {
       centerX: number,
       centerY: number,
       radius: number,
+      isConstruction = false,
     ) => {
       await sendCoreCommand(
-        makeAddSketchCircleCommand(centerX, centerY, radius),
+        makeAddSketchCircleCommand(centerX, centerY, radius, isConstruction),
       );
       await sendCoreCommand(makeGetViewportStateCommand());
     },
@@ -555,6 +563,7 @@ export function useCadCore() {
       anchorX: number,
       anchorY: number,
       mode: "three_point" | "center_start_end",
+      isConstruction = false,
     ) => {
       await sendCoreCommand(
         makeAddSketchArcCommand(
@@ -565,6 +574,7 @@ export function useCadCore() {
           anchorX,
           anchorY,
           mode,
+          isConstruction,
         ),
       );
       await sendCoreCommand(makeGetViewportStateCommand());
