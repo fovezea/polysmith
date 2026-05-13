@@ -7,6 +7,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <unordered_set>
 #include <utility>
 
 #include <nlohmann/json.hpp>
@@ -296,6 +297,49 @@ void refresh_linked_extrudes(DocumentState& document,
         feature.extrude_parameters->profile_id + " · " +
         std::to_string(feature.extrude_parameters->depth) + " mm";
   }
+}
+
+bool id_in_set(const std::unordered_set<std::string>& ids,
+               const std::string& id) {
+  return ids.find(id) != ids.end();
+}
+
+void add_id(std::unordered_set<std::string>& ids, const std::string& id) {
+  if (!id.empty()) {
+    ids.insert(id);
+  }
+}
+
+void add_ids(std::unordered_set<std::string>& ids,
+             const std::vector<std::string>& source) {
+  for (const auto& id : source) {
+    add_id(ids, id);
+  }
+}
+
+bool generated_projection_touches_deleted(
+    const SketchProjection& projection,
+    const std::unordered_set<std::string>& line_ids,
+    const std::unordered_set<std::string>& circle_ids,
+    const std::unordered_set<std::string>& arc_ids,
+    const std::unordered_set<std::string>& projected_point_ids) {
+  for (const auto& id : projection.generated_line_ids) {
+    if (id_in_set(line_ids, id)) {
+      return true;
+    }
+  }
+  for (const auto& id : projection.generated_circle_ids) {
+    if (id_in_set(circle_ids, id)) {
+      return true;
+    }
+  }
+  for (const auto& id : projection.generated_arc_ids) {
+    if (id_in_set(arc_ids, id)) {
+      return true;
+    }
+  }
+  return !projection.generated_point_id.empty() &&
+         id_in_set(projected_point_ids, projection.generated_point_id);
 }
 
 }  // namespace
@@ -667,6 +711,8 @@ DocumentState DocumentManager::select_feature(const std::string& feature_id) {
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   return document_.value();
 }
 
@@ -687,6 +733,8 @@ DocumentState DocumentManager::select_reference(const std::string& reference_id)
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   return document_.value();
 }
 
@@ -734,6 +782,8 @@ DocumentState DocumentManager::start_sketch_on_plane(
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -764,6 +814,8 @@ DocumentState DocumentManager::select_face(const std::string& face_id) {
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   return document_.value();
 }
 
@@ -819,6 +871,8 @@ DocumentState DocumentManager::select_edge(const std::string& edge_id,
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   return document_.value();
 }
 
@@ -871,6 +925,8 @@ DocumentState DocumentManager::select_vertex(const std::string& vertex_id,
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   return document_.value();
 }
 
@@ -1311,6 +1367,8 @@ DocumentState DocumentManager::start_sketch_on_face(
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -1344,6 +1402,8 @@ DocumentState DocumentManager::set_sketch_tool(const std::string& tool) {
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   return document_.value();
 }
 
@@ -1380,6 +1440,8 @@ DocumentState DocumentManager::update_sketch_line(const std::string& line_id,
   document_->selected_sketch_dimension_id = "dim-line-" + line_id;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -1414,6 +1476,8 @@ DocumentState DocumentManager::update_sketch_point(const std::string& point_id,
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -1448,6 +1512,8 @@ DocumentState DocumentManager::set_sketch_line_constraint(
   document_->selected_sketch_dimension_id = "dim-line-" + line_id;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -1490,6 +1556,8 @@ DocumentState DocumentManager::set_sketch_line_construction(
   }
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -1586,6 +1654,8 @@ DocumentState DocumentManager::set_sketch_equal_length_constraint(
   document_->selected_sketch_dimension_id = "dim-line-" + line_id;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -1621,6 +1691,8 @@ DocumentState DocumentManager::set_sketch_perpendicular_constraint(
   document_->selected_sketch_dimension_id = "dim-line-" + line_id;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -1760,6 +1832,8 @@ DocumentState DocumentManager::set_sketch_parallel_constraint(
   document_->selected_sketch_dimension_id = "dim-line-" + line_id;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -1794,6 +1868,8 @@ DocumentState DocumentManager::set_sketch_coincident_constraint(
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -1827,6 +1903,8 @@ DocumentState DocumentManager::set_sketch_point_fixed(const std::string& point_i
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -1863,6 +1941,8 @@ DocumentState DocumentManager::update_sketch_circle(const std::string& circle_id
   document_->selected_sketch_dimension_id = "dim-circle-" + circle_id;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -1926,6 +2006,8 @@ DocumentState DocumentManager::update_sketch_dimension(
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   if (feature_it->sketch_parameters.has_value()) {
     const auto dimension_it = std::find_if(
         feature_it->sketch_parameters->dimensions.begin(),
@@ -2294,6 +2376,8 @@ DocumentState DocumentManager::add_sketch_line(double start_x,
                            : std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   document_->active_sketch_tool = "line";
   bump_geometry_revision();
   return document_.value();
@@ -2337,6 +2421,8 @@ DocumentState DocumentManager::add_sketch_rectangle(double start_x,
                             feature_it->sketch_parameters->dimensions.back().id);
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   document_->active_sketch_tool = "rectangle";
   bump_geometry_revision();
   return document_.value();
@@ -2580,6 +2666,219 @@ DocumentState DocumentManager::delete_sketch_fillet(
   return document_.value();
 }
 
+DocumentState DocumentManager::delete_sketch_selection(
+    const std::vector<std::string>& entity_ids,
+    const std::vector<std::string>& point_ids,
+    const std::vector<std::string>& profile_ids) {
+  require_document();
+
+  if (!document_->active_sketch_feature_id.has_value()) {
+    throw std::runtime_error("No active sketch");
+  }
+
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) {
+        return feature.id == document_->active_sketch_feature_id.value();
+      });
+  if (feature_it == document_->feature_history.end() ||
+      !feature_it->sketch_parameters.has_value()) {
+    throw std::runtime_error("Active sketch feature not found");
+  }
+
+  auto& parameters = *feature_it->sketch_parameters;
+  std::unordered_set<std::string> line_ids;
+  std::unordered_set<std::string> circle_ids;
+  std::unordered_set<std::string> arc_ids;
+  std::unordered_set<std::string> projected_point_ids;
+  std::unordered_set<std::string> selected_point_ids;
+  std::unordered_set<std::string> fillet_ids;
+
+  add_ids(selected_point_ids, point_ids);
+
+  for (const auto& profile_id : profile_ids) {
+    const auto profile_it = std::find_if(
+        parameters.profiles.begin(),
+        parameters.profiles.end(),
+        [&](const SketchProfileRegion& profile) {
+          return profile.id == profile_id;
+        });
+    if (profile_it == parameters.profiles.end()) {
+      continue;
+    }
+    add_ids(line_ids, profile_it->line_ids);
+    if (profile_it->source_circle_id.has_value()) {
+      add_id(circle_ids, profile_it->source_circle_id.value());
+    }
+  }
+
+  for (const auto& entity_id : entity_ids) {
+    add_id(line_ids, entity_id);
+    add_id(circle_ids, entity_id);
+    add_id(arc_ids, entity_id);
+    add_id(fillet_ids, entity_id);
+  }
+
+  for (const auto& point_id : selected_point_ids) {
+    for (const auto& line : parameters.lines) {
+      if (line.start_point_id == point_id || line.end_point_id == point_id) {
+        add_id(line_ids, line.id);
+      }
+    }
+    for (const auto& arc : parameters.arcs) {
+      if (arc.start_point_id == point_id || arc.end_point_id == point_id) {
+        add_id(arc_ids, arc.id);
+      }
+    }
+    for (const auto& circle : parameters.circles) {
+      if ("point-circle-" + circle.id + "-center" == point_id) {
+        add_id(circle_ids, circle.id);
+      }
+    }
+    for (const auto& projected : parameters.projected_points) {
+      if (projected.id == point_id) {
+        add_id(projected_point_ids, projected.id);
+      }
+    }
+  }
+
+  for (const auto& fillet : parameters.fillets) {
+    if (id_in_set(line_ids, fillet.line_a_id) ||
+        id_in_set(line_ids, fillet.line_b_id) ||
+        id_in_set(arc_ids, fillet.arc_id) ||
+        id_in_set(selected_point_ids, fillet.corner_point_id) ||
+        id_in_set(selected_point_ids, fillet.trim_a_point_id) ||
+        id_in_set(selected_point_ids, fillet.trim_b_point_id)) {
+      add_id(fillet_ids, fillet.id);
+    }
+  }
+
+  const auto has_selected_line = [&](const SketchLine& line) {
+    return id_in_set(line_ids, line.id);
+  };
+  const auto has_selected_circle = [&](const SketchCircle& circle) {
+    return id_in_set(circle_ids, circle.id);
+  };
+  const auto has_selected_arc = [&](const SketchArc& arc) {
+    return id_in_set(arc_ids, arc.id);
+  };
+  const auto has_selected_projected_point =
+      [&](const SketchProjectedPoint& projected) {
+        return id_in_set(projected_point_ids, projected.id);
+      };
+
+  const bool will_delete =
+      std::any_of(parameters.lines.begin(), parameters.lines.end(), has_selected_line) ||
+      std::any_of(parameters.circles.begin(),
+                  parameters.circles.end(),
+                  has_selected_circle) ||
+      std::any_of(parameters.arcs.begin(), parameters.arcs.end(), has_selected_arc) ||
+      std::any_of(parameters.projected_points.begin(),
+                  parameters.projected_points.end(),
+                  has_selected_projected_point) ||
+      std::any_of(parameters.fillets.begin(),
+                  parameters.fillets.end(),
+                  [&](const SketchFillet& fillet) {
+                    return id_in_set(fillet_ids, fillet.id);
+                  });
+  if (!will_delete) {
+    return document_.value();
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+
+  std::vector<std::string> fillets_to_delete;
+  for (const auto& fillet : parameters.fillets) {
+    if (id_in_set(fillet_ids, fillet.id)) {
+      fillets_to_delete.push_back(fillet.id);
+    }
+  }
+  for (const auto& fillet_id : fillets_to_delete) {
+    polysmith::core::delete_sketch_fillet(*feature_it, fillet_id);
+  }
+
+  parameters.lines.erase(
+      std::remove_if(parameters.lines.begin(), parameters.lines.end(), has_selected_line),
+      parameters.lines.end());
+  parameters.circles.erase(
+      std::remove_if(parameters.circles.begin(),
+                     parameters.circles.end(),
+                     has_selected_circle),
+      parameters.circles.end());
+  parameters.arcs.erase(
+      std::remove_if(parameters.arcs.begin(), parameters.arcs.end(), has_selected_arc),
+      parameters.arcs.end());
+  parameters.projected_points.erase(
+      std::remove_if(parameters.projected_points.begin(),
+                     parameters.projected_points.end(),
+                     has_selected_projected_point),
+      parameters.projected_points.end());
+
+  const auto deleted_entity = [&](const std::string& id) {
+    return id_in_set(line_ids, id) || id_in_set(circle_ids, id) ||
+           id_in_set(arc_ids, id);
+  };
+  parameters.dimensions.erase(
+      std::remove_if(parameters.dimensions.begin(),
+                     parameters.dimensions.end(),
+                     [&](const SketchDimension& dimension) {
+                       return deleted_entity(dimension.entity_id) ||
+                              deleted_entity(dimension.secondary_entity_id);
+                     }),
+      parameters.dimensions.end());
+  parameters.line_relations.erase(
+      std::remove_if(parameters.line_relations.begin(),
+                     parameters.line_relations.end(),
+                     [&](const SketchLineRelation& relation) {
+                       return deleted_entity(relation.first_line_id) ||
+                              deleted_entity(relation.second_line_id);
+                     }),
+      parameters.line_relations.end());
+  parameters.midpoint_anchors.erase(
+      std::remove_if(parameters.midpoint_anchors.begin(),
+                     parameters.midpoint_anchors.end(),
+                     [&](const SketchMidpointAnchor& anchor) {
+                       return id_in_set(selected_point_ids, anchor.point_id) ||
+                              id_in_set(line_ids, anchor.line_id);
+                     }),
+      parameters.midpoint_anchors.end());
+  parameters.point_line_anchors.erase(
+      std::remove_if(parameters.point_line_anchors.begin(),
+                     parameters.point_line_anchors.end(),
+                     [&](const SketchPointLineAnchor& anchor) {
+                       return id_in_set(selected_point_ids, anchor.point_id) ||
+                              id_in_set(line_ids, anchor.line_id);
+                     }),
+      parameters.point_line_anchors.end());
+  parameters.projections.erase(
+      std::remove_if(parameters.projections.begin(),
+                     parameters.projections.end(),
+                     [&](const SketchProjection& projection) {
+                       return generated_projection_touches_deleted(
+                           projection,
+                           line_ids,
+                           circle_ids,
+                           arc_ids,
+                           projected_point_ids);
+                     }),
+      parameters.projections.end());
+
+  refresh_sketch_derived_state(*feature_it);
+  refresh_linked_extrudes(*document_, *feature_it);
+  document_->selected_feature_id = feature_it->id;
+  document_->selected_sketch_point_id = std::nullopt;
+  document_->selected_sketch_entity_id = std::nullopt;
+  document_->selected_sketch_dimension_id = std::nullopt;
+  document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
+  bump_geometry_revision();
+  return document_.value();
+}
+
 DocumentState DocumentManager::add_sketch_circle(double center_x,
                                                  double center_y,
                                                  double radius,
@@ -2617,12 +2916,15 @@ DocumentState DocumentManager::add_sketch_circle(double center_x,
                             feature_it->sketch_parameters->dimensions.back().id);
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   document_->active_sketch_tool = "circle";
   bump_geometry_revision();
   return document_.value();
 }
 
-DocumentState DocumentManager::select_sketch_point(const std::string& point_id) {
+DocumentState DocumentManager::select_sketch_point(const std::string& point_id,
+                                                   bool additive) {
   require_document();
 
   if (!document_->active_sketch_feature_id.has_value()) {
@@ -2650,15 +2952,32 @@ DocumentState DocumentManager::select_sketch_point(const std::string& point_id) 
   }
 
   document_->selected_feature_id = feature_it->id;
-  document_->selected_sketch_point_id = point_id;
+  document_->selected_sketch_entity_ids.clear();
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  if (additive) {
+    auto& point_ids = document_->selected_sketch_point_ids;
+    const auto existing =
+        std::find(point_ids.begin(), point_ids.end(), point_id);
+    if (existing == point_ids.end()) {
+      point_ids.push_back(point_id);
+    } else {
+      point_ids.erase(existing);
+    }
+  } else {
+    document_->selected_sketch_point_ids = {point_id};
+  }
+  document_->selected_sketch_point_id =
+      document_->selected_sketch_point_ids.empty()
+          ? std::nullopt
+          : std::make_optional(document_->selected_sketch_point_ids.back());
   return document_.value();
 }
 
-DocumentState DocumentManager::select_sketch_entity(const std::string& entity_id) {
+DocumentState DocumentManager::select_sketch_entity(
+    const std::string& entity_id, bool additive) {
   require_document();
 
   if (!document_->active_sketch_feature_id.has_value()) {
@@ -2685,19 +3004,40 @@ DocumentState DocumentManager::select_sketch_entity(const std::string& entity_id
       feature_it->sketch_parameters->circles.begin(),
       feature_it->sketch_parameters->circles.end(),
       [&](const SketchCircle& circle) { return circle.id == entity_id; });
+  const bool has_arc = std::any_of(
+      feature_it->sketch_parameters->arcs.begin(),
+      feature_it->sketch_parameters->arcs.end(),
+      [&](const SketchArc& arc) { return arc.id == entity_id; });
 
-  if (!has_line && !has_circle) {
+  if (!has_line && !has_circle && !has_arc) {
     throw std::runtime_error("Sketch entity not found: " + entity_id);
   }
 
   document_->selected_feature_id = feature_it->id;
+  document_->selected_sketch_point_ids.clear();
   document_->selected_sketch_point_id = std::nullopt;
-  document_->selected_sketch_entity_id = entity_id;
+  if (additive) {
+    auto& entity_ids = document_->selected_sketch_entity_ids;
+    const auto existing =
+        std::find(entity_ids.begin(), entity_ids.end(), entity_id);
+    if (existing == entity_ids.end()) {
+      entity_ids.push_back(entity_id);
+    } else {
+      entity_ids.erase(existing);
+    }
+  } else {
+    document_->selected_sketch_entity_ids = {entity_id};
+  }
+  document_->selected_sketch_entity_id =
+      document_->selected_sketch_entity_ids.empty()
+          ? std::nullopt
+          : std::make_optional(document_->selected_sketch_entity_ids.back());
   const auto dimension_it = std::find_if(
       feature_it->sketch_parameters->dimensions.begin(),
       feature_it->sketch_parameters->dimensions.end(),
       [&](const SketchDimension& dimension) {
-        return dimension.entity_id == entity_id;
+        return document_->selected_sketch_entity_ids.size() == 1 &&
+               dimension.entity_id == document_->selected_sketch_entity_ids.front();
       });
   document_->selected_sketch_dimension_id =
       dimension_it != feature_it->sketch_parameters->dimensions.end()
@@ -2705,6 +3045,7 @@ DocumentState DocumentManager::select_sketch_entity(const std::string& entity_id
           : std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
   return document_.value();
 }
 
@@ -2743,6 +3084,8 @@ DocumentState DocumentManager::select_sketch_dimension(
   document_->selected_sketch_dimension_id = dimension_it->id;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   return document_.value();
 }
 
@@ -2777,6 +3120,8 @@ DocumentState DocumentManager::finish_sketch() {
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -2820,6 +3165,8 @@ DocumentState DocumentManager::reenter_sketch(const std::string& feature_id) {
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -3020,6 +3367,8 @@ DocumentState DocumentManager::project_face_into_sketch(
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   bump_geometry_revision();
 
   return document_.value();
@@ -3260,6 +3609,8 @@ DocumentState DocumentManager::project_edge_into_sketch(
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   bump_geometry_revision();
 
   return document_.value();
@@ -3327,6 +3678,8 @@ DocumentState DocumentManager::project_vertex_into_sketch(
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   bump_geometry_revision();
 
   return document_.value();
@@ -3372,6 +3725,8 @@ DocumentState DocumentManager::create_offset_plane(
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -3432,6 +3787,8 @@ DocumentState DocumentManager::clear_selection() {
   document_->selected_sketch_dimension_id = std::nullopt;
   document_->selected_sketch_profile_id = std::nullopt;
   document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
   return document_.value();
 }
 

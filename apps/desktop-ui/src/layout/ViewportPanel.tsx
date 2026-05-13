@@ -224,10 +224,11 @@ interface ViewportPanelProps {
     lineAId: string,
     lineBId: string,
   ) => Promise<void>;
-  onSelectSketchEntity: (entityId: string) => Promise<void>;
+  onSelectSketchEntity: (entityId: string, additive: boolean) => Promise<void>;
   onPickSketchPoint: (
     pointId: string,
     kind: "endpoint" | "center",
+    additive: boolean,
   ) => Promise<void>;
   armedSketchConstraint: ArmedSketchConstraint;
   // Which mirror tool slot is taking entity clicks. `null` when the
@@ -252,6 +253,7 @@ interface ViewportPanelProps {
     value: number,
   ) => Promise<void>;
   onSelectSketchProfile: (profileId: string, additive: boolean) => Promise<void>;
+  onDeleteSketchSelection: () => Promise<void>;
   onSetSketchTool: (tool: SketchTool) => Promise<void>;
   hiddenFeatureIds?: ReadonlySet<string>;
   hiddenSketchPlaneIds?: ReadonlySet<string>;
@@ -614,6 +616,7 @@ export function ViewportPanel({
   onSelectSketchDimension,
   onUpdateSketchDimension,
   onSelectSketchProfile,
+  onDeleteSketchSelection,
   onSetSketchTool,
   hiddenFeatureIds,
   hiddenSketchPlaneIds,
@@ -727,9 +730,13 @@ export function ViewportPanel({
   const meshesRef = useRef<THREE.Mesh[]>([]);
   const referencePlaneMeshesRef = useRef<THREE.Mesh[]>([]);
   const sketchEntityObjectsRef = useRef<Array<THREE.Line | THREE.LineLoop>>([]);
+  const sketchEntityObjectByIdRef = useRef(
+    new Map<string, THREE.Line | THREE.LineLoop>(),
+  );
   const sketchDimensionObjectsRef = useRef<Array<THREE.Object3D>>([]);
   const sketchConstraintObjectsRef = useRef<Array<THREE.Object3D>>([]);
   const sketchPointObjectsRef = useRef<THREE.Mesh[]>([]);
+  const sketchPointObjectByIdRef = useRef(new Map<string, THREE.Mesh>());
   const sketchProfileObjectsRef = useRef<THREE.Group[]>([]);
   const sketchProfileVisualsRef = useRef(new Map<string, SketchProfileVisual>());
   const sketchProfileStatesRef = useRef(
@@ -775,6 +782,7 @@ export function ViewportPanel({
   const selectSketchDimensionRef = useRef(onSelectSketchDimension);
   const updateSketchDimensionRef = useRef(onUpdateSketchDimension);
   const selectSketchProfileRef = useRef(onSelectSketchProfile);
+  const deleteSketchSelectionRef = useRef(onDeleteSketchSelection);
   const selectedSketchDimensionRef = useRef<SketchDimensionScene | null>(null);
   const isDimensionEditorOpenRef = useRef(false);
   const suppressNextDimensionEditorOpenRef = useRef(false);
@@ -1899,6 +1907,68 @@ export function ViewportPanel({
     }
   }
 
+  const hoveredSketchEntityIdRef = useRef<string | null>(null);
+  function paintSketchEntityMaterials() {
+    for (const object of sketchEntityObjectsRef.current) {
+      const id = object.userData.sketchEntityId as string | undefined;
+      const isSelected = object.userData.isSelected === true;
+      const isHovered =
+        id !== undefined && id === hoveredSketchEntityIdRef.current;
+      const material = object.material as
+        | THREE.LineBasicMaterial
+        | THREE.LineDashedMaterial;
+      material.color.set(
+        isSelected
+          ? themeColor("--color-primary-edge-active", "#c3f5ff")
+          : isHovered
+            ? themeColor("--color-tertiary-plane-edge-hover", "#fff2b2")
+            : themeColor("--color-tertiary-plane-fill", "#fff7c0"),
+      );
+      material.opacity = isSelected || isHovered ? 1 : 0.98;
+      material.linewidth = isSelected ? 3 : isHovered ? 2.5 : 1;
+    }
+  }
+
+  function setHoveredSketchEntity(entityId: string | null) {
+    if (hoveredSketchEntityIdRef.current === entityId) {
+      return;
+    }
+    hoveredSketchEntityIdRef.current = entityId;
+    paintSketchEntityMaterials();
+  }
+
+  const hoveredSketchPointIdRef = useRef<string | null>(null);
+  function paintSketchPointMaterials() {
+    for (const mesh of sketchPointObjectsRef.current) {
+      const id = mesh.userData.sketchPointId as string | undefined;
+      const kind = mesh.userData.sketchPointKind as string | undefined;
+      const isSelected = mesh.userData.isSelected === true;
+      const isHovered =
+        id !== undefined && id === hoveredSketchPointIdRef.current;
+      const material = mesh.material as THREE.MeshBasicMaterial;
+      material.color.set(
+        isSelected
+          ? themeColor("--color-primary-edge-active", "#c3f5ff")
+          : isHovered
+            ? themeColor("--color-tertiary-plane-edge-hover", "#fff2b2")
+            : kind === "center" || kind === "projected"
+              ? themeColor("--color-axis-z", "#6db4ff")
+              : themeColor("--color-tertiary-plane-edge", "#ffe784"),
+      );
+      material.opacity = isSelected || isHovered ? 1 : 0.95;
+      const scale = isSelected ? 1.35 : isHovered ? 1.25 : 1;
+      mesh.scale.setScalar(scale);
+    }
+  }
+
+  function setHoveredSketchPoint(pointId: string | null) {
+    if (hoveredSketchPointIdRef.current === pointId) {
+      return;
+    }
+    hoveredSketchPointIdRef.current = pointId;
+    paintSketchPointMaterials();
+  }
+
   function setHoveredPrimitive(primitiveId: string | null) {
     let changed = false;
 
@@ -2007,6 +2077,7 @@ export function ViewportPanel({
     selectSketchDimensionRef.current = onSelectSketchDimension;
     updateSketchDimensionRef.current = onUpdateSketchDimension;
     selectSketchProfileRef.current = onSelectSketchProfile;
+    deleteSketchSelectionRef.current = onDeleteSketchSelection;
     setSketchToolRef.current = onSetSketchTool;
     armedSketchConstraintRef.current = armedSketchConstraint;
     mirrorFocusedSlotRef.current = mirrorFocusedSlot;
@@ -2032,6 +2103,7 @@ export function ViewportPanel({
     onSelectSketchDimension,
     onUpdateSketchDimension,
     onSelectSketchProfile,
+    onDeleteSketchSelection,
     onSetSketchTool,
     armedSketchConstraint,
     mirrorFocusedSlot,
@@ -3149,6 +3221,10 @@ export function ViewportPanel({
           setHoveredFace(null);
           setHoveredEdge(null);
           setHoveredVertex(null);
+          setHoveredSketchPoint(hit?.kind === "sketch_point" ? hit.id : null);
+          setHoveredSketchEntity(
+            hit?.kind === "sketch_entity" ? hit.id : null,
+          );
           setHoveredSketchProfile(
             hit?.kind === "sketch_profile" ? hit.id : null,
           );
@@ -3174,6 +3250,8 @@ export function ViewportPanel({
           setHoveredReference(null);
           setHoveredPrimitive(null);
           setHoveredSketchProfile(null);
+          setHoveredSketchPoint(null);
+          setHoveredSketchEntity(null);
           setHoveredFace(projectHit?.kind === "face" ? projectHit.id : null);
           setHoveredEdge(projectHit?.kind === "edge" ? projectHit.id : null);
           setHoveredVertex(
@@ -3183,6 +3261,8 @@ export function ViewportPanel({
         }
 
         setHoveredSketchProfile(null);
+        setHoveredSketchPoint(null);
+        setHoveredSketchEntity(null);
         const draftStart = lineDraftStartRef.current;
         const rawPoint = resolveSketchPlanePoint(
           event,
@@ -3560,6 +3640,8 @@ export function ViewportPanel({
         setHoveredReference(null);
         setHoveredPrimitive(null);
         setHoveredSketchProfile(null);
+        setHoveredSketchPoint(null);
+        setHoveredSketchEntity(hit?.kind === "sketch_entity" ? hit.id : null);
         setHoveredFace(null);
         setHoveredEdge(null);
         setHoveredVertex(null);
@@ -3567,6 +3649,8 @@ export function ViewportPanel({
       }
       setHoveredReference(hit?.kind === "reference" ? hit.id : null);
       setHoveredSketchProfile(hit?.kind === "sketch_profile" ? hit.id : null);
+      setHoveredSketchPoint(hit?.kind === "sketch_point" ? hit.id : null);
+      setHoveredSketchEntity(null);
       setHoveredFace(hit?.kind === "face" ? hit.id : null);
       // Edges and vertices are mutually exclusive with each other (the
       // raycaster prioritizes vertex over edge over face), so only one
@@ -3584,6 +3668,8 @@ export function ViewportPanel({
       setSketchSnapLabel(null);
       setConstraintPreview(null);
       setHoveredSketchProfile(null);
+      setHoveredSketchPoint(null);
+      setHoveredSketchEntity(null);
       if (!activeSketchPlaneId) {
         setHoveredReference(null);
         setHoveredPrimitive(null);
@@ -3692,6 +3778,8 @@ export function ViewportPanel({
 
       if (activeSketchPlaneId) {
         const hit = intersectSceneTargets(event);
+        const additiveSelection =
+          event.shiftKey || event.ctrlKey || event.metaKey;
         if (activeSketchToolRef.current === "select") {
           // Mirror tool takes priority over the rest of the
           // selection / armed-constraint flow when one of its
@@ -3713,12 +3801,16 @@ export function ViewportPanel({
             hit?.kind === "sketch_entity" &&
             hit.entityKind === "line"
           ) {
-            void selectSketchEntityRef.current(hit.id);
+            void selectSketchEntityRef.current(hit.id, false);
             return;
           }
 
           if (hit?.kind === "sketch_point") {
-            void pickSketchPointRef.current(hit.id, hit.pointKind);
+            void pickSketchPointRef.current(
+              hit.id,
+              hit.pointKind,
+              additiveSelection,
+            );
             return;
           }
 
@@ -3745,7 +3837,7 @@ export function ViewportPanel({
           }
 
           if (hit?.kind === "sketch_entity") {
-            void selectSketchEntityRef.current(hit.id);
+            void selectSketchEntityRef.current(hit.id, additiveSelection);
           }
           return;
         }
@@ -3776,7 +3868,7 @@ export function ViewportPanel({
               if (dimensionExists) {
                 selectSketchDimensionForEdit(dimensionId);
               } else {
-                void selectSketchEntityRef.current(hit.id);
+                void selectSketchEntityRef.current(hit.id, false);
               }
               return;
             }
@@ -3813,7 +3905,7 @@ export function ViewportPanel({
             if (dimensionExists) {
               selectSketchDimensionForEdit(dimensionId);
             } else {
-              void selectSketchEntityRef.current(hit.id);
+              void selectSketchEntityRef.current(hit.id, false);
             }
             return;
           }
@@ -4378,9 +4470,11 @@ export function ViewportPanel({
       sketchProfileStatesRef.current.clear();
       referencePlaneMeshesRef.current = [];
       sketchEntityObjectsRef.current = [];
+      sketchEntityObjectByIdRef.current.clear();
       sketchDimensionObjectsRef.current = [];
       sketchConstraintObjectsRef.current = [];
       sketchPointObjectsRef.current = [];
+      sketchPointObjectByIdRef.current.clear();
       sketchProfileObjectsRef.current = [];
       meshesRef.current = [];
       faceMeshesRef.current = [];
@@ -4442,6 +4536,8 @@ export function ViewportPanel({
     // null them out so the next pointermove cleanly re-applies hover.
     hoveredEdgeIdRef.current = null;
     hoveredVertexIdRef.current = null;
+    hoveredSketchEntityIdRef.current = null;
+    hoveredSketchPointIdRef.current = null;
     previewLineRef.current = null;
     previewCircleRef.current = null;
     previewArcRef.current = null;
@@ -4520,7 +4616,12 @@ export function ViewportPanel({
 
     for (const sketchLine of sceneData.sketchLines) {
       const sketchLineObject = buildSketchLineObject(sketchLine);
+      sketchLineObject.userData.isSelected = sketchLine.isSelected;
       sketchEntityObjectsRef.current.push(sketchLineObject);
+      sketchEntityObjectByIdRef.current.set(
+        sketchLine.lineId,
+        sketchLineObject,
+      );
       sketchGroup.add(sketchLineObject);
     }
 
@@ -4537,7 +4638,12 @@ export function ViewportPanel({
           ? activeSketchPlaneFrame
           : null;
       const sketchCircleObject = buildSketchCircleObject(sketchCircle, frame);
+      sketchCircleObject.userData.isSelected = sketchCircle.isSelected;
       sketchEntityObjectsRef.current.push(sketchCircleObject);
+      sketchEntityObjectByIdRef.current.set(
+        sketchCircle.circleId,
+        sketchCircleObject,
+      );
       sketchGroup.add(sketchCircleObject);
     }
 
@@ -4552,7 +4658,9 @@ export function ViewportPanel({
           ? activeSketchPlaneFrame
           : null;
       const sketchArcObject = buildSketchArcObject(sketchArc, frame);
+      sketchArcObject.userData.isSelected = sketchArc.isSelected;
       sketchEntityObjectsRef.current.push(sketchArcObject);
+      sketchEntityObjectByIdRef.current.set(sketchArc.arcId, sketchArcObject);
       sketchGroup.add(sketchArcObject);
     }
 
@@ -4587,7 +4695,12 @@ export function ViewportPanel({
 
     for (const sketchPoint of sceneData.sketchPoints) {
       const sketchPointObject = buildSketchPointObject(sketchPoint);
+      sketchPointObject.userData.isSelected = sketchPoint.isSelected;
       sketchPointObjectsRef.current.push(sketchPointObject);
+      sketchPointObjectByIdRef.current.set(
+        sketchPoint.pointId,
+        sketchPointObject,
+      );
       sketchGroup.add(sketchPointObject);
     }
 
@@ -4595,6 +4708,8 @@ export function ViewportPanel({
     syncReferencePlaneVisuals();
     syncSolidFaceVisuals();
     syncSketchProfileVisuals();
+    paintSketchEntityMaterials();
+    paintSketchPointMaterials();
 
     if (sceneData.geometryKey !== lastGeometryKeyRef.current) {
       // Auto-frame the camera ONLY on the very first scene load (when
@@ -4654,6 +4769,12 @@ export function ViewportPanel({
       if (event.code === "Escape") {
         event.preventDefault();
         cancelActiveSketchDraft();
+        return;
+      }
+
+      if (event.code === "Delete" || event.code === "Backspace") {
+        event.preventDefault();
+        void deleteSketchSelectionRef.current();
         return;
       }
 

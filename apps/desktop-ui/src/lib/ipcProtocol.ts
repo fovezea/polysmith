@@ -930,12 +930,16 @@ export function makeAddSketchArcCommand(
   };
 }
 
-export function makeSelectSketchPointCommand(pointId: string): CoreCommand {
+export function makeSelectSketchPointCommand(
+  pointId: string,
+  additive = false,
+): CoreCommand {
   return {
     id: crypto.randomUUID(),
     type: "select_sketch_point",
     payload: {
       point_id: pointId,
+      additive,
     },
   };
 }
@@ -986,12 +990,32 @@ export function makeDeleteSketchFilletCommand(filletId: string): CoreCommand {
   };
 }
 
-export function makeSelectSketchEntityCommand(entityId: string): CoreCommand {
+export function makeDeleteSketchSelectionCommand(
+  entityIds: readonly string[],
+  pointIds: readonly string[],
+  profileIds: readonly string[],
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "delete_sketch_selection",
+    payload: {
+      entity_ids: [...entityIds],
+      point_ids: [...pointIds],
+      profile_ids: [...profileIds],
+    },
+  };
+}
+
+export function makeSelectSketchEntityCommand(
+  entityId: string,
+  additive = false,
+): CoreCommand {
   return {
     id: crypto.randomUUID(),
     type: "select_sketch_entity",
     payload: {
       entity_id: entityId,
+      additive,
     },
   };
 }

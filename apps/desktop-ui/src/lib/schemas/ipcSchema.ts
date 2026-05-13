@@ -36,6 +36,8 @@ const documentStateSchema = z.object({
     .nullable(),
   selected_sketch_point_id: z.string().nullable(),
   selected_sketch_entity_id: z.string().nullable(),
+  selected_sketch_point_ids: z.array(z.string()).default([]),
+  selected_sketch_entity_ids: z.array(z.string()).default([]),
   selected_sketch_dimension_id: z.string().nullable(),
   selected_sketch_profile_id: z.string().nullable(),
   selected_sketch_profile_ids: z.array(z.string()).default([]),

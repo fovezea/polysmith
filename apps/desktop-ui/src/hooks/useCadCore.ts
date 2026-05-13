@@ -13,6 +13,7 @@ import {
   makeAddSketchFilletCommand,
   makeUpdateSketchFilletRadiusCommand,
   makeDeleteSketchFilletCommand,
+  makeDeleteSketchSelectionCommand,
   makeAddSketchCircleCommand,
   makeAddSketchLineCommand,
   makeSetSketchLineConstructionCommand,
@@ -600,12 +601,22 @@ export function useCadCore() {
       await sendCoreCommand(makeDeleteSketchFilletCommand(filletId));
       await sendCoreCommand(makeGetViewportStateCommand());
     },
-    selectSketchPoint: async (pointId: string) => {
-      await sendCoreCommand(makeSelectSketchPointCommand(pointId));
+    deleteSketchSelection: async (
+      entityIds: readonly string[],
+      pointIds: readonly string[],
+      profileIds: readonly string[],
+    ) => {
+      await sendCoreCommand(
+        makeDeleteSketchSelectionCommand(entityIds, pointIds, profileIds),
+      );
       await sendCoreCommand(makeGetViewportStateCommand());
     },
-    selectSketchEntity: async (entityId: string) => {
-      await sendCoreCommand(makeSelectSketchEntityCommand(entityId));
+    selectSketchPoint: async (pointId: string, additive = false) => {
+      await sendCoreCommand(makeSelectSketchPointCommand(pointId, additive));
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    selectSketchEntity: async (entityId: string, additive = false) => {
+      await sendCoreCommand(makeSelectSketchEntityCommand(entityId, additive));
       await sendCoreCommand(makeGetViewportStateCommand());
     },
     selectSketchDimension: async (dimensionId: string) => {

@@ -2490,10 +2490,28 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
         }
       }
 
+      const auto is_sketch_entity_selected = [&](const std::string& id) {
+        if (!document->selected_sketch_entity_ids.empty()) {
+          return std::find(document->selected_sketch_entity_ids.begin(),
+                           document->selected_sketch_entity_ids.end(),
+                           id) != document->selected_sketch_entity_ids.end();
+        }
+        return document->selected_sketch_entity_id.has_value() &&
+               document->selected_sketch_entity_id.value() == id;
+      };
+      const auto is_sketch_point_selected = [&](const std::string& id) {
+        if (!document->selected_sketch_point_ids.empty()) {
+          return std::find(document->selected_sketch_point_ids.begin(),
+                           document->selected_sketch_point_ids.end(),
+                           id) != document->selected_sketch_point_ids.end();
+        }
+        return document->selected_sketch_point_id.has_value() &&
+               document->selected_sketch_point_id.value() == id;
+      };
+
       for (const auto& line : feature.sketch_parameters->lines) {
         const bool is_selected_sketch_entity =
-            document->selected_sketch_entity_id.has_value() &&
-            document->selected_sketch_entity_id.value() == line.id;
+            is_sketch_entity_selected(line.id);
         sketch_lines.push_back(
             make_sketch_line_primitive(line,
                                        *feature.sketch_parameters,
@@ -2555,11 +2573,9 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
           }
 
           const bool first_is_selected =
-              document->selected_sketch_entity_id.has_value() &&
-              document->selected_sketch_entity_id.value() == first_line_it->id;
+              is_sketch_entity_selected(first_line_it->id);
           const bool second_is_selected =
-              document->selected_sketch_entity_id.has_value() &&
-              document->selected_sketch_entity_id.value() == second_line_it->id;
+              is_sketch_entity_selected(second_line_it->id);
 
           sketch_constraints.push_back(make_line_constraint_primitive(
               *first_line_it,
@@ -2603,8 +2619,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
           }
 
           const bool is_selected =
-              document->selected_sketch_entity_id.has_value() &&
-              document->selected_sketch_entity_id.value() == line_it->id;
+              is_sketch_entity_selected(line_it->id);
           sketch_constraints.push_back(make_line_constraint_primitive(
               *line_it,
               feature.sketch_parameters->plane_id,
@@ -2626,8 +2641,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
             continue;
           }
           const bool is_selected =
-              document->selected_sketch_entity_id.has_value() &&
-              document->selected_sketch_entity_id.value() == anchor.point_id;
+              is_sketch_entity_selected(anchor.point_id);
           sketch_constraints.push_back(make_line_constraint_primitive(
               *host_it,
               feature.sketch_parameters->plane_id,
@@ -2663,8 +2677,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
               anchor_x + normal_x * kConstraintBadgeOffset,
               anchor_y + normal_y * kConstraintBadgeOffset);
           const bool is_selected =
-              document->selected_sketch_entity_id.has_value() &&
-              document->selected_sketch_entity_id.value() == anchor.point_id;
+              is_sketch_entity_selected(anchor.point_id);
           sketch_constraints.push_back(ViewportSketchConstraintPrimitive{
               .constraint_id = "constraint-on_line-" + anchor.point_id,
               .plane_id = feature.sketch_parameters->plane_id,
@@ -2718,8 +2731,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
 
       for (const auto& arc : feature.sketch_parameters->arcs) {
         const bool is_selected_sketch_entity =
-            document->selected_sketch_entity_id.has_value() &&
-            document->selected_sketch_entity_id.value() == arc.id;
+            is_sketch_entity_selected(arc.id);
         sketch_arcs.push_back(make_sketch_arc_primitive(
             arc,
             *feature.sketch_parameters,
@@ -2728,8 +2740,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
 
       for (const auto& circle : feature.sketch_parameters->circles) {
         const bool is_selected_sketch_entity =
-            document->selected_sketch_entity_id.has_value() &&
-            document->selected_sketch_entity_id.value() == circle.id;
+            is_sketch_entity_selected(circle.id);
         sketch_circles.push_back(make_sketch_circle_primitive(
             circle,
             *feature.sketch_parameters,
@@ -2760,8 +2771,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
           document->active_sketch_feature_id.value() == feature.id) {
         for (const auto& point : feature.sketch_parameters->points) {
           const bool is_selected_point =
-              document->selected_sketch_point_id.has_value() &&
-              document->selected_sketch_point_id.value() == point.id;
+              is_sketch_point_selected(point.id);
           sketch_points.push_back(make_sketch_point_primitive(
               point, *feature.sketch_parameters, is_selected_point));
           if (point.is_fixed) {

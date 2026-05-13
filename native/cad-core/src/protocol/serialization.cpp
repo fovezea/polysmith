@@ -1103,6 +1103,8 @@ json to_payload(const polysmith::core::DocumentState& document) {
        document.selected_sketch_entity_id.has_value()
            ? json(document.selected_sketch_entity_id.value())
            : json(nullptr)},
+      {"selected_sketch_point_ids", document.selected_sketch_point_ids},
+      {"selected_sketch_entity_ids", document.selected_sketch_entity_ids},
       {"selected_sketch_dimension_id",
        document.selected_sketch_dimension_id.has_value()
            ? json(document.selected_sketch_dimension_id.value())
@@ -1915,6 +1917,22 @@ polysmith::core::DocumentState document_from_payload(const json& payload) {
       read_optional_string(payload, "selected_sketch_point_id");
   document.selected_sketch_entity_id =
       read_optional_string(payload, "selected_sketch_entity_id");
+  if (payload.contains("selected_sketch_point_ids") &&
+      payload.at("selected_sketch_point_ids").is_array()) {
+    for (const auto& id : payload.at("selected_sketch_point_ids")) {
+      if (id.is_string()) {
+        document.selected_sketch_point_ids.push_back(id.get<std::string>());
+      }
+    }
+  }
+  if (payload.contains("selected_sketch_entity_ids") &&
+      payload.at("selected_sketch_entity_ids").is_array()) {
+    for (const auto& id : payload.at("selected_sketch_entity_ids")) {
+      if (id.is_string()) {
+        document.selected_sketch_entity_ids.push_back(id.get<std::string>());
+      }
+    }
+  }
   document.selected_sketch_dimension_id =
       read_optional_string(payload, "selected_sketch_dimension_id");
   document.selected_sketch_profile_id =

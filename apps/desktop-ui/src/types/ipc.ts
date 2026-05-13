@@ -34,6 +34,8 @@ export interface DocumentState {
   active_sketch_tool: SketchTool | null;
   selected_sketch_point_id: string | null;
   selected_sketch_entity_id: string | null;
+  selected_sketch_point_ids: string[];
+  selected_sketch_entity_ids: string[];
   selected_sketch_dimension_id: string | null;
   selected_sketch_profile_id: string | null;
   selected_sketch_profile_ids: string[];
@@ -679,6 +681,16 @@ export interface DeleteSketchFilletCommand {
   };
 }
 
+export interface DeleteSketchSelectionCommand {
+  id: string;
+  type: "delete_sketch_selection";
+  payload: {
+    entity_ids: string[];
+    point_ids: string[];
+    profile_ids: string[];
+  };
+}
+
 export interface SetSketchToolCommand {
   id: string;
   type: "set_sketch_tool";
@@ -888,6 +900,7 @@ export interface SelectSketchEntityCommand {
   type: "select_sketch_entity";
   payload: {
     entity_id: string;
+    additive: boolean;
   };
 }
 
@@ -896,6 +909,7 @@ export interface SelectSketchPointCommand {
   type: "select_sketch_point";
   payload: {
     point_id: string;
+    additive: boolean;
   };
 }
 
@@ -1005,6 +1019,7 @@ export type CoreCommand =
   | AddSketchFilletCommand
   | UpdateSketchFilletRadiusCommand
   | DeleteSketchFilletCommand
+  | DeleteSketchSelectionCommand
   | SelectSketchPointCommand
   | SelectSketchEntityCommand
   | SelectSketchDimensionCommand

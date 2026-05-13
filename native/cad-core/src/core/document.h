@@ -41,6 +41,8 @@ struct DocumentState {
   std::optional<std::string> active_sketch_tool;
   std::optional<std::string> selected_sketch_point_id;
   std::optional<std::string> selected_sketch_entity_id;
+  std::vector<std::string> selected_sketch_point_ids;
+  std::vector<std::string> selected_sketch_entity_ids;
   std::optional<std::string> selected_sketch_dimension_id;
   std::optional<std::string> selected_sketch_profile_id;
   std::vector<std::string> selected_sketch_profile_ids;
@@ -275,8 +277,14 @@ class DocumentManager {
   DocumentState update_sketch_fillet_radius(const std::string& fillet_id,
                                             double radius);
   DocumentState delete_sketch_fillet(const std::string& fillet_id);
-  DocumentState select_sketch_point(const std::string& point_id);
-  DocumentState select_sketch_entity(const std::string& entity_id);
+  DocumentState delete_sketch_selection(
+      const std::vector<std::string>& entity_ids,
+      const std::vector<std::string>& point_ids,
+      const std::vector<std::string>& profile_ids);
+  DocumentState select_sketch_point(const std::string& point_id,
+                                    bool additive = false);
+  DocumentState select_sketch_entity(const std::string& entity_id,
+                                     bool additive = false);
   DocumentState select_sketch_dimension(const std::string& dimension_id);
   DocumentState finish_sketch();
   DocumentState reenter_sketch(const std::string& feature_id);

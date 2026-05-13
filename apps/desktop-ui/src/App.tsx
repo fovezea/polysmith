@@ -299,6 +299,7 @@ function App() {
     addSketchFillet,
     updateSketchFilletRadius,
     deleteSketchFillet,
+    deleteSketchSelection,
     selectSketchPoint,
     selectSketchEntity,
     selectSketchDimension,
@@ -863,9 +864,9 @@ function App() {
     setArmedSketchConstraint(null);
   }
 
-  async function handleSketchConstraintLinePick(lineId: string) {
+  async function handleSketchConstraintLinePick(lineId: string, additive = false) {
     if (!armedSketchConstraint) {
-      await selectSketchEntity(lineId);
+      await selectSketchEntity(lineId, additive);
       return;
     }
 
@@ -923,9 +924,10 @@ function App() {
   async function handleSketchConstraintPointPick(
     pointId: string,
     kind: "endpoint" | "center",
+    additive = false,
   ) {
     if (!armedSketchConstraint || armedSketchConstraint.kind !== "coincident") {
-      await selectSketchPoint(pointId);
+      await selectSketchPoint(pointId, additive);
       return;
     }
 
@@ -1077,6 +1079,66 @@ function App() {
       setEditingFeatureId((current) =>
         current === featureId ? null : current,
       );
+    });
+  }
+
+  function currentSketchSelection() {
+    const entityIds = [
+      ...(document?.selected_sketch_entity_ids ?? []),
+      ...(document?.selected_sketch_entity_id
+        ? [document.selected_sketch_entity_id]
+        : []),
+    ];
+    const pointIds = [
+      ...(document?.selected_sketch_point_ids ?? []),
+      ...(document?.selected_sketch_point_id
+        ? [document.selected_sketch_point_id]
+        : []),
+    ];
+    const profileIds = [
+      ...(document?.selected_sketch_profile_ids ?? []),
+      ...(document?.selected_sketch_profile_id
+        ? [document.selected_sketch_profile_id]
+        : []),
+    ];
+    return {
+      entityIds: [...new Set(entityIds)],
+      pointIds: [...new Set(pointIds)],
+      profileIds: [...new Set(profileIds)],
+    };
+  }
+
+  function confirmAndDeleteSketchSelection() {
+    if (!document?.active_sketch_feature_id) {
+      return;
+    }
+    const { entityIds, pointIds, profileIds } = currentSketchSelection();
+    if (
+      entityIds.length === 0 &&
+      pointIds.length === 0 &&
+      profileIds.length === 0
+    ) {
+      return;
+    }
+
+    const dependents = findDependents(
+      document,
+      document.active_sketch_feature_id,
+    );
+    if (dependents.length > 0) {
+      const names = dependents
+        .map((entry) => entry.name || entry.kind)
+        .join(", ");
+      const confirmed = window.confirm(
+        `Deleting sketch geometry may break ${dependents.length} downstream feature(s): ${names}. Delete anyway?`,
+      );
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    void runAction(async () => {
+      await deleteSketchSelection(entityIds, pointIds, profileIds);
     });
   }
 
@@ -1734,14 +1796,18 @@ function App() {
                   // state alone. The next click can recover.
                 }
               }}
-              onSelectSketchEntity={async (entityId) => {
+              onSelectSketchEntity={async (entityId, additive) => {
                 await runAction(async () => {
-                  await handleSketchConstraintLinePick(entityId);
+                  await handleSketchConstraintLinePick(entityId, additive);
                 });
               }}
-              onPickSketchPoint={async (pointId, kind) => {
+              onPickSketchPoint={async (pointId, kind, additive) => {
                 await runAction(async () => {
-                  await handleSketchConstraintPointPick(pointId, kind);
+                  await handleSketchConstraintPointPick(
+                    pointId,
+                    kind,
+                    additive,
+                  );
                 });
               }}
               armedSketchConstraint={armedSketchConstraint}
@@ -1827,6 +1893,9 @@ function App() {
                     extrudeAction ? true : additive,
                   );
                 });
+              }}
+              onDeleteSketchSelection={async () => {
+                confirmAndDeleteSketchSelection();
               }}
               onSetSketchTool={async (tool) => {
                 await runAction(async () => {
