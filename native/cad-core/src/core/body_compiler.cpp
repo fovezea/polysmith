@@ -1,5 +1,6 @@
 #include "core/body_compiler.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <stdexcept>
@@ -259,7 +260,7 @@ CompiledBodies compile_bodies(const DocumentState& document) {
   // overwrites that body. See FilletFeatureParameters::is_pending.
   std::unordered_map<std::string, TopoDS_Shape> body_pick_shapes;
 
-  // First pass: detect whether ANY extrude uses a non-default mode. If
+  // First pass: detect whether any body needs the native mesh path. If
   // not we still need per-body shapes for downstream callers (export),
   // but we skip tessellation since legacy primitives will render the
   // viewport. This keeps the cost path-dependent.
@@ -280,6 +281,21 @@ CompiledBodies compile_bodies(const DocumentState& document) {
       // wrong place. The body_compiler always produces the right body
       // shape regardless of sign.
       if (feature.extrude_parameters->depth < 0.0) {
+        any_boolean = true;
+        break;
+      }
+      // Profile holes and multi-profile extrudes are real native-core
+      // topology. The legacy three.js polygon-extrude preview can show
+      // simple prisms, but OCCT tessellation is the authoritative path
+      // for rings and disjoint same-plane regions.
+      const auto& params = feature.extrude_parameters.value();
+      const bool has_additional_holes = std::any_of(
+          params.additional_inner_loops.begin(),
+          params.additional_inner_loops.end(),
+          [](const auto& loops) { return !loops.empty(); });
+      if (!params.inner_loops.empty() ||
+          !params.additional_profile_points.empty() ||
+          has_additional_holes) {
         any_boolean = true;
         break;
       }

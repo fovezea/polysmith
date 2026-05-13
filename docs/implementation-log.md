@@ -190,6 +190,7 @@ When adding a new entity, grep `ipcSchema.ts` for the union literally and walk e
 - protocol/schema/UI types now round-trip `inner_loops[]`, `profile_ids[]`, and `selected_sketch_profile_ids[]`. The viewport renderer applies profile holes to the translucent selectable profile meshes, so the pick surface matches the core-owned region data.
 - tightened the Extrude action flow so clicking Extrude / pressing E opens the panel in a pending state, then the first profile selection creates the native preview immediately. While the preview is active, additional profile selections dispatch `update_extrude_profiles { feature_id, profile_ids[] }`, preserving depth / mode / target and keeping the face count panel in sync with core-owned selection.
 - fixed the legacy `polygon_extrudes` preview path to carry `inner_loops[]` into the scene object, geometry cache key, and `THREE.ExtrudeGeometry` holes. This keeps nested-profile previews from rendering the removed filled outer profile when the core emits an outer region with a hole.
+- moved hole and multi-profile extrude previews onto the native tessellated mesh path instead of the legacy polygon primitive path, and keyed mesh rebuilds by buffer content rather than only vertex/index counts. This keeps ring walls / top faces visible and makes live preview updates invalidate correctly when depth or selected profiles change without changing topology size.
 
 ### Pre-existing Test Failure (Not Introduced By This Work)
 

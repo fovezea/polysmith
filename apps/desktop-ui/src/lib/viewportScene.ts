@@ -35,6 +35,16 @@ function clampDimension(value: number) {
   return Math.max(value, 1);
 }
 
+function numericBufferSignature(values: Float32Array | Uint32Array) {
+  let hash = 2166136261;
+  for (const value of values) {
+    const quantized = Math.round(value * 1000);
+    hash ^= quantized;
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${values.length}:${hash >>> 0}`;
+}
+
 function makeBoxPrimitive(box: ViewportBoxPrimitive): BoxScenePrimitive {
   return {
     kind: "box",
@@ -523,7 +533,7 @@ export function createViewportScene(
           case "polygon_extrude":
             return `poly-extrude:${primitive.primitiveId}:${primitive.planeId}:${primitive.depth}:${primitive.profilePoints.map((point) => point.join(":")).join("|")}:${primitive.innerLoops.map((loop) => loop.map((point) => point.join(":")).join(",")).join(";")}`;
           case "mesh":
-            return `mesh:${primitive.primitiveId}:${primitive.positions.length}:${primitive.indices.length}`;
+            return `mesh:${primitive.primitiveId}:${numericBufferSignature(primitive.positions)}:${numericBufferSignature(primitive.indices)}`;
         }
       })
       .concat(
@@ -561,12 +571,11 @@ export function createViewportScene(
       )
       .concat(
         cutPreviews.map(
-          // Include the buffer lengths so the rebuild fires as the user
-          // tweaks depth in the floating panel and the cutter shape's
-          // tessellation flips. The id is feature-stable so we can't
-          // rely on it alone.
+          // Include a compact content signature so the rebuild fires as
+          // the user tweaks depth in the floating panel, even when the
+          // tessellation keeps the same vertex/index counts.
           (preview) =>
-            `cut-preview:${preview.id}:${preview.positions.length}:${preview.indices.length}`,
+            `cut-preview:${preview.id}:${numericBufferSignature(preview.positions)}:${numericBufferSignature(preview.indices)}`,
         ),
       )
       .concat(
