@@ -48,7 +48,6 @@ export const DimensionIcon = () => (
     <path d="M6.5 12h11" />
     <path d="m8.5 9.8-2.2 2.2 2.2 2.2" />
     <path d="m15.5 9.8 2.2 2.2-2.2 2.2" />
-    <path d="M9.3 6.8h5.4" />
   </svg>
 );
 
