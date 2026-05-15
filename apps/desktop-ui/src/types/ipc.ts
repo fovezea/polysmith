@@ -134,7 +134,7 @@ export interface ViewportVertexPrimitive {
 
 export interface DocumentExportResult {
   file_path: string;
-  format: "step";
+  format: "step" | "stl";
   exported_feature_count: number;
 }
 
@@ -207,6 +207,20 @@ export interface ErrorEvent extends BaseMessage {
   };
 }
 
+export type LogLevel = "debug" | "info" | "warn" | "error";
+
+export interface LogEvent extends BaseMessage {
+  type: "log";
+  payload: LogEntry;
+}
+
+export interface LogEntry {
+  level: LogLevel;
+  source: string;
+  message: string;
+  timestamp: string;
+}
+
 export type CoreMessage =
   | HelloEvent
   | PongEvent
@@ -216,6 +230,7 @@ export type CoreMessage =
   | ViewportStateEvent
   | DocumentExportedEvent
   | DocumentSavedEvent
+  | LogEvent
   | ErrorEvent;
 
 export interface PingCommand {
@@ -588,6 +603,15 @@ export interface AddSketchAngleDimensionCommand {
   payload: {
     first_line_id: string;
     second_line_id: string;
+  };
+}
+
+export interface AddSketchDistanceDimensionCommand {
+  id: string;
+  type: "add_sketch_distance_dimension";
+  payload: {
+    first_entity_id: string;
+    second_entity_id: string;
   };
 }
 
@@ -1007,6 +1031,7 @@ export type CoreCommand =
   | UpdateSketchCircleCommand
   | UpdateSketchDimensionCommand
   | SelectSketchProfileCommand
+  | AddSketchDistanceDimensionCommand
   | ExtrudeProfileCommand
   | AddSketchLineCommand
   | SetSketchLineConstructionCommand

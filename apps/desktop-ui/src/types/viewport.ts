@@ -166,7 +166,13 @@ export interface ViewportSketchPoint {
 export interface ViewportSketchDimension {
   dimension_id: string;
   plane_id: string;
-  kind: "line_length" | "circle_radius";
+  kind:
+    | "line_length"
+    | "circle_radius"
+    | "angle"
+    | "line_line_distance"
+    | "circle_center_distance"
+    | "circle_line_distance";
   entity_id: string;
   label: string;
   is_selected: boolean;

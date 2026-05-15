@@ -203,6 +203,9 @@ class DocumentManager {
   // drive the second line's rotation about the shared endpoint.
   DocumentState add_sketch_angle_dimension(const std::string& first_line_id,
                                            const std::string& second_line_id);
+  DocumentState add_sketch_distance_dimension(
+      const std::string& first_entity_id,
+      const std::string& second_entity_id);
   DocumentState update_sketch_dimension(const std::string& dimension_id,
                                         double value);
   DocumentState select_sketch_profile(const std::string& profile_id,

@@ -198,7 +198,13 @@ export interface SketchPointScene {
 export interface SketchDimensionScene {
   dimensionId: string;
   planeId: string;
-  kind: "line_length" | "circle_radius" | "angle";
+  kind:
+    | "line_length"
+    | "circle_radius"
+    | "angle"
+    | "line_line_distance"
+    | "circle_center_distance"
+    | "circle_line_distance";
   entityId: string;
   label: string;
   isSelected: boolean;

@@ -20,6 +20,7 @@ import {
   makeSetSketchMidpointAnchorCommand,
   makeSetSketchPointLineAnchorCommand,
   makeAddSketchAngleDimensionCommand,
+  makeAddSketchDistanceDimensionCommand,
   makeAddSketchRectangleCommand,
   makeClearSelectionCommand,
   makeDeleteFeatureCommand,
@@ -86,6 +87,8 @@ import {
   makeUpdateExtrudeProfilesCommand,
   makeUpdateExtrudeTargetBodyCommand,
   parseCoreMessage,
+  makeUiLogEntry,
+  writeLogToConsole,
 } from "@/lib";
 import type { ExtrudeMode } from "@/types";
 
@@ -94,6 +97,7 @@ import { SketchTool } from "@/types";
 
 export function useCadCore() {
   const addMessage = useCadCoreStore((state) => state.addMessage);
+  const addLogEntry = useCadCoreStore((state) => state.addLogEntry);
   const handleCoreMessage = useCadCoreStore((state) => state.handleCoreMessage);
   const setStatus = useCadCoreStore((state) => state.setStatus);
 
@@ -105,23 +109,42 @@ export function useCadCore() {
       const unlistenEvent = await onCadCoreEvent((payload) => {
         try {
           const message = parseCoreMessage(payload);
+          if (message.type === "log") {
+            writeLogToConsole(message.payload);
+          }
           handleCoreMessage(message);
         } catch (error) {
-          addMessage(`parse error: ${String(error)}`);
+          const entry = makeUiLogEntry(
+            "error",
+            "desktop_ui",
+            `parse error: ${String(error)}`,
+          );
+          writeLogToConsole(entry);
+          addLogEntry(entry);
+          addMessage(entry.message);
           setStatus("error");
         }
       });
 
       const unlistenLog = await onCadCoreLog((line) => {
+        const entry = makeUiLogEntry("info", "cad_core_stderr", line);
+        writeLogToConsole(entry);
+        addLogEntry(entry);
         addMessage(`log: ${line}`);
       });
 
       const unlistenError = await onCadCoreError((message) => {
+        const entry = makeUiLogEntry("error", "tauri_bridge", message);
+        writeLogToConsole(entry);
+        addLogEntry(entry);
         addMessage(`bridge error: ${message}`);
         setStatus("error");
       });
 
       const unlistenExited = await onCadCoreExited((message) => {
+        const entry = makeUiLogEntry("warn", "cad_core", message);
+        writeLogToConsole(entry);
+        addLogEntry(entry);
         addMessage(`exit: ${message}`);
         setStatus("stopped");
       });
@@ -148,12 +171,15 @@ export function useCadCore() {
         unlisten();
       }
     };
-  }, [addMessage, handleCoreMessage, setStatus]);
+  }, [addLogEntry, addMessage, handleCoreMessage, setStatus]);
 
   return {
     start: async () => {
       setStatus("starting");
       const result = await startCadCore();
+      const entry = makeUiLogEntry("info", "desktop_ui", `start: ${result}`);
+      writeLogToConsole(entry);
+      addLogEntry(entry);
       addMessage(`start: ${result}`);
     },
     ping: async () => {
@@ -524,6 +550,15 @@ export function useCadCore() {
     ) => {
       await sendCoreCommand(
         makeAddSketchAngleDimensionCommand(firstLineId, secondLineId),
+      );
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    addSketchDistanceDimension: async (
+      firstEntityId: string,
+      secondEntityId: string,
+    ) => {
+      await sendCoreCommand(
+        makeAddSketchDistanceDimensionCommand(firstEntityId, secondEntityId),
       );
       await sendCoreCommand(makeGetViewportStateCommand());
     },

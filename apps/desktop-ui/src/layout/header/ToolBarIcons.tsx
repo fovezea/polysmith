@@ -32,6 +32,26 @@ export const LineIcon = () => (
   </svg>
 );
 
+export const DimensionIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-7 w-7"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.7"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M5 6v12" />
+    <path d="M19 6v12" />
+    <path d="M6.5 12h11" />
+    <path d="m8.5 9.8-2.2 2.2 2.2 2.2" />
+    <path d="m15.5 9.8 2.2 2.2-2.2 2.2" />
+    <path d="M9.3 6.8h5.4" />
+  </svg>
+);
+
 export const RectangleIcon = () => (
   <svg
     viewBox="0 0 24 24"
@@ -237,6 +257,8 @@ export function SketchToolIcon({ tool }: { tool: SketchTool }) {
       return <SelectIcon />;
     case "line":
       return <LineIcon />;
+    case "dimension":
+      return <DimensionIcon />;
     case "rectangle":
       return <RectangleIcon />;
     case "circle":

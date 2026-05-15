@@ -26,6 +26,10 @@ json make_document_exported_event(const std::string& id,
                                   const json& export_result);
 json make_document_saved_event(const std::string& id,
                                const std::string& file_path);
+json make_log_event(const std::string& level,
+                    const std::string& source,
+                    const std::string& message,
+                    const std::string& timestamp);
 json make_error_event(const std::string& id,
                       const std::string& code,
                       const std::string& message);

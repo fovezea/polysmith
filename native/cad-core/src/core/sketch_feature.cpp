@@ -239,6 +239,71 @@ SketchLine& require_line(SketchFeatureParameters& parameters,
   return *line_it;
 }
 
+SketchCircle& require_circle(SketchFeatureParameters& parameters,
+                             const std::string& circle_id) {
+  const auto circle_it = std::find_if(
+      parameters.circles.begin(),
+      parameters.circles.end(),
+      [&](const SketchCircle& circle) { return circle.id == circle_id; });
+
+  if (circle_it == parameters.circles.end()) {
+    throw std::runtime_error("Sketch circle not found: " + circle_id);
+  }
+
+  return *circle_it;
+}
+
+double distance_between_circles(const SketchCircle& first,
+                                const SketchCircle& second) {
+  const double dx = second.center_x - first.center_x;
+  const double dy = second.center_y - first.center_y;
+  return std::sqrt(dx * dx + dy * dy);
+}
+
+double signed_circle_line_distance(const SketchCircle& circle,
+                                   const SketchLine& line) {
+  const double dx = line.end_x - line.start_x;
+  const double dy = line.end_y - line.start_y;
+  const double length = std::sqrt(dx * dx + dy * dy);
+  if (length <= kMinimumSketchDimensionValue) {
+    throw std::runtime_error("Line distance dimension requires a non-zero line");
+  }
+  const double normal_x = -dy / length;
+  const double normal_y = dx / length;
+  return (circle.center_x - line.start_x) * normal_x +
+         (circle.center_y - line.start_y) * normal_y;
+}
+
+double signed_line_line_distance(const SketchLine& driven_line,
+                                 const SketchLine& reference_line) {
+  const double ref_dx = reference_line.end_x - reference_line.start_x;
+  const double ref_dy = reference_line.end_y - reference_line.start_y;
+  const double ref_length = std::sqrt(ref_dx * ref_dx + ref_dy * ref_dy);
+  if (ref_length <= kMinimumSketchDimensionValue) {
+    throw std::runtime_error("Line distance dimension requires a non-zero line");
+  }
+  const double driven_dx = driven_line.end_x - driven_line.start_x;
+  const double driven_dy = driven_line.end_y - driven_line.start_y;
+  const double driven_length =
+      std::sqrt(driven_dx * driven_dx + driven_dy * driven_dy);
+  if (driven_length <= kMinimumSketchDimensionValue) {
+    throw std::runtime_error("Line distance dimension requires a non-zero line");
+  }
+  const double cross =
+      (ref_dx / ref_length) * (driven_dy / driven_length) -
+      (ref_dy / ref_length) * (driven_dx / driven_length);
+  if (std::abs(cross) > 1e-3) {
+    throw std::runtime_error(
+        "Line distance dimension requires parallel sketch lines");
+  }
+  const double normal_x = -ref_dy / ref_length;
+  const double normal_y = ref_dx / ref_length;
+  const double midpoint_x = (driven_line.start_x + driven_line.end_x) / 2.0;
+  const double midpoint_y = (driven_line.start_y + driven_line.end_y) / 2.0;
+  return (midpoint_x - reference_line.start_x) * normal_x +
+         (midpoint_y - reference_line.start_y) * normal_y;
+}
+
 void sync_line_dimension(SketchFeatureParameters& parameters,
                          const SketchLine& line) {
   const auto dimension_it = std::find_if(
@@ -2234,6 +2299,65 @@ void update_sketch_dimension(FeatureEntry& feature,
     return;
   }
 
+  if (dimension.kind == "circle_center_distance") {
+    auto& driven_circle = require_circle(parameters, dimension.entity_id);
+    const auto& reference_circle =
+        require_circle(parameters, dimension.secondary_entity_id);
+    const double dx = driven_circle.center_x - reference_circle.center_x;
+    const double dy = driven_circle.center_y - reference_circle.center_y;
+    const double length = std::sqrt(dx * dx + dy * dy);
+    if (length <= kMinimumSketchDimensionValue) {
+      throw std::runtime_error(
+          "Circle-center distance requires distinct circle centers");
+    }
+    driven_circle.center_x = reference_circle.center_x + (dx / length) * value;
+    driven_circle.center_y = reference_circle.center_y + (dy / length) * value;
+    dimension.value = value;
+    refresh_sketch_derived_state(feature);
+    return;
+  }
+
+  if (dimension.kind == "circle_line_distance") {
+    auto& circle = require_circle(parameters, dimension.entity_id);
+    const auto& line = require_line(parameters, dimension.secondary_entity_id);
+    const double current_signed = signed_circle_line_distance(circle, line);
+    const double direction = current_signed < 0.0 ? -1.0 : 1.0;
+    const double dx = line.end_x - line.start_x;
+    const double dy = line.end_y - line.start_y;
+    const double length = std::sqrt(dx * dx + dy * dy);
+    const double normal_x = -dy / length;
+    const double normal_y = dx / length;
+    const double delta = direction * value - current_signed;
+    circle.center_x += normal_x * delta;
+    circle.center_y += normal_y * delta;
+    dimension.value = value;
+    refresh_sketch_derived_state(feature);
+    return;
+  }
+
+  if (dimension.kind == "line_line_distance") {
+    auto& driven_line = require_line(parameters, dimension.entity_id);
+    const auto& reference_line =
+        require_line(parameters, dimension.secondary_entity_id);
+    const double current_signed =
+        signed_line_line_distance(driven_line, reference_line);
+    const double direction = current_signed < 0.0 ? -1.0 : 1.0;
+    const double dx = reference_line.end_x - reference_line.start_x;
+    const double dy = reference_line.end_y - reference_line.start_y;
+    const double length = std::sqrt(dx * dx + dy * dy);
+    const double normal_x = -dy / length;
+    const double normal_y = dx / length;
+    const double delta = direction * value - current_signed;
+    driven_line.start_x += normal_x * delta;
+    driven_line.start_y += normal_y * delta;
+    driven_line.end_x += normal_x * delta;
+    driven_line.end_y += normal_y * delta;
+    sync_all_line_dimensions(parameters);
+    dimension.value = value;
+    refresh_sketch_derived_state(feature);
+    return;
+  }
+
   throw std::runtime_error("Unsupported sketch dimension kind: " + dimension.kind);
 }
 
@@ -2324,6 +2448,81 @@ void add_sketch_angle_dimension(FeatureEntry& feature,
       .entity_id = first_line_id,
       .secondary_entity_id = second_line_id,
       .value = current_angle,
+  });
+  refresh_sketch_derived_state(feature);
+}
+
+void add_sketch_distance_dimension(FeatureEntry& feature,
+                                   const std::string& first_entity_id,
+                                   const std::string& second_entity_id) {
+  if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+    throw std::runtime_error(
+        "Only sketch features can hold distance dimensions");
+  }
+  if (first_entity_id == second_entity_id) {
+    throw std::runtime_error("Distance dimension requires two distinct entities");
+  }
+
+  auto& parameters = *feature.sketch_parameters;
+  const bool first_is_circle = first_entity_id.rfind("circle-", 0) == 0;
+  const bool second_is_circle = second_entity_id.rfind("circle-", 0) == 0;
+  const bool first_is_line = first_entity_id.rfind("line-", 0) == 0;
+  const bool second_is_line = second_entity_id.rfind("line-", 0) == 0;
+
+  std::string kind;
+  std::string driven_entity_id;
+  std::string reference_entity_id;
+  double value = 0.0;
+  if (first_is_circle && second_is_circle) {
+    const auto& first_circle = require_circle(parameters, first_entity_id);
+    const auto& second_circle = require_circle(parameters, second_entity_id);
+    kind = "circle_center_distance";
+    driven_entity_id = second_entity_id;
+    reference_entity_id = first_entity_id;
+    value = distance_between_circles(first_circle, second_circle);
+  } else if ((first_is_circle && second_is_line) ||
+             (first_is_line && second_is_circle)) {
+    const std::string circle_id = first_is_circle ? first_entity_id : second_entity_id;
+    const std::string line_id = first_is_line ? first_entity_id : second_entity_id;
+    const auto& circle = require_circle(parameters, circle_id);
+    const auto& line = require_line(parameters, line_id);
+    kind = "circle_line_distance";
+    driven_entity_id = circle_id;
+    reference_entity_id = line_id;
+    value = std::abs(signed_circle_line_distance(circle, line));
+  } else if (first_is_line && second_is_line) {
+    const auto& first_line = require_line(parameters, first_entity_id);
+    const auto& second_line = require_line(parameters, second_entity_id);
+    kind = "line_line_distance";
+    driven_entity_id = second_entity_id;
+    reference_entity_id = first_entity_id;
+    value = std::abs(signed_line_line_distance(second_line, first_line));
+  } else {
+    throw std::runtime_error(
+        "Distance dimensions currently support line-line, circle-circle, or circle-line picks");
+  }
+
+  if (value <= kMinimumSketchDimensionValue) {
+    throw std::runtime_error("Distance dimension must be greater than zero");
+  }
+
+  const auto duplicate_it = std::find_if(
+      parameters.dimensions.begin(),
+      parameters.dimensions.end(),
+      [&](const SketchDimension& dim) {
+        return dim.kind == kind && dim.entity_id == driven_entity_id &&
+               dim.secondary_entity_id == reference_entity_id;
+      });
+  if (duplicate_it != parameters.dimensions.end()) {
+    return;
+  }
+
+  parameters.dimensions.push_back(SketchDimension{
+      .id = "dim-" + kind + "-" + driven_entity_id + "-" + reference_entity_id,
+      .kind = kind,
+      .entity_id = driven_entity_id,
+      .secondary_entity_id = reference_entity_id,
+      .value = value,
   });
   refresh_sketch_derived_state(feature);
 }

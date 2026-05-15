@@ -700,6 +700,144 @@ ViewportSketchDimensionPrimitive make_angle_dimension_primitive(
   };
 }
 
+ViewportSketchDimensionPrimitive make_circle_center_distance_dimension_primitive(
+    const SketchCircle& driven_circle,
+    const SketchCircle& reference_circle,
+    const SketchDimension& dimension,
+    const SketchFeatureParameters& parameters,
+    bool is_selected) {
+  const WorldPoint start =
+      to_world_point(parameters, reference_circle.center_x, reference_circle.center_y);
+  const WorldPoint end =
+      to_world_point(parameters, driven_circle.center_x, driven_circle.center_y);
+  const WorldPoint label = to_world_point(
+      parameters,
+      (reference_circle.center_x + driven_circle.center_x) / 2.0,
+      (reference_circle.center_y + driven_circle.center_y) / 2.0);
+  return ViewportSketchDimensionPrimitive{
+      .dimension_id = dimension.id,
+      .plane_id = parameters.plane_id,
+      .kind = "circle_center_distance",
+      .entity_id = driven_circle.id,
+      .label = format_dimension_value(dimension.value) + " mm",
+      .is_selected = is_selected,
+      .anchor_start_x = start.x,
+      .anchor_start_y = start.y,
+      .anchor_start_z = start.z,
+      .anchor_end_x = end.x,
+      .anchor_end_y = end.y,
+      .anchor_end_z = end.z,
+      .dimension_start_x = start.x,
+      .dimension_start_y = start.y,
+      .dimension_start_z = start.z,
+      .dimension_end_x = end.x,
+      .dimension_end_y = end.y,
+      .dimension_end_z = end.z,
+      .label_x = label.x,
+      .label_y = label.y,
+      .label_z = label.z,
+  };
+}
+
+ViewportSketchDimensionPrimitive make_circle_line_distance_dimension_primitive(
+    const SketchCircle& circle,
+    const SketchLine& line,
+    const SketchDimension& dimension,
+    const SketchFeatureParameters& parameters,
+    bool is_selected) {
+  const double dx = line.end_x - line.start_x;
+  const double dy = line.end_y - line.start_y;
+  const double length = std::sqrt(dx * dx + dy * dy);
+  const double ux = length > 0.0 ? dx / length : 1.0;
+  const double uy = length > 0.0 ? dy / length : 0.0;
+  const double t =
+      ((circle.center_x - line.start_x) * ux +
+       (circle.center_y - line.start_y) * uy);
+  const double foot_x = line.start_x + ux * t;
+  const double foot_y = line.start_y + uy * t;
+  const WorldPoint start = to_world_point(parameters, foot_x, foot_y);
+  const WorldPoint end = to_world_point(parameters, circle.center_x, circle.center_y);
+  const WorldPoint label = to_world_point(
+      parameters,
+      (foot_x + circle.center_x) / 2.0,
+      (foot_y + circle.center_y) / 2.0);
+  return ViewportSketchDimensionPrimitive{
+      .dimension_id = dimension.id,
+      .plane_id = parameters.plane_id,
+      .kind = "circle_line_distance",
+      .entity_id = circle.id,
+      .label = format_dimension_value(dimension.value) + " mm",
+      .is_selected = is_selected,
+      .anchor_start_x = start.x,
+      .anchor_start_y = start.y,
+      .anchor_start_z = start.z,
+      .anchor_end_x = end.x,
+      .anchor_end_y = end.y,
+      .anchor_end_z = end.z,
+      .dimension_start_x = start.x,
+      .dimension_start_y = start.y,
+      .dimension_start_z = start.z,
+      .dimension_end_x = end.x,
+      .dimension_end_y = end.y,
+      .dimension_end_z = end.z,
+      .label_x = label.x,
+      .label_y = label.y,
+      .label_z = label.z,
+  };
+}
+
+ViewportSketchDimensionPrimitive make_line_line_distance_dimension_primitive(
+    const SketchLine& driven_line,
+    const SketchLine& reference_line,
+    const SketchDimension& dimension,
+    const SketchFeatureParameters& parameters,
+    bool is_selected) {
+  const double ref_dx = reference_line.end_x - reference_line.start_x;
+  const double ref_dy = reference_line.end_y - reference_line.start_y;
+  const double ref_length = std::sqrt(ref_dx * ref_dx + ref_dy * ref_dy);
+  if (ref_length <= 1e-6) {
+    return ViewportSketchDimensionPrimitive{};
+  }
+  const double ux = ref_dx / ref_length;
+  const double uy = ref_dy / ref_length;
+  const double midpoint_x = (driven_line.start_x + driven_line.end_x) / 2.0;
+  const double midpoint_y = (driven_line.start_y + driven_line.end_y) / 2.0;
+  const double t =
+      (midpoint_x - reference_line.start_x) * ux +
+      (midpoint_y - reference_line.start_y) * uy;
+  const double foot_x = reference_line.start_x + ux * t;
+  const double foot_y = reference_line.start_y + uy * t;
+  const WorldPoint start = to_world_point(parameters, foot_x, foot_y);
+  const WorldPoint end = to_world_point(parameters, midpoint_x, midpoint_y);
+  const WorldPoint label = to_world_point(
+      parameters,
+      (foot_x + midpoint_x) / 2.0,
+      (foot_y + midpoint_y) / 2.0);
+  return ViewportSketchDimensionPrimitive{
+      .dimension_id = dimension.id,
+      .plane_id = parameters.plane_id,
+      .kind = "line_line_distance",
+      .entity_id = driven_line.id,
+      .label = format_dimension_value(dimension.value) + " mm",
+      .is_selected = is_selected,
+      .anchor_start_x = start.x,
+      .anchor_start_y = start.y,
+      .anchor_start_z = start.z,
+      .anchor_end_x = end.x,
+      .anchor_end_y = end.y,
+      .anchor_end_z = end.z,
+      .dimension_start_x = start.x,
+      .dimension_start_y = start.y,
+      .dimension_start_z = start.z,
+      .dimension_end_x = end.x,
+      .dimension_end_y = end.y,
+      .dimension_end_z = end.z,
+      .label_x = label.x,
+      .label_y = label.y,
+      .label_z = label.z,
+  };
+}
+
 ViewportSketchConstraintPrimitive make_line_constraint_primitive(
     const SketchLine& line,
     const std::string& plane_id,
@@ -2747,6 +2885,86 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
               dimension,
               *feature.sketch_parameters,
               is_selected_dimension));
+        }
+
+        for (const auto& dimension :
+             feature.sketch_parameters->dimensions) {
+          const bool is_selected_dimension =
+              document->selected_sketch_dimension_id.has_value() &&
+              document->selected_sketch_dimension_id.value() == dimension.id;
+          if (dimension.kind == "circle_center_distance") {
+            const auto driven_circle_it = std::find_if(
+                feature.sketch_parameters->circles.begin(),
+                feature.sketch_parameters->circles.end(),
+                [&](const SketchCircle& circle) {
+                  return circle.id == dimension.entity_id;
+                });
+            const auto reference_circle_it = std::find_if(
+                feature.sketch_parameters->circles.begin(),
+                feature.sketch_parameters->circles.end(),
+                [&](const SketchCircle& circle) {
+                  return circle.id == dimension.secondary_entity_id;
+                });
+            if (driven_circle_it == feature.sketch_parameters->circles.end() ||
+                reference_circle_it == feature.sketch_parameters->circles.end()) {
+              continue;
+            }
+            sketch_dimensions.push_back(
+                make_circle_center_distance_dimension_primitive(
+                    *driven_circle_it,
+                    *reference_circle_it,
+                    dimension,
+                    *feature.sketch_parameters,
+                    is_selected_dimension));
+          } else if (dimension.kind == "circle_line_distance") {
+            const auto circle_it = std::find_if(
+                feature.sketch_parameters->circles.begin(),
+                feature.sketch_parameters->circles.end(),
+                [&](const SketchCircle& circle) {
+                  return circle.id == dimension.entity_id;
+                });
+            const auto line_it = std::find_if(
+                feature.sketch_parameters->lines.begin(),
+                feature.sketch_parameters->lines.end(),
+                [&](const SketchLine& line) {
+                  return line.id == dimension.secondary_entity_id;
+                });
+            if (circle_it == feature.sketch_parameters->circles.end() ||
+                line_it == feature.sketch_parameters->lines.end()) {
+              continue;
+            }
+            sketch_dimensions.push_back(
+                make_circle_line_distance_dimension_primitive(
+                    *circle_it,
+                    *line_it,
+                    dimension,
+                    *feature.sketch_parameters,
+                    is_selected_dimension));
+          } else if (dimension.kind == "line_line_distance") {
+            const auto driven_line_it = std::find_if(
+                feature.sketch_parameters->lines.begin(),
+                feature.sketch_parameters->lines.end(),
+                [&](const SketchLine& line) {
+                  return line.id == dimension.entity_id;
+                });
+            const auto reference_line_it = std::find_if(
+                feature.sketch_parameters->lines.begin(),
+                feature.sketch_parameters->lines.end(),
+                [&](const SketchLine& line) {
+                  return line.id == dimension.secondary_entity_id;
+                });
+            if (driven_line_it == feature.sketch_parameters->lines.end() ||
+                reference_line_it == feature.sketch_parameters->lines.end()) {
+              continue;
+            }
+            sketch_dimensions.push_back(
+                make_line_line_distance_dimension_primitive(
+                    *driven_line_it,
+                    *reference_line_it,
+                    dimension,
+                    *feature.sketch_parameters,
+                    is_selected_dimension));
+          }
         }
       }
 

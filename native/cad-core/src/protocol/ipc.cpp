@@ -112,6 +112,22 @@ json make_document_saved_event(const std::string& id,
   };
 }
 
+json make_log_event(const std::string& level,
+                    const std::string& source,
+                    const std::string& message,
+                    const std::string& timestamp) {
+  return {
+      {"type", "log"},
+      {"payload",
+       {
+           {"level", level},
+           {"source", source},
+           {"message", message},
+           {"timestamp", timestamp},
+       }},
+  };
+}
+
 json make_error_event(const std::string& id,
                       const std::string& code,
                       const std::string& message) {

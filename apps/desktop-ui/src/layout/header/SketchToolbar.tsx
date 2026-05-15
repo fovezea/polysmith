@@ -35,6 +35,7 @@ const sketchTools: Array<{
 }> = [
   { id: "select", label: "Select", enabled: true },
   { id: "line", label: "Line", shortcut: "L", enabled: true },
+  { id: "dimension", label: "Dimension (D)", shortcut: "D", enabled: true },
   { id: "rectangle", label: "Rectangle", shortcut: "R", enabled: true },
   { id: "circle", label: "Circle", shortcut: "C", enabled: true },
   { id: "arc", label: "Arc", enabled: true },
@@ -106,7 +107,8 @@ export function SketchToolbar({
                 tool.id !== "circle" &&
                 tool.id !== "arc" &&
                 tool.id !== "fillet" &&
-                tool.id !== "project")
+                tool.id !== "project" &&
+                tool.id !== "dimension")
             ) {
               return;
             }

@@ -62,6 +62,9 @@ void update_sketch_circle(FeatureEntry& feature,
 void add_sketch_angle_dimension(FeatureEntry& feature,
                                 const std::string& first_line_id,
                                 const std::string& second_line_id);
+void add_sketch_distance_dimension(FeatureEntry& feature,
+                                   const std::string& first_entity_id,
+                                   const std::string& second_entity_id);
 void update_sketch_dimension(FeatureEntry& feature,
                              const std::string& dimension_id,
                              double value);

@@ -301,7 +301,14 @@ const documentStateSchema = z.object({
           dimensions: z.array(
             z.object({
               dimension_id: z.string(),
-              kind: z.enum(["line_length", "circle_radius", "angle"]),
+              kind: z.enum([
+                "line_length",
+                "circle_radius",
+                "angle",
+                "line_line_distance",
+                "circle_center_distance",
+                "circle_line_distance",
+              ]),
               entity_id: z.string(),
               // Empty string for unary dims; second line id for angle.
               secondary_entity_id: z.string().default(""),
@@ -628,7 +635,14 @@ const viewportStateSchema = z.object({
     z.object({
       dimension_id: z.string(),
       plane_id: z.string(),
-      kind: z.enum(["line_length", "circle_radius", "angle"]),
+      kind: z.enum([
+        "line_length",
+        "circle_radius",
+        "angle",
+        "line_line_distance",
+        "circle_center_distance",
+        "circle_line_distance",
+      ]),
       entity_id: z.string(),
       label: z.string(),
       is_selected: z.boolean(),
@@ -828,8 +842,26 @@ const documentExportedEventSchema = z.object({
   type: z.literal("document_exported"),
   payload: z.object({
     file_path: z.string(),
-    format: z.literal("step"),
+    format: z.enum(["step", "stl"]),
     exported_feature_count: z.number(),
+  }),
+});
+
+const documentSavedEventSchema = z.object({
+  id: z.string(),
+  type: z.literal("document_saved"),
+  payload: z.object({
+    file_path: z.string(),
+  }),
+});
+
+const logEventSchema = z.object({
+  type: z.literal("log"),
+  payload: z.object({
+    level: z.enum(["debug", "info", "warn", "error"]),
+    source: z.string(),
+    message: z.string(),
+    timestamp: z.string(),
   }),
 });
 
@@ -850,5 +882,7 @@ export const coreMessageSchema = z.union([
   sessionStateEventSchema,
   viewportStateEventSchema,
   documentExportedEventSchema,
+  documentSavedEventSchema,
+  logEventSchema,
   errorEventSchema,
 ]);

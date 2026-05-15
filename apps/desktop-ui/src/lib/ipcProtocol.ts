@@ -846,6 +846,20 @@ export function makeAddSketchAngleDimensionCommand(
   };
 }
 
+export function makeAddSketchDistanceDimensionCommand(
+  firstEntityId: string,
+  secondEntityId: string,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "add_sketch_distance_dimension",
+    payload: {
+      first_entity_id: firstEntityId,
+      second_entity_id: secondEntityId,
+    },
+  };
+}
+
 export function makeSetSketchPointLineAnchorCommand(
   pointId: string,
   hostLineId: string,

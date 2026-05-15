@@ -45,7 +45,13 @@ export interface SketchPointEntry {
 
 export interface SketchDimensionEntry {
   dimension_id: string;
-  kind: "line_length" | "circle_radius";
+  kind:
+    | "line_length"
+    | "circle_radius"
+    | "angle"
+    | "line_line_distance"
+    | "circle_center_distance"
+    | "circle_line_distance";
   entity_id: string;
   value: number;
 }

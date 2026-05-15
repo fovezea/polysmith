@@ -1232,21 +1232,107 @@ export function buildSketchDimensionObject(dimension: SketchDimensionScene) {
     addSegment(tip, base.clone().sub(side));
   };
 
-  addSegment(
-    anchorStart,
-    dimensionStart
-      .clone()
-      .add(extensionDirection.clone().multiplyScalar(extensionOverrun)),
-  );
-  addSegment(dimensionStart, dimensionEnd);
-  addSegment(
-    anchorEnd,
-    dimensionEnd
-      .clone()
-      .add(extensionDirection.clone().multiplyScalar(extensionOverrun)),
-  );
-  addArrowHead(dimensionStart, dimensionDirection);
-  addArrowHead(dimensionEnd, dimensionDirection.clone().multiplyScalar(-1));
+  if (dimension.kind === "angle") {
+    const startRay = dimensionStart.clone().sub(anchorStart);
+    const endRay = dimensionEnd.clone().sub(anchorEnd);
+    if (startRay.lengthSq() > 1e-8 && endRay.lengthSq() > 1e-8) {
+      // Angle primitives provide two collinear point pairs. Intersect
+      // those two rays to recover the real corner even after the user
+      // has dragged the arc radius away from the core's default.
+      const startDirection = startRay.clone().normalize();
+      const endDirection = endRay.clone().normalize();
+      const betweenAnchors = anchorStart.clone().sub(anchorEnd);
+      const directionDot = startDirection.dot(endDirection);
+      const denominator = 1 - directionDot * directionDot;
+      if (Math.abs(denominator) > 1e-8) {
+        const startOffset =
+          (directionDot * endDirection.dot(betweenAnchors) -
+            startDirection.dot(betweenAnchors)) /
+          denominator;
+        const endOffset =
+          (endDirection.dot(betweenAnchors) -
+            directionDot * startDirection.dot(betweenAnchors)) /
+          denominator;
+        const pivot = anchorStart
+          .clone()
+          .add(startDirection.clone().multiplyScalar(startOffset))
+          .add(
+            anchorEnd
+              .clone()
+              .add(endDirection.clone().multiplyScalar(endOffset)),
+          )
+          .multiplyScalar(0.5);
+        const startVector = dimensionStart.clone().sub(pivot);
+        const endVector = dimensionEnd.clone().sub(pivot);
+        const radius = startVector.length();
+        const normal = startVector.clone().cross(endVector).normalize();
+        if (radius > 1e-6 && normal.lengthSq() > 1e-8) {
+          const uAxis = startVector.clone().normalize();
+          const vAxis = normal.clone().cross(uAxis).normalize();
+          let sweep = Math.atan2(endVector.dot(vAxis), endVector.dot(uAxis));
+          if (sweep > Math.PI) {
+            sweep -= Math.PI * 2;
+          } else if (sweep < -Math.PI) {
+            sweep += Math.PI * 2;
+          }
+          const arcSegments = 32;
+          let previousPoint = dimensionStart.clone();
+          for (let index = 1; index <= arcSegments; index++) {
+            const angle = (sweep * index) / arcSegments;
+            const point = pivot
+              .clone()
+              .add(uAxis.clone().multiplyScalar(Math.cos(angle) * radius))
+              .add(vAxis.clone().multiplyScalar(Math.sin(angle) * radius));
+            addSegment(previousPoint, point);
+            previousPoint = point;
+          }
+          const startTangent = normal.clone().cross(startVector).normalize();
+          const endTangent = normal.clone().cross(endVector).normalize();
+          const sweepSign = sweep >= 0 ? 1 : -1;
+          const angleArrowLength = 1.0;
+          const angleArrowWidth = 0.32;
+          const addAngleArrowHead = (
+            tip: THREE.Vector3,
+            tangent: THREE.Vector3,
+            radial: THREE.Vector3,
+          ) => {
+            const base = tip
+              .clone()
+              .add(tangent.clone().multiplyScalar(angleArrowLength));
+            const side = radial.clone().normalize().multiplyScalar(angleArrowWidth);
+            addSegment(tip, base.clone().add(side));
+            addSegment(tip, base.clone().sub(side));
+          };
+          addAngleArrowHead(
+            dimensionStart,
+            startTangent.clone().multiplyScalar(sweepSign),
+            startVector,
+          );
+          addAngleArrowHead(
+            dimensionEnd,
+            endTangent.clone().multiplyScalar(-sweepSign),
+            endVector,
+          );
+        }
+      }
+    }
+  } else {
+    addSegment(
+      anchorStart,
+      dimensionStart
+        .clone()
+        .add(extensionDirection.clone().multiplyScalar(extensionOverrun)),
+    );
+    addSegment(dimensionStart, dimensionEnd);
+    addSegment(
+      anchorEnd,
+      dimensionEnd
+        .clone()
+        .add(extensionDirection.clone().multiplyScalar(extensionOverrun)),
+    );
+    addArrowHead(dimensionStart, dimensionDirection);
+    addArrowHead(dimensionEnd, dimensionDirection.clone().multiplyScalar(-1));
+  }
 
   const material = new THREE.LineBasicMaterial({
     color: dimension.isSelected
@@ -1268,6 +1354,7 @@ export function buildSketchDimensionObject(dimension: SketchDimensionScene) {
   label.userData.basePosition = dimension.labelPosition;
   label.userData.dimensionStart = dimension.dimensionStart;
   label.userData.dimensionEnd = dimension.dimensionEnd;
+  label.userData.dimensionKind = dimension.kind;
 
   return { line, label };
 }

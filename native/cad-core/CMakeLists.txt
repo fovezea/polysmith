@@ -27,6 +27,7 @@ add_executable(cad_core
   src/core/extrude_feature.cpp
   src/core/face_geometry.cpp
   src/core/feature_shape.cpp
+  src/core/logger.cpp
   src/core/refresh_dependents.cpp
   src/core/sketch_feature.cpp
   src/core/sketch_profile.cpp

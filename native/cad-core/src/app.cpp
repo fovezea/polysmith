@@ -7,6 +7,7 @@
 #include <TopoDS_Shape.hxx>
 
 #include "core/document.h"
+#include "core/logger.h"
 #include "core/viewport.h"
 #include "protocol/ipc.h"
 #include "protocol/serialization.h"
@@ -91,16 +92,16 @@ polysmith::core::SketchFeatureParameters::SketchPlaneFrame read_plane_frame(
 }  // namespace
 
 void CadCoreApp::init_occt() const {
-  polysmith::protocol::write_log("Starting OCCT smoke test...");
+  polysmith::core::log_info("cad_core", "Starting OCCT smoke test...");
 
   const TopoDS_Shape box = BRepPrimAPI_MakeBox(10.0, 20.0, 30.0).Shape();
 
   if (box.IsNull()) {
-    polysmith::protocol::write_log("OCCT smoke test failed: shape is null");
+    polysmith::core::log_error("cad_core", "OCCT smoke test failed: shape is null");
     return;
   }
 
-  polysmith::protocol::write_log("OCCT box created successfully");
+  polysmith::core::log_info("cad_core", "OCCT box created successfully");
 }
 
 void CadCoreApp::handle_command_line(const std::string& line) {
@@ -124,6 +125,7 @@ void CadCoreApp::handle_command_line(const std::string& line) {
     const auto document = document_manager().get_document();
 
     if (!document.has_value()) {
+      polysmith::core::log_error("cad_core", "No active document");
       polysmith::protocol::write_message(polysmith::protocol::make_error_event(
           command.id, "NO_ACTIVE_DOCUMENT", "No active document"));
       return;
@@ -755,6 +757,17 @@ void CadCoreApp::handle_command_line(const std::string& line) {
     return;
   }
 
+  if (command.type == "add_sketch_distance_dimension") {
+    const auto document = document_manager().add_sketch_distance_dimension(
+        read_string(command.payload, "first_entity_id"),
+        read_string(command.payload, "second_entity_id"));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
   if (command.type == "select_sketch_profile") {
     bool additive = false;
     if (command.payload.contains("additive") &&
@@ -1166,6 +1179,7 @@ void CadCoreApp::handle_command_line(const std::string& line) {
     throw std::runtime_error("__POLYSMITH_SHUTDOWN__");
   }
 
+  polysmith::core::log_error("cad_core", "Unknown command: " + command.type);
   polysmith::protocol::write_message(polysmith::protocol::make_error_event(
       command.id, "UNKNOWN_COMMAND", "Unknown command: " + command.type));
 }
@@ -1184,12 +1198,15 @@ void CadCoreApp::run() {
       handle_command_line(line);
     } catch (const std::runtime_error& error) {
       if (std::string(error.what()) == "__POLYSMITH_SHUTDOWN__") {
+        polysmith::core::log_info("cad_core", "Shutdown requested");
         break;
       }
 
+      polysmith::core::log_error("cad_core", error.what());
       polysmith::protocol::write_message(polysmith::protocol::make_error_event(
           "", "INVALID_COMMAND", error.what()));
     } catch (const std::exception& error) {
+      polysmith::core::log_error("cad_core", error.what());
       polysmith::protocol::write_message(polysmith::protocol::make_error_event(
           "", "INVALID_JSON", error.what()));
     }

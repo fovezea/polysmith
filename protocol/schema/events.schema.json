@@ -15,6 +15,7 @@
         "viewport_state",
         "document_exported",
         "document_saved",
+        "log",
         "error"
       ]
     },

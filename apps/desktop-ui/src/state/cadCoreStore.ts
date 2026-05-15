@@ -3,6 +3,7 @@ import type {
   CoreMessage,
   DocumentState,
   DocumentExportResult,
+  LogEntry,
   SessionState,
   ViewportState,
 } from "../types/ipc";
@@ -16,6 +17,7 @@ import {
 interface CadCoreStoreState {
   status: "idle" | "starting" | "connected" | "error" | "stopped";
   messages: string[];
+  logs: LogEntry[];
   document: DocumentState | null;
   session: SessionState | null;
   viewport: ViewportState | null;
@@ -23,6 +25,8 @@ interface CadCoreStoreState {
   lastEvent: CoreMessage | null;
   setStatus: (status: CadCoreStoreState["status"]) => void;
   addMessage: (message: string) => void;
+  addLogEntry: (entry: LogEntry) => void;
+  clearLogs: () => void;
   handleCoreMessage: (message: CoreMessage) => void;
 }
 
@@ -59,6 +63,7 @@ export function awaitDocumentChange(
 export const useCadCoreStore = create<CadCoreStoreState>((set) => ({
   status: "idle",
   messages: [],
+  logs: [],
   document: null,
   session: null,
   viewport: null,
@@ -67,6 +72,9 @@ export const useCadCoreStore = create<CadCoreStoreState>((set) => ({
   setStatus: (status) => set({ status }),
   addMessage: (message) =>
     set((state) => ({ messages: [...state.messages, message] })),
+  addLogEntry: (entry) =>
+    set((state) => ({ logs: [...state.logs, entry].slice(-500) })),
+  clearLogs: () => set({ logs: [] }),
   handleCoreMessage: (message) =>
     set((state) => {
       const nextState: Partial<CadCoreStoreState> = {
@@ -93,10 +101,16 @@ export const useCadCoreStore = create<CadCoreStoreState>((set) => ({
         nextState.lastExport = documentExport;
       }
 
+      if (message.type === "log") {
+        nextState.logs = [...state.logs, message.payload].slice(-500);
+      }
+
       const error = getErrorFromMessage(message);
       const renderedMessage =
         message.type === "error"
           ? `error: ${error?.payload.code} - ${error?.payload.message}`
+          : message.type === "log"
+            ? `log: ${message.payload.level} - ${message.payload.message}`
           : message.type === "document_exported"
             ? `event: document_exported - ${message.payload.file_path}`
             : `event: ${message.type}`;
@@ -122,7 +136,8 @@ function getStatusFromMessage(
     message.type === "document_state" ||
     message.type === "viewport_state" ||
     message.type === "document_exported" ||
-    message.type === "document_saved"
+    message.type === "document_saved" ||
+    message.type === "log"
   ) {
     return "connected";
   }

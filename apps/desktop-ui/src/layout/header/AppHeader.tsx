@@ -107,6 +107,9 @@ interface AppHeaderProps {
   onLoadDocument: () => Promise<void>;
   onUndo: () => Promise<void>;
   onRedo: () => Promise<void>;
+  logCount: number;
+  errorLogCount: number;
+  onOpenLogs: () => void;
   onAddBoxFeature: (
     width: number,
     height: number,
@@ -157,6 +160,9 @@ export function AppHeader({
   onLoadDocument,
   onUndo,
   onRedo,
+  logCount,
+  errorLogCount,
+  onOpenLogs,
   onAddBoxFeature,
   onAddCylinderFeature,
   canExtrude,
@@ -263,6 +269,18 @@ export function AppHeader({
               },
             ]}
           />
+          <button type="button" className="cad-ribbon-action" onClick={onOpenLogs}>
+            Logs
+            <span
+              className={`ml-2 rounded-full px-1.5 py-0.5 text-[0.65rem] ${
+                errorLogCount > 0
+                  ? "bg-danger/20 text-danger"
+                  : "bg-white/10 text-on-surface-dim"
+              }`}
+            >
+              {errorLogCount > 0 ? errorLogCount : logCount}
+            </span>
+          </button>
           <div className="cad-status-pill">
             <span
               className={`h-2.5 w-2.5 rounded-full ${

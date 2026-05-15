@@ -114,6 +114,7 @@ type DimensionLabelDragState = {
   startLabelPosition: [number, number, number];
   dragAxis: [number, number, number];
   hasMoved: boolean;
+  isPlacement?: boolean;
 };
 
 const GRID_STEPS_MM = [
@@ -174,6 +175,10 @@ interface ViewportPanelProps {
   onAddSketchAngleDimension: (
     firstLineId: string,
     secondLineId: string,
+  ) => Promise<void>;
+  onAddSketchDistanceDimension: (
+    firstEntityId: string,
+    secondEntityId: string,
   ) => Promise<void>;
   onSetSketchLineConstraint: (
     lineId: string,
@@ -615,6 +620,7 @@ export function ViewportPanel({
   onSetSketchMidpointAnchor,
   onSetSketchPointLineAnchor,
   onAddSketchAngleDimension,
+  onAddSketchDistanceDimension,
   onSetSketchLineConstraint,
   onSetSketchPerpendicularConstraint,
   onSetSketchTangentConstraint,
@@ -807,6 +813,15 @@ export function ViewportPanel({
   const selectedSketchDimensionRef = useRef<SketchDimensionScene | null>(null);
   const displayedSketchDimensionsRef = useRef<SketchDimensionScene[]>([]);
   const dimensionLabelDragRef = useRef<DimensionLabelDragState | null>(null);
+  const pendingDimensionPlacementRef = useRef(false);
+  const dimensionPlacementOriginalPositionRef = useRef<
+    [number, number, number] | null
+  >(null);
+  const dimensionEditOriginalValueRef = useRef<{
+    dimensionId: string;
+    value: number;
+  } | null>(null);
+  const lastPointerEventRef = useRef<PointerEvent | null>(null);
   const isDimensionEditorOpenRef = useRef(false);
   const suppressNextDimensionEditorOpenRef = useRef(false);
   useEffect(() => {
@@ -885,6 +900,7 @@ export function ViewportPanel({
   const setSketchMidpointAnchorRef = useRef(onSetSketchMidpointAnchor);
   const setSketchPointLineAnchorRef = useRef(onSetSketchPointLineAnchor);
   const addSketchAngleDimensionRef = useRef(onAddSketchAngleDimension);
+  const addSketchDistanceDimensionRef = useRef(onAddSketchDistanceDimension);
   const setSketchPerpendicularConstraintRef = useRef(
     onSetSketchPerpendicularConstraint,
   );
@@ -966,6 +982,8 @@ export function ViewportPanel({
       ) ?? null,
     [document],
   );
+  const activeSketchPlaneFrame =
+    sketchFeature?.sketch_parameters?.plane_frame ?? null;
   const selectedPrimitiveLabel = useMemo(() => {
     const selectedBox = viewport?.boxes.find((box) => box.is_selected);
     if (selectedBox) {
@@ -1025,6 +1043,57 @@ export function ViewportPanel({
     }
     return null;
   }, [document, viewport]);
+  function angleDimensionFrame(dimension: SketchDimensionScene) {
+    const anchorStart = new THREE.Vector3(...dimension.anchorStart);
+    const anchorEnd = new THREE.Vector3(...dimension.anchorEnd);
+    const dimensionStart = new THREE.Vector3(...dimension.dimensionStart);
+    const dimensionEnd = new THREE.Vector3(...dimension.dimensionEnd);
+    const startRay = dimensionStart.clone().sub(anchorStart);
+    const endRay = dimensionEnd.clone().sub(anchorEnd);
+    if (startRay.lengthSq() <= 1e-8 || endRay.lengthSq() <= 1e-8) {
+      return null;
+    }
+    const startDirection = startRay.clone().normalize();
+    const endDirection = endRay.clone().normalize();
+    const betweenAnchors = anchorStart.clone().sub(anchorEnd);
+    const directionDot = startDirection.dot(endDirection);
+    const denominator = 1 - directionDot * directionDot;
+    if (Math.abs(denominator) <= 1e-8) {
+      return null;
+    }
+    const startOffset =
+      (directionDot * endDirection.dot(betweenAnchors) -
+        startDirection.dot(betweenAnchors)) /
+      denominator;
+    const endOffset =
+      (endDirection.dot(betweenAnchors) -
+        directionDot * startDirection.dot(betweenAnchors)) /
+      denominator;
+    const pivot = anchorStart
+      .clone()
+      .add(startDirection.clone().multiplyScalar(startOffset))
+      .add(
+        anchorEnd
+          .clone()
+          .add(endDirection.clone().multiplyScalar(endOffset)),
+      )
+      .multiplyScalar(0.5);
+    const startUnit = dimensionStart.clone().sub(pivot).normalize();
+    const endUnit = dimensionEnd.clone().sub(pivot).normalize();
+    const bisector = startUnit.clone().add(endUnit);
+    if (bisector.lengthSq() <= 1e-8) {
+      return null;
+    }
+    return {
+      pivot,
+      startUnit,
+      endUnit,
+      bisector: bisector.normalize(),
+      anchorRadius: anchorStart.distanceTo(pivot),
+      dimensionRadius: dimensionStart.distanceTo(pivot),
+    };
+  }
+
   const displayedSketchDimensions = useMemo(() => {
     if (!sceneData) {
       return [];
@@ -1036,19 +1105,87 @@ export function ViewportPanel({
       }
       const originalLabel = new THREE.Vector3(...dimension.labelPosition);
       const nextLabel = new THREE.Vector3(...labelPosition);
-      const offset = nextLabel.sub(originalLabel);
+      let offset = nextLabel.sub(originalLabel);
+      if (dimension.kind === "angle") {
+        const frame = angleDimensionFrame(dimension);
+        if (frame) {
+          const dimensionRadius = Math.max(
+            frame.anchorRadius + 1,
+            nextLabel.distanceTo(frame.pivot),
+          );
+          const labelRadius = Math.max(
+            frame.anchorRadius + 1,
+            Math.min(dimensionRadius * 0.42, dimensionRadius - 1.5),
+          );
+          const toTuple = (point: THREE.Vector3): [number, number, number] => [
+            point.x,
+            point.y,
+            point.z,
+          ];
+          return {
+            ...dimension,
+            anchorStart: toTuple(
+              frame.pivot
+                .clone()
+                .add(frame.startUnit.clone().multiplyScalar(frame.anchorRadius)),
+            ),
+            anchorEnd: toTuple(
+              frame.pivot
+                .clone()
+                .add(frame.endUnit.clone().multiplyScalar(frame.anchorRadius)),
+            ),
+            dimensionStart: toTuple(
+              frame.pivot
+                .clone()
+                .add(frame.startUnit.clone().multiplyScalar(dimensionRadius)),
+            ),
+            dimensionEnd: toTuple(
+              frame.pivot
+                .clone()
+                .add(frame.endUnit.clone().multiplyScalar(dimensionRadius)),
+            ),
+            labelPosition: toTuple(
+              frame.pivot
+                .clone()
+                .add(frame.bisector.clone().multiplyScalar(labelRadius)),
+            ),
+          };
+        }
+      }
+      if (dimension.kind === "line_line_distance") {
+        const dimensionDirection = new THREE.Vector3(
+          ...dimension.dimensionEnd,
+        ).sub(new THREE.Vector3(...dimension.dimensionStart));
+        const planeNormal = getSketchGridFrame(
+          dimension.planeId,
+          activeSketchPlaneFrame,
+        ).normal;
+        const placementAxis = planeNormal.cross(dimensionDirection).normalize();
+        if (placementAxis.lengthSq() > 1e-8) {
+          offset = placementAxis.multiplyScalar(offset.dot(placementAxis));
+        }
+      }
       const shiftPoint = (point: [number, number, number]) => {
         const shifted = new THREE.Vector3(...point).add(offset);
         return [shifted.x, shifted.y, shifted.z] as [number, number, number];
       };
+      const shiftedLabel = shiftPoint(dimension.labelPosition);
+      if (dimension.kind === "line_line_distance") {
+        return {
+          ...dimension,
+          dimensionStart: shiftPoint(dimension.dimensionStart),
+          dimensionEnd: shiftPoint(dimension.dimensionEnd),
+          labelPosition: shiftedLabel,
+        };
+      }
       return {
         ...dimension,
         dimensionStart: shiftPoint(dimension.dimensionStart),
         dimensionEnd: shiftPoint(dimension.dimensionEnd),
-        labelPosition,
+        labelPosition: shiftedLabel,
       };
     });
-  }, [dimensionLabelPositions, sceneData]);
+  }, [activeSketchPlaneFrame, dimensionLabelPositions, sceneData]);
   useEffect(() => {
     displayedSketchDimensionsRef.current = displayedSketchDimensions;
   }, [displayedSketchDimensions]);
@@ -1165,8 +1302,6 @@ export function ViewportPanel({
     }
     return candidates;
   }, [sketchFeature]);
-  const activeSketchPlaneFrame =
-    sketchFeature?.sketch_parameters?.plane_frame ?? null;
   const activeSketchPlaneIdRef = useRef(activeSketchPlaneId);
   const activeSketchPlaneFrameRef = useRef(activeSketchPlaneFrame);
   useEffect(() => {
@@ -1290,6 +1425,210 @@ export function ViewportPanel({
     suppressNextDimensionEditorOpenRef.current = false;
     setIsDimensionEditorOpen(true);
     void selectSketchDimensionRef.current(dimensionId);
+  }
+
+  function dimensionDisplayValue(
+    dimension: SketchDimensionScene,
+    coreValue: number,
+  ) {
+    if (dimension.kind === "angle") {
+      return coreValue * (180 / Math.PI);
+    }
+    if (dimension.kind === "circle_radius") {
+      return coreValue * 2;
+    }
+    return coreValue;
+  }
+
+  function dimensionCoreValue(
+    dimension: SketchDimensionScene,
+    displayValue: number,
+  ) {
+    if (dimension.kind === "angle") {
+      return displayValue * (Math.PI / 180);
+    }
+    if (dimension.kind === "circle_radius") {
+      return displayValue / 2;
+    }
+    return displayValue;
+  }
+
+  function formattedDimensionDisplayValue(
+    dimension: SketchDimensionScene,
+    coreValue: number,
+  ) {
+    return String(
+      parseFloat(dimensionDisplayValue(dimension, coreValue).toFixed(2)),
+    );
+  }
+
+  function setCanvasCursor(cursor: string) {
+    const canvas = rendererRef.current?.domElement as
+      | HTMLCanvasElement
+      | undefined;
+    if (canvas) {
+      canvas.style.cursor = cursor;
+    }
+  }
+
+  function getDimensionPlacementAxis(dimension: SketchDimensionScene) {
+    if (dimension.kind === "angle") {
+      return angleDimensionFrame(dimension)?.bisector ?? null;
+    }
+
+    const extensionAxis = new THREE.Vector3(...dimension.dimensionStart).sub(
+      new THREE.Vector3(...dimension.anchorStart),
+    );
+    if (extensionAxis.lengthSq() > 1e-8) {
+      return extensionAxis.normalize();
+    }
+
+    const sketchPlaneId = activeSketchPlaneIdRef.current;
+    const dimensionDirection = new THREE.Vector3(...dimension.dimensionEnd).sub(
+      new THREE.Vector3(...dimension.dimensionStart),
+    );
+    if (!sketchPlaneId || dimensionDirection.lengthSq() <= 1e-8) {
+      return null;
+    }
+
+    const planeNormal = getSketchGridFrame(
+      sketchPlaneId,
+      activeSketchPlaneFrameRef.current,
+    ).normal;
+    const placementAxis = planeNormal.cross(dimensionDirection).normalize();
+    return placementAxis.lengthSq() > 1e-8 ? placementAxis : null;
+  }
+
+  function angleDimensionArcControlNearPoint(
+    dimension: SketchDimensionScene,
+    worldPoint: [number, number, number],
+  ): [number, number, number] | null {
+    const frame = angleDimensionFrame(dimension);
+    if (!frame) {
+      return null;
+    }
+    const cursorRadius = new THREE.Vector3(...worldPoint).distanceTo(
+      frame.pivot,
+    );
+    const dimensionRadius = Math.max(frame.anchorRadius + 1, cursorRadius);
+    const cursorDirection = new THREE.Vector3(...worldPoint)
+      .sub(frame.pivot)
+      .normalize();
+    const controlDirection =
+      cursorDirection.lengthSq() > 1e-8 ? cursorDirection : frame.bisector;
+    const controlPosition = frame.pivot
+      .clone()
+      .add(controlDirection.multiplyScalar(dimensionRadius));
+    return [controlPosition.x, controlPosition.y, controlPosition.z];
+  }
+
+  function finishDimensionPlacement() {
+    const dimensionDrag = dimensionLabelDragRef.current;
+    if (!dimensionDrag?.isPlacement) {
+      return false;
+    }
+    dimensionLabelDragRef.current = null;
+    dimensionPlacementOriginalPositionRef.current = null;
+    controlsRef.current && (controlsRef.current.enabled = true);
+    setCanvasCursor("");
+    return true;
+  }
+
+  function cancelDimensionPlacement() {
+    const dimensionDrag = dimensionLabelDragRef.current;
+    if (!dimensionDrag?.isPlacement) {
+      return false;
+    }
+    const originalPosition = dimensionPlacementOriginalPositionRef.current;
+    if (originalPosition) {
+      setDimensionLabelPositions((current) => ({
+        ...current,
+        [dimensionDrag.dimensionId]: originalPosition,
+      }));
+    }
+    dimensionLabelDragRef.current = null;
+    dimensionPlacementOriginalPositionRef.current = null;
+    controlsRef.current && (controlsRef.current.enabled = true);
+    setCanvasCursor("");
+    return true;
+  }
+
+  function beginDimensionPlacement(dimension: SketchDimensionScene) {
+    const renderer = rendererRef.current;
+    const camera = cameraRef.current;
+    const sketchPlaneId = activeSketchPlaneIdRef.current;
+    const controls = controlsRef.current;
+    const pointerEvent = lastPointerEventRef.current;
+    if (!renderer || !camera || !sketchPlaneId || !controls || !pointerEvent) {
+      return;
+    }
+    const sketchPoint = resolveSketchPlanePoint(
+      pointerEvent,
+      renderer,
+      camera,
+      sketchPlaneId,
+      activeSketchPlaneFrameRef.current,
+    );
+    if (!sketchPoint) {
+      return;
+    }
+    const dragAxis = getDimensionPlacementAxis(dimension);
+    if (!dragAxis) {
+      return;
+    }
+    const originalPosition = dimension.labelPosition;
+    const anglePosition =
+      dimension.kind === "angle"
+        ? angleDimensionArcControlNearPoint(dimension, sketchPoint.world)
+        : null;
+    const nextPosition =
+      anglePosition ??
+      (() => {
+        const originalPositionVector = new THREE.Vector3(...originalPosition);
+        const pointerDelta = new THREE.Vector3(...sketchPoint.world).sub(
+          originalPositionVector,
+        );
+        const nextPositionVector = originalPositionVector
+          .clone()
+          .add(dragAxis.clone().multiplyScalar(pointerDelta.dot(dragAxis)));
+        return [
+          nextPositionVector.x,
+          nextPositionVector.y,
+          nextPositionVector.z,
+        ] as [number, number, number];
+      })();
+    dimensionPlacementOriginalPositionRef.current = dimension.labelPosition;
+    setDimensionLabelPositions((current) => ({
+      ...current,
+      [dimension.dimensionId]: nextPosition,
+    }));
+    dimensionLabelDragRef.current = {
+      dimensionId: dimension.dimensionId,
+      startClientX: pointerEvent.clientX,
+      startClientY: pointerEvent.clientY,
+      startWorld: sketchPoint.world,
+      startLabelPosition: nextPosition,
+      dragAxis: [dragAxis.x, dragAxis.y, dragAxis.z],
+      hasMoved: true,
+      isPlacement: true,
+    };
+    controls.enabled = false;
+    setCanvasCursor("grabbing");
+  }
+
+  function sketchLinesShareEndpoint(firstLineId: string, secondLineId: string) {
+    const params = sketchLinesRef.current;
+    const first = params?.lines.find((line) => line.line_id === firstLineId);
+    const second = params?.lines.find((line) => line.line_id === secondLineId);
+    if (!first || !second) {
+      return false;
+    }
+    return (
+      first.start_point_id === second.start_point_id ||
+      first.start_point_id === second.end_point_id ||
+      first.end_point_id === second.start_point_id ||
+      first.end_point_id === second.end_point_id
+    );
   }
 
   function cancelActiveSketchDraft() {
@@ -2177,7 +2516,8 @@ export function ViewportPanel({
 
   useEffect(() => {
     addSketchAngleDimensionRef.current = onAddSketchAngleDimension;
-  }, [onAddSketchAngleDimension]);
+    addSketchDistanceDimensionRef.current = onAddSketchDistanceDimension;
+  }, [onAddSketchAngleDimension, onAddSketchDistanceDimension]);
 
   useEffect(() => {
     setSketchPerpendicularConstraintRef.current =
@@ -2330,6 +2670,20 @@ export function ViewportPanel({
   useEffect(() => {
     if (selectedSketchDimensionValue === null) {
       setDimensionDraftValue("");
+      dimensionEditOriginalValueRef.current = null;
+      return;
+    }
+    if (!selectedSketchDimension) {
+      return;
+    }
+    const originalValue = dimensionEditOriginalValueRef.current;
+    if (originalValue?.dimensionId !== selectedSketchDimension.dimensionId) {
+      dimensionEditOriginalValueRef.current = {
+        dimensionId: selectedSketchDimension.dimensionId,
+        value: selectedSketchDimensionValue,
+      };
+    }
+    if (window.document.activeElement === dimensionInputRef.current) {
       return;
     }
 
@@ -2338,21 +2692,31 @@ export function ViewportPanel({
     // representation into the input. `parseFloat` of a fixed-precision
     // string is the canonical way to drop trailing zeros without
     // building a regex.
-    // Angle dims store radians internally but the editor shows
-    // degrees (matches the on-screen badge), so convert before
-    // populating. `selectedSketchDimension` is null-checked above.
-    const displayValue =
-      selectedSketchDimension?.kind === "angle"
-        ? selectedSketchDimensionValue * (180 / Math.PI)
-        : selectedSketchDimension?.kind === "circle_radius"
-          ? selectedSketchDimensionValue * 2
-          : selectedSketchDimensionValue;
-    setDimensionDraftValue(String(parseFloat(displayValue.toFixed(2))));
+    setDimensionDraftValue(
+      formattedDimensionDisplayValue(
+        selectedSketchDimension,
+        selectedSketchDimensionValue,
+      ),
+    );
   }, [
     selectedSketchDimensionValue,
     document?.selected_sketch_dimension_id,
+    selectedSketchDimension,
+    selectedSketchDimension?.dimensionId,
     selectedSketchDimension?.kind,
   ]);
+
+  useEffect(() => {
+    if (
+      !pendingDimensionPlacementRef.current ||
+      !selectedSketchDimension ||
+      activeSketchTool !== "dimension"
+    ) {
+      return;
+    }
+    pendingDimensionPlacementRef.current = false;
+    beginDimensionPlacement(selectedSketchDimension);
+  }, [activeSketchTool, selectedSketchDimension]);
 
   useEffect(() => {
     if (!selectedSketchDimension) {
@@ -2628,13 +2992,17 @@ export function ViewportPanel({
           | undefined;
         const labelOffsetPixels = 5;
         if (dimensionStart && dimensionEnd && sprite.material) {
+          const material = sprite.material as THREE.SpriteMaterial;
+          if (sprite.userData.dimensionKind === "angle") {
+            material.rotation = 0;
+            return null;
+          }
           const start = projectWorldPointToViewport(
             dimensionStart,
             camera,
             renderer,
           );
           const end = projectWorldPointToViewport(dimensionEnd, camera, renderer);
-          const material = sprite.material as THREE.SpriteMaterial;
           if (start && end) {
             const dx = end.x - start.x;
             const dy = end.y - start.y;
@@ -3180,7 +3548,12 @@ export function ViewportPanel({
     }
 
     function handlePointerDown(event: PointerEvent) {
+      lastPointerEventRef.current = event;
       setContextMenu(null);
+
+      if (dimensionLabelDragRef.current?.isPlacement) {
+        return;
+      }
 
       if (event.button === 1) {
         controls.mouseButtons.MIDDLE =
@@ -3212,7 +3585,8 @@ export function ViewportPanel({
       renderer.domElement.setPointerCapture(event.pointerId);
       if (
         activeSketchPlaneIdRef.current &&
-        activeSketchToolRef.current === "select"
+        (activeSketchToolRef.current === "select" ||
+          activeSketchToolRef.current === "dimension")
       ) {
         const hit = intersectSceneTargets(event);
         if (hit?.kind === "sketch_dimension") {
@@ -3227,10 +3601,8 @@ export function ViewportPanel({
             activeSketchPlaneFrameRef.current,
           );
           if (dimension && sketchPoint) {
-            const dragAxis = new THREE.Vector3(...dimension.dimensionStart)
-              .sub(new THREE.Vector3(...dimension.anchorStart))
-              .normalize();
-            if (dragAxis.lengthSq() <= 1e-8) {
+            const dragAxis = getDimensionPlacementAxis(dimension);
+            if (!dragAxis) {
               return;
             }
             dimensionLabelDragRef.current = {
@@ -3278,6 +3650,7 @@ export function ViewportPanel({
     }
 
     function handlePointerMove(event: PointerEvent) {
+      lastPointerEventRef.current = event;
       // -- cube-area interaction ---------------------------------------
       const cubeDpr = renderer.getPixelRatio();
       const cubeCanvasRect = renderer.domElement.getBoundingClientRect();
@@ -3343,6 +3716,22 @@ export function ViewportPanel({
         const dy = event.clientY - dimensionDrag.startClientY;
         if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
           dimensionDrag.hasMoved = true;
+        }
+        const draggedDimension = displayedSketchDimensionsRef.current.find(
+          (dimension) => dimension.dimensionId === dimensionDrag.dimensionId,
+        );
+        if (draggedDimension?.kind === "angle") {
+          const nextPosition = angleDimensionArcControlNearPoint(
+            draggedDimension,
+            sketchPoint.world,
+          );
+          if (nextPosition) {
+            setDimensionLabelPositions((current) => ({
+              ...current,
+              [dimensionDrag.dimensionId]: nextPosition,
+            }));
+          }
+          return;
         }
         const dragAxis = new THREE.Vector3(...dimensionDrag.dragAxis);
         const worldDelta = new THREE.Vector3(
@@ -3826,8 +4215,10 @@ export function ViewportPanel({
 
     function handlePointerLeave() {
       pointerDown = null;
-      dimensionLabelDragRef.current = null;
-      controls.enabled = true;
+      if (!dimensionLabelDragRef.current?.isPlacement) {
+        dimensionLabelDragRef.current = null;
+        controls.enabled = true;
+      }
       setSketchSnapLabel(null);
       setConstraintPreview(null);
       setHoveredSketchProfile(null);
@@ -3847,6 +4238,7 @@ export function ViewportPanel({
     }
 
     function handlePointerUp(event: PointerEvent) {
+      lastPointerEventRef.current = event;
       if (event.button === 1) {
         controls.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
         pointerDown = null;
@@ -3863,11 +4255,20 @@ export function ViewportPanel({
 
       const dimensionDrag = dimensionLabelDragRef.current;
       if (dimensionDrag) {
+        if (dimensionDrag.isPlacement) {
+          finishDimensionPlacement();
+          window.requestAnimationFrame(() => {
+            dimensionInputRef.current?.focus();
+            dimensionInputRef.current?.select();
+          });
+          pointerDown = null;
+          return;
+        }
         dimensionLabelDragRef.current = null;
         controls.enabled = true;
         (renderer.domElement as HTMLCanvasElement).style.cursor = "";
         pointerDown = null;
-        if (!dimensionDrag.hasMoved) {
+        if (!dimensionDrag.isPlacement && !dimensionDrag.hasMoved) {
           selectSketchDimensionForEdit(dimensionDrag.dimensionId);
         }
         return;
@@ -4018,13 +4419,11 @@ export function ViewportPanel({
           return;
         }
 
-        // Dimension tool. Single-click on a line / circle opens its
-        // unary dim editor (length / radius). Shift+click is the
-        // angle-dim gesture: the first Shift+click marks a line as
-        // the angle's first leg, the second Shift+click on a
-        // different line creates the angle dim. Same-line Shift+
-        // click clears the pending pick. Empty-space clicks also
-        // clear the pending state.
+        // Dimension tool. Circle picks open the diameter editor.
+        // Line picks are staged: the first line opens its length dim,
+        // and a second different line creates/selects an angle dim.
+        // Enter confirms the focused input; Escape cancels via the
+        // global sketch key path.
         if (activeSketchToolRef.current === "dimension") {
           if (hit?.kind === "sketch_dimension") {
             dimensionToolFirstLineRef.current = null;
@@ -4034,8 +4433,21 @@ export function ViewportPanel({
           }
           if (hit?.kind === "sketch_entity") {
             if (hit.entityKind === "circle") {
+              const firstEntityId = dimensionToolFirstLineRef.current;
+              if (firstEntityId && firstEntityId !== hit.id) {
+                dimensionToolFirstLineRef.current = null;
+                setDimensionToolFirstLine(null);
+                pendingDimensionPlacementRef.current = true;
+                void addSketchDistanceDimensionRef
+                  .current(firstEntityId, hit.id)
+                  .catch(() => {
+                    pendingDimensionPlacementRef.current = false;
+                  });
+                return;
+              }
               dimensionToolFirstLineRef.current = null;
-              setDimensionToolFirstLine(null);
+              setDimensionToolFirstLine(hit.id);
+              dimensionToolFirstLineRef.current = hit.id;
               const dimensionId = `dim-circle-${hit.id}`;
               const dimensionExists =
                 sketchLinesRef.current?.dimensions.some(
@@ -4048,31 +4460,35 @@ export function ViewportPanel({
               }
               return;
             }
-            // Line click. Shift gates the angle-pick flow.
-            if (event.shiftKey) {
-              const firstLineId = dimensionToolFirstLineRef.current;
-              if (firstLineId === null) {
-                dimensionToolFirstLineRef.current = hit.id;
-                setDimensionToolFirstLine(hit.id);
-                return;
-              }
-              if (firstLineId === hit.id) {
-                // Same line picked twice — treat as a cancel rather
-                // than dimensioning an angle to itself.
-                dimensionToolFirstLineRef.current = null;
-                setDimensionToolFirstLine(null);
-                return;
-              }
+            const firstLineId = dimensionToolFirstLineRef.current;
+            if (firstLineId && firstLineId !== hit.id) {
               dimensionToolFirstLineRef.current = null;
               setDimensionToolFirstLine(null);
-              void addSketchAngleDimensionRef.current(firstLineId, hit.id);
+              if (
+                firstLineId.startsWith("line-") &&
+                sketchLinesShareEndpoint(firstLineId, hit.id)
+              ) {
+                pendingDimensionPlacementRef.current = true;
+                void addSketchAngleDimensionRef
+                  .current(firstLineId, hit.id)
+                  .catch(() => {
+                    pendingDimensionPlacementRef.current = false;
+                  });
+              } else {
+                pendingDimensionPlacementRef.current = true;
+                void addSketchDistanceDimensionRef
+                  .current(firstLineId, hit.id)
+                  .catch(() => {
+                    pendingDimensionPlacementRef.current = false;
+                  });
+              }
               return;
             }
-            // Plain click → length dim. Clear any pending angle
-            // pick so the user doesn't accidentally bind a stale
-            // first-line into the next Shift+click.
-            dimensionToolFirstLineRef.current = null;
-            setDimensionToolFirstLine(null);
+            // Plain first-line click opens the length dim but keeps
+            // that line staged so the next different line can create
+            // an angle dimension without a modifier.
+            dimensionToolFirstLineRef.current = hit.id;
+            setDimensionToolFirstLine(hit.id);
             const dimensionId = `dim-line-${hit.id}`;
             const dimensionExists =
               sketchLinesRef.current?.dimensions.some(
@@ -4981,6 +5397,8 @@ export function ViewportPanel({
     setSketchSnapLabel(null);
     setConstraintPreview(null);
     clearDraftDimensionSession();
+    cancelDimensionPlacement();
+    pendingDimensionPlacementRef.current = false;
     // Reset the dimension tool's pending first-line on every tool
     // switch so it can't leak across tools or sketches.
     dimensionToolFirstLineRef.current = null;
@@ -4993,6 +5411,22 @@ export function ViewportPanel({
     }
 
     function handleKeyDown(event: KeyboardEvent) {
+      if (
+        event.code === "Enter" &&
+        dimensionLabelDragRef.current?.isPlacement
+      ) {
+        event.preventDefault();
+        finishDimensionPlacement();
+        return;
+      }
+      if (
+        event.code === "Escape" &&
+        dimensionLabelDragRef.current?.isPlacement
+      ) {
+        event.preventDefault();
+        cancelDimensionPlacement();
+        return;
+      }
       const target = event.target;
       if (
         target instanceof HTMLInputElement ||
@@ -5228,19 +5662,61 @@ export function ViewportPanel({
       return;
     }
 
-    // Angle dims accept degrees and circle dims accept diameter in
-    // the editor; convert both back to the core-owned values.
-    const nextValue =
-      selectedSketchDimension.kind === "angle"
-        ? rawValue * (Math.PI / 180)
-        : selectedSketchDimension.kind === "circle_radius"
-          ? rawValue / 2
-        : rawValue;
+    const nextValue = dimensionCoreValue(selectedSketchDimension, rawValue);
 
     await updateSketchDimensionRef.current(
       selectedSketchDimension.dimensionId,
       nextValue,
     );
+    finishDimensionPlacement();
+    dimensionEditOriginalValueRef.current = null;
+    setIsDimensionEditorOpen(false);
+  }
+
+  function handleDimensionDraftChange(value: string) {
+    setDimensionDraftValue(value);
+    if (!selectedSketchDimension) {
+      return;
+    }
+    const rawValue = Number(value);
+    if (!Number.isFinite(rawValue) || rawValue <= 0) {
+      return;
+    }
+    const dimensionId = selectedSketchDimension.dimensionId;
+    void updateSketchDimensionRef.current(
+      dimensionId,
+      dimensionCoreValue(selectedSketchDimension, rawValue),
+    );
+  }
+
+  function cancelDimensionEdit() {
+    const dimension = selectedSketchDimension;
+    const originalValue = dimensionEditOriginalValueRef.current;
+    cancelDimensionPlacement();
+    if (dimension && originalValue?.dimensionId === dimension.dimensionId) {
+      void updateSketchDimensionRef.current(
+        dimension.dimensionId,
+        originalValue.value,
+      );
+      setDimensionLabelPositions((current) => {
+        if (!(dimension.dimensionId in current)) {
+          return current;
+        }
+        const next = { ...current };
+        delete next[dimension.dimensionId];
+        return next;
+      });
+      setDimensionDraftValue(
+        formattedDimensionDisplayValue(dimension, originalValue.value),
+      );
+    } else if (dimension && selectedSketchDimensionValue !== null) {
+      setDimensionDraftValue(
+        formattedDimensionDisplayValue(dimension, selectedSketchDimensionValue),
+      );
+    } else {
+      setDimensionDraftValue("");
+    }
+    dimensionEditOriginalValueRef.current = null;
     setIsDimensionEditorOpen(false);
   }
 
@@ -5534,13 +6010,10 @@ export function ViewportPanel({
             </p>
             <p className="text-on-surface">
               {dimensionToolFirstLine === null ? (
-                <>Click a line / circle. Shift+click two lines for angle.</>
+                <>Click a line or circle. Pick a second element for angle or distance.</>
               ) : (
                 <>
-                  Angle: pick second line. First leg ={" "}
-                  <span className="font-mono text-on-surface-muted">
-                    {dimensionToolFirstLine}
-                  </span>
+                  Dimension ready. Pick another element, drag the label, or type a value.
                 </>
               )}
             </p>
@@ -5570,7 +6043,7 @@ export function ViewportPanel({
               step="0.01"
               value={dimensionDraftValue}
               onChange={(event) => {
-                setDimensionDraftValue(event.target.value);
+                handleDimensionDraftChange(event.target.value);
               }}
               onFocus={(event) => {
                 event.currentTarget.select();
@@ -5578,24 +6051,7 @@ export function ViewportPanel({
               onKeyDown={(event) => {
                 if (event.key === "Escape") {
                   event.preventDefault();
-                  // Same 2-decimal compact formatting as the open
-                  // effect — keeps the field consistent on Escape.
-                  setDimensionDraftValue(
-                    selectedSketchDimensionValue !== null
-                      ? String(
-                          parseFloat(
-                            (selectedSketchDimension?.kind === "angle"
-                              ? selectedSketchDimensionValue * (180 / Math.PI)
-                              : selectedSketchDimension?.kind ===
-                                  "circle_radius"
-                                ? selectedSketchDimensionValue * 2
-                              : selectedSketchDimensionValue
-                            ).toFixed(2),
-                          ),
-                        )
-                      : "",
-                  );
-                  setIsDimensionEditorOpen(false);
+                  cancelDimensionEdit();
                 }
               }}
             />

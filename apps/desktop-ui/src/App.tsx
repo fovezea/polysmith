@@ -14,6 +14,7 @@ import {
   SketchFilletPanel,
   MirrorToolPanel,
   FeatureTimeline,
+  LogsWindow,
   MessageLog,
   ViewportPanel,
 } from "./layout";
@@ -200,10 +201,14 @@ function App() {
   const [hierarchyWidth, setHierarchyWidth] = useState<number>(320);
   const status = useCadCoreStore((state) => state.status);
   const messages = useCadCoreStore((state) => state.messages);
+  const logs = useCadCoreStore((state) => state.logs);
   const document = useCadCoreStore((state) => state.document);
   const session = useCadCoreStore((state) => state.session);
   const viewport = useCadCoreStore((state) => state.viewport);
   const addMessage = useCadCoreStore((state) => state.addMessage);
+  const clearLogs = useCadCoreStore((state) => state.clearLogs);
+  const [isLogsOpen, setIsLogsOpen] = useState(false);
+  const errorLogCount = logs.filter((entry) => entry.level === "error").length;
   const selectedReference =
     viewport?.reference_planes.find(
       (referencePlane) => referencePlane.is_selected,
@@ -319,6 +324,7 @@ function App() {
     setSketchMidpointAnchor,
     setSketchPointLineAnchor,
     addSketchAngleDimension,
+    addSketchDistanceDimension,
     addSketchRectangle,
     addSketchCircle,
     addSketchArc,
@@ -1460,6 +1466,11 @@ function App() {
           onRedo={async () => {
             await runAction(redo);
           }}
+          logCount={logs.length}
+          errorLogCount={errorLogCount}
+          onOpenLogs={() => {
+            setIsLogsOpen(true);
+          }}
           onAddBoxFeature={async (width, height, depth) => {
             await runAction(async () => {
               await addBoxFeature(width, height, depth);
@@ -1562,6 +1573,15 @@ function App() {
         />
 
         <div className="flex min-h-0 min-w-0">
+          {isLogsOpen ? (
+            <LogsWindow
+              logs={logs}
+              onClose={() => {
+                setIsLogsOpen(false);
+              }}
+              onClear={clearLogs}
+            />
+          ) : null}
           {isHierarchyCollapsed ? (
             <button
               type="button"
@@ -1884,6 +1904,11 @@ function App() {
               onAddSketchAngleDimension={async (firstLineId, secondLineId) => {
                 await runAction(async () => {
                   await addSketchAngleDimension(firstLineId, secondLineId);
+                });
+              }}
+              onAddSketchDistanceDimension={async (firstEntityId, secondEntityId) => {
+                await runAction(async () => {
+                  await addSketchDistanceDimension(firstEntityId, secondEntityId);
                 });
               }}
               onSetSketchLineConstraint={async (lineId, constraint) => {

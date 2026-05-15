@@ -151,7 +151,9 @@ fn spawn_stderr_thread(app: AppHandle, stderr: impl std::io::Read + Send + 'stat
         for line_result in reader.lines() {
             match line_result {
                 Ok(line) => {
-                    let _ = emit_core_log(&app, &line);
+                    if !is_structured_core_log_line(&line) {
+                        let _ = emit_core_log(&app, &line);
+                    }
                 }
                 Err(error) => {
                     let _ = emit_core_error(&app, &format!("stderr read error: {error}"));
@@ -160,4 +162,12 @@ fn spawn_stderr_thread(app: AppHandle, stderr: impl std::io::Read + Send + 'stat
             }
         }
     });
+}
+
+fn is_structured_core_log_line(line: &str) -> bool {
+    line.starts_with("[20")
+        && (line.contains("] [debug] [")
+            || line.contains("] [info] [")
+            || line.contains("] [warn] [")
+            || line.contains("] [error] ["))
 }
