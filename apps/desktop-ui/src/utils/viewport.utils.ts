@@ -1115,7 +1115,7 @@ export function buildSketchPointObject(point: SketchPointScene) {
   return mesh;
 }
 
-export function makeDimensionLabelSprite(text: string) {
+export function makeDimensionLabelSprite(text: string, isSelected: boolean) {
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");
   if (!context) {
@@ -1128,19 +1128,14 @@ export function makeDimensionLabelSprite(text: string) {
   const fontSize = 26;
   context.font = `600 ${fontSize}px "Space Grotesk", sans-serif`;
   const textWidth = Math.ceil(context.measureText(text).width);
-  canvas.width = textWidth + 28;
-  canvas.height = 52;
+  canvas.width = textWidth + 12;
+  canvas.height = 38;
 
   context.font = `600 ${fontSize}px "Space Grotesk", sans-serif`;
   context.clearRect(0, 0, canvas.width, canvas.height);
-  context.fillStyle = "rgba(7, 13, 16, 0.88)";
-  context.strokeStyle = "rgba(195, 245, 255, 0.9)";
-  context.lineWidth = 2;
-  context.beginPath();
-  context.roundRect(1, 1, canvas.width - 2, canvas.height - 2, 14);
-  context.fill();
-  context.stroke();
-  context.fillStyle = "#e7fbff";
+  context.shadowColor = "rgba(0, 0, 0, 0.55)";
+  context.shadowBlur = isSelected ? 4 : 3;
+  context.fillStyle = isSelected ? "#e7fbff" : "rgba(223, 247, 250, 0.92)";
   context.textAlign = "center";
   context.textBaseline = "middle";
   context.fillText(text, canvas.width / 2, canvas.height / 2 + 1);
@@ -1173,21 +1168,14 @@ export function makeConstraintBadgeSprite(text: string, isSelected: boolean) {
     );
   }
 
-  canvas.width = 54;
-  canvas.height = 54;
+  canvas.width = 44;
+  canvas.height = 44;
   context.clearRect(0, 0, canvas.width, canvas.height);
+  context.shadowColor = "rgba(0, 0, 0, 0.55)";
+  context.shadowBlur = 3;
   context.fillStyle = isSelected
-    ? "rgba(20, 50, 58, 0.94)"
-    : "rgba(7, 13, 16, 0.88)";
-  context.strokeStyle = isSelected
-    ? "rgba(195, 245, 255, 1)"
-    : "rgba(160, 228, 239, 0.92)";
-  context.lineWidth = 2;
-  context.beginPath();
-  context.roundRect(4, 4, canvas.width - 8, canvas.height - 8, 16);
-  context.fill();
-  context.stroke();
-  context.fillStyle = "#e7fbff";
+    ? "#e7fbff"
+    : "rgba(211, 232, 235, 0.82)";
   context.font = '700 24px "Space Grotesk", sans-serif';
   context.textAlign = "center";
   context.textBaseline = "middle";
@@ -1202,15 +1190,64 @@ export function makeConstraintBadgeSprite(text: string, isSelected: boolean) {
     depthWrite: false,
   });
   const sprite = new THREE.Sprite(material);
-  sprite.scale.set(5.4, 5.4, 1);
+  sprite.scale.set(4.4, 4.4, 1);
   sprite.userData.screenSize = {
-    width: 42,
-    height: 42,
+    width: 34,
+    height: 34,
   };
   return sprite;
 }
 
 export function buildSketchDimensionObject(dimension: SketchDimensionScene) {
+  const labelPosition = new THREE.Vector3(...dimension.labelPosition);
+  const anchorStart = new THREE.Vector3(...dimension.anchorStart);
+  const anchorEnd = new THREE.Vector3(...dimension.anchorEnd);
+  const dimensionStart = new THREE.Vector3(...dimension.dimensionStart);
+  const dimensionEnd = new THREE.Vector3(...dimension.dimensionEnd);
+  const extensionOverrun = 0.75;
+  const arrowLength = 1.45;
+  const arrowWidth = 0.48;
+  const dimensionDirection = dimensionEnd.clone().sub(dimensionStart);
+  const dimensionLength = dimensionDirection.length();
+  if (dimensionLength > 1e-6) {
+    dimensionDirection.divideScalar(dimensionLength);
+  } else {
+    dimensionDirection.set(1, 0, 0);
+  }
+  const extensionDirection = dimensionStart.clone().sub(anchorStart);
+  if (extensionDirection.length() > 1e-6) {
+    extensionDirection.normalize();
+  } else {
+    extensionDirection.set(0, 1, 0);
+  }
+
+  const points: THREE.Vector3[] = [];
+  const addSegment = (start: THREE.Vector3, end: THREE.Vector3) => {
+    points.push(start.clone(), end.clone());
+  };
+  const addArrowHead = (tip: THREE.Vector3, inward: THREE.Vector3) => {
+    const side = extensionDirection.clone().multiplyScalar(arrowWidth);
+    const base = tip.clone().add(inward.clone().multiplyScalar(arrowLength));
+    addSegment(tip, base.clone().add(side));
+    addSegment(tip, base.clone().sub(side));
+  };
+
+  addSegment(
+    anchorStart,
+    dimensionStart
+      .clone()
+      .add(extensionDirection.clone().multiplyScalar(extensionOverrun)),
+  );
+  addSegment(dimensionStart, dimensionEnd);
+  addSegment(
+    anchorEnd,
+    dimensionEnd
+      .clone()
+      .add(extensionDirection.clone().multiplyScalar(extensionOverrun)),
+  );
+  addArrowHead(dimensionStart, dimensionDirection);
+  addArrowHead(dimensionEnd, dimensionDirection.clone().multiplyScalar(-1));
+
   const material = new THREE.LineBasicMaterial({
     color: dimension.isSelected
       ? themeColor("--color-primary-edge-active", "#c3f5ff")
@@ -1219,23 +1256,18 @@ export function buildSketchDimensionObject(dimension: SketchDimensionScene) {
     opacity: dimension.isSelected ? 0.98 : 0.84,
     depthTest: false,
   });
-  const geometry = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(...dimension.anchorStart),
-    new THREE.Vector3(...dimension.dimensionStart),
-    new THREE.Vector3(...dimension.dimensionStart),
-    new THREE.Vector3(...dimension.dimensionEnd),
-    new THREE.Vector3(...dimension.anchorEnd),
-    new THREE.Vector3(...dimension.dimensionEnd),
-  ]);
+  const geometry = new THREE.BufferGeometry().setFromPoints(points);
   const line = new THREE.LineSegments(geometry, material);
   line.renderOrder = 6;
   line.userData.sketchDimensionId = dimension.dimensionId;
 
-  const label = makeDimensionLabelSprite(dimension.label);
-  label.position.set(...dimension.labelPosition);
+  const label = makeDimensionLabelSprite(dimension.label, dimension.isSelected);
+  label.position.copy(labelPosition);
   label.renderOrder = 7;
   label.userData.sketchDimensionId = dimension.dimensionId;
   label.userData.basePosition = dimension.labelPosition;
+  label.userData.dimensionStart = dimension.dimensionStart;
+  label.userData.dimensionEnd = dimension.dimensionEnd;
 
   return { line, label };
 }

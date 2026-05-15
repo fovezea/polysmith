@@ -6,6 +6,7 @@
 #include <limits>
 #include <set>
 #include <string>
+#include <unordered_set>
 #include <utility>
 
 #include <BRepAdaptor_Curve.hxx>
@@ -2511,6 +2512,21 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
         return document->selected_sketch_point_id.has_value() &&
                document->selected_sketch_point_id.value() == id;
       };
+      std::unordered_set<std::string> relation_constraint_line_ids;
+      if (document->active_sketch_feature_id.has_value() &&
+          document->active_sketch_feature_id.value() == feature.id) {
+        for (const auto& relation : feature.sketch_parameters->line_relations) {
+          if (relation.kind == "equal_length" ||
+              relation.kind == "perpendicular" ||
+              relation.kind == "parallel" ||
+              relation.kind == "tangent_line_circle") {
+            relation_constraint_line_ids.insert(relation.first_line_id);
+            if (!relation.second_line_id.empty()) {
+              relation_constraint_line_ids.insert(relation.second_line_id);
+            }
+          }
+        }
+      }
 
       for (const auto& line : feature.sketch_parameters->lines) {
         const bool is_selected_sketch_entity =
@@ -2539,7 +2555,9 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
                 is_selected_dimension));
           }
 
-          if (line.constraint.has_value()) {
+          if (line.constraint.has_value() &&
+              relation_constraint_line_ids.find(line.id) ==
+                  relation_constraint_line_ids.end()) {
             sketch_constraints.push_back(make_line_constraint_primitive(
                 line,
                 feature.sketch_parameters->plane_id,

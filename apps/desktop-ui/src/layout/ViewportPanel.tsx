@@ -106,6 +106,16 @@ type DraftDimensionSession = {
   activeField: DraftDimensionField;
 };
 
+type DimensionLabelDragState = {
+  dimensionId: string;
+  startClientX: number;
+  startClientY: number;
+  startWorld: [number, number, number];
+  startLabelPosition: [number, number, number];
+  dragAxis: [number, number, number];
+  hasMoved: boolean;
+};
+
 const GRID_STEPS_MM = [
   0.1, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000,
 ];
@@ -678,6 +688,9 @@ export function ViewportPanel({
   const revealGhostEdgesRef = useRef(false);
   const [dimensionDraftValue, setDimensionDraftValue] = useState("");
   const [isDimensionEditorOpen, setIsDimensionEditorOpen] = useState(false);
+  const [dimensionLabelPositions, setDimensionLabelPositions] = useState<
+    Record<string, [number, number, number]>
+  >({});
   const [draftDimensionSession, setDraftDimensionSession] =
     useState<DraftDimensionSession | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -792,6 +805,8 @@ export function ViewportPanel({
   const selectSketchProfileRef = useRef(onSelectSketchProfile);
   const deleteSketchSelectionRef = useRef(onDeleteSketchSelection);
   const selectedSketchDimensionRef = useRef<SketchDimensionScene | null>(null);
+  const displayedSketchDimensionsRef = useRef<SketchDimensionScene[]>([]);
+  const dimensionLabelDragRef = useRef<DimensionLabelDragState | null>(null);
   const isDimensionEditorOpenRef = useRef(false);
   const suppressNextDimensionEditorOpenRef = useRef(false);
   useEffect(() => {
@@ -1010,15 +1025,42 @@ export function ViewportPanel({
     }
     return null;
   }, [document, viewport]);
+  const displayedSketchDimensions = useMemo(() => {
+    if (!sceneData) {
+      return [];
+    }
+    return sceneData.sketchDimensions.map((dimension) => {
+      const labelPosition = dimensionLabelPositions[dimension.dimensionId];
+      if (!labelPosition) {
+        return dimension;
+      }
+      const originalLabel = new THREE.Vector3(...dimension.labelPosition);
+      const nextLabel = new THREE.Vector3(...labelPosition);
+      const offset = nextLabel.sub(originalLabel);
+      const shiftPoint = (point: [number, number, number]) => {
+        const shifted = new THREE.Vector3(...point).add(offset);
+        return [shifted.x, shifted.y, shifted.z] as [number, number, number];
+      };
+      return {
+        ...dimension,
+        dimensionStart: shiftPoint(dimension.dimensionStart),
+        dimensionEnd: shiftPoint(dimension.dimensionEnd),
+        labelPosition,
+      };
+    });
+  }, [dimensionLabelPositions, sceneData]);
+  useEffect(() => {
+    displayedSketchDimensionsRef.current = displayedSketchDimensions;
+  }, [displayedSketchDimensions]);
   const selectedSketchDimension = useMemo(
     () =>
       document?.selected_sketch_dimension_id
-        ? (sceneData?.sketchDimensions.find(
+        ? (displayedSketchDimensions.find(
             (dimension) =>
               dimension.dimensionId === document.selected_sketch_dimension_id,
           ) ?? null)
         : null,
-    [document?.selected_sketch_dimension_id, sceneData],
+    [displayedSketchDimensions, document?.selected_sketch_dimension_id],
   );
   const selectedSketchDimensionValue = useMemo(
     () =>
@@ -2578,6 +2620,67 @@ export function ViewportPanel({
           screenSize.height * scale * viewportScale * worldUnitsPerPixel,
           1,
         );
+        const dimensionStart = sprite.userData.dimensionStart as
+          | [number, number, number]
+          | undefined;
+        const dimensionEnd = sprite.userData.dimensionEnd as
+          | [number, number, number]
+          | undefined;
+        const labelOffsetPixels = 5;
+        if (dimensionStart && dimensionEnd && sprite.material) {
+          const start = projectWorldPointToViewport(
+            dimensionStart,
+            camera,
+            renderer,
+          );
+          const end = projectWorldPointToViewport(dimensionEnd, camera, renderer);
+          const material = sprite.material as THREE.SpriteMaterial;
+          if (start && end) {
+            const dx = end.x - start.x;
+            const dy = end.y - start.y;
+            let angle = Math.atan2(dy, dx);
+            if (angle > Math.PI / 2) {
+              angle -= Math.PI;
+            } else if (angle < -Math.PI / 2) {
+              angle += Math.PI;
+            }
+            material.rotation = -angle;
+            const lineLength = Math.hypot(dx, dy);
+            if (lineLength > 1e-6) {
+              const midpoint = {
+                x: (start.x + end.x) / 2,
+                y: (start.y + end.y) / 2,
+              };
+              const labelCenter = projectWorldPointToViewport(
+                [sprite.position.x, sprite.position.y, sprite.position.z],
+                camera,
+                renderer,
+              );
+              let normalX = -dy / lineLength;
+              let normalY = dx / lineLength;
+              if (
+                labelCenter &&
+                (labelCenter.x - midpoint.x) * normalX +
+                  (labelCenter.y - midpoint.y) * normalY <
+                  0
+              ) {
+                normalX = -normalX;
+                normalY = -normalY;
+              }
+              sprite.position
+                .addScaledVector(
+                  cameraRight,
+                  normalX * labelOffsetPixels * worldUnitsPerPixel,
+                )
+                .addScaledVector(
+                  cameraUp,
+                  -normalY * labelOffsetPixels * worldUnitsPerPixel,
+                );
+            }
+          } else {
+            material.rotation = 0;
+          }
+        }
 
         const center = projectWorldPointToViewport(
           [sprite.position.x, sprite.position.y, sprite.position.z],
@@ -3109,6 +3212,44 @@ export function ViewportPanel({
       renderer.domElement.setPointerCapture(event.pointerId);
       if (
         activeSketchPlaneIdRef.current &&
+        activeSketchToolRef.current === "select"
+      ) {
+        const hit = intersectSceneTargets(event);
+        if (hit?.kind === "sketch_dimension") {
+          const dimension = displayedSketchDimensionsRef.current.find(
+            (entry) => entry.dimensionId === hit.id,
+          );
+          const sketchPoint = resolveSketchPlanePoint(
+            event,
+            renderer,
+            camera,
+            activeSketchPlaneIdRef.current,
+            activeSketchPlaneFrameRef.current,
+          );
+          if (dimension && sketchPoint) {
+            const dragAxis = new THREE.Vector3(...dimension.dimensionStart)
+              .sub(new THREE.Vector3(...dimension.anchorStart))
+              .normalize();
+            if (dragAxis.lengthSq() <= 1e-8) {
+              return;
+            }
+            dimensionLabelDragRef.current = {
+              dimensionId: hit.id,
+              startClientX: event.clientX,
+              startClientY: event.clientY,
+              startWorld: sketchPoint.world,
+              startLabelPosition: dimension.labelPosition,
+              dragAxis: [dragAxis.x, dragAxis.y, dragAxis.z],
+              hasMoved: false,
+            };
+            controls.enabled = false;
+            (renderer.domElement as HTMLCanvasElement).style.cursor = "grabbing";
+            return;
+          }
+        }
+      }
+      if (
+        activeSketchPlaneIdRef.current &&
         isDraftDimensionTool(activeSketchToolRef.current) &&
         !lineDraftStartRef.current
       ) {
@@ -3184,6 +3325,47 @@ export function ViewportPanel({
         }
         viewCubeHoveredRef.current = null;
         (renderer.domElement as HTMLCanvasElement).style.cursor = "";
+      }
+
+      const dimensionDrag = dimensionLabelDragRef.current;
+      if (dimensionDrag && activeSketchPlaneIdRef.current) {
+        const sketchPoint = resolveSketchPlanePoint(
+          event,
+          renderer,
+          camera,
+          activeSketchPlaneIdRef.current,
+          activeSketchPlaneFrameRef.current,
+        );
+        if (!sketchPoint) {
+          return;
+        }
+        const dx = event.clientX - dimensionDrag.startClientX;
+        const dy = event.clientY - dimensionDrag.startClientY;
+        if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+          dimensionDrag.hasMoved = true;
+        }
+        const dragAxis = new THREE.Vector3(...dimensionDrag.dragAxis);
+        const worldDelta = new THREE.Vector3(
+          sketchPoint.world[0] - dimensionDrag.startWorld[0],
+          sketchPoint.world[1] - dimensionDrag.startWorld[1],
+          sketchPoint.world[2] - dimensionDrag.startWorld[2],
+        );
+        const constrainedDelta = dragAxis.multiplyScalar(
+          worldDelta.dot(dragAxis),
+        );
+        const nextPositionVector = new THREE.Vector3(
+          ...dimensionDrag.startLabelPosition,
+        ).add(constrainedDelta);
+        const nextPosition: [number, number, number] = [
+          nextPositionVector.x,
+          nextPositionVector.y,
+          nextPositionVector.z,
+        ];
+        setDimensionLabelPositions((current) => ({
+          ...current,
+          [dimensionDrag.dimensionId]: nextPosition,
+        }));
+        return;
       }
 
       if (activeSketchPlaneId) {
@@ -3644,6 +3826,8 @@ export function ViewportPanel({
 
     function handlePointerLeave() {
       pointerDown = null;
+      dimensionLabelDragRef.current = null;
+      controls.enabled = true;
       setSketchSnapLabel(null);
       setConstraintPreview(null);
       setHoveredSketchProfile(null);
@@ -3675,6 +3859,18 @@ export function ViewportPanel({
       }
       if (renderer.domElement.hasPointerCapture(event.pointerId)) {
         renderer.domElement.releasePointerCapture(event.pointerId);
+      }
+
+      const dimensionDrag = dimensionLabelDragRef.current;
+      if (dimensionDrag) {
+        dimensionLabelDragRef.current = null;
+        controls.enabled = true;
+        (renderer.domElement as HTMLCanvasElement).style.cursor = "";
+        pointerDown = null;
+        if (!dimensionDrag.hasMoved) {
+          selectSketchDimensionForEdit(dimensionDrag.dimensionId);
+        }
+        return;
       }
 
       // -- cube-area click ---------------------------------------------
@@ -4705,7 +4901,7 @@ export function ViewportPanel({
       sketchGroup.add(sketchArcObject);
     }
 
-    for (const sketchDimension of sceneData.sketchDimensions) {
+    for (const sketchDimension of displayedSketchDimensions) {
       const sketchDimensionObject = buildSketchDimensionObject(sketchDimension);
       sketchDimensionObjectsRef.current.push(sketchDimensionObject.line);
       sketchDimensionObjectsRef.current.push(sketchDimensionObject.label);
@@ -4774,7 +4970,7 @@ export function ViewportPanel({
 
       lastGeometryKeyRef.current = sceneData.geometryKey;
     }
-  }, [sceneData, showReferencePlanes]);
+  }, [displayedSketchDimensions, sceneData, showReferencePlanes]);
 
   useEffect(() => {
     lineDraftStartRef.current = null;

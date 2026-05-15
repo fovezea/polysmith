@@ -22,6 +22,7 @@ import type {
   SketchCircleScene,
   SketchConstraintScene,
   SketchDimensionScene,
+  SketchLineScene,
   SketchPointScene,
   SketchProfileScene,
   SolidFaceScene,
@@ -252,6 +253,102 @@ function makeSketchDimension(
       dimension.label_position.z,
     ],
   };
+}
+
+function rectangleDuplicateDimensionEntityIds(lines: SketchLineScene[]) {
+  const hiddenEntityIds = new Set<string>();
+  const tolerance = 0.001;
+  const pointKey = (point: [number, number, number]) =>
+    point.map((value) => Math.round(value / tolerance)).join(":");
+  const length = (line: SketchLineScene) => {
+    const dx = line.end[0] - line.start[0];
+    const dy = line.end[1] - line.start[1];
+    const dz = line.end[2] - line.start[2];
+    return Math.sqrt(dx * dx + dy * dy + dz * dz);
+  };
+  const direction = (line: SketchLineScene) => {
+    const lineLength = length(line);
+    return lineLength > tolerance
+      ? [
+          (line.end[0] - line.start[0]) / lineLength,
+          (line.end[1] - line.start[1]) / lineLength,
+          (line.end[2] - line.start[2]) / lineLength,
+        ]
+      : [0, 0, 0];
+  };
+  const dot = (left: number[], right: number[]) =>
+    left[0] * right[0] + left[1] * right[1] + left[2] * right[2];
+  const midpoint = (line: SketchLineScene) =>
+    [
+      (line.start[0] + line.end[0]) / 2,
+      (line.start[1] + line.end[1]) / 2,
+      (line.start[2] + line.end[2]) / 2,
+    ] as [number, number, number];
+
+  for (let first = 0; first < lines.length; first += 1) {
+    for (let second = first + 1; second < lines.length; second += 1) {
+      for (let third = second + 1; third < lines.length; third += 1) {
+        for (let fourth = third + 1; fourth < lines.length; fourth += 1) {
+          const candidate = [lines[first], lines[second], lines[third], lines[fourth]];
+          const pointDegrees = new Map<string, number>();
+          for (const line of candidate) {
+            pointDegrees.set(pointKey(line.start), (pointDegrees.get(pointKey(line.start)) ?? 0) + 1);
+            pointDegrees.set(pointKey(line.end), (pointDegrees.get(pointKey(line.end)) ?? 0) + 1);
+          }
+          if (
+            pointDegrees.size !== 4 ||
+            Array.from(pointDegrees.values()).some((degree) => degree !== 2)
+          ) {
+            continue;
+          }
+
+          const pairs: Array<[SketchLineScene, SketchLineScene]> = [];
+          const used = new Set<string>();
+          for (const line of candidate) {
+            if (used.has(line.lineId)) {
+              continue;
+            }
+            const lineDirection = direction(line);
+            const match = candidate.find(
+              (other) =>
+                other.lineId !== line.lineId &&
+                !used.has(other.lineId) &&
+                Math.abs(Math.abs(dot(lineDirection, direction(other))) - 1) <= 0.001 &&
+                Math.abs(length(line) - length(other)) <= 0.001,
+            );
+            if (!match) {
+              break;
+            }
+            pairs.push([line, match]);
+            used.add(line.lineId);
+            used.add(match.lineId);
+          }
+          if (pairs.length !== 2) {
+            continue;
+          }
+          if (
+            Math.abs(dot(direction(pairs[0][0]), direction(pairs[1][0]))) > 0.001
+          ) {
+            continue;
+          }
+
+          for (const [lineA, lineB] of pairs) {
+            const centerA = midpoint(lineA);
+            const centerB = midpoint(lineB);
+            const hideLine =
+              centerA[1] < centerB[1] ||
+              (Math.abs(centerA[1] - centerB[1]) <= tolerance &&
+                centerA[0] < centerB[0])
+                ? lineA
+                : lineB;
+            hiddenEntityIds.add(hideLine.lineId);
+          }
+        }
+      }
+    }
+  }
+
+  return hiddenEntityIds;
 }
 
 function makeSketchConstraint(
@@ -631,9 +728,16 @@ export function createViewportScene(
       isFixed: point.is_fixed,
       isSelected: point.is_selected,
     }));
+  const hiddenRectangleDimensionEntityIds =
+    rectangleDuplicateDimensionEntityIds(sketchLines);
   const sketchDimensions = viewport.sketch_dimensions
     .filter((dimension) => isSketchPlaneVisible(dimension.plane_id))
     .map(makeSketchDimension);
+  const visibleSketchDimensions = sketchDimensions.filter(
+    (dimension) =>
+      dimension.kind !== "line_length" ||
+      !hiddenRectangleDimensionEntityIds.has(dimension.entityId),
+  );
   const sketchConstraints = viewport.sketch_constraints
     .filter((constraint) => isSketchPlaneVisible(constraint.plane_id))
     .map(makeSketchConstraint);
@@ -728,7 +832,7 @@ export function createViewportScene(
     sketchLines,
     sketchCircles,
     sketchArcs,
-    sketchDimensions,
+    sketchDimensions: visibleSketchDimensions,
     sketchConstraints,
     sketchPoints,
     sketchProfiles,
@@ -808,7 +912,7 @@ export function createViewportScene(
         ),
       )
       .concat(
-        sketchDimensions.map(
+        visibleSketchDimensions.map(
           (dimension) =>
             `sketch-dimension:${dimension.dimensionId}:${dimension.kind}:${dimension.entityId}:${dimension.label}:${dimension.anchorStart.join(":")}:${dimension.anchorEnd.join(":")}:${dimension.dimensionStart.join(":")}:${dimension.dimensionEnd.join(":")}:${dimension.labelPosition.join(":")}`,
         ),
