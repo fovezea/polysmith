@@ -37,6 +37,15 @@ export interface ViewportConfig {
   crosshair: CrosshairMode;
 }
 
+export interface AiConfig {
+  enabled: boolean;
+  provider: "ollama";
+  baseUrl: string;
+  model: string;
+  previewBeforeRun: boolean;
+  maxAgentSteps: number;
+}
+
 export type ThemeSelection =
   | "system"
   | "dark"
@@ -51,6 +60,7 @@ export interface AppConfig {
   theme: ThemeSelection;
   hotkeys: AppHotkeys;
   viewport: ViewportConfig;
+  ai: AiConfig;
 }
 
 export interface ThemeConfig {

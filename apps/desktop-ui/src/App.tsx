@@ -5,6 +5,7 @@ import { useCadCore } from "./hooks";
 import { findDependents, matchesHotkey, useAppConfig } from "./lib";
 import {
   AppHeader,
+  AiAssistantPanel,
   BoxFeatureForm,
   CylinderFeatureForm,
   DocumentHierarchyPanel,
@@ -211,7 +212,12 @@ function App() {
   const clearLogs = useCadCoreStore((state) => state.clearLogs);
   const [isLogsOpen, setIsLogsOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
   const errorLogCount = logs.filter((entry) => entry.level === "error").length;
+  const isAiAssistantAvailable =
+    config.ai.enabled &&
+    config.ai.baseUrl.trim().length > 0 &&
+    config.ai.model.trim().length > 0;
   const selectedReference =
     viewport?.reference_planes.find(
       (referencePlane) => referencePlane.is_selected,
@@ -1530,6 +1536,11 @@ function App() {
           onOpenSettings={() => {
             setIsSettingsOpen(true);
           }}
+          showAiAssistant={isAiAssistantAvailable}
+          isAiPanelOpen={isAiPanelOpen}
+          onToggleAiPanel={() => {
+            setIsAiPanelOpen((current) => !current);
+          }}
           onAddBoxFeature={async (width, height, depth) => {
             await runAction(async () => {
               await addBoxFeature(width, height, depth);
@@ -2779,6 +2790,18 @@ function App() {
               ) : null}
             </div>
           </section>
+          {isAiPanelOpen && isAiAssistantAvailable ? (
+            <AiAssistantPanel
+              config={config.ai}
+              status={status}
+              document={document}
+              viewport={viewport}
+              onClose={() => setIsAiPanelOpen(false)}
+              onStartCore={async () => {
+                await runAction(start);
+              }}
+            />
+          ) : null}
         </div>
 
         <FeatureTimeline

@@ -102,6 +102,22 @@ function SettingsGearIcon() {
   );
 }
 
+function AiSparkIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-[18px] w-[18px]"
+      viewBox="0 0 24 24"
+      fill="none"
+    >
+      <path
+        fill="currentColor"
+        d="M12 2.5 13.85 8.15 19.5 10 13.85 11.85 12 17.5 10.15 11.85 4.5 10 10.15 8.15 12 2.5ZM18 14l.9 2.6 2.6.9-2.6.9L18 21l-.9-2.6-2.6-.9 2.6-.9L18 14ZM6 14.5l.65 1.85L8.5 17l-1.85.65L6 19.5l-.65-1.85L3.5 17l1.85-.65L6 14.5Z"
+      />
+    </svg>
+  );
+}
+
 interface AppHeaderProps {
   status: string;
   disabled: boolean;
@@ -129,6 +145,9 @@ interface AppHeaderProps {
   errorLogCount: number;
   onOpenLogs: () => void;
   onOpenSettings: () => void;
+  showAiAssistant: boolean;
+  isAiPanelOpen: boolean;
+  onToggleAiPanel: () => void;
   onAddBoxFeature: (
     width: number,
     height: number,
@@ -183,6 +202,9 @@ export function AppHeader({
   errorLogCount,
   onOpenLogs,
   onOpenSettings,
+  showAiAssistant,
+  isAiPanelOpen,
+  onToggleAiPanel,
   onAddBoxFeature,
   onAddCylinderFeature,
   canExtrude,
@@ -310,6 +332,21 @@ export function AppHeader({
           >
             <SettingsGearIcon />
           </button>
+          {showAiAssistant ? (
+            <button
+              type="button"
+              className={
+                isAiPanelOpen
+                  ? "cad-ribbon-action h-8 w-8 px-0 py-0 text-primary-glow"
+                  : "cad-ribbon-action h-8 w-8 px-0 py-0 text-on-surface-muted hover:text-on-surface"
+              }
+              onClick={onToggleAiPanel}
+              aria-label="AI Assistant"
+              title="AI Assistant"
+            >
+              <AiSparkIcon />
+            </button>
+          ) : null}
           <div className="cad-status-pill">
             <span
               className={`h-2.5 w-2.5 rounded-full ${

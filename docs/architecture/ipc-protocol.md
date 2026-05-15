@@ -8,6 +8,11 @@ For an AI-oriented command reference that teaches agents how to create CAD
 objects through the app, see
 [`ai-cad-command-language.md`](./ai-cad-command-language.md).
 
+The in-app AI assistant is a protocol client. It validates model-generated
+command envelopes in the UI and then forwards approved commands through the
+existing Tauri `send_core_command` path; it does not bypass the IPC protocol or
+write directly to a running `cad_core` process.
+
 ## Goals
 
 - clear separation between UI and core

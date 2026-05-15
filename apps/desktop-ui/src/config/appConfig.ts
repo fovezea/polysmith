@@ -91,6 +91,30 @@ function isCrosshairMode(value: unknown): value is CrosshairMode {
   );
 }
 
+function normalizeAiConfig(input: Partial<AppConfig>["ai"]): AppConfig["ai"] {
+  const defaults = defaultAppConfig.ai;
+  const provider = input?.provider === "ollama" ? input.provider : defaults.provider;
+  const maxAgentSteps =
+    typeof input?.maxAgentSteps === "number" &&
+    Number.isFinite(input.maxAgentSteps) &&
+    input.maxAgentSteps > 0
+      ? Math.min(Math.max(Math.round(input.maxAgentSteps), 1), 10)
+      : defaults.maxAgentSteps;
+
+  return {
+    enabled:
+      typeof input?.enabled === "boolean" ? input.enabled : defaults.enabled,
+    provider,
+    baseUrl:
+      typeof input?.baseUrl === "string" && input.baseUrl.trim().length > 0
+        ? input.baseUrl
+        : defaults.baseUrl,
+    model: typeof input?.model === "string" ? input.model : defaults.model,
+    previewBeforeRun: true,
+    maxAgentSteps,
+  };
+}
+
 function cloneConfig(config: AppConfig): AppConfig {
   return JSON.parse(JSON.stringify(config)) as AppConfig;
 }
@@ -103,6 +127,7 @@ function mergeAppConfig(input: Partial<AppConfig>): AppConfig {
       ...defaultAppConfig.viewport,
       ...input.viewport,
     },
+    ai: normalizeAiConfig(input.ai),
     hotkeys: {
       ...defaultAppConfig.hotkeys,
       ...input.hotkeys,

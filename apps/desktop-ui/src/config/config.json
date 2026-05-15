@@ -3,6 +3,14 @@
   "viewport": {
     "crosshair": "default"
   },
+  "ai": {
+    "enabled": false,
+    "provider": "ollama",
+    "baseUrl": "http://localhost:11434",
+    "model": "",
+    "previewBeforeRun": true,
+    "maxAgentSteps": 5
+  },
   "hotkeys": {
     "global": {
       "undo": { "code": "KeyZ", "label": "Z", "ctrlOrMeta": true },

@@ -6,9 +6,9 @@ import {
   useAppConfig,
 } from "@/config";
 import type { AppConfig, HotkeyBinding } from "@/config";
-import { Dropdown } from "@/lib";
+import { Dropdown, testOllamaConnection } from "@/lib";
 
-type SettingsSection = "appearance" | "keybinds";
+type SettingsSection = "appearance" | "keybinds" | "ai";
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -132,6 +132,10 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   const [activeHotkeyId, setActiveHotkeyId] = useState<string | null>(null);
   const [hotkeyError, setHotkeyError] = useState<string | null>(null);
   const [isConfirmingResetAll, setIsConfirmingResetAll] = useState(false);
+  const [aiConnectionStatus, setAiConnectionStatus] = useState<string | null>(
+    null,
+  );
+  const [isTestingAiConnection, setIsTestingAiConnection] = useState(false);
 
   const hotkeyRows: HotkeyRow[] = [
     {
@@ -248,6 +252,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             {[
               ["appearance", "Appearance"],
               ["keybinds", "Keybinds"],
+              ["ai", "AI"],
             ].map(([id, label]) => (
               <button
                 key={id}
@@ -268,7 +273,11 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
         <div className="flex min-h-0 min-w-0 flex-col">
           <header className="flex items-center justify-between gap-4 border-b border-white/10 px-5 py-4">
             <h2 className="font-display text-lg text-on-surface">
-              {section === "appearance" ? "Appearance" : "Keybinds"}
+              {section === "appearance"
+                ? "Appearance"
+                : section === "keybinds"
+                  ? "Keybinds"
+                  : "AI"}
             </h2>
           </header>
 
@@ -304,7 +313,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                   </div>
                 ) : null}
               </div>
-            ) : (
+            ) : section === "keybinds" ? (
               <div className="space-y-2">
                 {hotkeyError ? (
                   <p className="rounded-md border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
@@ -360,6 +369,127 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                     </button>
                   </div>
                 ))}
+              </div>
+            ) : (
+              <div className="max-w-xl space-y-5">
+                <div className="rounded-md border border-white/10 bg-white/[0.025] px-4 py-4">
+                  <label className="flex items-center justify-between gap-4">
+                    <span>
+                      <span className="block text-sm font-medium text-on-surface">
+                        Enable AI assistant
+                      </span>
+                      <span className="mt-1 block text-xs text-on-surface-muted">
+                        Connects to a local Ollama server and previews validated
+                        CAD commands before execution.
+                      </span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={config.ai.enabled}
+                      onChange={(event) => {
+                        updateConfig((current) => ({
+                          ...current,
+                          ai: {
+                            ...current.ai,
+                            enabled: event.target.checked,
+                          },
+                        }));
+                      }}
+                    />
+                  </label>
+                </div>
+
+                <div className="space-y-3">
+                  <label className="block">
+                    <span className="cad-kicker">Ollama URL</span>
+                    <input
+                      className="mt-2 w-full rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-on-surface outline-none transition-colors focus:border-primary-edge"
+                      value={config.ai.baseUrl}
+                      placeholder="http://localhost:11434"
+                      onChange={(event) => {
+                        setAiConnectionStatus(null);
+                        updateConfig((current) => ({
+                          ...current,
+                          ai: {
+                            ...current.ai,
+                            baseUrl: event.target.value,
+                          },
+                        }));
+                      }}
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="cad-kicker">Model</span>
+                    <input
+                      className="mt-2 w-full rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-on-surface outline-none transition-colors focus:border-primary-edge"
+                      value={config.ai.model}
+                      placeholder="gemma3:4b"
+                      onChange={(event) => {
+                        setAiConnectionStatus(null);
+                        updateConfig((current) => ({
+                          ...current,
+                          ai: {
+                            ...current.ai,
+                            model: event.target.value,
+                          },
+                        }));
+                      }}
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="cad-kicker">Max Agent Steps</span>
+                    <input
+                      className="mt-2 w-28 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-on-surface outline-none transition-colors focus:border-primary-edge"
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={config.ai.maxAgentSteps}
+                      onChange={(event) => {
+                        const value = Number(event.target.value);
+                        updateConfig((current) => ({
+                          ...current,
+                          ai: {
+                            ...current.ai,
+                            maxAgentSteps: Number.isFinite(value) ? value : 5,
+                          },
+                        }));
+                      }}
+                    />
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    className="cad-ribbon-action"
+                    disabled={isTestingAiConnection}
+                    onClick={() => {
+                      setIsTestingAiConnection(true);
+                      setAiConnectionStatus("Testing connection...");
+                      void testOllamaConnection(config.ai)
+                        .then((message) => {
+                          setAiConnectionStatus(message);
+                        })
+                        .catch((error) => {
+                          setAiConnectionStatus(
+                            `Connection failed: ${String(error)}`,
+                          );
+                        })
+                        .finally(() => {
+                          setIsTestingAiConnection(false);
+                        });
+                    }}
+                  >
+                    Test Connection
+                  </button>
+                  {aiConnectionStatus ? (
+                    <span className="text-sm text-on-surface-muted">
+                      {aiConnectionStatus}
+                    </span>
+                  ) : null}
+                </div>
               </div>
             )}
           </div>

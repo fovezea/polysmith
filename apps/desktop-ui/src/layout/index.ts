@@ -1,4 +1,5 @@
 export * from "./header/AppHeader";
+export * from "./AiAssistantPanel";
 export * from "./BoxFeatureForm";
 export * from "./CylinderFeatureForm";
 export * from "./DocumentPanel";

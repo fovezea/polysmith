@@ -64,6 +64,59 @@ Rules:
 - Use `get_viewport_state` after mutations when the next step needs pickable
   faces, edges, vertices, bodies, or sketch profiles.
 
+## AI Assistant Envelope
+
+When PolySmith asks a local model to generate CAD actions, the model must not
+return raw protocol messages. It returns a strict JSON envelope without command
+IDs:
+
+```json
+{
+  "message": "short user-facing explanation",
+  "commands": [
+    {
+      "type": "command_type",
+      "payload": {}
+    }
+  ],
+  "continue": false
+}
+```
+
+Rules:
+
+- The model must return JSON only, with no prose before or after the object.
+- `message` is user-facing and must not expose internal IDs.
+- `commands[]` contains executable PolySmith IPC command types and payloads.
+- The app validates every command and rejects malformed batches as a whole.
+- The app adds command `id` values immediately before dispatch.
+- If a later command needs an ID created by this batch, the model returns only
+  the commands that can run now and sets `continue: true`. The app executes the
+  batch, refreshes CAD state, and asks the model for the next batch.
+- The AI panel keeps a technical working-reference list of current document,
+  sketch, profile, body, face, edge, line, and circle IDs. These IDs are for
+  command generation and preview/debug use, not normal user-facing prose.
+- If the model accidentally includes a later `extrude_profile` with an unknown
+  profile ID after creating valid non-construction sketch geometry, the app may
+  defer that later command, run only the valid prefix, refresh references, and
+  continue the agent loop.
+- Profile IDs must come from current `document_state` or `viewport_state`.
+  After creating new closed sketch geometry, stop with `continue: true` and
+  wait for refreshed state before sending `extrude_profile`.
+- Construction sketch geometry is ignored by profile detection. For geometry
+  the user wants to extrude, sketch commands must use `is_construction: false`.
+- Sketch geometry/edit/projection commands require an active sketch. If no
+  sketch is active, the batch must start one with `start_sketch_on_plane`,
+  `start_sketch_on_face`, or `reenter_sketch` before issuing those commands.
+- If the working references say `Active sketch: none` and the user asks for a
+  rectangle, circle, line, arc, 2D profile, or sketch-based extrusion, the first
+  modeling command should be `start_sketch_on_plane` with
+  `reference_id: "ref-plane-xy"` unless the user specified another plane or
+  face. The app may also insert this default XY sketch start when a model omits
+  it before new sketch geometry.
+- In live app mode, validated commands are sent through the existing Tauri
+  bridge, not directly to `cad_core` stdin.
+
 ## Core Response Types
 
 ### `hello`
@@ -614,6 +667,8 @@ Payload:
 ### Starting and Reentering Sketches
 
 Sketch commands require an active sketch unless explicitly stated otherwise.
+An AI agent must start a sketch on a plane or face before sending sketch
+geometry, sketch edit, projection, mirror-preview, or `finish_sketch` commands.
 Start a sketch before adding sketch geometry.
 
 #### `start_sketch_on_plane`
@@ -739,6 +794,8 @@ Payload:
 ```
 
 Non-construction rectangles normally produce a closed `sketch_profile`.
+Construction rectangles are reference geometry only and do not produce
+extrudable profiles.
 
 #### `add_sketch_circle`
 
