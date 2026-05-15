@@ -28,6 +28,9 @@ Guidelines for AI-assisted development (Codex, ChatGPT, etc.)
 - Do not bypass the protocol layer.
 - All communication must follow the defined schema.
 - Always update protocol docs when changing messages.
+- When IPC commands, payloads, responses, or CAD-agent workflows change, also
+  update `docs/architecture/ai-cad-command-language.md` so coding agents keep
+  the app's CAD command language current.
 
 ## Workflow Expectations
 

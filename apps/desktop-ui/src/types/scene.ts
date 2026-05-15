@@ -153,6 +153,12 @@ export interface SketchCircleScene {
   isPreview: boolean;
   circleId: string;
   planeId: string;
+  planeFrame: {
+    origin: { x: number; y: number; z: number };
+    x_axis: { x: number; y: number; z: number };
+    y_axis: { x: number; y: number; z: number };
+    normal: { x: number; y: number; z: number };
+  } | null;
   center: [number, number, number];
   radius: number;
   isSelected: boolean;
@@ -172,6 +178,12 @@ export interface SketchArcScene {
   startPointId: string;
   endPointId: string;
   planeId: string;
+  planeFrame: {
+    origin: { x: number; y: number; z: number };
+    x_axis: { x: number; y: number; z: number };
+    y_axis: { x: number; y: number; z: number };
+    normal: { x: number; y: number; z: number };
+  } | null;
   center: [number, number, number];
   radius: number;
   start: [number, number, number];

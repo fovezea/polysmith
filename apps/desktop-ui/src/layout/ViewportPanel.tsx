@@ -1561,7 +1561,29 @@ export function ViewportPanel({
     setIsDimensionEditorOpen(false);
   }
 
+  function isProjectedCircleDimension(dimensionId: string) {
+    const sketch = sketchFeature?.sketch_parameters;
+    if (!sketch) {
+      return false;
+    }
+    const dimension = sketch.dimensions.find(
+      (candidate) => candidate.dimension_id === dimensionId,
+    );
+    if (!dimension || dimension.kind !== "circle_radius") {
+      return false;
+    }
+    return sketch.projections.some((projection) =>
+      projection.generated_circle_ids.includes(dimension.entity_id),
+    );
+  }
+
   function selectSketchDimensionForEdit(dimensionId: string) {
+    if (isProjectedCircleDimension(dimensionId)) {
+      suppressNextDimensionEditorOpenRef.current = true;
+      setIsDimensionEditorOpen(false);
+      void selectSketchDimensionRef.current(dimensionId);
+      return;
+    }
     suppressNextDimensionEditorOpenRef.current = false;
     setIsDimensionEditorOpen(true);
     void selectSketchDimensionRef.current(dimensionId);
@@ -1825,6 +1847,7 @@ export function ViewportPanel({
         {
           circleId: "preview-circle",
           planeId: activeSketchPlaneId,
+          planeFrame: activeSketchPlaneFrame,
           center: toWorldPoint(
             activeSketchPlaneId,
             session.start,
@@ -2868,6 +2891,13 @@ export function ViewportPanel({
 
   useEffect(() => {
     if (!selectedSketchDimension) {
+      setIsDimensionEditorOpen(false);
+      dimensionInputSelectionLockedRef.current = false;
+      return;
+    }
+
+    if (isProjectedCircleDimension(selectedSketchDimension.dimensionId)) {
+      dimensionInputRef.current?.blur();
       setIsDimensionEditorOpen(false);
       dimensionInputSelectionLockedRef.current = false;
       return;
@@ -4149,6 +4179,7 @@ export function ViewportPanel({
                 startPointId: "preview-arc-start",
                 endPointId: "preview-arc-end",
                 planeId: activeSketchPlaneId,
+                planeFrame: activeSketchPlaneFrame,
                 center: toWorldPoint(
                   activeSketchPlaneId,
                   centerLocal,
@@ -4255,6 +4286,7 @@ export function ViewportPanel({
                   {
                     circleId: "preview-arc-circle",
                     planeId: activeSketchPlaneId,
+                    planeFrame: activeSketchPlaneFrame,
                     center: toWorldPoint(
                       activeSketchPlaneId,
                       draftStart,
@@ -4322,6 +4354,7 @@ export function ViewportPanel({
               {
                 circleId: "preview-circle",
                 planeId: activeSketchPlaneId,
+                planeFrame: activeSketchPlaneFrame,
                 center: toWorldPoint(
                   activeSketchPlaneId,
                   draftStart,
@@ -5498,17 +5531,13 @@ export function ViewportPanel({
     }
 
     for (const sketchCircle of sceneData.sketchCircles) {
-      // Only the active sketch's circles get the live plane frame;
-      // circles owned by other (currently-hidden) sketches fall back
-      // to the legacy ref-plane axis mapping. In practice the only
-      // visible circles are the active sketch's anyway because
-      // `viewportScene` filters by `isSketchPlaneVisible`.
       const frame =
-        activeSketchPlaneId &&
+        sketchCircle.planeFrame ??
+        (activeSketchPlaneId &&
         sketchCircle.planeId === activeSketchPlaneId &&
         activeSketchPlaneFrame
           ? activeSketchPlaneFrame
-          : null;
+          : null);
       const sketchCircleObject = buildSketchCircleObject(sketchCircle, frame);
       sketchCircleObject.userData.isSelected = sketchCircle.isSelected;
       sketchEntityObjectsRef.current.push(sketchCircleObject);
@@ -5520,15 +5549,13 @@ export function ViewportPanel({
     }
 
     for (const sketchArc of sceneData.sketchArcs) {
-      // Same plane-frame resolution as circles — see the comment
-      // above. Arc samples need the active sketch's frame to land
-      // on the plane.
       const frame =
-        activeSketchPlaneId &&
+        sketchArc.planeFrame ??
+        (activeSketchPlaneId &&
         sketchArc.planeId === activeSketchPlaneId &&
         activeSketchPlaneFrame
           ? activeSketchPlaneFrame
-          : null;
+          : null);
       const sketchArcObject = buildSketchArcObject(sketchArc, frame);
       sketchArcObject.userData.isSelected = sketchArc.isSelected;
       sketchEntityObjectsRef.current.push(sketchArcObject);

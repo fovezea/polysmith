@@ -173,6 +173,7 @@ struct ViewportSketchLinePrimitive {
 struct ViewportSketchCirclePrimitive {
   std::string circle_id;
   std::string plane_id;
+  std::optional<ViewportSketchPlaneFrame> plane_frame;
   double center_x;
   double center_y;
   double center_z;
@@ -195,6 +196,7 @@ struct ViewportSketchArcPrimitive {
   std::string start_point_id;
   std::string end_point_id;
   std::string plane_id;
+  std::optional<ViewportSketchPlaneFrame> plane_frame;
   double center_x;
   double center_y;
   double center_z;

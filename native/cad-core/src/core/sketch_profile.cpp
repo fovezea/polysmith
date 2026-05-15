@@ -22,6 +22,7 @@ constexpr double kProfileTolerance = 0.01;
 // regardless of arc sweep size; tiny arcs end up with tightly-spaced
 // samples and large arcs with widely-spaced ones, which is fine.
 constexpr int kArcSampleSegments = 16;
+constexpr int kCircleProfileSampleSegments = 64;
 // Local copy of pi — `M_PI` is non-standard (POSIX-only) and
 // `std::numbers::pi` is C++20-only. Defining it here keeps this file
 // portable without committing the rest of the codebase to either.
@@ -473,6 +474,22 @@ SketchProfilePoint polygon_centroid(
   return SketchProfilePoint{.x = x / count, .y = y / count};
 }
 
+bool circle_contains_circle(const SketchCircle& outer,
+                            const SketchCircle& inner) {
+  if (outer.id == inner.id ||
+      outer.radius <= inner.radius + kProfileTolerance) {
+    return false;
+  }
+  const double dx = inner.center_x - outer.center_x;
+  const double dy = inner.center_y - outer.center_y;
+  const double center_distance = std::sqrt(dx * dx + dy * dy);
+  return center_distance + inner.radius <= outer.radius - kProfileTolerance;
+}
+
+double circle_area(const SketchCircle& circle) {
+  return kPi * circle.radius * circle.radius;
+}
+
 void apply_nested_polygon_holes(std::vector<SketchProfileRegion>& profiles) {
   for (auto& inner : profiles) {
     if (inner.kind != "polygon" || inner.points.size() < 3) {
@@ -512,11 +529,11 @@ void apply_nested_polygon_holes(std::vector<SketchProfileRegion>& profiles) {
 
 std::vector<SketchProfilePoint> sample_circle_loop(const SketchCircle& circle) {
   std::vector<SketchProfilePoint> points;
-  constexpr int kCircleSegments = 64;
-  points.reserve(kCircleSegments);
-  for (int index = 0; index < kCircleSegments; ++index) {
+  points.reserve(kCircleProfileSampleSegments);
+  for (int index = 0; index < kCircleProfileSampleSegments; ++index) {
     const double angle =
-        (static_cast<double>(index) / static_cast<double>(kCircleSegments)) *
+        (static_cast<double>(index) /
+         static_cast<double>(kCircleProfileSampleSegments)) *
         2.0 * kPi;
     points.push_back(SketchProfilePoint{
         .x = circle.center_x + circle.radius * std::cos(angle),
@@ -708,6 +725,8 @@ std::vector<SketchProfileRegion> build_sketch_profile_regions(
   // be applied here in the same way.
   std::vector<ProfileEdge> solid_edges;
   solid_edges.reserve(parameters.lines.size() + parameters.arcs.size());
+  std::vector<const SketchCircle*> solid_circles;
+  solid_circles.reserve(parameters.circles.size());
   for (const auto& line : parameters.lines) {
     if (!line.is_construction) {
       solid_edges.push_back(profile_edge_from_line(line));
@@ -770,7 +789,15 @@ std::vector<SketchProfileRegion> build_sketch_profile_regions(
     if (circle.is_construction) {
       continue;
     }
-    const SketchProfilePoint center{.x = circle.center_x, .y = circle.center_y};
+    solid_circles.push_back(&circle);
+  }
+
+  std::map<std::string, std::vector<std::vector<SketchProfilePoint>>>
+      circle_inner_loops;
+  std::map<std::string, std::vector<std::string>> circle_hole_ids;
+
+  for (const auto* circle : solid_circles) {
+    const SketchProfilePoint center{.x = circle->center_x, .y = circle->center_y};
     SketchProfileRegion* containing_profile = nullptr;
     double containing_area = std::numeric_limits<double>::max();
     for (auto& profile : profiles) {
@@ -783,22 +810,66 @@ std::vector<SketchProfileRegion> build_sketch_profile_regions(
         containing_area = area;
       }
     }
-    if (containing_profile != nullptr) {
-      containing_profile->inner_loops.push_back(sample_circle_loop(circle));
-      containing_profile->id += "-hole-" + circle.id;
+
+    const SketchCircle* containing_circle = nullptr;
+    double containing_circle_area = std::numeric_limits<double>::max();
+    for (const auto* candidate : solid_circles) {
+      if (!circle_contains_circle(*candidate, *circle)) {
+        continue;
+      }
+      const double area = circle_area(*candidate);
+      if (area < containing_circle_area) {
+        containing_circle = candidate;
+        containing_circle_area = area;
+      }
     }
 
+    if (containing_circle != nullptr &&
+        containing_circle_area < containing_area) {
+      circle_inner_loops[containing_circle->id].push_back(
+          sample_circle_loop(*circle));
+      circle_hole_ids[containing_circle->id].push_back(circle->id);
+    } else if (containing_profile != nullptr) {
+      containing_profile->inner_loops.push_back(sample_circle_loop(*circle));
+      containing_profile->id += "-hole-" + circle->id;
+    }
+  }
+
+  for (const auto* circle : solid_circles) {
+    const auto hole_it = circle_inner_loops.find(circle->id);
+    if (hole_it != circle_inner_loops.end()) {
+      std::string profile_id = "profile-circle-" + circle->id;
+      const auto hole_id_it = circle_hole_ids.find(circle->id);
+      if (hole_id_it != circle_hole_ids.end()) {
+        for (const auto& hole_id : hole_id_it->second) {
+          profile_id += "-hole-" + hole_id;
+        }
+      }
+      profiles.push_back(SketchProfileRegion{
+          .id = profile_id,
+          .kind = "polygon",
+          .point_ids = {"point-circle-" + circle->id + "-center"},
+          .line_ids = {},
+          .points = sample_circle_loop(*circle),
+          .inner_loops = hole_it->second,
+          .source_circle_id = circle->id,
+          .center_x = 0.0,
+          .center_y = 0.0,
+          .radius = 0.0,
+      });
+      continue;
+    }
     profiles.push_back(SketchProfileRegion{
-        .id = "profile-circle-" + circle.id,
+        .id = "profile-circle-" + circle->id,
         .kind = "circle",
-        .point_ids = {"point-circle-" + circle.id + "-center"},
+        .point_ids = {"point-circle-" + circle->id + "-center"},
         .line_ids = {},
         .points = {},
         .inner_loops = {},
-        .source_circle_id = circle.id,
-        .center_x = circle.center_x,
-        .center_y = circle.center_y,
-        .radius = circle.radius,
+        .source_circle_id = circle->id,
+        .center_x = circle->center_x,
+        .center_y = circle->center_y,
+        .radius = circle->radius,
     });
   }
 

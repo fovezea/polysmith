@@ -1,15 +1,19 @@
 #include "core/feature_shape.h"
 
 #include <cmath>
+#include <optional>
 #include <stdexcept>
 
 #include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRep_Builder.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <gp_Ax2.hxx>
+#include <gp_Circ.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Vec.hxx>
@@ -53,6 +57,24 @@ gp_Pnt to_world_point(const ExtrudeFeatureParameters& parameters,
   return to_world_point(parameters.plane_id, local_x, local_y);
 }
 
+gp_Dir plane_normal(const ExtrudeFeatureParameters& parameters) {
+  if (parameters.plane_frame.has_value()) {
+    const auto& frame = parameters.plane_frame.value();
+    return gp_Dir(frame.normal_x, frame.normal_y, frame.normal_z);
+  }
+  if (parameters.plane_id == "ref-plane-xy") {
+    return gp_Dir(0.0, 1.0, 0.0);
+  }
+  if (parameters.plane_id == "ref-plane-yz") {
+    return gp_Dir(1.0, 0.0, 0.0);
+  }
+  if (parameters.plane_id == "ref-plane-xz") {
+    return gp_Dir(0.0, 0.0, 1.0);
+  }
+  throw std::runtime_error("Unsupported sketch plane for shape: " +
+                           parameters.plane_id);
+}
+
 gp_Vec extrusion_vector(const std::string& plane_id, double depth) {
   if (plane_id == "ref-plane-xy") {
     return gp_Vec(0.0, depth, 0.0);
@@ -75,12 +97,78 @@ gp_Vec extrusion_vector(const PlaneFrame& frame, double depth) {
                 frame.normal_z * depth);
 }
 
-TopoDS_Shape make_polygon_prism_shape(
+struct CircleLoop {
+  double center_x;
+  double center_y;
+  double radius;
+};
+
+std::optional<CircleLoop> detect_circle_loop(
+    const std::vector<SketchProfilePoint>& points) {
+  if (points.size() < 16) {
+    return std::nullopt;
+  }
+
+  double center_x = 0.0;
+  double center_y = 0.0;
+  for (const auto& point : points) {
+    center_x += point.x;
+    center_y += point.y;
+  }
+  center_x /= static_cast<double>(points.size());
+  center_y /= static_cast<double>(points.size());
+
+  double radius = 0.0;
+  for (const auto& point : points) {
+    const double dx = point.x - center_x;
+    const double dy = point.y - center_y;
+    radius += std::sqrt(dx * dx + dy * dy);
+  }
+  radius /= static_cast<double>(points.size());
+  if (radius <= 0.0) {
+    return std::nullopt;
+  }
+
+  const double tolerance = std::max(0.05, radius * 0.01);
+  for (const auto& point : points) {
+    const double dx = point.x - center_x;
+    const double dy = point.y - center_y;
+    const double distance = std::sqrt(dx * dx + dy * dy);
+    if (std::abs(distance - radius) > tolerance) {
+      return std::nullopt;
+    }
+  }
+
+  return CircleLoop{.center_x = center_x, .center_y = center_y, .radius = radius};
+}
+
+std::optional<TopoDS_Wire> make_circle_wire(
     const ExtrudeFeatureParameters& parameters,
-    const std::vector<SketchProfilePoint>& outer_points,
-    const std::vector<std::vector<SketchProfilePoint>>& inner_loops) {
+    const CircleLoop& circle) {
+  const gp_Pnt center = to_world_point(parameters, circle.center_x, circle.center_y);
+  const gp_Circ curve(gp_Ax2(center, plane_normal(parameters)), circle.radius);
+  BRepBuilderAPI_MakeEdge edge_builder(curve);
+  if (!edge_builder.IsDone()) {
+    return std::nullopt;
+  }
+  BRepBuilderAPI_MakeWire wire_builder(edge_builder.Edge());
+  if (!wire_builder.IsDone()) {
+    return std::nullopt;
+  }
+  return wire_builder.Wire();
+}
+
+TopoDS_Wire make_profile_wire(
+    const ExtrudeFeatureParameters& parameters,
+    const std::vector<SketchProfilePoint>& points) {
+  if (const auto circle = detect_circle_loop(points)) {
+    if (const auto wire = make_circle_wire(parameters, circle.value())) {
+      return wire.value();
+    }
+  }
+
   BRepBuilderAPI_MakePolygon polygon_builder;
-  for (const auto& point : outer_points) {
+  for (const auto& point : points) {
     polygon_builder.Add(to_world_point(parameters, point.x, point.y));
   }
   polygon_builder.Close();
@@ -88,22 +176,22 @@ TopoDS_Shape make_polygon_prism_shape(
   if (!polygon_builder.IsDone()) {
     throw std::runtime_error("Failed to build polygon wire");
   }
+  return polygon_builder.Wire();
+}
 
-  BRepBuilderAPI_MakeFace face_builder(polygon_builder.Wire());
+TopoDS_Shape make_polygon_prism_shape(
+    const ExtrudeFeatureParameters& parameters,
+    const std::vector<SketchProfilePoint>& outer_points,
+    const std::vector<std::vector<SketchProfilePoint>>& inner_loops) {
+  BRepBuilderAPI_MakeFace face_builder(
+      make_profile_wire(parameters, outer_points));
   for (const auto& loop : inner_loops) {
     if (loop.size() < 3) {
       continue;
     }
-    BRepBuilderAPI_MakePolygon hole_builder;
-    for (const auto& point : loop) {
-      hole_builder.Add(to_world_point(parameters, point.x, point.y));
-    }
-    hole_builder.Close();
-    if (hole_builder.IsDone()) {
-      TopoDS_Wire hole_wire = hole_builder.Wire();
-      hole_wire.Reverse();
-      face_builder.Add(hole_wire);
-    }
+    TopoDS_Wire hole_wire = make_profile_wire(parameters, loop);
+    hole_wire.Reverse();
+    face_builder.Add(hole_wire);
   }
 
   const TopoDS_Shape face = face_builder.Shape();

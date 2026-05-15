@@ -1,0 +1,1841 @@
+# AI CAD Command Language
+
+This document teaches an AI agent the command language PolySmith exposes over
+IPC. It is intentionally agent-oriented: it explains what to remember in
+context, what IDs to read from core state, which command types exist, and how to
+combine them into CAD modeling workflows.
+
+Runtime source of truth:
+
+- Command union and payload shapes: `apps/desktop-ui/src/types/ipc.ts`
+- Command builder helpers: `apps/desktop-ui/src/lib/ipcProtocol.ts`
+- Core command dispatch: `native/cad-core/src/app.cpp`
+- Core response validation schema: `apps/desktop-ui/src/lib/schemas/ipcSchema.ts`
+- Protocol rules: `docs/architecture/ipc-protocol.md`
+- Fusion-style behavior rule: `docs/architecture/fusion-style-behavior.md`
+
+## Mental Model
+
+PolySmith is command-driven CAD. An agent does not mutate CAD state directly.
+It sends newline-delimited JSON commands to the native core, then reads
+`document_state` and `viewport_state` responses to discover the resulting IDs
+and geometry.
+
+The React UI is only a presentation layer. The native core owns:
+
+- document state
+- feature history
+- sketch state
+- geometry solving
+- profile detection
+- body compilation
+- selection state
+- face, edge, vertex, profile, sketch entity, and feature IDs
+
+An AI agent should therefore treat PolySmith like a small CAD language:
+
+1. Send one explicit command.
+2. Wait for the resulting `document_state`, `viewport_state`, `document_saved`,
+   `document_exported`, or `error`.
+3. Read IDs and geometry from the returned state.
+4. Use those IDs in later commands.
+5. Never invent IDs.
+
+## Transport Shape
+
+Commands are JSON objects:
+
+```json
+{
+  "id": "agent-generated-command-id",
+  "type": "command_type",
+  "payload": {}
+}
+```
+
+Rules:
+
+- Every command except `shutdown` requires an `id` string.
+- `payload` must be an object. Use `{}` for commands with no parameters.
+- Units are millimeters.
+- Sketch coordinates are 2D coordinates in the active sketch plane.
+- World-space vectors use `{ "x": number, "y": number, "z": number }`.
+- A successful mutating command usually returns `document_state`.
+- Use `get_viewport_state` after mutations when the next step needs pickable
+  faces, edges, vertices, bodies, or sketch profiles.
+
+## Core Response Types
+
+### `hello`
+
+Emitted when the core starts.
+
+Payload:
+
+```json
+{
+  "service": "cad_core",
+  "version": "0.1.0"
+}
+```
+
+### `pong`
+
+Response to `ping`.
+
+Payload:
+
+```json
+{
+  "version": "0.1.0"
+}
+```
+
+### `document_created`
+
+Response to `create_document`. Payload is `DocumentState`.
+
+### `document_state`
+
+Response to most document, selection, sketch, and modeling commands. Payload is
+`DocumentState`.
+
+Important fields for an agent:
+
+```ts
+{
+  document_id: string;
+  name: string;
+  units: string;
+  revision: number;
+  selected_feature_id: string | null;
+  selected_reference_id: string | null;
+  selected_face_id: string | null;
+  selected_edge_ids: string[];
+  selected_vertex_ids: string[];
+  active_sketch_plane_id: string | null;
+  active_sketch_face_id: string | null;
+  active_sketch_feature_id: string | null;
+  active_sketch_tool:
+    | "select"
+    | "line"
+    | "rectangle"
+    | "circle"
+    | "arc"
+    | "fillet"
+    | "project"
+    | "dimension"
+    | null;
+  selected_sketch_point_id: string | null;
+  selected_sketch_entity_id: string | null;
+  selected_sketch_point_ids: string[];
+  selected_sketch_entity_ids: string[];
+  selected_sketch_dimension_id: string | null;
+  selected_sketch_profile_id: string | null;
+  selected_sketch_profile_ids: string[];
+  feature_history: FeatureEntry[];
+}
+```
+
+Use `feature_history` to find stable feature IDs and sketch internals. Feature
+kinds currently include:
+
+- `root_part`
+- `box`
+- `cylinder`
+- `sketch`
+- `extrude`
+- `fillet`
+- `chamfer`
+- `construction_plane`
+
+### `session_state`
+
+Response to `get_session_state`.
+
+```ts
+{
+  document_count: number;
+  has_active_document: boolean;
+  active_document_id: string | null;
+  can_undo: boolean;
+  can_redo: boolean;
+}
+```
+
+### `viewport_state`
+
+Response to `get_viewport_state`. Use this to discover pickable/renderable
+geometry. Important arrays:
+
+- `reference_planes[]`: origin and construction planes
+- `reference_axes[]`: origin axes
+- `solid_faces[]`: selectable planar/non-planar faces
+- `edges[]`: selectable body edges
+- `vertices[]`: selectable body vertices
+- `sketch_lines[]`, `sketch_circles[]`, `sketch_arcs[]`, `sketch_points[]`
+- `sketch_dimensions[]`, `sketch_constraints[]`
+- `sketch_profiles[]`: selectable closed regions for extrusion
+- `bodies[]`: body IDs for boolean target selection
+- `meshes[]`: triangulated body geometry
+- `cut_previews[]`: live cut preview geometry
+
+Reference plane IDs:
+
+- `ref-plane-xy`
+- `ref-plane-yz`
+- `ref-plane-xz`
+
+Body edge IDs have the form `<owner_body_id>:edge:<index>`.
+Body vertex IDs have the form `<owner_body_id>:vertex:<index>`.
+Face IDs are core-provided strings. Do not construct them unless the core has
+already emitted the exact ID in `viewport_state.solid_faces[]`.
+
+### `document_saved`
+
+Response to `save_document`.
+
+```ts
+{
+  file_path: string;
+}
+```
+
+### `document_exported`
+
+Response to `export_document` and `export_document_stl`.
+
+```ts
+{
+  file_path: string;
+  format: "step" | "stl";
+  exported_feature_count: number;
+}
+```
+
+### `log`
+
+Structured diagnostic event. Do not depend on log text for CAD behavior.
+
+```ts
+{
+  level: "debug" | "info" | "warn" | "error";
+  source: string;
+  message: string;
+  timestamp: string;
+}
+```
+
+### `error`
+
+Structured command failure.
+
+```ts
+{
+  code: string;
+  message: string;
+}
+```
+
+On `error`, do not continue as though the command succeeded. Read the message,
+refresh state if needed, and choose a valid next command.
+
+## Command Reference
+
+The following commands are implemented by the native core.
+
+### Lifecycle and Inspection
+
+#### `ping`
+
+Checks the core is responsive.
+
+Payload:
+
+```json
+{}
+```
+
+Returns `pong`.
+
+#### `shutdown`
+
+Requests core shutdown. This command may omit `id`.
+
+Payload:
+
+```json
+{}
+```
+
+#### `create_document`
+
+Creates a new active document.
+
+Payload:
+
+```json
+{}
+```
+
+Returns `document_created`.
+
+#### `get_document_state`
+
+Returns the active document state.
+
+Payload:
+
+```json
+{}
+```
+
+#### `get_session_state`
+
+Returns session metadata and undo/redo availability.
+
+Payload:
+
+```json
+{}
+```
+
+#### `get_viewport_state`
+
+Returns the core-owned render and pick snapshot.
+
+Payload:
+
+```json
+{}
+```
+
+### Persistence and Export
+
+#### `save_document`
+
+Saves the active document as a `.polysmith` file.
+
+Payload:
+
+```ts
+{
+  file_path: string;
+}
+```
+
+Returns `document_saved`.
+
+#### `load_document`
+
+Loads a `.polysmith` file, replaces the active document, restores ID counters,
+and clears undo/redo stacks.
+
+Payload:
+
+```ts
+{
+  file_path: string;
+}
+```
+
+Returns `document_state`.
+
+#### `export_document`
+
+Exports solid-producing features as STEP.
+
+Payload:
+
+```ts
+{
+  file_path: string;
+}
+```
+
+Returns `document_exported` with `format: "step"`.
+
+#### `export_document_stl`
+
+Exports solid-producing features as binary STL.
+
+Payload:
+
+```ts
+{
+  file_path: string;
+}
+```
+
+Returns `document_exported` with `format: "stl"`.
+
+### Primitive Solid Features
+
+Primitive feature commands are direct modeling shortcuts. For richer CAD
+objects, prefer sketches plus `extrude_profile`.
+
+#### `add_box_feature`
+
+Creates a box feature.
+
+Payload:
+
+```ts
+{
+  width: number;
+  height: number;
+  depth: number;
+}
+```
+
+Returns `document_state`. Read the new feature ID from
+`feature_history[].feature_id` where `kind === "box"`.
+
+#### `update_box_feature`
+
+Updates an existing box.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+  width: number;
+  height: number;
+  depth: number;
+}
+```
+
+#### `add_cylinder_feature`
+
+Creates a cylinder feature.
+
+Payload:
+
+```ts
+{
+  radius: number;
+  height: number;
+}
+```
+
+#### `update_cylinder_feature`
+
+Updates an existing cylinder.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+  radius: number;
+  height: number;
+}
+```
+
+### Feature History Commands
+
+#### `rename_feature`
+
+Renames a feature in the timeline.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+  name: string;
+}
+```
+
+#### `set_feature_suppressed`
+
+Suppresses or unsuppresses a feature.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+  suppressed: boolean;
+}
+```
+
+#### `delete_feature`
+
+Deletes a feature. The core owns dependency handling and warnings.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+}
+```
+
+#### `undo`
+
+Reverts the previous document operation when available.
+
+Payload:
+
+```json
+{}
+```
+
+#### `redo`
+
+Reapplies an undone operation when available.
+
+Payload:
+
+```json
+{}
+```
+
+### Selection Commands
+
+Selection commands set core-owned selected IDs. They are useful before UI-like
+flows, but modeling commands can usually take IDs directly.
+
+#### `clear_selection`
+
+Clears selected feature, reference, face, edge, vertex, sketch entity, sketch
+point, sketch dimension, and sketch profile state.
+
+Payload:
+
+```json
+{}
+```
+
+#### `select_feature`
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+}
+```
+
+#### `select_reference`
+
+Selects a reference plane or axis by core-emitted ID.
+
+Payload:
+
+```ts
+{
+  reference_id: string;
+}
+```
+
+#### `select_face`
+
+Selects a body face by ID from `viewport_state.solid_faces[]`.
+
+Payload:
+
+```ts
+{
+  face_id: string;
+}
+```
+
+#### `select_edge`
+
+Selects or toggles a body edge by ID from `viewport_state.edges[]`.
+
+Payload:
+
+```ts
+{
+  edge_id: string;
+  additive: boolean;
+}
+```
+
+If `additive` is false, the edge replaces the previous edge selection. If true,
+the edge toggles into the multi-edge selection set.
+
+#### `select_vertex`
+
+Selects or toggles a body vertex by ID from `viewport_state.vertices[]`.
+
+Payload:
+
+```ts
+{
+  vertex_id: string;
+  additive: boolean;
+}
+```
+
+### Construction Planes
+
+#### `create_offset_plane`
+
+Creates a parametric construction plane offset from another plane or planar
+face.
+
+Payload:
+
+```ts
+{
+  source_plane_id: string;
+  offset: number;
+}
+```
+
+`source_plane_id` may be:
+
+- `ref-plane-xy`
+- `ref-plane-yz`
+- `ref-plane-xz`
+- an existing construction plane feature ID
+- a planar body face ID from `viewport_state.solid_faces[]`
+
+The offset is signed along the source plane normal.
+
+#### `update_offset_plane`
+
+Updates a construction plane offset.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+  offset: number;
+}
+```
+
+### Starting and Reentering Sketches
+
+Sketch commands require an active sketch unless explicitly stated otherwise.
+Start a sketch before adding sketch geometry.
+
+#### `start_sketch_on_plane`
+
+Starts a sketch on an origin or construction plane.
+
+Payload:
+
+```ts
+{
+  reference_id: string;
+}
+```
+
+Use `ref-plane-xy`, `ref-plane-yz`, `ref-plane-xz`, or a construction plane
+feature ID.
+
+#### `start_sketch_on_face`
+
+Starts a sketch on a planar body face. The `plane_frame` must be copied from the
+matching face in `viewport_state.solid_faces[]`.
+
+Payload:
+
+```ts
+{
+  face_id: string;
+  plane_frame: {
+    origin: { x: number; y: number; z: number };
+    x_axis: { x: number; y: number; z: number };
+    y_axis: { x: number; y: number; z: number };
+    normal: { x: number; y: number; z: number };
+  };
+}
+```
+
+#### `finish_sketch`
+
+Finishes the active sketch.
+
+Payload:
+
+```json
+{}
+```
+
+#### `reenter_sketch`
+
+Reactivates an existing sketch feature by feature ID without creating a new
+sketch.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+}
+```
+
+### Sketch Tools
+
+#### `set_sketch_tool`
+
+Sets the core-owned active sketch tool.
+
+Payload:
+
+```ts
+{
+  tool:
+    | "select"
+    | "line"
+    | "rectangle"
+    | "circle"
+    | "arc"
+    | "fillet"
+    | "project"
+    | "dimension";
+}
+```
+
+An AI agent that sends direct add/update commands does not always need to set
+the tool, but setting it keeps UI state consistent for interactive workflows.
+
+### Sketch Geometry Creation
+
+All sketch geometry is created in the active sketch plane using local 2D
+coordinates.
+
+#### `add_sketch_line`
+
+Adds a line segment.
+
+Payload:
+
+```ts
+{
+  start_x: number;
+  start_y: number;
+  end_x: number;
+  end_y: number;
+  is_construction: boolean;
+}
+```
+
+Construction lines render dashed, can be referenced by constraints/snaps, and
+do not form profiles.
+
+#### `add_sketch_rectangle`
+
+Adds four sketch lines from diagonal corners.
+
+Payload:
+
+```ts
+{
+  start_x: number;
+  start_y: number;
+  end_x: number;
+  end_y: number;
+  is_construction: boolean;
+}
+```
+
+Non-construction rectangles normally produce a closed `sketch_profile`.
+
+#### `add_sketch_circle`
+
+Adds a circle.
+
+Payload:
+
+```ts
+{
+  center_x: number;
+  center_y: number;
+  radius: number;
+  is_construction: boolean;
+}
+```
+
+Non-construction circles produce circular profiles.
+
+#### `add_sketch_arc`
+
+Adds an arc.
+
+Payload:
+
+```ts
+{
+  start_x: number;
+  start_y: number;
+  end_x: number;
+  end_y: number;
+  anchor_x: number;
+  anchor_y: number;
+  mode: "three_point" | "center_start_end";
+  is_construction: boolean;
+}
+```
+
+Modes:
+
+- `three_point`: start, end, and anchor all lie on the arc. The core computes
+  the circumcenter.
+- `center_start_end`: anchor is the center. Radius comes from center to start,
+  and the end point is snapped onto that circle.
+
+The core rejects colinear and zero-radius arcs.
+
+#### `add_sketch_fillet`
+
+Rounds a sketch corner shared by two sketch lines into a tangent arc.
+
+Payload:
+
+```ts
+{
+  corner_point_id: string;
+  line_a_id: string;
+  line_b_id: string;
+  radius: number;
+}
+```
+
+The corner point must be an endpoint of both lines. Read `corner_point_id`,
+`line_a_id`, and `line_b_id` from the active sketch's `points[]` and `lines[]`.
+
+### Sketch Geometry Updates
+
+#### `update_sketch_line`
+
+Replaces a line's endpoints.
+
+Payload:
+
+```ts
+{
+  line_id: string;
+  start_x: number;
+  start_y: number;
+  end_x: number;
+  end_y: number;
+}
+```
+
+#### `update_sketch_point`
+
+Moves a sketch point. The core updates owned geometry and constraints.
+
+Payload:
+
+```ts
+{
+  point_id: string;
+  x: number;
+  y: number;
+}
+```
+
+#### `update_sketch_circle`
+
+Updates a circle.
+
+Payload:
+
+```ts
+{
+  circle_id: string;
+  center_x: number;
+  center_y: number;
+  radius: number;
+}
+```
+
+#### `set_sketch_line_construction`
+
+Toggles whether a sketch line is construction geometry.
+
+Payload:
+
+```ts
+{
+  line_id: string;
+  is_construction: boolean;
+}
+```
+
+#### `update_sketch_fillet_radius`
+
+Updates a parametric sketch fillet.
+
+Payload:
+
+```ts
+{
+  fillet_id: string;
+  radius: number;
+}
+```
+
+#### `delete_sketch_fillet`
+
+Removes a sketch fillet and restores the original corner.
+
+Payload:
+
+```ts
+{
+  fillet_id: string;
+}
+```
+
+#### `delete_sketch_selection`
+
+Deletes selected sketch geometry by explicit IDs.
+
+Payload:
+
+```ts
+{
+  entity_ids: string[];
+  point_ids: string[];
+  profile_ids: string[];
+}
+```
+
+`entity_ids` may reference sketch lines, circles, or arcs. `point_ids` resolve
+to owned geometry. `profile_ids` resolve to profile boundary geometry.
+
+### Sketch Selection Commands
+
+#### `select_sketch_entity`
+
+Selects or toggles a sketch edge entity.
+
+Payload:
+
+```ts
+{
+  entity_id: string;
+  additive: boolean;
+}
+```
+
+Entity IDs may be line IDs, circle IDs, or arc IDs.
+
+#### `select_sketch_point`
+
+Selects or toggles a sketch point.
+
+Payload:
+
+```ts
+{
+  point_id: string;
+  additive: boolean;
+}
+```
+
+#### `select_sketch_dimension`
+
+Selects a sketch dimension.
+
+Payload:
+
+```ts
+{
+  dimension_id: string;
+}
+```
+
+#### `select_sketch_profile`
+
+Selects or toggles a closed sketch profile.
+
+Payload:
+
+```ts
+{
+  profile_id: string;
+  additive?: boolean;
+}
+```
+
+Profiles can be selected from any sketch in the document. The core resolves the
+owning sketch.
+
+### Sketch Constraints and Anchors
+
+#### `set_sketch_line_constraint`
+
+Sets or clears a horizontal/vertical relation.
+
+Payload:
+
+```ts
+{
+  line_id: string;
+  constraint: "none" | "horizontal" | "vertical";
+}
+```
+
+#### `set_sketch_equal_length_constraint`
+
+Sets or clears an equal-length relation between two lines.
+
+Payload:
+
+```ts
+{
+  line_id: string;
+  other_line_id: string;
+}
+```
+
+Use `"none"` for `other_line_id` to clear the relation.
+
+#### `set_sketch_perpendicular_constraint`
+
+Sets or clears a perpendicular relation between two lines.
+
+Payload:
+
+```ts
+{
+  line_id: string;
+  other_line_id: string;
+}
+```
+
+Use `"none"` for `other_line_id` to clear the relation.
+
+#### `set_sketch_parallel_constraint`
+
+Sets or clears a parallel relation between two lines.
+
+Payload:
+
+```ts
+{
+  line_id: string;
+  other_line_id: string;
+}
+```
+
+Use `"none"` for `other_line_id` to clear the relation.
+
+#### `set_sketch_tangent_constraint`
+
+Sets or clears a line-circle tangent relation.
+
+Payload:
+
+```ts
+{
+  line_id: string;
+  circle_id: string;
+}
+```
+
+Use an empty string for `circle_id` to clear.
+
+#### `set_sketch_coincident_constraint`
+
+Makes two sketch points coincident.
+
+Payload:
+
+```ts
+{
+  point_id: string;
+  other_point_id: string;
+}
+```
+
+#### `set_sketch_point_fixed`
+
+Fixes or unfixes a sketch point.
+
+Payload:
+
+```ts
+{
+  point_id: string;
+  is_fixed: boolean;
+}
+```
+
+#### `set_sketch_midpoint_anchor`
+
+Constrains a point to the midpoint of a host line.
+
+Payload:
+
+```ts
+{
+  point_id: string;
+  host_line_id: string;
+}
+```
+
+Use an empty string for `host_line_id` to clear.
+
+#### `set_sketch_point_line_anchor`
+
+Constrains a point to a parametric position along a host line.
+
+Payload:
+
+```ts
+{
+  point_id: string;
+  host_line_id: string;
+  t: number;
+}
+```
+
+`t` is clamped by the core. `0` is the host start, `1` is the host end, and
+`0.5` is the midpoint. Use an empty string for `host_line_id` to clear.
+
+### Sketch Dimensions
+
+#### `add_sketch_angle_dimension`
+
+Adds or reselects an angle dimension between two lines sharing an endpoint.
+
+Payload:
+
+```ts
+{
+  first_line_id: string;
+  second_line_id: string;
+}
+```
+
+#### `add_sketch_distance_dimension`
+
+Adds or reselects a distance dimension.
+
+Payload:
+
+```ts
+{
+  first_entity_id: string;
+  second_entity_id: string;
+}
+```
+
+Supported combinations:
+
+- parallel line to parallel line
+- circle center to circle center
+- circle center to line
+
+#### `update_sketch_dimension`
+
+Solves a dimension to a new value.
+
+Payload:
+
+```ts
+{
+  dimension_id: string;
+  value: number;
+}
+```
+
+Dimension kinds emitted by state:
+
+- `line_length`
+- `circle_radius`
+- `angle`
+- `line_line_distance`
+- `circle_center_distance`
+- `circle_line_distance`
+
+### Mirror Preview Lifecycle
+
+Mirror follows the Fusion-style lifecycle: start preview, update inputs, commit
+or cancel.
+
+#### `start_mirror_preview`
+
+Starts an empty pending mirror preview in the active sketch.
+
+Payload:
+
+```json
+{}
+```
+
+#### `update_mirror_preview_axis`
+
+Sets the mirror axis.
+
+Payload:
+
+```ts
+{
+  axis_line_id: string;
+}
+```
+
+Use an empty string to clear the axis.
+
+#### `update_mirror_preview_objects`
+
+Sets the sketch objects to mirror.
+
+Payload:
+
+```ts
+{
+  object_ids: string[];
+}
+```
+
+Object IDs are sketch line IDs and circle IDs supported by the current mirror
+tool.
+
+#### `commit_mirror_preview`
+
+Commits preview geometry into real sketch geometry.
+
+Payload:
+
+```json
+{}
+```
+
+#### `cancel_mirror_preview`
+
+Cancels the pending mirror preview.
+
+Payload:
+
+```json
+{}
+```
+
+### Profile Extrusion
+
+#### `extrude_profile`
+
+Creates an extrude feature from one or more closed sketch profiles. This command
+does not require an active sketch; the core resolves each profile's owning
+sketch.
+
+Payload:
+
+```ts
+{
+  profile_id?: string;
+  profile_ids?: string[];
+  depth: number;
+  mode?: "new_body" | "join" | "cut";
+  target_body_id?: string;
+}
+```
+
+Rules:
+
+- Prefer `profile_ids` even for one profile.
+- `profile_id` is kept for legacy single-profile callers.
+- Multiple profiles must belong to the same sketch plane.
+- `mode` defaults to `new_body`.
+- For `join` and `cut`, `target_body_id` is optional. If omitted, the core
+  falls back to the most recent body when possible.
+- Use `viewport_state.bodies[]` to discover explicit target body IDs.
+
+#### `update_extrude_depth`
+
+Live-edits an extrude depth.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+  depth: number;
+}
+```
+
+#### `update_extrude_mode`
+
+Changes an existing extrude's boolean composition mode.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+  mode: "new_body" | "join" | "cut";
+}
+```
+
+#### `update_extrude_target_body`
+
+Changes or clears an extrude's explicit boolean target.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+  target_body_id?: string;
+}
+```
+
+Omit `target_body_id` to clear the explicit target.
+
+#### `update_extrude_profiles`
+
+Replaces the source profile set for an extrude.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+  profile_ids: string[];
+}
+```
+
+### Body Fillets and Chamfers
+
+These commands operate on body edges from `viewport_state.edges[]`. Edge IDs
+must belong to the same owner body for a multi-edge operation.
+
+#### `create_fillet`
+
+Creates a body edge fillet preview/feature.
+
+Payload:
+
+```ts
+{
+  edge_ids: string[];
+  radius: number;
+}
+```
+
+The core also accepts legacy `{ edge_id: string, radius: number }`, but agents
+should use `edge_ids`.
+
+#### `update_fillet_edges`
+
+Changes the selected edges for a fillet.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+  edge_ids: string[];
+}
+```
+
+#### `update_fillet_radius`
+
+Changes a fillet radius.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+  radius: number;
+}
+```
+
+#### `confirm_fillet`
+
+Confirms a fillet feature.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+}
+```
+
+#### `create_chamfer`
+
+Creates a body edge chamfer preview/feature.
+
+Payload:
+
+```ts
+{
+  edge_ids: string[];
+  distance: number;
+}
+```
+
+The core also accepts legacy `{ edge_id: string, distance: number }`, but agents
+should use `edge_ids`.
+
+#### `update_chamfer_edges`
+
+Changes the selected edges for a chamfer.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+  edge_ids: string[];
+}
+```
+
+#### `update_chamfer_distance`
+
+Changes a chamfer distance.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+  distance: number;
+}
+```
+
+#### `confirm_chamfer`
+
+Confirms a chamfer feature.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+}
+```
+
+### Project Into Sketch
+
+Projection commands require an active sketch. They copy or live-link body
+geometry into that sketch.
+
+#### `project_face_into_sketch`
+
+Projects a solid face outline into the active sketch.
+
+Payload:
+
+```ts
+{
+  face_id: string;
+}
+```
+
+Use a face ID from `viewport_state.solid_faces[]`. Repeated projection of the
+same source is idempotent.
+
+#### `project_edge_into_sketch`
+
+Projects a body edge into the active sketch.
+
+Payload:
+
+```ts
+{
+  edge_id: string;
+}
+```
+
+Linear edges become sketch lines. Circular edges become sketch circles or arcs
+when valid for the current sketch plane.
+
+#### `project_vertex_into_sketch`
+
+Projects a body vertex into the active sketch as a fixed standalone point.
+
+Payload:
+
+```ts
+{
+  vertex_id: string;
+}
+```
+
+## State Shapes an Agent Should Remember
+
+### Feature Entries
+
+Every feature in `document_state.feature_history[]` has a stable ID and
+feature-specific parameter objects.
+
+Common fields:
+
+```ts
+{
+  feature_id: string;
+  kind: string;
+  name: string;
+  status: string;
+  suppressed: boolean;
+  dependency_broken: boolean;
+  dependency_warning: string;
+  parameters_summary: string;
+}
+```
+
+Parameter fields:
+
+- `box_parameters: { width, height, depth } | null`
+- `cylinder_parameters: { radius, height } | null`
+- `extrude_parameters: ExtrudeFeatureParameters | null`
+- `fillet_parameters: { target_body_id, edge_ids, radius } | null`
+- `chamfer_parameters: { target_body_id, edge_ids, distance } | null`
+- `construction_plane_parameters: { source_plane_id, offset, plane_frame } | null`
+- `sketch_parameters: SketchFeatureParameters | null`
+
+### Sketch Parameters
+
+When a feature has `kind === "sketch"`, its `sketch_parameters` are the local
+2D source of truth:
+
+```ts
+{
+  plane_id: string;
+  plane_frame: PlaneFrame | null;
+  active_tool: SketchTool;
+  lines: SketchLineEntry[];
+  circles: SketchCircleEntry[];
+  arcs: SketchArcEntry[];
+  fillets: SketchFilletEntry[];
+  points: SketchPointEntry[];
+  dimensions: SketchDimensionEntry[];
+  line_relations: SketchLineRelationEntry[];
+  midpoint_anchors: SketchMidpointAnchorEntry[];
+  point_line_anchors: SketchPointLineAnchorEntry[];
+  projected_points: SketchProjectedPointEntry[];
+  projected_sources: string[];
+  projections: SketchProjectionEntry[];
+  profiles: SketchProfileRegionEntry[];
+  pending_mirror: PendingMirrorEntry | null;
+}
+```
+
+The most common agent reads:
+
+- `lines[].line_id`, `start_point_id`, `end_point_id`
+- `circles[].circle_id`
+- `arcs[].arc_id`, `start_point_id`, `end_point_id`
+- `points[].point_id`, `kind`, `x`, `y`
+- `profiles[].profile_id`, `kind`, `points`, `source_circle_id`
+- `dimensions[].dimension_id`, `kind`, `value`
+- `fillets[].fillet_id`
+
+### Viewport Picks
+
+Use `viewport_state` when selecting existing body topology:
+
+```ts
+solid_faces[]: {
+  face_id: string;
+  owner_id: string;
+  owner_kind: string;
+  label: string;
+  sketchability: string;
+  center: Vector3;
+  normal: Vector3;
+  plane_frame: PlaneFrame;
+  is_selected: boolean;
+}
+```
+
+```ts
+edges[]: {
+  id: string;
+  owner_body_id: string;
+  kind: string;
+  points: number[];
+  length: number;
+  is_selected: boolean;
+}
+```
+
+```ts
+vertices[]: {
+  id: string;
+  owner_body_id: string;
+  position: Vector3;
+  is_selected: boolean;
+}
+```
+
+```ts
+bodies[]: {
+  id: string;
+  label: string;
+}
+```
+
+```ts
+sketch_profiles[]: {
+  profile_id: string;
+  plane_id: string;
+  plane_frame: PlaneFrame | null;
+  profile_kind: "polygon" | "circle";
+  profile_points: { x: number; y: number }[];
+  start_x: number;
+  start_y: number;
+  width: number;
+  height: number;
+  radius: number;
+  is_selected: boolean;
+}
+```
+
+## Agent Workflow Recipes
+
+### Create a Fresh Document
+
+1. Send `create_document`.
+2. Read `document_created.payload.document_id`.
+3. Send `get_viewport_state` if you need planes or axes.
+
+Example:
+
+```json
+{"id":"cmd-001","type":"create_document","payload":{}}
+```
+
+### Create a Box Primitive
+
+```json
+{
+  "id": "cmd-010",
+  "type": "add_box_feature",
+  "payload": {
+    "width": 80,
+    "height": 40,
+    "depth": 20
+  }
+}
+```
+
+Then read the new `box` feature from `feature_history`.
+
+### Sketch a Rectangle and Extrude It
+
+1. Send `start_sketch_on_plane` using `ref-plane-xy`.
+2. Send `add_sketch_rectangle`.
+3. Read `document_state.feature_history[]` and find the active sketch feature.
+4. Read `sketch_parameters.profiles[]` from that sketch, or request
+   `get_viewport_state` and read `sketch_profiles[]`.
+5. Send `extrude_profile` with the profile ID.
+6. Send `finish_sketch` if the sketch is still active and the desired UX is a
+   completed sketch.
+
+Commands:
+
+```json
+{"id":"cmd-020","type":"start_sketch_on_plane","payload":{"reference_id":"ref-plane-xy"}}
+```
+
+```json
+{
+  "id": "cmd-021",
+  "type": "add_sketch_rectangle",
+  "payload": {
+    "start_x": 0,
+    "start_y": 0,
+    "end_x": 80,
+    "end_y": 40,
+    "is_construction": false
+  }
+}
+```
+
+After reading `profile_id` from state:
+
+```json
+{
+  "id": "cmd-022",
+  "type": "extrude_profile",
+  "payload": {
+    "profile_ids": ["profile-id-from-state"],
+    "depth": 25,
+    "mode": "new_body"
+  }
+}
+```
+
+### Sketch a Circle and Cut a Hole
+
+1. Create or identify an existing target body.
+2. Send `get_viewport_state` and choose a planar face from `solid_faces[]`.
+3. Start a face sketch with `start_sketch_on_face`, copying the exact
+   `plane_frame` from that face.
+4. Add a circle in local sketch coordinates.
+5. Read the circular profile ID.
+6. Send `extrude_profile` with `mode: "cut"` and `target_body_id`.
+
+Important: the AI must not compute its own face frame. Use the core-emitted
+`plane_frame`.
+
+### Join Multiple Profiles
+
+1. Draw multiple closed, non-construction profiles in the same sketch.
+2. Read all desired `profile_id` values.
+3. Send `extrude_profile` with `profile_ids`.
+4. Use `mode: "join"` and an explicit `target_body_id` from
+   `viewport_state.bodies[]` if joining to an existing body.
+
+### Add a Body Fillet
+
+1. Send `get_viewport_state`.
+2. Pick one or more edges from `edges[]` with the same `owner_body_id`.
+3. Send `create_fillet`.
+4. Read the new feature ID from `feature_history[]` where `kind === "fillet"`.
+5. Optionally send `update_fillet_radius` or `update_fillet_edges`.
+6. Send `confirm_fillet`.
+
+### Add a Body Chamfer
+
+Same flow as body fillet, but use `create_chamfer`,
+`update_chamfer_distance`, `update_chamfer_edges`, and `confirm_chamfer`.
+
+### Project Existing Geometry Into a Sketch
+
+1. Start or reenter a sketch.
+2. Send `get_viewport_state`.
+3. Choose a body face, edge, or vertex.
+4. Send the matching `project_*_into_sketch` command.
+5. Read generated lines, circles, arcs, or points from the active sketch's
+   `sketch_parameters`.
+
+Projection creates live-link records in `sketch_parameters.projections[]`.
+If upstream geometry changes, the core refreshes projected entities during
+recompute.
+
+### Use Dimensions to Drive Geometry
+
+1. Draw the geometry.
+2. Read the relevant sketch entity IDs.
+3. Send an `add_sketch_*_dimension` command.
+4. Read the resulting `dimension_id`.
+5. Send `update_sketch_dimension` with the desired value.
+
+For simple line length and circle radius dimensions, the core may auto-create
+dimensions. Always read state to confirm the dimension exists before updating.
+
+## Command Planning Rules for Agents
+
+Use these rules when translating a user request like "draw a bracket with two
+holes" into PolySmith commands.
+
+1. Prefer sketch plus extrude for meaningful CAD parts.
+2. Use primitive `add_box_feature` / `add_cylinder_feature` only for simple
+   standalone solids or quick tests.
+3. Always create or load a document before modeling.
+4. Start a sketch before adding sketch geometry.
+5. Use non-construction geometry for profiles.
+6. Use construction geometry only as references, axes, and snap helpers.
+7. After creating sketch geometry, read state before using profile, line,
+   circle, arc, point, or dimension IDs.
+8. After creating solid geometry, read viewport state before using face, edge,
+   vertex, or body IDs.
+9. For face sketches, copy `plane_frame` from `viewport_state.solid_faces[]`.
+10. For booleans, read `viewport_state.bodies[]` and use explicit
+    `target_body_id` when possible.
+11. For fillet/chamfer, use edge IDs from `viewport_state.edges[]`, not sketch
+    line IDs.
+12. For sketch fillet, use sketch line IDs and a shared sketch point ID, not
+    body edge IDs.
+13. Treat `error` as a failed command. Do not assume partial success.
+14. Never expose internal IDs to end users. IDs are for agent context and IPC
+    only.
+
+## Common ID Lookup Patterns
+
+### Find the Active Sketch
+
+From `document_state`:
+
+1. Read `active_sketch_feature_id`.
+2. Find `feature_history[]` entry with matching `feature_id`.
+3. Use its `sketch_parameters`.
+
+### Find a Newly Created Feature
+
+After a mutating command:
+
+1. Compare current `feature_history[]` with the previous state if available.
+2. Otherwise use the last entry of the expected `kind`.
+3. Confirm its parameter object is non-null.
+
+### Find Profiles After Drawing
+
+After non-construction closed geometry:
+
+1. Read `active_sketch_feature_id`.
+2. Inspect that sketch's `sketch_parameters.profiles[]`.
+3. Or send `get_viewport_state` and inspect `sketch_profiles[]`.
+
+### Find a Face to Sketch On
+
+1. Send `get_viewport_state`.
+2. Inspect `solid_faces[]`.
+3. Prefer faces where `sketchability === "planar"`.
+4. Use that entry's `face_id` and `plane_frame` in `start_sketch_on_face`.
+
+### Find Edges for Fillet/Chamfer
+
+1. Send `get_viewport_state`.
+2. Inspect `edges[]`.
+3. Group candidate edges by `owner_body_id`.
+4. Use only edges from one body in a single operation.
+
+## Gotchas
+
+- `select_*` commands are not required before modeling commands that accept
+  explicit IDs.
+- `extrude_profile` accepts profiles from finished sketches.
+- `finish_sketch` is separate from `extrude_profile`; extrusion can happen
+  while a sketch is active.
+- `is_construction: true` geometry does not create closed profiles.
+- `start_sketch_on_face` requires the exact face `plane_frame` from viewport
+  state.
+- Body edge IDs and sketch line IDs are different namespaces.
+- Body fillet/chamfer commands use body edge IDs.
+- Sketch fillet commands use sketch line IDs and sketch point IDs.
+- `update_extrude_target_body` clears its explicit target when
+  `target_body_id` is omitted.
+- The core supports legacy single `edge_id` and `profile_id` payloads in a few
+  places, but agents should prefer arrays where available.
+- Use `get_viewport_state` after body-changing commands because face and edge
+  topology may change.
+
+## Minimal Agent Context Summary
+
+If an AI agent can only keep a compact version of this document in context, keep
+this:
+
+- All commands are JSON `{ id, type, payload }`; only `shutdown` may omit `id`.
+- CAD state lives in the core. Send commands, then read `document_state` and
+  `viewport_state`.
+- Units are millimeters. Sketch geometry uses 2D local plane coordinates.
+- Origin plane IDs: `ref-plane-xy`, `ref-plane-yz`, `ref-plane-xz`.
+- Start sketches with `start_sketch_on_plane` or `start_sketch_on_face`.
+- Draw with `add_sketch_line`, `add_sketch_rectangle`, `add_sketch_circle`,
+  `add_sketch_arc`, and `add_sketch_fillet`.
+- Closed non-construction geometry creates `sketch_profiles`.
+- Extrude profiles with `extrude_profile { profile_ids, depth, mode,
+  target_body_id? }`, where mode is `new_body`, `join`, or `cut`.
+- Update extrudes with `update_extrude_depth`, `update_extrude_mode`,
+  `update_extrude_target_body`, and `update_extrude_profiles`.
+- Read `viewport_state.bodies[]` for boolean targets.
+- Read `viewport_state.solid_faces[]` for face sketches and copy `plane_frame`.
+- Read `viewport_state.edges[]` for body fillet/chamfer.
+- Read sketch `lines[]`, `circles[]`, `arcs[]`, `points[]`, `profiles[]`, and
+  `dimensions[]` from `feature_history[].sketch_parameters`.
+- Use `create_fillet` / `create_chamfer` for body edges; use
+  `add_sketch_fillet` for sketch corners.
+- Projection commands are `project_face_into_sketch`, `project_edge_into_sketch`,
+  and `project_vertex_into_sketch`.
+- Never invent IDs. Never expose IDs in user-facing UI copy.

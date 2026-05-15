@@ -89,6 +89,36 @@ sketch_plane_frame_from_payload(const json& payload) {
   return frame;
 }
 
+json viewport_sketch_plane_frame_to_payload(
+    const polysmith::core::ViewportSketchPlaneFrame& frame) {
+  return {
+      {"origin",
+       {
+           {"x", frame.origin_x},
+           {"y", frame.origin_y},
+           {"z", frame.origin_z},
+       }},
+      {"x_axis",
+       {
+           {"x", frame.x_axis_x},
+           {"y", frame.x_axis_y},
+           {"z", frame.x_axis_z},
+       }},
+      {"y_axis",
+       {
+           {"x", frame.y_axis_x},
+           {"y", frame.y_axis_y},
+           {"z", frame.y_axis_z},
+       }},
+      {"normal",
+       {
+           {"x", frame.normal_x},
+           {"y", frame.normal_y},
+           {"z", frame.normal_z},
+       }},
+  };
+}
+
 polysmith::core::ExtrudeFeatureParameters
 extrude_parameters_from_payload(const json& payload) {
   polysmith::core::ExtrudeFeatureParameters params{};
@@ -1399,6 +1429,10 @@ json to_payload(const polysmith::core::ViewportSketchCirclePrimitive& primitive)
   return {
       {"circle_id", primitive.circle_id},
       {"plane_id", primitive.plane_id},
+      {"plane_frame",
+       primitive.plane_frame.has_value()
+           ? viewport_sketch_plane_frame_to_payload(primitive.plane_frame.value())
+           : json(nullptr)},
       {"center",
        {
            {"x", primitive.center_x},
@@ -1418,6 +1452,10 @@ json to_payload(const polysmith::core::ViewportSketchArcPrimitive& primitive) {
       {"start_point_id", primitive.start_point_id},
       {"end_point_id", primitive.end_point_id},
       {"plane_id", primitive.plane_id},
+      {"plane_frame",
+       primitive.plane_frame.has_value()
+           ? viewport_sketch_plane_frame_to_payload(primitive.plane_frame.value())
+           : json(nullptr)},
       {"center",
        {
            {"x", primitive.center_x},

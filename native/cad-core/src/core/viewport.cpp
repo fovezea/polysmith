@@ -353,6 +353,11 @@ ViewportSketchCirclePrimitive make_sketch_circle_primitive(
   return ViewportSketchCirclePrimitive{
       .circle_id = circle.id,
       .plane_id = parameters.plane_id,
+      .plane_frame = parameters.plane_frame.has_value()
+                         ? std::optional<ViewportSketchPlaneFrame>(
+                               make_sketch_plane_frame(
+                                   parameters.plane_frame.value()))
+                         : std::nullopt,
       .center_x = center.x,
       .center_y = center.y,
       .center_z = center.z,
@@ -375,6 +380,11 @@ ViewportSketchArcPrimitive make_sketch_arc_primitive(
       .start_point_id = arc.start_point_id,
       .end_point_id = arc.end_point_id,
       .plane_id = parameters.plane_id,
+      .plane_frame = parameters.plane_frame.has_value()
+                         ? std::optional<ViewportSketchPlaneFrame>(
+                               make_sketch_plane_frame(
+                                   parameters.plane_frame.value()))
+                         : std::nullopt,
       .center_x = center.x,
       .center_y = center.y,
       .center_z = center.z,

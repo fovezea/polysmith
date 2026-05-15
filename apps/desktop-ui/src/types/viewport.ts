@@ -125,6 +125,7 @@ export interface ViewportSketchLine {
 export interface ViewportSketchCircle {
   circle_id: string;
   plane_id: string;
+  plane_frame: PlaneFrame | null;
   center: Vector3;
   radius: number;
   is_selected: boolean;
@@ -141,6 +142,7 @@ export interface ViewportSketchArc {
   start_point_id: string;
   end_point_id: string;
   plane_id: string;
+  plane_frame: PlaneFrame | null;
   center: Vector3;
   radius: number;
   start: Vector3;

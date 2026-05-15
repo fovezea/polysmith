@@ -1,5 +1,12 @@
 import { z } from "zod";
 
+const planeFrameSchema = z.object({
+  origin: z.object({ x: z.number(), y: z.number(), z: z.number() }),
+  x_axis: z.object({ x: z.number(), y: z.number(), z: z.number() }),
+  y_axis: z.object({ x: z.number(), y: z.number(), z: z.number() }),
+  normal: z.object({ x: z.number(), y: z.number(), z: z.number() }),
+});
+
 const documentStateSchema = z.object({
   document_id: z.string(),
   name: z.string(),
@@ -568,6 +575,7 @@ const viewportStateSchema = z.object({
     z.object({
       circle_id: z.string(),
       plane_id: z.string(),
+      plane_frame: planeFrameSchema.nullable().default(null),
       center: z.object({
         x: z.number(),
         y: z.number(),
@@ -594,6 +602,7 @@ const viewportStateSchema = z.object({
         start_point_id: z.string(),
         end_point_id: z.string(),
         plane_id: z.string(),
+        plane_frame: planeFrameSchema.nullable().default(null),
         center: z.object({
           x: z.number(),
           y: z.number(),
