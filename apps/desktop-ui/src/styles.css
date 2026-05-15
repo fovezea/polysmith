@@ -296,7 +296,7 @@ button:not(:disabled),
   }
 
   .cad-status-pill {
-    @apply inline-flex items-center gap-2 rounded-full px-2.5 py-1.5 text-[11px] uppercase tracking-[0.12em] text-on-surface-muted;
+    @apply inline-flex h-8 items-center gap-2 rounded-full px-2.5 py-0 text-[11px] uppercase tracking-[0.12em] text-on-surface-muted;
     background: var(--cad-subtle-surface-strong);
     box-shadow: inset 0 0 0 1px var(--cad-panel-soft-border);
   }

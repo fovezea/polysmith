@@ -98,6 +98,12 @@ type GridPlaneFrame = {
   yAxis: THREE.Vector3;
   normal: THREE.Vector3;
 };
+type GridPlaneBounds = {
+  minU: number;
+  maxU: number;
+  minV: number;
+  maxV: number;
+};
 type ActiveSketchGridPlaneFrame = NonNullable<
   NonNullable<
     DocumentState["feature_history"][number]["sketch_parameters"]
@@ -128,7 +134,8 @@ const GRID_STEPS_MM = [
   0.1, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000,
 ];
 const GRID_MIN_HALF_LINE_COUNT = 80;
-const GRID_VIEW_COVERAGE_MULTIPLIER = 12;
+const GRID_SKETCH_PADDING_MULTIPLIER = 2;
+const GRID_WORLD_PADDING_MULTIPLIER = 6;
 const GRID_MAJOR_EVERY = 10;
 const GRID_CAMERA_SCALE = 40;
 const SKETCH_GRID_BACK_OFFSET = 0.015;
@@ -323,10 +330,8 @@ function pushGridLine(
 
 function buildDynamicGrid(
   frame: GridPlaneFrame,
-  centerU: number,
-  centerV: number,
   spacing: number,
-  halfLineCount: number,
+  bounds: GridPlaneBounds,
   minorColor: THREE.Color,
   majorColor: THREE.Color,
   axisColor: THREE.Color,
@@ -336,17 +341,27 @@ function buildDynamicGrid(
   const colors: number[] = [];
   const start = new THREE.Vector3();
   const end = new THREE.Vector3();
-  const extent = spacing * halfLineCount;
 
-  for (let i = -halfLineCount; i <= halfLineCount; i += 1) {
-    const u = centerU + i * spacing;
-    const v = centerV + i * spacing;
+  for (let u = bounds.minU; u <= bounds.maxU + spacing * 0.5; u += spacing) {
     const uColor =
       Math.abs(u) < spacing * 0.25
         ? axisColor
         : isGridMajorLine(u, spacing)
           ? majorColor
           : minorColor;
+
+    start
+      .copy(frame.origin)
+      .addScaledVector(frame.xAxis, u)
+      .addScaledVector(frame.yAxis, bounds.minV);
+    end
+      .copy(frame.origin)
+      .addScaledVector(frame.xAxis, u)
+      .addScaledVector(frame.yAxis, bounds.maxV);
+    pushGridLine(positions, colors, start, end, uColor);
+  }
+
+  for (let v = bounds.minV; v <= bounds.maxV + spacing * 0.5; v += spacing) {
     const vColor =
       Math.abs(v) < spacing * 0.25
         ? axisColor
@@ -356,21 +371,11 @@ function buildDynamicGrid(
 
     start
       .copy(frame.origin)
-      .addScaledVector(frame.xAxis, u)
-      .addScaledVector(frame.yAxis, centerV - extent);
-    end
-      .copy(frame.origin)
-      .addScaledVector(frame.xAxis, u)
-      .addScaledVector(frame.yAxis, centerV + extent);
-    pushGridLine(positions, colors, start, end, uColor);
-
-    start
-      .copy(frame.origin)
-      .addScaledVector(frame.xAxis, centerU - extent)
+      .addScaledVector(frame.xAxis, bounds.minU)
       .addScaledVector(frame.yAxis, v);
     end
       .copy(frame.origin)
-      .addScaledVector(frame.xAxis, centerU + extent)
+      .addScaledVector(frame.xAxis, bounds.maxU)
       .addScaledVector(frame.yAxis, v);
     pushGridLine(positions, colors, start, end, vColor);
   }
@@ -473,11 +478,70 @@ function projectPointToGridFrame(point: THREE.Vector3, frame: GridPlaneFrame) {
   };
 }
 
-function gridHalfLineCount(cameraDistance: number, spacing: number): number {
-  return Math.max(
-    GRID_MIN_HALF_LINE_COUNT,
-    Math.ceil((cameraDistance * GRID_VIEW_COVERAGE_MULTIPLIER) / spacing),
+function fallbackGridBounds(
+  center: { u: number; v: number },
+  spacing: number,
+): GridPlaneBounds {
+  const extent = spacing * GRID_MIN_HALF_LINE_COUNT;
+  return {
+    minU: snapGridCenter(center.u - extent, spacing),
+    maxU: snapGridCenter(center.u + extent, spacing),
+    minV: snapGridCenter(center.v - extent, spacing),
+    maxV: snapGridCenter(center.v + extent, spacing),
+  };
+}
+
+function getGridViewBounds(
+  camera: THREE.OrthographicCamera,
+  frame: GridPlaneFrame,
+  spacing: number,
+  fallbackCenter: { u: number; v: number },
+  paddingMultiplier: number,
+): GridPlaneBounds {
+  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(
+    frame.normal.clone().normalize(),
+    frame.origin,
   );
+  const rayDirection = new THREE.Vector3();
+  camera.getWorldDirection(rayDirection);
+  const corners = [
+    [-1, -1],
+    [1, -1],
+    [-1, 1],
+    [1, 1],
+  ] as const;
+  const projectedCorners: Array<{ u: number; v: number }> = [];
+
+  for (const [x, y] of corners) {
+    const rayOrigin = new THREE.Vector3(x, y, -1).unproject(camera);
+    const denominator = plane.normal.dot(rayDirection);
+    if (Math.abs(denominator) > 1e-6) {
+      const t = -(rayOrigin.dot(plane.normal) + plane.constant) / denominator;
+      const hit = rayOrigin.clone().addScaledVector(rayDirection, t);
+      projectedCorners.push(projectPointToGridFrame(hit, frame));
+    }
+  }
+
+  if (projectedCorners.length < 2) {
+    return fallbackGridBounds(fallbackCenter, spacing);
+  }
+
+  const minU = Math.min(...projectedCorners.map((point) => point.u));
+  const maxU = Math.max(...projectedCorners.map((point) => point.u));
+  const minV = Math.min(...projectedCorners.map((point) => point.v));
+  const maxV = Math.max(...projectedCorners.map((point) => point.v));
+  const spanU = Math.max(maxU - minU, spacing);
+  const spanV = Math.max(maxV - minV, spacing);
+  const minPadding = spacing * GRID_MIN_HALF_LINE_COUNT;
+  const paddingU = Math.max(spanU * paddingMultiplier, minPadding);
+  const paddingV = Math.max(spanV * paddingMultiplier, minPadding);
+
+  return {
+    minU: Math.floor((minU - paddingU) / spacing) * spacing,
+    maxU: Math.ceil((maxU + paddingU) / spacing) * spacing,
+    minV: Math.floor((minV - paddingV) / spacing) * spacing,
+    maxV: Math.ceil((maxV + paddingV) / spacing) * spacing,
+  };
 }
 
 function getOrthographicViewHeight(camera: THREE.OrthographicCamera): number {
@@ -2850,7 +2914,7 @@ export function ViewportPanel({
       ORTHO_FRUSTUM_HEIGHT / 2,
       ORTHO_FRUSTUM_HEIGHT / 2,
       -ORTHO_FRUSTUM_HEIGHT / 2,
-      0.1,
+      -10000,
       10000,
     );
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -2952,10 +3016,8 @@ export function ViewportPanel({
         return;
       }
 
-      const viewHeight = getOrthographicViewHeight(camera);
       const spacing = selectOrthographicGridSpacing(camera);
       currentGridSpacingRef.current = spacing;
-      const halfLineCount = gridHalfLineCount(viewHeight, spacing);
       const viewOffset = new THREE.Vector3()
         .copy(camera.position)
         .sub(controls.target)
@@ -2971,20 +3033,23 @@ export function ViewportPanel({
       const sketchPlaneId = activeSketchPlaneIdRef.current;
       if (!sketchPlaneId) {
         const worldCenter = projectPointToGridFrame(controls.target, worldFrame);
-        const worldCenterU = snapGridCenter(worldCenter.u, spacing);
-        const worldCenterV = snapGridCenter(worldCenter.v, spacing);
+        const worldBounds = getGridViewBounds(
+          camera,
+          worldFrame,
+          spacing,
+          worldCenter,
+          GRID_WORLD_PADDING_MULTIPLIER,
+        );
         ensureDynamicGrid(
           worldGridRef,
           `world:${
             cardinalFrame ? "cardinal" : "floor"
-          }:${spacing}:${halfLineCount}:${worldCenterU}:${worldCenterV}`,
+          }:${spacing}:${worldBounds.minU}:${worldBounds.maxU}:${worldBounds.minV}:${worldBounds.maxV}`,
           () => {
             const worldGrid = buildDynamicGrid(
               worldFrame,
-              worldCenterU,
-              worldCenterV,
               spacing,
-              halfLineCount,
+              worldBounds,
               new THREE.Color(themeColor("--color-cad-grid", "#3f4648")),
               new THREE.Color(themeColor("--color-cad-grid-axis", "#5e696c")),
               new THREE.Color(themeColor("--color-cad-grid-axis", "#7a7a7c")),
@@ -3004,18 +3069,21 @@ export function ViewportPanel({
         activeSketchPlaneFrameRef.current,
       );
       const sketchCenter = projectPointToGridFrame(controls.target, sketchFrame);
-      const sketchCenterU = snapGridCenter(sketchCenter.u, spacing);
-      const sketchCenterV = snapGridCenter(sketchCenter.v, spacing);
+      const sketchBounds = getGridViewBounds(
+        camera,
+        sketchFrame,
+        spacing,
+        sketchCenter,
+        GRID_SKETCH_PADDING_MULTIPLIER,
+      );
       ensureDynamicGrid(
         sketchGridRef,
-        `sketch:${sketchPlaneId}:${spacing}:${halfLineCount}:${sketchCenterU}:${sketchCenterV}`,
+        `sketch:${sketchPlaneId}:${spacing}:${sketchBounds.minU}:${sketchBounds.maxU}:${sketchBounds.minV}:${sketchBounds.maxV}`,
         () => {
           const sketchGrid = buildDynamicGrid(
             sketchFrame,
-            sketchCenterU,
-            sketchCenterV,
             spacing,
-            halfLineCount,
+            sketchBounds,
             new THREE.Color(themeColor("--cad-sketch-grid", "#2a383b")),
             new THREE.Color(themeColor("--cad-sketch-grid-axis", "#46585d")),
             new THREE.Color(

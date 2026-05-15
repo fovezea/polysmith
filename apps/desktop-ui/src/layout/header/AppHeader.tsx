@@ -84,6 +84,24 @@ function MenuDropdown({ label, disabled, items }: MenuDropdownProps) {
   );
 }
 
+function SettingsGearIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-[18px] w-[18px]"
+      viewBox="0 0 24 24"
+      fill="none"
+    >
+      <path
+        fill="currentColor"
+        fillRule="evenodd"
+        d="M9.95 2.35h4.1l.52 2.42c.57.18 1.11.4 1.62.68l2.08-1.33 2.9 2.9-1.33 2.08c.28.51.5 1.05.68 1.62l2.43.52v4.1l-2.43.52c-.18.57-.4 1.11-.68 1.62l1.33 2.08-2.9 2.9-2.08-1.33c-.51.28-1.05.5-1.62.68l-.52 2.43h-4.1l-.52-2.43a8.55 8.55 0 0 1-1.62-.68l-2.08 1.33-2.9-2.9 1.33-2.08a8.55 8.55 0 0 1-.68-1.62l-2.43-.52v-4.1l2.43-.52c.18-.57.4-1.11.68-1.62L2.83 7.02l2.9-2.9 2.08 1.33c.51-.28 1.05-.5 1.62-.68l.52-2.42ZM12 16.95a3.65 3.65 0 1 0 0-7.3 3.65 3.65 0 0 0 0 7.3Z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
 interface AppHeaderProps {
   status: string;
   disabled: boolean;
@@ -285,12 +303,12 @@ export function AppHeader({
           </button>
           <button
             type="button"
-            className="cad-ribbon-action h-8 w-8 px-0 text-base"
+            className="cad-ribbon-action h-8 w-8 px-0 py-0 text-on-surface-muted hover:text-on-surface"
             onClick={onOpenSettings}
             aria-label="Settings"
             title="Settings"
           >
-            ⚙
+            <SettingsGearIcon />
           </button>
           <div className="cad-status-pill">
             <span

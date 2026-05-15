@@ -48,7 +48,6 @@ const sketchTools: Array<{
   // normal selection. Toggling the button (or pressing P / Esc /
   // picking another tool) deactivates it. See App.tsx click intercept.
   { id: "project", label: "Project", hotkey: "project", enabled: true },
-  { id: "trim", label: "Trim", enabled: false },
 ];
 
 const crosshairOptions: Array<{ id: CrosshairMode; label: string }> = [
