@@ -789,6 +789,7 @@ export function ViewportPanel({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const dimensionEditorRef = useRef<HTMLFormElement | null>(null);
   const dimensionInputRef = useRef<HTMLInputElement | null>(null);
+  const dimensionInputSelectionLockedRef = useRef(false);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.OrthographicCamera | null>(null);
@@ -2868,6 +2869,7 @@ export function ViewportPanel({
   useEffect(() => {
     if (!selectedSketchDimension) {
       setIsDimensionEditorOpen(false);
+      dimensionInputSelectionLockedRef.current = false;
       return;
     }
 
@@ -2878,6 +2880,7 @@ export function ViewportPanel({
       return;
     }
 
+    dimensionInputSelectionLockedRef.current = true;
     setIsDimensionEditorOpen(true);
   }, [selectedSketchDimension?.dimensionId]);
 
@@ -6300,12 +6303,32 @@ export function ViewportPanel({
               step="0.01"
               value={dimensionDraftValue}
               onChange={(event) => {
+                dimensionInputSelectionLockedRef.current = false;
                 handleDimensionDraftChange(event.target.value);
               }}
               onFocus={(event) => {
+                if (!dimensionInputSelectionLockedRef.current) {
+                  return;
+                }
+                event.currentTarget.select();
+              }}
+              onPointerDown={(event) => {
+                if (!dimensionInputSelectionLockedRef.current) {
+                  return;
+                }
+                event.preventDefault();
+                event.currentTarget.focus();
+                event.currentTarget.select();
+              }}
+              onPointerUp={(event) => {
+                if (!dimensionInputSelectionLockedRef.current) {
+                  return;
+                }
+                event.preventDefault();
                 event.currentTarget.select();
               }}
               onKeyDown={(event) => {
+                dimensionInputSelectionLockedRef.current = false;
                 if (event.key === "Escape") {
                   event.preventDefault();
                   cancelDimensionEdit();
