@@ -9,6 +9,7 @@ export * from "./MessageLog";
 export * from "./ExtrudePreviewPanel";
 export * from "./EdgeOpPreviewPanel";
 export * from "./OffsetPlanePanel";
+export * from "./SettingsModal";
 export * from "./SketchFilletPanel";
 export * from "./MirrorToolPanel";
 export * from "./ViewportPanel";

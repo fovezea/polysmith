@@ -69,6 +69,16 @@ and is binding for new features.
   Ids are allowed in debug overlays gated behind a flag, never in
   default UI.
 
+## UI Theme Rules
+
+- Do not hardcode colors in React components or viewport utilities.
+- Use existing CSS/theme variables, or add a new token to every theme JSON file
+  under `apps/desktop-ui/src/config/themes/` before consuming it.
+- Keep theme-specific palette values, including Catppuccin colors, inside the
+  theme JSON files. Components should remain theme-agnostic.
+- When adding a third-party palette theme, preserve clear attribution in
+  `docs/DESIGN.md` and keep user-visible theme names properly credited.
+
 ## Philosophy
 
 PolySmith is built to be **understandable and maintainable by humans first**.

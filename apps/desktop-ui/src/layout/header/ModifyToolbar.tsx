@@ -6,6 +6,7 @@ import {
   PressPullIcon,
   ShellIcon,
 } from "./ToolBarIcons";
+import { formatHotkey, useAppConfig } from "@/config";
 
 interface ModifyToolbarProps {
   disabled: boolean;
@@ -41,13 +42,14 @@ export function ModifyToolbar({
   onFillet,
   onChamfer,
 }: ModifyToolbarProps) {
+  const { config } = useAppConfig();
   const edgeOpDisabled = disabled || !canEdgeOp;
   return (
     <>
       <button
         type="button"
         className={ICON_BUTTON_BASE}
-        data-tooltip="Fillet (F)"
+        data-tooltip={`Fillet (${formatHotkey(config.hotkeys.toolbar.fillet)})`}
         aria-label="Fillet"
         disabled={edgeOpDisabled}
         onClick={onFillet}

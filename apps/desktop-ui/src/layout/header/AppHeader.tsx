@@ -110,6 +110,7 @@ interface AppHeaderProps {
   logCount: number;
   errorLogCount: number;
   onOpenLogs: () => void;
+  onOpenSettings: () => void;
   onAddBoxFeature: (
     width: number,
     height: number,
@@ -163,6 +164,7 @@ export function AppHeader({
   logCount,
   errorLogCount,
   onOpenLogs,
+  onOpenSettings,
   onAddBoxFeature,
   onAddCylinderFeature,
   canExtrude,
@@ -280,6 +282,15 @@ export function AppHeader({
             >
               {errorLogCount > 0 ? errorLogCount : logCount}
             </span>
+          </button>
+          <button
+            type="button"
+            className="cad-ribbon-action h-8 w-8 px-0 text-base"
+            onClick={onOpenSettings}
+            aria-label="Settings"
+            title="Settings"
+          >
+            ⚙
           </button>
           <div className="cad-status-pill">
             <span

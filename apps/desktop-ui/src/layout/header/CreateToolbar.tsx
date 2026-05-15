@@ -1,6 +1,7 @@
 import { BoxFeatureForm } from "../BoxFeatureForm";
 import { CylinderFeatureForm } from "../CylinderFeatureForm";
 import { BoxIcon, CylinderIcon, ExtrudeIcon } from "./ToolBarIcons";
+import { formatHotkey, useAppConfig } from "@/config";
 
 export interface CreateToolbarProps {
   openMenu: "box" | "cylinder" | null;
@@ -37,6 +38,7 @@ export function CreateToolbar({
   canExtrude,
   onExtrude,
 }: CreateToolbarProps) {
+  const { config } = useAppConfig();
   return (
     <>
       <div className="relative flex items-center gap-1.5">
@@ -68,7 +70,7 @@ export function CreateToolbar({
         </button>
         <button
           className={ICON_BUTTON_BASE}
-          data-tooltip="Extrude"
+          data-tooltip={`Extrude (${formatHotkey(config.hotkeys.toolbar.extrude)})`}
           aria-label="Extrude"
           onClick={() => {
             void onExtrude();

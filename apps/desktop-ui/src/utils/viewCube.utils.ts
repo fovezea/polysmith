@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { themeColor } from "./viewport.utils";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,22 +37,20 @@ const FACE_NORMALS: Record<CubeFace, THREE.Vector3> = {
   LEFT: new THREE.Vector3(-1, 0, 0),
 };
 
-const FACE_COLORS: Record<CubeFace, string> = {
-  RIGHT: "#242323",
-  LEFT: "#1f1f1f",
-  TOP: "#2b2a2a",
-  BOTTOM: "#1a1919",
-  FRONT: "#262525",
-  BACK: "#202020",
-};
+function viewCubeColor(token: string, fallback: string) {
+  return themeColor(token, fallback);
+}
 
-const FACE_LABEL_COLOR = "#e5e2e1";
-const FACE_BORDER_COLOR = "#3b494c";
-const EDGE_COLOR = "#2d3436";
-const CORNER_COLOR = "#3a4143";
-const HOVER_COLOR = "#00e5ff";
-const ARROW_COLOR = "#c3f5ff";
-const ARROW_MUTED_COLOR = "#5d6d70";
+function faceColors(): Record<CubeFace, string> {
+  return {
+    RIGHT: viewCubeColor("--cad-viewcube-right", "#242323"),
+    LEFT: viewCubeColor("--cad-viewcube-left", "#1f1f1f"),
+    TOP: viewCubeColor("--cad-viewcube-top", "#2b2a2a"),
+    BOTTOM: viewCubeColor("--cad-viewcube-bottom", "#1a1919"),
+    FRONT: viewCubeColor("--cad-viewcube-front", "#262525"),
+    BACK: viewCubeColor("--cad-viewcube-back", "#202020"),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Face label texture
@@ -69,15 +68,18 @@ function createFaceLabelTexture(
 
   const gradient = ctx.createLinearGradient(0, 0, size, size);
   gradient.addColorStop(0, bgColor);
-  gradient.addColorStop(1, "#141414");
+  gradient.addColorStop(
+    1,
+    viewCubeColor("--cad-viewcube-gradient-end", "#141414"),
+  );
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, size, size);
 
-  ctx.strokeStyle = FACE_BORDER_COLOR;
+  ctx.strokeStyle = viewCubeColor("--cad-viewcube-border", "#3b494c");
   ctx.lineWidth = 10;
   ctx.strokeRect(8, 8, size - 16, size - 16);
 
-  ctx.fillStyle = FACE_LABEL_COLOR;
+  ctx.fillStyle = viewCubeColor("--cad-viewcube-label", "#e5e2e1");
   ctx.font = `700 38px "Space Grotesk", "Inter", sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -105,8 +107,8 @@ function createRotationArrowTexture(direction: -1 | 1): THREE.CanvasTexture {
     ctx.scale(-1, 1);
   }
 
-  ctx.strokeStyle = ARROW_COLOR;
-  ctx.fillStyle = ARROW_COLOR;
+  ctx.strokeStyle = viewCubeColor("--cad-viewcube-arrow", "#c3f5ff");
+  ctx.fillStyle = viewCubeColor("--cad-viewcube-arrow", "#c3f5ff");
   ctx.lineWidth = 58;
 
   const center = 128;
@@ -134,6 +136,10 @@ function createRotationArrowTexture(direction: -1 | 1): THREE.CanvasTexture {
 
 export function buildViewCubeGroup(): THREE.Group {
   const group = new THREE.Group();
+  const colors = faceColors();
+  const edgeColor = viewCubeColor("--cad-viewcube-edge", "#2d3436");
+  const cornerColor = viewCubeColor("--cad-viewcube-corner", "#3a4143");
+  const arrowMutedColor = viewCubeColor("--cad-viewcube-arrow-muted", "#5d6d70");
 
   // -- faces ----------------------------------------------------------------
   const faceConfigs: Array<{
@@ -148,42 +154,42 @@ export function buildViewCubeGroup(): THREE.Group {
       label: "RIGHT",
       position: [FACE_OFFSET, 0, 0],
       rotation: [0, Math.PI / 2, 0],
-      color: FACE_COLORS.RIGHT,
+      color: colors.RIGHT,
     },
     {
       face: "LEFT",
       label: "LEFT",
       position: [-FACE_OFFSET, 0, 0],
       rotation: [0, -Math.PI / 2, 0],
-      color: FACE_COLORS.LEFT,
+      color: colors.LEFT,
     },
     {
       face: "TOP",
       label: "TOP",
       position: [0, FACE_OFFSET, 0],
       rotation: [-Math.PI / 2, 0, 0],
-      color: FACE_COLORS.TOP,
+      color: colors.TOP,
     },
     {
       face: "BOTTOM",
       label: "BOTTOM",
       position: [0, -FACE_OFFSET, 0],
       rotation: [Math.PI / 2, 0, 0],
-      color: FACE_COLORS.BOTTOM,
+      color: colors.BOTTOM,
     },
     {
       face: "FRONT",
       label: "FRONT",
       position: [0, 0, FACE_OFFSET],
       rotation: [0, 0, 0],
-      color: FACE_COLORS.FRONT,
+      color: colors.FRONT,
     },
     {
       face: "BACK",
       label: "BACK",
       position: [0, 0, -FACE_OFFSET],
       rotation: [0, Math.PI, 0],
-      color: FACE_COLORS.BACK,
+      color: colors.BACK,
     },
   ];
 
@@ -196,7 +202,7 @@ export function buildViewCubeGroup(): THREE.Group {
     const texture = createFaceLabelTexture(cfg.label, cfg.color);
     const material = new THREE.MeshBasicMaterial({
       map: texture,
-      color: "#ffffff",
+      color: viewCubeColor("--cad-viewcube-material", "#ffffff"),
     });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(...cfg.position);
@@ -205,7 +211,7 @@ export function buildViewCubeGroup(): THREE.Group {
       cubePart: true,
       cubeType: "face",
       face: cfg.face,
-      baseColor: "#ffffff",
+      baseColor: viewCubeColor("--cad-viewcube-material", "#ffffff"),
     };
     mesh.renderOrder = 0;
     group.add(mesh);
@@ -285,7 +291,7 @@ export function buildViewCubeGroup(): THREE.Group {
 
   for (const cfg of edgeConfigs) {
     const geometry = new THREE.BoxGeometry(...cfg.size);
-    const material = new THREE.MeshBasicMaterial({ color: EDGE_COLOR });
+    const material = new THREE.MeshBasicMaterial({ color: edgeColor });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(...cfg.position);
     mesh.userData = {
@@ -293,7 +299,7 @@ export function buildViewCubeGroup(): THREE.Group {
       cubeType: "edge",
       face1: cfg.faces[0],
       face2: cfg.faces[1],
-      baseColor: EDGE_COLOR,
+      baseColor: edgeColor,
     };
     mesh.renderOrder = 1;
     group.add(mesh);
@@ -318,14 +324,14 @@ export function buildViewCubeGroup(): THREE.Group {
       sz > 0 ? "FRONT" : "BACK",
     ];
     const geometry = new THREE.SphereGeometry(CORNER_RADIUS, 16, 12);
-    const material = new THREE.MeshBasicMaterial({ color: CORNER_COLOR });
+    const material = new THREE.MeshBasicMaterial({ color: cornerColor });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(sx * 0.5, sy * 0.5, sz * 0.5);
     mesh.userData = {
       cubePart: true,
       cubeType: "corner",
       faces,
-      baseColor: CORNER_COLOR,
+      baseColor: cornerColor,
     };
     mesh.renderOrder = 2;
     group.add(mesh);
@@ -335,7 +341,7 @@ export function buildViewCubeGroup(): THREE.Group {
     const texture = createRotationArrowTexture(direction);
     const material = new THREE.SpriteMaterial({
       map: texture,
-      color: ARROW_MUTED_COLOR,
+      color: arrowMutedColor,
       transparent: true,
       opacity: 0.92,
       depthTest: false,
@@ -349,7 +355,7 @@ export function buildViewCubeGroup(): THREE.Group {
       cubePart: true,
       cubeType: "rotation_arrow",
       direction,
-      baseColor: ARROW_MUTED_COLOR,
+      baseColor: arrowMutedColor,
     };
     group.add(sprite);
   }
@@ -674,7 +680,7 @@ export function applyCubeHover(cubeGroup: THREE.Group, hit: ViewCubeHit): void {
     const mat = (target as THREE.Mesh | THREE.Sprite).material as
       | THREE.MeshBasicMaterial
       | THREE.SpriteMaterial;
-    mat.color.set(HOVER_COLOR);
+    mat.color.set(viewCubeColor("--cad-viewcube-hover", "#00e5ff"));
   }
 }
 

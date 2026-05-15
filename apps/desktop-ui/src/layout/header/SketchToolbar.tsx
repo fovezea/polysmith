@@ -1,4 +1,6 @@
 import { ConstraintType, SketchTool, ArmedSketchConstraint } from "@/types";
+import { formatHotkey, useAppConfig } from "@/config";
+import type { AppHotkeys } from "@/config";
 import { ConstraintIcon, SketchToolIcon } from "./ToolBarIcons";
 
 interface SketchToolbarProps {
@@ -30,21 +32,21 @@ interface SketchToolbarProps {
 const sketchTools: Array<{
   id: SketchTool;
   label: string;
-  shortcut?: string;
+  hotkey?: keyof AppHotkeys["sketchToolbar"] | "project";
   enabled: boolean;
 }> = [
   { id: "select", label: "Select", enabled: true },
-  { id: "line", label: "Line", shortcut: "L", enabled: true },
-  { id: "dimension", label: "Dimension (D)", shortcut: "D", enabled: true },
-  { id: "rectangle", label: "Rectangle", shortcut: "R", enabled: true },
-  { id: "circle", label: "Circle", shortcut: "C", enabled: true },
+  { id: "line", label: "Line", hotkey: "line", enabled: true },
+  { id: "dimension", label: "Dimension", hotkey: "dimension", enabled: true },
+  { id: "rectangle", label: "Rectangle", hotkey: "rectangle", enabled: true },
+  { id: "circle", label: "Circle", hotkey: "circle", enabled: true },
   { id: "arc", label: "Arc", enabled: true },
   { id: "fillet", label: "Fillet", enabled: true },
   // Modal Project tool. While active, viewport face / edge / vertex
   // clicks are routed to `project_*_into_sketch` instead of the
   // normal selection. Toggling the button (or pressing P / Esc /
   // picking another tool) deactivates it. See App.tsx click intercept.
-  { id: "project", label: "Project (P)", shortcut: "P", enabled: true },
+  { id: "project", label: "Project", hotkey: "project", enabled: true },
   { id: "trim", label: "Trim", enabled: false },
 ];
 
@@ -65,12 +67,23 @@ export function SketchToolbar({
   onStartMirrorTool,
   onSetArcToolMode,
 }: SketchToolbarProps) {
+  const { config } = useAppConfig();
   // selectedFaceId is no longer required by the toolbar (the modal
   // Project tool now picks faces from the viewport while active),
   // but we keep it on the props for parity with future face-aware
   // tools (e.g. dimension targets). Reference here silences the
   // unused-arg lint without changing behaviour.
   void selectedFaceId;
+  const toolLabel = (tool: (typeof sketchTools)[number]) => {
+    if (!tool.hotkey) {
+      return tool.label;
+    }
+    const binding =
+      tool.hotkey === "project"
+        ? config.hotkeys.toolbar.project
+        : config.hotkeys.sketchToolbar[tool.hotkey];
+    return `${tool.label} (${formatHotkey(binding)})`;
+  };
   return (
     <>
       <button
@@ -94,7 +107,7 @@ export function SketchToolbar({
               ? "cad-icon-button cad-icon-tool cad-icon-tool-active h-9 w-9 p-0"
               : "cad-icon-button cad-icon-tool h-9 w-9 p-0"
           }
-          data-tooltip={tool.label}
+          data-tooltip={toolLabel(tool)}
           aria-label={tool.label}
           disabled={!activeSketchPlaneId || !tool.enabled}
           onClick={() => {

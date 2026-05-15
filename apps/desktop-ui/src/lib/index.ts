@@ -1,4 +1,5 @@
 export * from "./cadCoreClient";
+export * from "@/config";
 export * from "./featureDependents";
 export * from "./ipcProtocol";
 export * from "./logger";

@@ -808,12 +808,14 @@ export function applySolidFaceVisualState(
   }
 
   if (state.isHovered) {
-    visual.fillMaterial.color.set("#ffffff");
+    visual.fillMaterial.color.set(
+      themeColor("--cad-face-hover-fill", "#ffffff"),
+    );
     visual.fillMaterial.opacity = 0.08;
     return;
   }
 
-  visual.fillMaterial.color.set("#ffffff");
+  visual.fillMaterial.color.set(themeColor("--cad-face-hover-fill", "#ffffff"));
   visual.fillMaterial.opacity = 0;
 }
 
@@ -1133,9 +1135,14 @@ export function makeDimensionLabelSprite(text: string, isSelected: boolean) {
 
   context.font = `600 ${fontSize}px "Space Grotesk", sans-serif`;
   context.clearRect(0, 0, canvas.width, canvas.height);
-  context.shadowColor = "rgba(0, 0, 0, 0.55)";
+  context.shadowColor = themeColor(
+    "--cad-sketch-label-shadow",
+    "rgba(0, 0, 0, 0.55)",
+  );
   context.shadowBlur = isSelected ? 4 : 3;
-  context.fillStyle = isSelected ? "#e7fbff" : "rgba(223, 247, 250, 0.92)";
+  context.fillStyle = isSelected
+    ? themeColor("--cad-sketch-label-selected", "#e7fbff")
+    : themeColor("--cad-sketch-label", "rgba(223, 247, 250, 0.92)");
   context.textAlign = "center";
   context.textBaseline = "middle";
   context.fillText(text, canvas.width / 2, canvas.height / 2 + 1);
@@ -1171,11 +1178,17 @@ export function makeConstraintBadgeSprite(text: string, isSelected: boolean) {
   canvas.width = 44;
   canvas.height = 44;
   context.clearRect(0, 0, canvas.width, canvas.height);
-  context.shadowColor = "rgba(0, 0, 0, 0.55)";
+  context.shadowColor = themeColor(
+    "--cad-sketch-label-shadow",
+    "rgba(0, 0, 0, 0.55)",
+  );
   context.shadowBlur = 3;
   context.fillStyle = isSelected
-    ? "#e7fbff"
-    : "rgba(211, 232, 235, 0.82)";
+    ? themeColor("--cad-sketch-label-selected", "#e7fbff")
+    : themeColor(
+        "--cad-sketch-dimension-label",
+        "rgba(211, 232, 235, 0.82)",
+      );
   context.font = '700 24px "Space Grotesk", sans-serif';
   context.textAlign = "center";
   context.textBaseline = "middle";

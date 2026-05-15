@@ -8,6 +8,12 @@ import {
 } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import {
+  applyTheme,
+  formatHotkey,
+  matchesHotkey,
+  useAppConfig,
+} from "@/config";
 import { createViewportScene } from "@/lib";
 import type {
   ArmedSketchConstraint,
@@ -646,6 +652,7 @@ export function ViewportPanel({
   hiddenSketchPlaneIds,
   hideReferences,
 }: ViewportPanelProps) {
+  const { config, activeTheme } = useAppConfig();
   const [showReferencePlanes, setShowReferencePlanes] = useState(true);
   const [contextMenu, setContextMenu] =
     useState<ViewportContextMenuState | null>(null);
@@ -972,6 +979,9 @@ export function ViewportPanel({
   useEffect(() => {
     sceneDataRef.current = sceneData;
   }, [sceneData]);
+  useEffect(() => {
+    applyTheme(activeTheme);
+  }, [activeTheme]);
   const hasActiveDocument = Boolean(viewport?.has_active_document);
   const activeSketchPlaneId = document?.active_sketch_plane_id ?? null;
   const activeSketchTool = document?.active_sketch_tool ?? "select";
@@ -1152,15 +1162,22 @@ export function ViewportPanel({
           };
         }
       }
-      if (dimension.kind === "line_line_distance") {
+      if (dimension.kind !== "angle") {
+        const extensionAxis = new THREE.Vector3(
+          ...dimension.dimensionStart,
+        ).sub(new THREE.Vector3(...dimension.anchorStart));
         const dimensionDirection = new THREE.Vector3(
           ...dimension.dimensionEnd,
         ).sub(new THREE.Vector3(...dimension.dimensionStart));
-        const planeNormal = getSketchGridFrame(
-          dimension.planeId,
-          activeSketchPlaneFrame,
-        ).normal;
-        const placementAxis = planeNormal.cross(dimensionDirection).normalize();
+        const placementAxis =
+          extensionAxis.lengthSq() > 1e-8
+            ? extensionAxis.normalize()
+            : getSketchGridFrame(
+                dimension.planeId,
+                activeSketchPlaneFrame,
+              ).normal
+                .cross(dimensionDirection)
+                .normalize();
         if (placementAxis.lengthSq() > 1e-8) {
           offset = placementAxis.multiplyScalar(offset.dot(placementAxis));
         }
@@ -1317,6 +1334,49 @@ export function ViewportPanel({
     }
     renderDraftPreview(draftDimensionSession);
   }, [draftDimensionSession, sketchToolConstruction]);
+
+  useEffect(() => {
+    const scene = sceneRef.current;
+    const cubeScene = viewCubeSceneRef.current;
+
+    if (cubeScene) {
+      const previousCubeGroup = viewCubeGroupRef.current;
+      if (previousCubeGroup) {
+        cubeScene.remove(previousCubeGroup);
+        disposeViewCubeGroup(previousCubeGroup);
+      }
+
+      const nextCubeGroup = buildViewCubeGroup();
+      cubeScene.add(nextCubeGroup);
+      viewCubeGroupRef.current = nextCubeGroup;
+      viewCubeHoveredRef.current = null;
+    }
+
+    if (scene) {
+      const worldGrid = worldGridRef.current;
+      if (worldGrid) {
+        scene.remove(worldGrid.group);
+        disposeDynamicGrid(worldGrid);
+        worldGridRef.current = null;
+      }
+
+      const sketchGrid = sketchGridRef.current;
+      if (sketchGrid) {
+        scene.remove(sketchGrid.group);
+        disposeDynamicGrid(sketchGrid);
+        sketchGridRef.current = null;
+      }
+    }
+
+    syncPrimitiveVisuals();
+    syncReferencePlaneVisuals();
+    syncSolidFaceVisuals();
+    syncSketchProfileVisuals();
+    paintEdgeMaterials(hoveredEdgeIdRef.current);
+    paintVertexMaterials(hoveredVertexIdRef.current);
+    paintSketchEntityMaterials();
+    paintSketchPointMaterials();
+  }, [activeTheme.id]);
 
   function clearPreviewLine() {
     const previewLine = previewLineRef.current;
@@ -2414,18 +2474,22 @@ export function ViewportPanel({
   }
 
   const hoveredVertexIdRef = useRef<string | null>(null);
+  function paintVertexMaterials(hoveredId: string | null) {
+    for (const mesh of vertexObjectsRef.current) {
+      const id = mesh.userData.vertexId as string | undefined;
+      const isSelected = mesh.userData.isSelected === true;
+      const isHovered = id !== undefined && id === hoveredId;
+      const material = mesh.material as THREE.MeshBasicMaterial;
+      applyVertexVisualColor(material, { isSelected, isHovered });
+    }
+  }
+
   function setHoveredVertex(vertexId: string | null) {
     if (hoveredVertexIdRef.current === vertexId) {
       return;
     }
     hoveredVertexIdRef.current = vertexId;
-    for (const mesh of vertexObjectsRef.current) {
-      const id = mesh.userData.vertexId as string | undefined;
-      const isSelected = mesh.userData.isSelected === true;
-      const isHovered = id !== undefined && id === vertexId;
-      const material = mesh.material as THREE.MeshBasicMaterial;
-      applyVertexVisualColor(material, { isSelected, isHovered });
-    }
+    paintVertexMaterials(vertexId);
   }
 
   function setHoveredReference(referenceId: string | null) {
@@ -2932,9 +2996,11 @@ export function ViewportPanel({
             sketchCenterV,
             spacing,
             halfLineCount,
-            new THREE.Color("#2a383b"),
-            new THREE.Color("#46585d"),
-            new THREE.Color("#7a8a8f"),
+            new THREE.Color(themeColor("--cad-sketch-grid", "#2a383b")),
+            new THREE.Color(themeColor("--cad-sketch-grid-axis", "#46585d")),
+            new THREE.Color(
+              themeColor("--cad-sketch-grid-center-axis", "#7a8a8f"),
+            ),
             0.48,
           );
           sketchGrid.renderOrder = -9;
@@ -5386,7 +5452,7 @@ export function ViewportPanel({
 
       lastGeometryKeyRef.current = sceneData.geometryKey;
     }
-  }, [displayedSketchDimensions, sceneData, showReferencePlanes]);
+  }, [activeTheme.id, displayedSketchDimensions, sceneData, showReferencePlanes]);
 
   useEffect(() => {
     lineDraftStartRef.current = null;
@@ -5449,23 +5515,19 @@ export function ViewportPanel({
         return;
       }
 
-      if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) {
-        return;
-      }
-
-      if (event.code === "KeyL") {
+      if (matchesHotkey(event, config.hotkeys.sketchToolbar.line)) {
         event.preventDefault();
         void setSketchToolRef.current("line");
         return;
       }
 
-      if (event.code === "KeyR") {
+      if (matchesHotkey(event, config.hotkeys.sketchToolbar.rectangle)) {
         event.preventDefault();
         void setSketchToolRef.current("rectangle");
         return;
       }
 
-      if (event.code === "KeyC") {
+      if (matchesHotkey(event, config.hotkeys.sketchToolbar.circle)) {
         event.preventDefault();
         void setSketchToolRef.current("circle");
         return;
@@ -5474,7 +5536,10 @@ export function ViewportPanel({
       // X toggles the construction flag while a drawable sketch tool
       // is armed.
       if (
-        event.code === "KeyX" &&
+        matchesHotkey(
+          event,
+          config.hotkeys.sketchToolbar.toggleConstruction,
+        ) &&
         (isDraftDimensionTool(activeSketchToolRef.current) ||
           activeSketchToolRef.current === "arc")
       ) {
@@ -5490,7 +5555,7 @@ export function ViewportPanel({
       // D arms the dimension tool (Fusion convention). Clicking a
       // line or circle while armed opens its driving dimension's
       // inline editor.
-      if (event.code === "KeyD") {
+      if (matchesHotkey(event, config.hotkeys.sketchToolbar.dimension)) {
         event.preventDefault();
         void setSketchToolRef.current("dimension");
         return;
@@ -5501,7 +5566,7 @@ export function ViewportPanel({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [activeSketchPlaneId]);
+  }, [activeSketchPlaneId, config.hotkeys.sketchToolbar]);
 
   // Tab toggles ghost-edge visibility while a fillet/chamfer panel is
   // open. The handler is mounted only when at least one body has a
@@ -5903,11 +5968,15 @@ export function ViewportPanel({
               return (
                 <form
                   key={field}
-                  className="pointer-events-auto absolute z-30 flex w-[92px] items-center rounded-md border border-cyan-100/55 bg-slate-950/80 px-2 py-1 shadow-[0_4px_12px_rgba(0,0,0,0.45)] backdrop-blur-md"
+                  className="pointer-events-auto absolute z-30 flex w-[92px] items-center rounded-md border px-2 py-1 backdrop-blur-md"
                   style={{
                     left: position.x,
                     top: position.y,
                     transform: "translate(-50%, -50%)",
+                    background: "var(--cad-dimension-editor-bg)",
+                    borderColor: "var(--cad-dimension-editor-border)",
+                    boxShadow:
+                      "0 4px 12px var(--cad-dimension-editor-shadow)",
                   }}
                   onSubmit={(event) => {
                     event.preventDefault();
@@ -6006,7 +6075,10 @@ export function ViewportPanel({
         {activeSketchPlaneId && activeSketchTool === "dimension" ? (
           <div className="cad-floating-panel pointer-events-auto absolute left-4 top-4 z-20 flex flex-col gap-1 px-3 py-2 text-xs">
             <p className="text-[10px] uppercase tracking-[0.18em] text-on-surface-dim">
-              Dimension Tool <span className="opacity-60">(D)</span>
+              Dimension Tool{" "}
+              <span className="opacity-60">
+                ({formatHotkey(config.hotkeys.sketchToolbar.dimension)})
+              </span>
             </p>
             <p className="text-on-surface">
               {dimensionToolFirstLine === null ? (
@@ -6024,11 +6096,14 @@ export function ViewportPanel({
         isDimensionEditorOpen ? (
           <form
             ref={dimensionEditorRef}
-            className="pointer-events-auto absolute z-20 flex w-[88px] items-center rounded-md bg-black/65 px-2 py-1 shadow-[0_4px_12px_rgba(0,0,0,0.45)] backdrop-blur-md"
+            className="pointer-events-auto absolute z-20 flex w-[88px] items-center rounded-md border px-2 py-1 backdrop-blur-md"
             style={{
               left: 0,
               top: 0,
               opacity: 0,
+              background: "var(--cad-dimension-editor-bg)",
+              borderColor: "var(--cad-dimension-editor-border)",
+              boxShadow: "0 4px 12px var(--cad-dimension-editor-shadow)",
             }}
             onSubmit={(event) => {
               event.preventDefault();

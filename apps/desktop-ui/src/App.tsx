@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { awaitDocumentChange, useCadCoreStore } from "./state";
 import { useCadCore } from "./hooks";
-import { findDependents } from "./lib";
+import { findDependents, matchesHotkey, useAppConfig } from "./lib";
 import {
   AppHeader,
   BoxFeatureForm,
@@ -16,6 +16,7 @@ import {
   FeatureTimeline,
   LogsWindow,
   MessageLog,
+  SettingsModal,
   ViewportPanel,
 } from "./layout";
 import type { CategoryId } from "./layout";
@@ -109,6 +110,7 @@ type ActiveEdgeOpAction =
     };
 
 function App() {
+  const { config } = useAppConfig();
   const [armedSketchConstraint, setArmedSketchConstraint] =
     useState<ArmedSketchConstraint>(null);
   // Which input slot in the floating Mirror panel is currently
@@ -208,6 +210,7 @@ function App() {
   const addMessage = useCadCoreStore((state) => state.addMessage);
   const clearLogs = useCadCoreStore((state) => state.clearLogs);
   const [isLogsOpen, setIsLogsOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const errorLogCount = logs.filter((entry) => entry.level === "error").length;
   const selectedReference =
     viewport?.reference_planes.find(
@@ -906,8 +909,6 @@ function App() {
         return;
       }
 
-      const isMod = event.metaKey || event.ctrlKey;
-
       if (
         event.code === "Escape" &&
         !activeSketchPlaneId &&
@@ -925,22 +926,15 @@ function App() {
         return;
       }
 
-      // Undo: Cmd/Ctrl+Z (no Shift). Redo: Cmd/Ctrl+Shift+Z, or Cmd/Ctrl+Y.
-      if (isMod && !event.altKey && event.code === "KeyZ") {
+      if (matchesHotkey(event, config.hotkeys.global.undo)) {
         event.preventDefault();
-        if (event.shiftKey) {
-          if (session?.can_redo) {
-            void runAction(redo);
-          }
-        } else {
-          if (session?.can_undo) {
-            void runAction(undo);
-          }
+        if (session?.can_undo) {
+          void runAction(undo);
         }
         return;
       }
 
-      if (isMod && !event.altKey && !event.shiftKey && event.code === "KeyY") {
+      if (matchesHotkey(event, config.hotkeys.global.redo)) {
         event.preventDefault();
         if (session?.can_redo) {
           void runAction(redo);
@@ -948,14 +942,10 @@ function App() {
         return;
       }
 
-      // E / F: trigger extrude / fillet actions (no modifiers).
+      // Trigger configured toolbar actions.
       // Chamfer intentionally has no hotkey — it's invoked from the
       // Modify ribbon button only.
-      if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) {
-        return;
-      }
-
-      if (event.code === "KeyE") {
+      if (matchesHotkey(event, config.hotkeys.toolbar.extrude)) {
         event.preventDefault();
         void triggerExtrudeAction();
         return;
@@ -968,7 +958,7 @@ function App() {
       // nothing selected opens the panel in "pending" mode and the
       // user picks edges in the viewport, mirroring the toolbar
       // button. (`triggerEdgeOpAction` already handles both phases.)
-      if (event.code === "KeyF") {
+      if (matchesHotkey(event, config.hotkeys.toolbar.fillet)) {
         if (activeSketchPlaneId) {
           return;
         }
@@ -983,7 +973,7 @@ function App() {
       // normal selection (see App.tsx click intercepts). Pressing P
       // again (or Esc, or picking another tool) switches back to
       // Select. No-op outside sketch mode.
-      if (event.code === "KeyP") {
+      if (matchesHotkey(event, config.hotkeys.toolbar.project)) {
         if (!activeSketchPlaneId) {
           return;
         }
@@ -1014,6 +1004,8 @@ function App() {
     viewport?.solid_faces,
     session?.can_undo,
     session?.can_redo,
+    config.hotkeys.global,
+    config.hotkeys.toolbar,
   ]);
 
   function clearArmedSketchConstraint() {
@@ -1471,6 +1463,9 @@ function App() {
           onOpenLogs={() => {
             setIsLogsOpen(true);
           }}
+          onOpenSettings={() => {
+            setIsSettingsOpen(true);
+          }}
           onAddBoxFeature={async (width, height, depth) => {
             await runAction(async () => {
               await addBoxFeature(width, height, depth);
@@ -1580,6 +1575,13 @@ function App() {
                 setIsLogsOpen(false);
               }}
               onClear={clearLogs}
+            />
+          ) : null}
+          {isSettingsOpen ? (
+            <SettingsModal
+              onClose={() => {
+                setIsSettingsOpen(false);
+              }}
             />
           ) : null}
           {isHierarchyCollapsed ? (

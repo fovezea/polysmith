@@ -99,10 +99,7 @@ pub fn start_cad_core_process(
     Ok("started".to_string())
 }
 
-pub fn send_core_command(
-    state: tauri::State<CadCoreState>,
-    command: String,
-) -> Result<(), String> {
+pub fn send_core_command(state: tauri::State<CadCoreState>, command: String) -> Result<(), String> {
     let mut guard = state.child.lock().map_err(|e| e.to_string())?;
     let process = guard
         .as_mut()
