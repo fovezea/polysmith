@@ -6,6 +6,7 @@ import {
   useAppConfig,
 } from "@/config";
 import type { AppConfig, HotkeyBinding } from "@/config";
+import { Dropdown } from "@/lib";
 
 type SettingsSection = "appearance" | "keybinds";
 
@@ -165,6 +166,12 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     },
     {
       group: "sketchToolbar",
+      key: "createSketch",
+      label: "Create Sketch",
+      binding: config.hotkeys.sketchToolbar.createSketch,
+    },
+    {
+      group: "sketchToolbar",
       key: "line",
       label: "Sketch Line",
       binding: config.hotkeys.sketchToolbar.line,
@@ -267,13 +274,17 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
 
           <div className="cad-scrollbar min-h-0 flex-1 overflow-auto p-5">
             {section === "appearance" ? (
-              <label className="block max-w-sm">
+              <div className="block max-w-sm">
                 <span className="cad-kicker">Theme</span>
-                <select
-                  className="cad-input mt-3 w-full"
+                <Dropdown
+                  label="Theme"
+                  className="mt-3 w-full"
                   value={config.theme}
-                  onChange={(event) => {
-                    const theme = event.target.value;
+                  options={availableThemes.map((theme) => ({
+                    value: theme.id,
+                    label: theme.name,
+                  }))}
+                  onChange={(theme) => {
                     const themeMap = Object.fromEntries(
                       availableThemes.map((entry) => [entry.id, entry]),
                     );
@@ -285,20 +296,14 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                       theme,
                     }));
                   }}
-                >
-                  {availableThemes.map((theme) => (
-                    <option key={theme.id} value={theme.id}>
-                      {theme.name}
-                    </option>
-                  ))}
-                </select>
+                />
                 {configPath && themesPath ? (
                   <div className="mt-4 space-y-1 text-xs text-on-surface-muted">
                     <p>Config: {configPath}</p>
                     <p>Themes: {themesPath}</p>
                   </div>
                 ) : null}
-              </label>
+              </div>
             ) : (
               <div className="space-y-2">
                 {hotkeyError ? (

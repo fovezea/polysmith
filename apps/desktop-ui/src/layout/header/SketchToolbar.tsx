@@ -1,6 +1,7 @@
 import { ConstraintType, SketchTool, ArmedSketchConstraint } from "@/types";
 import { formatHotkey, useAppConfig } from "@/config";
-import type { AppHotkeys } from "@/config";
+import type { AppHotkeys, CrosshairMode } from "@/config";
+import { Dropdown } from "@/lib";
 import { ConstraintIcon, SketchToolIcon } from "./ToolBarIcons";
 
 interface SketchToolbarProps {
@@ -50,6 +51,14 @@ const sketchTools: Array<{
   { id: "trim", label: "Trim", enabled: false },
 ];
 
+const crosshairOptions: Array<{ id: CrosshairMode; label: string }> = [
+  { id: "default", label: "Default" },
+  { id: "viewport-25", label: "25%" },
+  { id: "viewport-50", label: "50%" },
+  { id: "viewport-75", label: "75%" },
+  { id: "infinite", label: "Infinite" },
+];
+
 export function SketchToolbar({
   disabled = false,
   activeSketchPlaneId,
@@ -67,13 +76,8 @@ export function SketchToolbar({
   onStartMirrorTool,
   onSetArcToolMode,
 }: SketchToolbarProps) {
-  const { config } = useAppConfig();
-  // selectedFaceId is no longer required by the toolbar (the modal
-  // Project tool now picks faces from the viewport while active),
-  // but we keep it on the props for parity with future face-aware
-  // tools (e.g. dimension targets). Reference here silences the
-  // unused-arg lint without changing behaviour.
-  void selectedFaceId;
+  const { config, updateConfig } = useAppConfig();
+  const canCreateSketch = Boolean(selectedReferenceId || selectedFaceId);
   const toolLabel = (tool: (typeof sketchTools)[number]) => {
     if (!tool.hotkey) {
       return tool.label;
@@ -92,12 +96,17 @@ export function SketchToolbar({
             ? "cad-tool-button cad-tool-button-active"
             : "cad-tool-button"
         }
+        data-tooltip={
+          activeSketchPlaneId
+            ? "Finish Sketch"
+            : `Create Sketch (${formatHotkey(config.hotkeys.sketchToolbar.createSketch)})`
+        }
         onClick={() => {
           void (activeSketchPlaneId ? onFinishSketch() : onStartSketch());
         }}
-        disabled={disabled || (!activeSketchPlaneId && !selectedReferenceId)}
+        disabled={disabled || (!activeSketchPlaneId && !canCreateSketch)}
       >
-        {activeSketchPlaneId ? "Finish Sketch" : "Start Sketch"}
+        {activeSketchPlaneId ? "Finish Sketch" : "Create Sketch"}
       </button>
       {sketchTools.map((tool) => (
         <button
@@ -179,7 +188,6 @@ export function SketchToolbar({
         </div>
       ) : null}
       <div className="h-8 w-px bg-white/10" />
-      <div className="cad-tool-group-label">Constraints</div>
       <button
         className={
           activeSketchPlaneId && armedSketchConstraint?.kind === "horizontal"
@@ -300,6 +308,26 @@ export function SketchToolbar({
       >
         <ConstraintIcon kind="mirror" />
       </button>
+      <div className="h-8 w-px bg-white/10" />
+      <Dropdown
+        label="Sketch crosshair"
+        className="w-[104px]"
+        buttonClassName="h-9"
+        value={config.viewport.crosshair}
+        options={crosshairOptions.map((option) => ({
+          value: option.id,
+          label: option.label,
+        }))}
+        onChange={(crosshair) => {
+          updateConfig((current) => ({
+            ...current,
+            viewport: {
+              ...current.viewport,
+              crosshair,
+            },
+          }));
+        }}
+      />
       {armedSketchConstraint ? (
         <p className="text-xs uppercase tracking-[0.14em] text-on-surface-dim">
           {armedSketchConstraint.kind === "coincident"

@@ -8,6 +8,7 @@ import darkTheme from "./themes/dark.json";
 import lightTheme from "./themes/light.json";
 import type {
   AppConfig,
+  CrosshairMode,
   HotkeyBinding,
   ThemeConfig,
   ThemeSelection,
@@ -80,14 +81,28 @@ export function isThemeAvailable(
   return value === SYSTEM_THEME_ID || value in themes;
 }
 
+function isCrosshairMode(value: unknown): value is CrosshairMode {
+  return (
+    value === "default" ||
+    value === "viewport-25" ||
+    value === "viewport-50" ||
+    value === "viewport-75" ||
+    value === "infinite"
+  );
+}
+
 function cloneConfig(config: AppConfig): AppConfig {
   return JSON.parse(JSON.stringify(config)) as AppConfig;
 }
 
 function mergeAppConfig(input: Partial<AppConfig>): AppConfig {
-  return {
+  const config = {
     ...defaultAppConfig,
     ...input,
+    viewport: {
+      ...defaultAppConfig.viewport,
+      ...input.viewport,
+    },
     hotkeys: {
       ...defaultAppConfig.hotkeys,
       ...input.hotkeys,
@@ -103,6 +118,15 @@ function mergeAppConfig(input: Partial<AppConfig>): AppConfig {
         ...defaultAppConfig.hotkeys.sketchToolbar,
         ...input.hotkeys?.sketchToolbar,
       },
+    },
+  };
+  return {
+    ...config,
+    viewport: {
+      ...config.viewport,
+      crosshair: isCrosshairMode(config.viewport.crosshair)
+        ? config.viewport.crosshair
+        : defaultAppConfig.viewport.crosshair,
     },
   };
 }

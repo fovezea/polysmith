@@ -1,5 +1,8 @@
 {
   "theme": "system",
+  "viewport": {
+    "crosshair": "default"
+  },
   "hotkeys": {
     "global": {
       "undo": { "code": "KeyZ", "label": "Z", "ctrlOrMeta": true },
@@ -11,6 +14,7 @@
       "project": { "code": "KeyP", "label": "P" }
     },
     "sketchToolbar": {
+      "createSketch": { "code": "KeyS", "label": "S" },
       "line": { "code": "KeyL", "label": "L" },
       "rectangle": { "code": "KeyR", "label": "R" },
       "circle": { "code": "KeyC", "label": "C" },

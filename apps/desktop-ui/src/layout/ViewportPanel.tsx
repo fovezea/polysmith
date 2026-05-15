@@ -14,6 +14,7 @@ import {
   matchesHotkey,
   useAppConfig,
 } from "@/config";
+import type { CrosshairMode } from "@/config";
 import { createViewportScene } from "@/lib";
 import type {
   ArmedSketchConstraint,
@@ -136,6 +137,15 @@ const SKETCH_LABEL_SCREEN_SCALE = 0.72;
 const SKETCH_CONSTRAINT_SCREEN_SIZE = 28;
 const SKETCH_LABEL_COLLISION_PADDING = 6;
 const ORTHO_FRUSTUM_HEIGHT = 220;
+const ORTHO_MIN_ZOOM = 0.02;
+const ORTHO_MAX_ZOOM = 500;
+const WHEEL_ZOOM_SPEED = 0.0012;
+const WHEEL_ZOOM_POINTER_PAN = 0.42;
+const CROSSHAIR_SIZE_FACTORS: Partial<Record<CrosshairMode, number>> = {
+  "viewport-25": 0.25,
+  "viewport-50": 0.5,
+  "viewport-75": 0.75,
+};
 const CARDINAL_VIEW_DOT_THRESHOLD = 0.985;
 const DRAFT_DIMENSION_OFFSET_PX = 36;
 const GRID_SNAP_SCREEN_DISTANCE_PX = 6;
@@ -685,6 +695,11 @@ export function ViewportPanel({
     x: number;
     y: number;
   } | null>(null);
+  const [crosshairPointer, setCrosshairPointer] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const [viewportSize, setViewportSize] = useState({ width: 1, height: 1 });
   // Whether the next drawable sketch entity will be flagged as
   // construction geometry. The core owns the resulting CAD state;
   // this UI state is only the pending tool option sent with the
@@ -2571,6 +2586,10 @@ export function ViewportPanel({
   }, [activeSketchTool, sketchSnapCandidates]);
 
   useEffect(() => {
+    setCrosshairPointer(null);
+  }, [activeSketchPlaneId, activeSketchTool, config.viewport.crosshair]);
+
+  useEffect(() => {
     setSketchMidpointAnchorRef.current = onSetSketchMidpointAnchor;
   }, [onSetSketchMidpointAnchor]);
 
@@ -2871,6 +2890,7 @@ export function ViewportPanel({
     scene.add(fillLight);
 
     controls.enableDamping = false;
+    controls.enableZoom = false;
     controls.screenSpacePanning = true;
     controls.minDistance = 24;
     controls.maxDistance = 6000;
@@ -3182,6 +3202,7 @@ export function ViewportPanel({
     function resizeRenderer() {
       const width = Math.max(host?.clientWidth ?? 0, 1);
       const height = Math.max(host?.clientHeight ?? 0, 1);
+      setViewportSize({ width, height });
       renderer.setSize(width, height, false);
       const aspect = width / height;
       camera.left = (-ORTHO_FRUSTUM_HEIGHT * aspect) / 2;
@@ -3189,6 +3210,49 @@ export function ViewportPanel({
       camera.top = ORTHO_FRUSTUM_HEIGHT / 2;
       camera.bottom = -ORTHO_FRUSTUM_HEIGHT / 2;
       camera.updateProjectionMatrix();
+    }
+
+    function worldPointAtPointer(event: WheelEvent) {
+      const rect = renderer.domElement.getBoundingClientRect();
+      const ndcX = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      const ndcY = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      camera.updateMatrixWorld();
+      return new THREE.Vector3(ndcX, ndcY, 0).unproject(camera);
+    }
+
+    function handleWheel(event: WheelEvent) {
+      event.preventDefault();
+
+      const before = worldPointAtPointer(event);
+      const deltaMultiplier =
+        event.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? 16
+          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? renderer.domElement.clientHeight
+            : 1;
+      const zoomFactor = Math.exp(
+        -event.deltaY * deltaMultiplier * WHEEL_ZOOM_SPEED,
+      );
+      const nextZoom = THREE.MathUtils.clamp(
+        camera.zoom * zoomFactor,
+        ORTHO_MIN_ZOOM,
+        ORTHO_MAX_ZOOM,
+      );
+
+      if (Math.abs(nextZoom - camera.zoom) < 1e-6) {
+        return;
+      }
+
+      camera.zoom = nextZoom;
+      camera.updateProjectionMatrix();
+
+      const after = worldPointAtPointer(event);
+      const pointerShift = before
+        .sub(after)
+        .multiplyScalar(WHEEL_ZOOM_POINTER_PAN);
+      camera.position.add(pointerShift);
+      controls.target.add(pointerShift);
+      controls.update();
     }
 
     function render() {
@@ -3721,6 +3785,19 @@ export function ViewportPanel({
       const cubeDpr = renderer.getPixelRatio();
       const cubeCanvasRect = renderer.domElement.getBoundingClientRect();
       const inCube = isPointerInCubeArea(event, cubeCanvasRect, cubeDpr);
+      if (
+        activeSketchPlaneIdRef.current &&
+        activeSketchToolRef.current !== "select" &&
+        activeSketchToolRef.current !== "project" &&
+        !inCube
+      ) {
+        setCrosshairPointer({
+          x: event.clientX - cubeCanvasRect.left,
+          y: event.clientY - cubeCanvasRect.top,
+        });
+      } else {
+        setCrosshairPointer(null);
+      }
 
       if (viewCubeDraggingRef.current) {
         if (viewCubeDragStartRef.current) {
@@ -4287,6 +4364,7 @@ export function ViewportPanel({
       }
       setSketchSnapLabel(null);
       setConstraintPreview(null);
+      setCrosshairPointer(null);
       setHoveredSketchProfile(null);
       setHoveredSketchPoint(null);
       setHoveredSketchEntity(null);
@@ -5137,6 +5215,9 @@ export function ViewportPanel({
     renderer.domElement.addEventListener("pointerup", handlePointerUp);
     renderer.domElement.addEventListener("contextmenu", handleContextMenu);
     renderer.domElement.addEventListener("dblclick", handleDoubleClick);
+    renderer.domElement.addEventListener("wheel", handleWheel, {
+      passive: false,
+    });
     resizeRenderer();
 
     const animate = () => {
@@ -5158,6 +5239,7 @@ export function ViewportPanel({
       renderer.domElement.removeEventListener("pointerup", handlePointerUp);
       renderer.domElement.removeEventListener("contextmenu", handleContextMenu);
       renderer.domElement.removeEventListener("dblclick", handleDoubleClick);
+      renderer.domElement.removeEventListener("wheel", handleWheel);
       controls.dispose();
       disposeGroup(contentGroup);
       disposeGroup(referenceGroup);
@@ -5884,6 +5966,29 @@ export function ViewportPanel({
     focusDraftField(nextField);
   }
 
+  const isSketchDrawingCursor =
+    Boolean(activeSketchPlaneId) &&
+    activeSketchTool !== "select" &&
+    activeSketchTool !== "project";
+  const crosshairMode = config.viewport.crosshair;
+  const usesCrosshairGuide =
+    crosshairMode === "viewport-25" ||
+    crosshairMode === "viewport-50" ||
+    crosshairMode === "viewport-75" ||
+    crosshairMode === "infinite";
+  const crosshairGuideSize =
+    crosshairMode === "infinite"
+      ? Math.max(viewportSize.width, viewportSize.height) * 2
+      : viewportSize.height * (CROSSHAIR_SIZE_FACTORS[crosshairMode] ?? 0);
+  const crosshairCanvasClass = isSketchDrawingCursor
+    ? [
+        "cad-viewport-canvas-drawing",
+        usesCrosshairGuide ? "cad-viewport-canvas-drawing-guide" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : "";
+
   return (
     <section className="relative flex h-full min-h-0 flex-col overflow-hidden">
       <div className="pointer-events-none absolute inset-0 cad-grid-stage opacity-70" />
@@ -5921,14 +6026,23 @@ export function ViewportPanel({
         ) : null}
         <canvas
           ref={canvasRef}
-          className={`cad-viewport-canvas absolute inset-0 h-full w-full ${
-            activeSketchPlaneId &&
-            activeSketchTool !== "select" &&
-            activeSketchTool !== "project"
-              ? "cad-viewport-canvas-drawing"
-              : ""
-          }`}
+          className={`cad-viewport-canvas absolute inset-0 h-full w-full ${crosshairCanvasClass}`}
         />
+        {isSketchDrawingCursor &&
+        usesCrosshairGuide &&
+        crosshairPointer &&
+        crosshairGuideSize > 0 ? (
+          <div
+            className="cad-crosshair-guide"
+            style={{
+              left: crosshairPointer.x,
+              top: crosshairPointer.y,
+              width: crosshairGuideSize,
+              height: crosshairGuideSize,
+              transform: "translate(-50%, -50%)",
+            }}
+          />
+        ) : null}
         {/*
           Cursor-following constraint preview badge. Only visible
           while a sketch tool is producing a midpoint, perpendicular,

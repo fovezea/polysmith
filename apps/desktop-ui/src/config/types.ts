@@ -17,12 +17,24 @@ export interface AppHotkeys {
     project: HotkeyBinding;
   };
   sketchToolbar: {
+    createSketch: HotkeyBinding;
     line: HotkeyBinding;
     rectangle: HotkeyBinding;
     circle: HotkeyBinding;
     dimension: HotkeyBinding;
     toggleConstruction: HotkeyBinding;
   };
+}
+
+export type CrosshairMode =
+  | "default"
+  | "viewport-25"
+  | "viewport-50"
+  | "viewport-75"
+  | "infinite";
+
+export interface ViewportConfig {
+  crosshair: CrosshairMode;
 }
 
 export type ThemeSelection =
@@ -38,6 +50,7 @@ export type ThemeSelection =
 export interface AppConfig {
   theme: ThemeSelection;
   hotkeys: AppHotkeys;
+  viewport: ViewportConfig;
 }
 
 export interface ThemeConfig {

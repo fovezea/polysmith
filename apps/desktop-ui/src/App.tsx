@@ -216,6 +216,14 @@ function App() {
     viewport?.reference_planes.find(
       (referencePlane) => referencePlane.is_selected,
     ) ?? null;
+  const selectedSketchableFace =
+    document?.selected_face_id && viewport
+      ? (viewport.solid_faces.find(
+          (face) =>
+            face.face_id === document.selected_face_id &&
+            face.sketchability === "planar",
+        ) ?? null)
+      : null;
   const selectedSketchProfile =
     viewport?.sketch_profiles.find((profile) => profile.is_selected) ?? null;
   const selectedSketchProfiles =
@@ -266,6 +274,49 @@ function App() {
         z: planeFrame.normal[2],
       },
     };
+  }
+
+  async function triggerCreateSketchAction() {
+    if (activeSketchPlaneId) {
+      return;
+    }
+
+    if (selectedReference) {
+      await runAction(async () => {
+        await startSketchOnPlane(selectedReference.reference_id);
+      });
+      return;
+    }
+
+    if (selectedSketchableFace) {
+      await runAction(async () => {
+        await startSketchOnFace(
+          selectedSketchableFace.face_id,
+          toCorePlaneFrame({
+            origin: [
+              selectedSketchableFace.plane_frame.origin.x,
+              selectedSketchableFace.plane_frame.origin.y,
+              selectedSketchableFace.plane_frame.origin.z,
+            ],
+            xAxis: [
+              selectedSketchableFace.plane_frame.x_axis.x,
+              selectedSketchableFace.plane_frame.x_axis.y,
+              selectedSketchableFace.plane_frame.x_axis.z,
+            ],
+            yAxis: [
+              selectedSketchableFace.plane_frame.y_axis.x,
+              selectedSketchableFace.plane_frame.y_axis.y,
+              selectedSketchableFace.plane_frame.y_axis.z,
+            ],
+            normal: [
+              selectedSketchableFace.plane_frame.normal.x,
+              selectedSketchableFace.plane_frame.normal.y,
+              selectedSketchableFace.plane_frame.normal.z,
+            ],
+          }),
+        );
+      });
+    }
   }
   const {
     start,
@@ -967,6 +1018,18 @@ function App() {
         return;
       }
 
+      if (matchesHotkey(event, config.hotkeys.sketchToolbar.createSketch)) {
+        if (
+          activeSketchPlaneId ||
+          (!selectedReference && !selectedSketchableFace)
+        ) {
+          return;
+        }
+        event.preventDefault();
+        void triggerCreateSketchAction();
+        return;
+      }
+
       // P: toggle the modal Project tool inside an active sketch.
       // While the tool is active, viewport face / edge / vertex
       // clicks are routed to `project_*_into_sketch` instead of the
@@ -1006,6 +1069,7 @@ function App() {
     session?.can_redo,
     config.hotkeys.global,
     config.hotkeys.toolbar,
+    config.hotkeys.sketchToolbar.createSketch,
   ]);
 
   function clearArmedSketchConstraint() {
@@ -1386,7 +1450,7 @@ function App() {
           activeSketchPlaneId={activeSketchPlaneId}
           activeSketchTool={activeSketchTool}
           selectedReferenceId={selectedReference?.reference_id ?? null}
-          selectedFaceId={document?.selected_face_id ?? null}
+          selectedFaceId={selectedSketchableFace?.face_id ?? null}
           armedSketchConstraint={armedSketchConstraint}
           isMirrorToolOpen={isMirrorToolOpen}
           arcToolMode={arcToolMode}
@@ -1499,15 +1563,7 @@ function App() {
           onOffsetPlane={() => {
             void triggerOffsetPlaneAction();
           }}
-          onStartSketch={async () => {
-            if (!selectedReference) {
-              return;
-            }
-
-            await runAction(async () => {
-              await startSketchOnPlane(selectedReference.reference_id);
-            });
-          }}
+          onStartSketch={triggerCreateSketchAction}
           onFinishSketch={async () => {
             await runAction(async () => {
               clearArmedSketchConstraint();
