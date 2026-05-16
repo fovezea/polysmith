@@ -518,20 +518,28 @@ bool refresh_sketch_projections(const DocumentState& prefix,
           patch_loop(inner_loop);
         }
       } else if (outline->kind == "circle") {
-        if (projection.generated_circle_ids.size() != 1) {
+        const size_t expected_circle_count = 1 + outline->inner_circles.size();
+        if (projection.generated_circle_ids.size() != expected_circle_count) {
           projection.dependency_broken = true;
           projection.dependency_warning =
               "Projected face changed shape. Re-project to update.";
           any_broken = true;
           continue;
         }
-        const auto center = world_to_sketch_local(
-            frame, outline->circle_center.x, outline->circle_center.y,
-            outline->circle_center.z);
-        patch_sketch_circle(parameters,
-                            projection.generated_circle_ids.front(),
-                            center.first, center.second,
-                            outline->circle_radius);
+        auto patch_projected_circle =
+            [&](size_t index, const FaceOutlinePoint& center, double radius) {
+          const auto local = world_to_sketch_local(
+              frame, center.x, center.y, center.z);
+          patch_sketch_circle(parameters, projection.generated_circle_ids[index],
+                              local.first, local.second, radius);
+        };
+        patch_projected_circle(0, outline->circle_center,
+                               outline->circle_radius);
+        for (size_t index = 0; index < outline->inner_circles.size(); ++index) {
+          const auto& inner_circle = outline->inner_circles[index];
+          patch_projected_circle(index + 1, inner_circle.center,
+                                 inner_circle.radius);
+        }
       }
     }
   }

@@ -29,6 +29,7 @@ import {
   makeLoadDocumentCommand,
   makeProjectEdgeIntoSketchCommand,
   makeProjectFaceIntoSketchCommand,
+  makeProjectProfileIntoSketchCommand,
   makeProjectVertexIntoSketchCommand,
   makeSaveDocumentCommand,
   makeFinishSketchCommand,
@@ -219,6 +220,11 @@ export function useCadCore() {
     },
     projectFaceIntoSketch: async (faceId: string) => {
       await sendCoreCommand(makeProjectFaceIntoSketchCommand(faceId));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    projectProfileIntoSketch: async (profileId: string) => {
+      await sendCoreCommand(makeProjectProfileIntoSketchCommand(profileId));
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());
     },

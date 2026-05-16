@@ -89,13 +89,42 @@ std::vector<TopoDS_Edge> ordered_wire_edges(const TopoDS_Wire& wire) {
   return ordered_edges;
 }
 
-std::vector<FaceOutlinePoint> sample_circle_edge_loop(const TopoDS_Edge& edge) {
-  std::vector<FaceOutlinePoint> points;
+std::optional<FaceOutlineCircle> circle_from_edge(const TopoDS_Edge& edge) {
   try {
     BRepAdaptor_Curve curve(edge);
     if (curve.GetType() != GeomAbs_Circle) {
+      return std::nullopt;
+    }
+    const gp_Circ circle = curve.Circle();
+    const gp_Pnt center = circle.Location();
+    const gp_Dir axis = circle.Axis().Direction();
+    return FaceOutlineCircle{
+        .center = FaceOutlinePoint{
+            .x = center.X(), .y = center.Y(), .z = center.Z()},
+        .axis = FaceOutlinePoint{.x = axis.X(), .y = axis.Y(), .z = axis.Z()},
+        .radius = circle.Radius(),
+    };
+  } catch (const std::exception&) {
+    return std::nullopt;
+  }
+}
+
+std::optional<FaceOutlineCircle> circle_from_wire(const TopoDS_Wire& wire) {
+  const auto ordered_edges = ordered_wire_edges(wire);
+  if (ordered_edges.size() != 1) {
+    return std::nullopt;
+  }
+  return circle_from_edge(ordered_edges.front());
+}
+
+std::vector<FaceOutlinePoint> sample_circle_edge_loop(const TopoDS_Edge& edge) {
+  std::vector<FaceOutlinePoint> points;
+  try {
+    const auto circle_outline = circle_from_edge(edge);
+    if (!circle_outline.has_value()) {
       return points;
     }
+    BRepAdaptor_Curve curve(edge);
     constexpr int kSegments = 64;
     points.reserve(kSegments);
     const double first = curve.FirstParameter();
@@ -159,6 +188,25 @@ std::vector<std::vector<FaceOutlinePoint>> inner_wire_loops(
     }
   }
   return loops;
+}
+
+std::optional<std::vector<FaceOutlineCircle>> inner_wire_circles(
+    const TopoDS_Face& face,
+    const TopoDS_Wire& outer_wire) {
+  std::vector<FaceOutlineCircle> circles;
+  for (TopExp_Explorer explorer(face, TopAbs_WIRE); explorer.More();
+       explorer.Next()) {
+    const TopoDS_Wire wire = TopoDS::Wire(explorer.Current());
+    if (wire.IsNull() || wire.IsSame(outer_wire)) {
+      continue;
+    }
+    const auto circle = circle_from_wire(wire);
+    if (!circle.has_value()) {
+      return std::nullopt;
+    }
+    circles.push_back(circle.value());
+  }
+  return circles;
 }
 
 std::optional<PlaneFrame> derive_planar_frame(const TopoDS_Face& face) {
@@ -345,37 +393,27 @@ std::optional<FaceOutline> outline_from_face(const TopoDS_Face& face) {
     return std::nullopt;
   }
 
-  auto inner_loops = inner_wire_loops(face, outer);
-
-  // Special-case a single-circle wire so circular cap faces project as
-  // sketch circles (the natural representation) instead of dense
-  // polygons. Annular faces stay in polygon mode so the inner loop is
-  // preserved instead of dropped.
-  if (ordered_edges.size() == 1 && inner_loops.empty()) {
-    try {
-      BRepAdaptor_Curve curve(ordered_edges.front());
-      if (curve.GetType() == GeomAbs_Circle) {
-        const gp_Circ circle = curve.Circle();
-        FaceOutline outline{};
-        outline.kind = "circle";
-        const gp_Pnt center = circle.Location();
-        outline.circle_center = FaceOutlinePoint{
-            .x = center.X(), .y = center.Y(), .z = center.Z()};
-        const gp_Dir axis = circle.Axis().Direction();
-        outline.circle_axis = FaceOutlinePoint{
-            .x = axis.X(), .y = axis.Y(), .z = axis.Z()};
-        outline.circle_radius = circle.Radius();
-        return outline;
-      }
-    } catch (const std::exception&) {
-      // Fall through to polygon path.
+  // Circular and annular planar faces should project as sketch circles,
+  // not as sampled polygon loops. If every loop is circular, keep that
+  // exact semantic shape and let the projector emit one circle per loop.
+  if (const auto outer_circle = circle_from_wire(outer);
+      outer_circle.has_value()) {
+    if (const auto inner_circles = inner_wire_circles(face, outer);
+        inner_circles.has_value()) {
+      FaceOutline outline{};
+      outline.kind = "circle";
+      outline.circle_center = outer_circle->center;
+      outline.circle_axis = outer_circle->axis;
+      outline.circle_radius = outer_circle->radius;
+      outline.inner_circles = inner_circles.value();
+      return outline;
     }
   }
 
   FaceOutline outline{};
   outline.kind = "polygon";
   outline.polygon_corners = sample_wire_loop(outer);
-  outline.inner_loops = std::move(inner_loops);
+  outline.inner_loops = inner_wire_loops(face, outer);
 
   if (outline.polygon_corners.size() < 3) {
     return std::nullopt;

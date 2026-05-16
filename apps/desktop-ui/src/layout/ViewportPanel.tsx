@@ -756,7 +756,7 @@ function updateDraftSessionCurrent(
   session: DraftDimensionSession,
   current: [number, number],
 ): DraftDimensionSession {
-  const next: DraftDimensionSession = {
+  let next: DraftDimensionSession = {
     ...session,
     current,
     values: draftSessionValues(session.tool, session.start, current),
@@ -771,7 +771,7 @@ function updateDraftSessionCurrent(
       next.values[field] = session.values[field];
       continue;
     }
-    return applyDraftDimensionFieldValue(
+    next = applyDraftDimensionFieldValue(
       {...next, values: {...next.values, [field]: session.values[field]}},
       field,
       session.values[field],
@@ -781,6 +781,7 @@ function updateDraftSessionCurrent(
 
   return {
     ...next,
+    activeField: session.activeField,
     values: {
       ...next.values,
       ...Object.fromEntries(
@@ -1293,6 +1294,105 @@ export function ViewportPanel({
     return null;
   }, [document, viewport]);
   function angleDimensionFrame(dimension: SketchDimensionScene) {
+    const sketch = sketchFeature?.sketch_parameters;
+    const coreDimension = sketch?.dimensions.find(
+      (candidate) => candidate.dimension_id === dimension.dimensionId,
+    );
+    if (
+      sketch &&
+      coreDimension?.kind === "angle" &&
+      coreDimension.secondary_entity_id
+    ) {
+      const lineA = sketch.lines.find(
+        (line) => line.line_id === coreDimension.entity_id,
+      );
+      const lineB = sketch.lines.find(
+        (line) => line.line_id === coreDimension.secondary_entity_id,
+      );
+      if (lineA && lineB) {
+        const aEnds: Array<{
+          pointId: string;
+          local: [number, number];
+        }> = [
+          {pointId: lineA.start_point_id, local: [lineA.start_x, lineA.start_y]},
+          {pointId: lineA.end_point_id, local: [lineA.end_x, lineA.end_y]},
+        ];
+        const bEnds: Array<{
+          pointId: string;
+          local: [number, number];
+        }> = [
+          {pointId: lineB.start_point_id, local: [lineB.start_x, lineB.start_y]},
+          {pointId: lineB.end_point_id, local: [lineB.end_x, lineB.end_y]},
+        ];
+        let aPivotIndex = -1;
+        let bPivotIndex = -1;
+        for (let aIndex = 0; aIndex < aEnds.length && aPivotIndex < 0; aIndex++) {
+          for (let bIndex = 0; bIndex < bEnds.length; bIndex++) {
+            const samePointId = aEnds[aIndex].pointId === bEnds[bIndex].pointId;
+            const dx = aEnds[aIndex].local[0] - bEnds[bIndex].local[0];
+            const dy = aEnds[aIndex].local[1] - bEnds[bIndex].local[1];
+            if (samePointId || Math.hypot(dx, dy) <= 0.05) {
+              aPivotIndex = aIndex;
+              bPivotIndex = bIndex;
+              break;
+            }
+          }
+        }
+
+        if (aPivotIndex >= 0 && bPivotIndex >= 0) {
+          const pivotLocal = aEnds[aPivotIndex].local;
+          const aOther = aEnds[1 - aPivotIndex].local;
+          const bOther = bEnds[1 - bPivotIndex].local;
+          const aDx = aOther[0] - pivotLocal[0];
+          const aDy = aOther[1] - pivotLocal[1];
+          const bDx = bOther[0] - pivotLocal[0];
+          const bDy = bOther[1] - pivotLocal[1];
+          const aLength = Math.hypot(aDx, aDy);
+          const bLength = Math.hypot(bDx, bDy);
+          if (aLength > 1e-8 && bLength > 1e-8) {
+            const pivot = new THREE.Vector3(
+              ...toWorldPoint(dimension.planeId, pivotLocal, sketch.plane_frame),
+            );
+            const aUnitPoint = new THREE.Vector3(
+              ...toWorldPoint(
+                dimension.planeId,
+                [pivotLocal[0] + aDx / aLength, pivotLocal[1] + aDy / aLength],
+                sketch.plane_frame,
+              ),
+            );
+            const bUnitPoint = new THREE.Vector3(
+              ...toWorldPoint(
+                dimension.planeId,
+                [pivotLocal[0] + bDx / bLength, pivotLocal[1] + bDy / bLength],
+                sketch.plane_frame,
+              ),
+            );
+            const startUnit = aUnitPoint.sub(pivot).normalize();
+            const endUnit = bUnitPoint.sub(pivot).normalize();
+            const bisector = startUnit.clone().add(endUnit);
+            if (bisector.lengthSq() > 1e-8) {
+              const anchorRadius = Math.max(
+                0.1,
+                new THREE.Vector3(...dimension.anchorStart).distanceTo(pivot),
+              );
+              const dimensionRadius = Math.max(
+                anchorRadius + 1,
+                new THREE.Vector3(...dimension.dimensionStart).distanceTo(pivot),
+              );
+              return {
+                pivot,
+                startUnit,
+                endUnit,
+                bisector: bisector.normalize(),
+                anchorRadius,
+                dimensionRadius,
+              };
+            }
+          }
+        }
+      }
+    }
+
     const anchorStart = new THREE.Vector3(...dimension.anchorStart);
     const anchorEnd = new THREE.Vector3(...dimension.anchorEnd);
     const dimensionStart = new THREE.Vector3(...dimension.dimensionStart);
@@ -1908,6 +2008,35 @@ export function ViewportPanel({
     return placementAxis.lengthSq() > 1e-8 ? placementAxis : null;
   }
 
+  function circleDimensionLabelNearPoint(
+    dimension: SketchDimensionScene,
+    worldPoint: [number, number, number],
+  ): [number, number, number] | null {
+    if (dimension.kind !== "circle_radius") {
+      return null;
+    }
+    const center = new THREE.Vector3(...dimension.dimensionStart)
+      .add(new THREE.Vector3(...dimension.dimensionEnd))
+      .multiplyScalar(0.5);
+    const radius =
+      new THREE.Vector3(...dimension.dimensionStart).distanceTo(
+        new THREE.Vector3(...dimension.dimensionEnd),
+      ) * 0.5;
+    const direction = new THREE.Vector3(...worldPoint).sub(center);
+    const planeNormal = getSketchGridFrame(
+      dimension.planeId,
+      activeSketchPlaneFrameRef.current,
+    ).normal;
+    direction.addScaledVector(planeNormal, -direction.dot(planeNormal));
+    if (direction.lengthSq() <= 1e-8 || radius <= 1e-8) {
+      return null;
+    }
+    const position = center.add(
+      direction.normalize().multiplyScalar(radius + 4),
+    );
+    return [position.x, position.y, position.z];
+  }
+
   function angleDimensionArcControlNearPoint(
     dimension: SketchDimensionScene,
     worldPoint: [number, number, number],
@@ -1981,18 +2110,29 @@ export function ViewportPanel({
     if (!sketchPoint) {
       return;
     }
-    const dragAxis = getDimensionPlacementAxis(dimension);
-    if (!dragAxis) {
+    const originalPosition = dimension.labelPosition;
+    const circlePosition =
+      dimension.kind === "circle_radius"
+        ? circleDimensionLabelNearPoint(dimension, sketchPoint.world)
+        : null;
+    const dragAxis =
+      dimension.kind === "circle_radius"
+        ? new THREE.Vector3(0, 0, 0)
+        : getDimensionPlacementAxis(dimension);
+    if (dimension.kind !== "circle_radius" && !dragAxis) {
       return;
     }
-    const originalPosition = dimension.labelPosition;
     const anglePosition =
       dimension.kind === "angle"
         ? angleDimensionArcControlNearPoint(dimension, sketchPoint.world)
         : null;
     const nextPosition =
+      circlePosition ??
       anglePosition ??
       (() => {
+        if (!dragAxis) {
+          return originalPosition;
+        }
         const originalPositionVector = new THREE.Vector3(...originalPosition);
         const pointerDelta = new THREE.Vector3(...sketchPoint.world).sub(
           originalPositionVector,
@@ -2017,7 +2157,7 @@ export function ViewportPanel({
       startClientY: pointerEvent.clientY,
       startWorld: sketchPoint.world,
       startLabelPosition: nextPosition,
-      dragAxis: [dragAxis.x, dragAxis.y, dragAxis.z],
+      dragAxis: dragAxis ? [dragAxis.x, dragAxis.y, dragAxis.z] : [0, 0, 0],
       hasMoved: true,
       isPlacement: true,
     };
@@ -2112,6 +2252,7 @@ export function ViewportPanel({
       );
       previewCircleRef.current = preview;
       sketchGroup.add(preview);
+      renderCircleDraftDimension(sketchGroup, session.start, session.current);
       return;
     }
 
@@ -2141,6 +2282,74 @@ export function ViewportPanel({
     }
     previewLineRef.current = preview;
     sketchGroup.add(preview);
+  }
+
+  function renderCircleDraftDimension(
+    sketchGroup: THREE.Group,
+    center: [number, number],
+    edge: [number, number],
+  ) {
+    if (!activeSketchPlaneId) {
+      return;
+    }
+    const radius = distanceBetweenPoints(center, edge);
+    const dx = edge[0] - center[0];
+    const dy = edge[1] - center[1];
+    const length = Math.hypot(dx, dy);
+    if (radius <= 0.001 || length <= 1e-6) {
+      return;
+    }
+
+    const ux = dx / length;
+    const uy = dy / length;
+    const dimensionStartLocal: [number, number] = [
+      center[0] - ux * radius,
+      center[1] - uy * radius,
+    ];
+    const dimensionEndLocal: [number, number] = [
+      center[0] + ux * radius,
+      center[1] + uy * radius,
+    ];
+    const labelLocal: [number, number] = [
+      center[0] + ux * (radius + 4),
+      center[1] + uy * (radius + 4),
+    ];
+    const draftDimension = buildSketchDimensionObject({
+      dimensionId: "preview-circle-diameter",
+      planeId: activeSketchPlaneId,
+      kind: "circle_radius",
+      entityId: "preview-circle",
+      label: `D ${formatDraftDimension(radius * 2)} mm`,
+      isSelected: false,
+      anchorStart: toWorldPoint(
+        activeSketchPlaneId,
+        dimensionStartLocal,
+        activeSketchPlaneFrame,
+      ),
+      anchorEnd: toWorldPoint(
+        activeSketchPlaneId,
+        dimensionEndLocal,
+        activeSketchPlaneFrame,
+      ),
+      dimensionStart: toWorldPoint(
+        activeSketchPlaneId,
+        dimensionStartLocal,
+        activeSketchPlaneFrame,
+      ),
+      dimensionEnd: toWorldPoint(
+        activeSketchPlaneId,
+        dimensionEndLocal,
+        activeSketchPlaneFrame,
+      ),
+      labelPosition: toWorldPoint(
+        activeSketchPlaneId,
+        labelLocal,
+        activeSketchPlaneFrame,
+      ),
+    });
+    previewDimensionRef.current = draftDimension;
+    sketchGroup.add(draftDimension.line);
+    sketchGroup.add(draftDimension.label);
   }
 
   function updateDraftSessionFromPoint(point: [number, number]) {
@@ -2685,6 +2894,7 @@ export function ViewportPanel({
     for (const object of sketchEntityObjectsRef.current) {
       const id = object.userData.sketchEntityId as string | undefined;
       const isSelected = object.userData.isSelected === true;
+      const isProjected = object.userData.sketchEntityIsProjected === true;
       const isHovered =
         id !== undefined && id === hoveredSketchEntityIdRef.current;
       const material = object.material as
@@ -2695,7 +2905,9 @@ export function ViewportPanel({
           ? themeColor("--color-primary-edge-active", "#c3f5ff")
           : isHovered
             ? themeColor("--color-tertiary-plane-edge-hover", "#fff2b2")
-            : themeColor("--color-tertiary-plane-fill", "#fff7c0"),
+            : isProjected
+              ? themeColor("--cad-sketch-projected", "#ff4fd8")
+              : themeColor("--color-tertiary-plane-fill", "#fff7c0"),
       );
       material.opacity = isSelected || isHovered ? 1 : 0.98;
       material.linewidth = isSelected ? 3 : isHovered ? 2.5 : 1;
@@ -3932,7 +4144,9 @@ export function ViewportPanel({
         const sketchEntityId = sketchEntityHit?.object.userData.sketchEntityId;
         const sketchEntityKind =
           sketchEntityHit?.object.userData.sketchEntityKind;
-        if (typeof sketchEntityId === "string") {
+        const sketchEntityIsProjected =
+          sketchEntityHit?.object.userData.sketchEntityIsProjected === true;
+        if (typeof sketchEntityId === "string" && !sketchEntityIsProjected) {
           return {
             kind: "sketch_entity" as const,
             id: sketchEntityId,
@@ -4080,8 +4294,11 @@ export function ViewportPanel({
             activeSketchPlaneFrameRef.current,
           );
           if (dimension && sketchPoint) {
-            const dragAxis = getDimensionPlacementAxis(dimension);
-            if (!dragAxis) {
+            const dragAxis =
+              dimension.kind === "circle_radius"
+                ? new THREE.Vector3(0, 0, 0)
+                : getDimensionPlacementAxis(dimension);
+            if (dimension.kind !== "circle_radius" && !dragAxis) {
               return;
             }
             dimensionLabelDragRef.current = {
@@ -4090,7 +4307,9 @@ export function ViewportPanel({
               startClientY: event.clientY,
               startWorld: sketchPoint.world,
               startLabelPosition: dimension.labelPosition,
-              dragAxis: [dragAxis.x, dragAxis.y, dragAxis.z],
+              dragAxis: dragAxis
+                ? [dragAxis.x, dragAxis.y, dragAxis.z]
+                : [0, 0, 0],
               hasMoved: false,
             };
             controls.enabled = false;
@@ -4214,6 +4433,19 @@ export function ViewportPanel({
         );
         if (draggedDimension?.kind === "angle") {
           const nextPosition = angleDimensionArcControlNearPoint(
+            draggedDimension,
+            sketchPoint.world,
+          );
+          if (nextPosition) {
+            setDimensionLabelPositions((current) => ({
+              ...current,
+              [dimensionDrag.dimensionId]: nextPosition,
+            }));
+          }
+          return;
+        }
+        if (draggedDimension?.kind === "circle_radius") {
+          const nextPosition = circleDimensionLabelNearPoint(
             draggedDimension,
             sketchPoint.world,
           );
@@ -4639,61 +4871,11 @@ export function ViewportPanel({
             );
             previewCircleRef.current = preview;
             sketchGroupRefValue.add(preview);
-            const dx = draftPreviewLocal[0] - draftStart[0];
-            const dy = draftPreviewLocal[1] - draftStart[1];
-            const length = Math.hypot(dx, dy);
-            if (length > 1e-6) {
-              const ux = dx / length;
-              const uy = dy / length;
-              const dimensionStartLocal: [number, number] = [
-                draftStart[0] - ux * radius,
-                draftStart[1] - uy * radius,
-              ];
-              const dimensionEndLocal: [number, number] = [
-                draftStart[0] + ux * radius,
-                draftStart[1] + uy * radius,
-              ];
-              const labelLocal: [number, number] = [
-                draftStart[0] + ux * (radius + 4),
-                draftStart[1] + uy * (radius + 4),
-              ];
-              const draftDimension = buildSketchDimensionObject({
-                dimensionId: "preview-circle-diameter",
-                planeId: activeSketchPlaneId,
-                kind: "circle_radius",
-                entityId: "preview-circle",
-                label: `D ${formatDraftDimension(radius * 2)} mm`,
-                isSelected: false,
-                anchorStart: toWorldPoint(
-                  activeSketchPlaneId,
-                  dimensionStartLocal,
-                  activeSketchPlaneFrame,
-                ),
-                anchorEnd: toWorldPoint(
-                  activeSketchPlaneId,
-                  dimensionEndLocal,
-                  activeSketchPlaneFrame,
-                ),
-                dimensionStart: toWorldPoint(
-                  activeSketchPlaneId,
-                  dimensionStartLocal,
-                  activeSketchPlaneFrame,
-                ),
-                dimensionEnd: toWorldPoint(
-                  activeSketchPlaneId,
-                  dimensionEndLocal,
-                  activeSketchPlaneFrame,
-                ),
-                labelPosition: toWorldPoint(
-                  activeSketchPlaneId,
-                  labelLocal,
-                  activeSketchPlaneFrame,
-                ),
-              });
-              previewDimensionRef.current = draftDimension;
-              sketchGroupRefValue.add(draftDimension.line);
-              sketchGroupRefValue.add(draftDimension.label);
-            }
+            renderCircleDraftDimension(
+              sketchGroupRefValue,
+              draftStart,
+              draftPreviewLocal,
+            );
           }
         } else if (activeSketchToolRef.current === "rectangle") {
           // Show the full 4-corner outline as the user drags so they
@@ -4924,6 +5106,13 @@ export function ViewportPanel({
         const hit = intersectSceneTargets(event);
         const additiveSelection =
           event.shiftKey || event.ctrlKey || event.metaKey;
+        if (
+          activeSketchToolRef.current === "project" &&
+          hit?.kind === "sketch_profile"
+        ) {
+          void selectSketchProfileRef.current(hit.id, false);
+          return;
+        }
         if (activeSketchToolRef.current === "select") {
           // Mirror tool takes priority over the rest of the
           // selection / armed-constraint flow when one of its

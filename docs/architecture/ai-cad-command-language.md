@@ -1510,8 +1510,26 @@ Payload:
 ```
 
 Use a face ID from `viewport_state.solid_faces[]`. Repeated projection of the
-same source is idempotent. Annular / holed planar faces preserve inner loops as
+same source is idempotent. Annular circular planar faces project as concentric
+sketch circles; non-circular holed planar faces preserve inner loops as
 projected sketch lines.
+
+#### `project_profile_into_sketch`
+
+Projects a sketch profile boundary into the active sketch.
+
+Payload:
+
+```ts
+{
+  profile_id: string;
+}
+```
+
+Use a profile ID from `document_state.feature_history[].sketch_parameters.profiles[]`
+or `viewport_state.sketch_profiles[]`. Polygon profiles produce projected lines
+with fixed endpoints; circular profiles produce a projected sketch circle. Inner
+loops are included.
 
 #### `project_edge_into_sketch`
 
@@ -1919,6 +1937,7 @@ this:
   `dimensions[]` from `feature_history[].sketch_parameters`.
 - Use `create_fillet` / `create_chamfer` for body edges; use
   `add_sketch_fillet` for sketch corners.
-- Projection commands are `project_face_into_sketch`, `project_edge_into_sketch`,
-  and `project_vertex_into_sketch`.
+- Projection commands are `project_face_into_sketch`,
+  `project_profile_into_sketch`, `project_edge_into_sketch`, and
+  `project_vertex_into_sketch`.
 - Never invent IDs. Never expose IDs in user-facing UI copy.

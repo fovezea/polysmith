@@ -53,6 +53,7 @@ export interface SketchDimensionEntry {
     | "circle_center_distance"
     | "circle_line_distance";
   entity_id: string;
+  secondary_entity_id: string;
   value: number;
 }
 
@@ -227,7 +228,7 @@ export interface SketchProjectedPointEntry {
 export interface SketchProjectionEntry {
   projection_id: string;
   source_id: string;
-  source_kind: "face" | "edge" | "vertex";
+  source_kind: "face" | "edge" | "vertex" | "profile";
   generated_line_ids: string[];
   generated_circle_ids: string[];
   generated_arc_ids: string[];

@@ -3501,8 +3501,8 @@ DocumentState DocumentManager::project_face_into_sketch(
 
   // We capture the ids of every sketch entity this projection emits
   // so `refresh_sketch_projections` can later patch their cached
-  // coords when the upstream face moves. Faces only ever produce
-  // lines (rectangle / polygon outline) or one circle.
+  // coords when the upstream face moves. Faces produce lines
+  // (rectangle / polygon outline) or circles for circular loops.
   SketchProjection record;
   record.id =
       "projection-" + std::to_string(next_sketch_projection_id_++);
@@ -3546,18 +3546,29 @@ DocumentState DocumentManager::project_face_into_sketch(
       record.generated_line_ids.push_back(line.id);
     }
   } else if (outline->kind == "circle") {
-    const auto center_local = project_to_sketch_local(outline->circle_center);
-    const size_t circles_before =
-        sketch_it->sketch_parameters->circles.size();
-    polysmith::core::add_sketch_circle(*sketch_it,
-                                       next_sketch_circle_id_++,
-                                       center_local.first,
-                                       center_local.second,
-                                       outline->circle_radius);
-    for (size_t i = circles_before;
-         i < sketch_it->sketch_parameters->circles.size(); ++i) {
-      record.generated_circle_ids.push_back(
-          sketch_it->sketch_parameters->circles[i].id);
+    auto add_projected_circle =
+        [&](const FaceOutlinePoint& center, double radius) {
+      const auto center_local = project_to_sketch_local(center);
+      const size_t circles_before =
+          sketch_it->sketch_parameters->circles.size();
+      polysmith::core::add_sketch_circle(*sketch_it,
+                                         next_sketch_circle_id_++,
+                                         center_local.first,
+                                         center_local.second,
+                                         radius);
+      for (size_t i = circles_before;
+           i < sketch_it->sketch_parameters->circles.size(); ++i) {
+        const auto& circle = sketch_it->sketch_parameters->circles[i];
+        polysmith::core::set_sketch_point_fixed(
+            *sketch_it, "point-circle-" + circle.id + "-center", true);
+        record.generated_circle_ids.push_back(
+            circle.id);
+      }
+    };
+
+    add_projected_circle(outline->circle_center, outline->circle_radius);
+    for (const auto& inner_circle : outline->inner_circles) {
+      add_projected_circle(inner_circle.center, inner_circle.radius);
     }
   } else if (outline->kind == "polygon") {
     if (outline->polygon_corners.size() < 3) {
@@ -3700,7 +3711,225 @@ bool circle_axis_parallel_to_sketch(
   return std::abs(std::abs(dot) - 1.0) <= tolerance;
 }
 
+FaceOutlinePoint sketch_local_to_world(const SketchFeatureParameters& sketch,
+                                       double local_x,
+                                       double local_y) {
+  if (sketch.plane_frame.has_value()) {
+    const auto& frame = sketch.plane_frame.value();
+    return FaceOutlinePoint{
+        .x = frame.origin_x + frame.x_axis_x * local_x +
+             frame.y_axis_x * local_y,
+        .y = frame.origin_y + frame.x_axis_y * local_x +
+             frame.y_axis_y * local_y,
+        .z = frame.origin_z + frame.x_axis_z * local_x +
+             frame.y_axis_z * local_y,
+    };
+  }
+  if (sketch.plane_id == "ref-plane-xy") {
+    return FaceOutlinePoint{.x = local_x, .y = 0.0, .z = local_y};
+  }
+  if (sketch.plane_id == "ref-plane-yz") {
+    return FaceOutlinePoint{.x = 0.0, .y = local_x, .z = local_y};
+  }
+  return FaceOutlinePoint{.x = local_x, .y = local_y, .z = 0.0};
+}
+
+FaceOutlinePoint sketch_normal(const SketchFeatureParameters& sketch) {
+  if (sketch.plane_frame.has_value()) {
+    const auto& frame = sketch.plane_frame.value();
+    return FaceOutlinePoint{
+        .x = frame.normal_x, .y = frame.normal_y, .z = frame.normal_z};
+  }
+  if (sketch.plane_id == "ref-plane-yz") {
+    return FaceOutlinePoint{.x = 1.0, .y = 0.0, .z = 0.0};
+  }
+  if (sketch.plane_id == "ref-plane-xz") {
+    return FaceOutlinePoint{.x = 0.0, .y = 0.0, .z = 1.0};
+  }
+  return FaceOutlinePoint{.x = 0.0, .y = 1.0, .z = 0.0};
+}
+
+bool normals_parallel(const FaceOutlinePoint& left,
+                      const SketchFeatureParameters::SketchPlaneFrame& right,
+                      double tolerance = 1e-6) {
+  const double dot = left.x * right.normal_x + left.y * right.normal_y +
+                     left.z * right.normal_z;
+  return std::abs(std::abs(dot) - 1.0) <= tolerance;
+}
+
+bool circle_contains_circle_for_projection(const SketchCircle& outer,
+                                           const SketchCircle& inner) {
+  if (outer.id == inner.id || outer.radius <= inner.radius) {
+    return false;
+  }
+  const double dx = inner.center_x - outer.center_x;
+  const double dy = inner.center_y - outer.center_y;
+  const double center_distance = std::sqrt(dx * dx + dy * dy);
+  return center_distance + inner.radius <= outer.radius + 1e-6;
+}
+
 }  // namespace
+
+DocumentState DocumentManager::project_profile_into_sketch(
+    const std::string& profile_id) {
+  require_document();
+  const auto sketch_it = require_projection_target(*document_);
+
+  for (const auto& projection : sketch_it->sketch_parameters->projections) {
+    if (projection.source_id == profile_id) {
+      return document_.value();
+    }
+  }
+
+  const auto source_it = find_sketch_feature_owning_profile(
+      document_->feature_history, profile_id);
+  if (source_it == document_->feature_history.end() ||
+      !source_it->sketch_parameters.has_value()) {
+    throw std::runtime_error("Sketch profile not found: " + profile_id);
+  }
+
+  const SketchFeatureParameters source_sketch = source_it->sketch_parameters.value();
+  const auto profile_it = std::find_if(
+      source_sketch.profiles.begin(), source_sketch.profiles.end(),
+      [&](const SketchProfileRegion& profile) { return profile.id == profile_id; });
+  if (profile_it == source_sketch.profiles.end()) {
+    throw std::runtime_error("Sketch profile not found: " + profile_id);
+  }
+  const SketchProfileRegion source_profile = *profile_it;
+  const auto target_frame = sketch_it->sketch_parameters->plane_frame.value();
+
+  auto project_source_point =
+      [&](const SketchProfilePoint& point) -> std::pair<double, double> {
+    const auto world = sketch_local_to_world(source_sketch, point.x, point.y);
+    return world_to_sketch_local(target_frame, world.x, world.y, world.z);
+  };
+
+  push_undo_state();
+  clear_redo_stack();
+
+  SketchProjection record;
+  record.id =
+      "projection-" + std::to_string(next_sketch_projection_id_++);
+  record.source_id = profile_id;
+  record.source_kind = "profile";
+
+  auto add_projected_loop =
+      [&](const std::vector<SketchProfilePoint>& loop) {
+    if (loop.size() < 3) {
+      return;
+    }
+    std::vector<std::pair<double, double>> local;
+    local.reserve(loop.size());
+    for (const auto& point : loop) {
+      local.push_back(project_source_point(point));
+    }
+    const size_t lines_before = sketch_it->sketch_parameters->lines.size();
+    for (size_t index = 0; index < local.size(); ++index) {
+      const auto& a = local[index];
+      const auto& b = local[(index + 1) % local.size()];
+      polysmith::core::add_sketch_line(*sketch_it,
+                                       next_sketch_line_id_++,
+                                       a.first,
+                                       a.second,
+                                       b.first,
+                                       b.second);
+    }
+    for (size_t index = lines_before;
+         index < sketch_it->sketch_parameters->lines.size(); ++index) {
+      const auto& line = sketch_it->sketch_parameters->lines[index];
+      polysmith::core::set_sketch_point_fixed(
+          *sketch_it, line.start_point_id, true);
+      polysmith::core::set_sketch_point_fixed(
+          *sketch_it, line.end_point_id, true);
+      record.generated_line_ids.push_back(line.id);
+    }
+  };
+
+  const auto add_projected_circle =
+      [&](const SketchCircle& circle) {
+    const auto center_world = sketch_local_to_world(
+        source_sketch, circle.center_x, circle.center_y);
+    const auto center_local = world_to_sketch_local(
+        target_frame, center_world.x, center_world.y, center_world.z);
+    const size_t circles_before = sketch_it->sketch_parameters->circles.size();
+    polysmith::core::add_sketch_circle(*sketch_it,
+                                       next_sketch_circle_id_++,
+                                       center_local.first,
+                                       center_local.second,
+                                       circle.radius);
+    for (size_t index = circles_before;
+         index < sketch_it->sketch_parameters->circles.size(); ++index) {
+      const auto& circle = sketch_it->sketch_parameters->circles[index];
+      polysmith::core::set_sketch_point_fixed(
+          *sketch_it, "point-circle-" + circle.id + "-center", true);
+      record.generated_circle_ids.push_back(
+          circle.id);
+    }
+  };
+
+  if (source_profile.kind == "circle" ||
+      source_profile.source_circle_id.has_value()) {
+    if (!normals_parallel(sketch_normal(source_sketch), target_frame)) {
+      throw std::runtime_error(
+          "Circular profile projects to an ellipse (its sketch plane is not "
+          "parallel to the active sketch). Not supported in v1.");
+    }
+    const auto source_circle_it = source_profile.source_circle_id.has_value()
+        ? std::find_if(
+              source_sketch.circles.begin(), source_sketch.circles.end(),
+              [&](const SketchCircle& circle) {
+                return circle.id == source_profile.source_circle_id.value();
+              })
+        : std::find_if(
+              source_sketch.circles.begin(), source_sketch.circles.end(),
+              [&](const SketchCircle& circle) {
+                return circle.id == source_profile.source_circle_id.value_or("");
+              });
+    if (source_profile.kind == "circle") {
+      SketchCircle circle{};
+      circle.id = source_profile.source_circle_id.value_or("");
+      circle.center_x = source_profile.center_x;
+      circle.center_y = source_profile.center_y;
+      circle.radius = source_profile.radius;
+      add_projected_circle(circle);
+    } else if (source_circle_it != source_sketch.circles.end()) {
+      add_projected_circle(*source_circle_it);
+      for (const auto& candidate : source_sketch.circles) {
+        if (candidate.is_construction ||
+            !circle_contains_circle_for_projection(*source_circle_it,
+                                                   candidate)) {
+          continue;
+        }
+        add_projected_circle(candidate);
+      }
+    } else {
+      add_projected_loop(source_profile.points);
+    }
+  } else {
+    add_projected_loop(source_profile.points);
+  }
+
+  if (record.generated_circle_ids.empty()) {
+    for (const auto& inner_loop : source_profile.inner_loops) {
+      add_projected_loop(inner_loop);
+    }
+  }
+
+  sketch_it->sketch_parameters->projections.push_back(std::move(record));
+
+  refresh_linked_extrudes(*document_, *sketch_it);
+  document_->selected_feature_id = sketch_it->id;
+  document_->selected_sketch_point_id = std::nullopt;
+  document_->selected_sketch_entity_id = std::nullopt;
+  document_->selected_sketch_dimension_id = std::nullopt;
+  document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
+  bump_geometry_revision();
+
+  return document_.value();
+}
 
 DocumentState DocumentManager::project_edge_into_sketch(
     const std::string& edge_id) {

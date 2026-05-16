@@ -237,7 +237,7 @@ const documentStateSchema = z.object({
               z.object({
                 projection_id: z.string(),
                 source_id: z.string(),
-                source_kind: z.enum(["face", "edge", "vertex"]),
+                source_kind: z.enum(["face", "edge", "vertex", "profile"]),
                 generated_line_ids: z.array(z.string()).default([]),
                 generated_circle_ids: z.array(z.string()).default([]),
                 generated_arc_ids: z.array(z.string()).default([]),

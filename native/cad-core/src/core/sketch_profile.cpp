@@ -543,21 +543,68 @@ std::vector<SketchProfilePoint> sample_circle_loop(const SketchCircle& circle) {
   return points;
 }
 
-std::vector<ArrangementFace> detect_line_arrangement_faces(
+std::vector<LineSegment> solid_line_segments(
     const SketchFeatureParameters& parameters) {
+  std::map<std::string, SketchProfilePoint> point_by_id;
+  for (const auto& line : parameters.lines) {
+    if (!line.start_point_id.empty()) {
+      point_by_id.emplace(line.start_point_id,
+                          SketchProfilePoint{.x = line.start_x,
+                                             .y = line.start_y});
+    }
+    if (!line.end_point_id.empty()) {
+      point_by_id.emplace(line.end_point_id,
+                          SketchProfilePoint{.x = line.end_x,
+                                             .y = line.end_y});
+    }
+  }
+
+  auto endpoint = [&](const std::string& point_id,
+                      double fallback_x,
+                      double fallback_y) {
+    const auto point_it = point_by_id.find(point_id);
+    if (point_it != point_by_id.end()) {
+      return point_it->second;
+    }
+    return SketchProfilePoint{.x = fallback_x, .y = fallback_y};
+  };
+
   std::vector<LineSegment> segments;
   for (const auto& line : parameters.lines) {
     if (line.is_construction) {
       continue;
     }
-    const SketchProfilePoint start{.x = line.start_x, .y = line.start_y};
-    const SketchProfilePoint end{.x = line.end_x, .y = line.end_y};
+    const SketchProfilePoint start =
+        endpoint(line.start_point_id, line.start_x, line.start_y);
+    const SketchProfilePoint end =
+        endpoint(line.end_point_id, line.end_x, line.end_y);
     if (points_match(start, end)) {
       continue;
     }
     segments.push_back(LineSegment{.line_id = line.id, .start = start, .end = end});
   }
+  return segments;
+}
 
+std::vector<LineSegment> circle_boundary_segments(const SketchCircle& circle) {
+  std::vector<LineSegment> segments;
+  if (circle.radius <= kProfileTolerance) {
+    return segments;
+  }
+  const auto samples = sample_circle_loop(circle);
+  segments.reserve(samples.size());
+  for (size_t index = 0; index < samples.size(); ++index) {
+    segments.push_back(LineSegment{
+        .line_id = circle.id,
+        .start = samples[index],
+        .end = samples[(index + 1) % samples.size()],
+    });
+  }
+  return segments;
+}
+
+std::vector<ArrangementFace> detect_arrangement_faces(
+    const std::vector<LineSegment>& segments) {
   std::vector<std::vector<SketchProfilePoint>> split_points(segments.size());
   for (size_t index = 0; index < segments.size(); ++index) {
     split_points[index].push_back(segments[index].start);
@@ -713,6 +760,11 @@ std::vector<ArrangementFace> detect_line_arrangement_faces(
   return faces;
 }
 
+std::vector<ArrangementFace> detect_line_arrangement_faces(
+    const SketchFeatureParameters& parameters) {
+  return detect_arrangement_faces(solid_line_segments(parameters));
+}
+
 }  // namespace
 
 std::vector<SketchProfileRegion> build_sketch_profile_regions(
@@ -737,14 +789,53 @@ std::vector<SketchProfileRegion> build_sketch_profile_regions(
       solid_edges.push_back(profile_edge_from_arc(arc));
     }
   }
+  for (const auto& circle : parameters.circles) {
+    if (!circle.is_construction) {
+      solid_circles.push_back(&circle);
+    }
+  }
 
   const bool has_solid_arcs = std::any_of(
       solid_edges.begin(), solid_edges.end(), [](const ProfileEdge& edge) {
         return edge.kind == ProfileEdge::Kind::Arc;
       });
+  const bool has_solid_lines = std::any_of(
+      solid_edges.begin(), solid_edges.end(), [](const ProfileEdge& edge) {
+        return edge.kind == ProfileEdge::Kind::Line;
+      });
+  const bool use_circle_arrangement_profiles =
+      !has_solid_arcs && has_solid_lines && !solid_circles.empty();
 
   if (!has_solid_arcs) {
-    for (const auto& face : detect_line_arrangement_faces(parameters)) {
+    std::vector<ArrangementFace> arrangement_faces;
+    if (use_circle_arrangement_profiles) {
+      auto segments = solid_line_segments(parameters);
+      for (const auto* circle : solid_circles) {
+        auto circle_segments = circle_boundary_segments(*circle);
+        segments.insert(segments.end(), circle_segments.begin(),
+                        circle_segments.end());
+      }
+      arrangement_faces = detect_arrangement_faces(segments);
+    } else {
+      arrangement_faces = detect_line_arrangement_faces(parameters);
+    }
+
+    auto unsplit_source_circle_id =
+        [&](const ArrangementFace& face) -> std::optional<std::string> {
+      if (face.line_ids.size() != 1) {
+        return std::nullopt;
+      }
+      const std::string& only_id = face.line_ids.front();
+      const auto circle_it = std::find_if(
+          solid_circles.begin(), solid_circles.end(),
+          [&](const SketchCircle* circle) { return circle->id == only_id; });
+      if (circle_it == solid_circles.end()) {
+        return std::nullopt;
+      }
+      return only_id;
+    };
+
+    for (const auto& face : arrangement_faces) {
       profiles.push_back(SketchProfileRegion{
           .id = make_polygon_profile_id(face.line_ids) + "-" +
                 make_polygon_profile_id(face.point_ids),
@@ -753,7 +844,7 @@ std::vector<SketchProfileRegion> build_sketch_profile_regions(
           .line_ids = face.line_ids,
           .points = face.points,
           .inner_loops = {},
-          .source_circle_id = std::nullopt,
+          .source_circle_id = unsplit_source_circle_id(face),
           .center_x = 0.0,
           .center_y = 0.0,
           .radius = 0.0,
@@ -785,11 +876,8 @@ std::vector<SketchProfileRegion> build_sketch_profile_regions(
 
   apply_nested_polygon_holes(profiles);
 
-  for (const auto& circle : parameters.circles) {
-    if (circle.is_construction) {
-      continue;
-    }
-    solid_circles.push_back(&circle);
+  if (use_circle_arrangement_profiles) {
+    return profiles;
   }
 
   std::map<std::string, std::vector<std::vector<SketchProfilePoint>>>

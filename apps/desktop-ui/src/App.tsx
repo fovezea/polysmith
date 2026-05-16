@@ -336,6 +336,7 @@ function App() {
     saveDocument,
     loadDocument,
     projectFaceIntoSketch,
+    projectProfileIntoSketch,
     projectEdgeIntoSketch,
     projectVertexIntoSketch,
     addBoxFeature,
@@ -2350,6 +2351,18 @@ function App() {
                 });
               }}
               onSelectSketchProfile={async (profileId, additive) => {
+                if (activeSketchPlaneId && activeSketchTool === "project") {
+                  await runAction(async () => {
+                    try {
+                      await projectProfileIntoSketch(profileId);
+                    } catch (error) {
+                      addMessage(
+                        `Project profile: ${error instanceof Error ? error.message : String(error)}`,
+                      );
+                    }
+                  });
+                  return;
+                }
                 await runAction(async () => {
                   await selectSketchProfile(
                     profileId,

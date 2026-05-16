@@ -303,6 +303,14 @@ export interface ProjectFaceIntoSketchCommand {
   };
 }
 
+export interface ProjectProfileIntoSketchCommand {
+  id: string;
+  type: "project_profile_into_sketch";
+  payload: {
+    profile_id: string;
+  };
+}
+
 export interface ProjectEdgeIntoSketchCommand {
   id: string;
   type: "project_edge_into_sketch";
@@ -992,6 +1000,7 @@ export type CoreCommand =
   | SaveDocumentCommand
   | LoadDocumentCommand
   | ProjectFaceIntoSketchCommand
+  | ProjectProfileIntoSketchCommand
   | ProjectEdgeIntoSketchCommand
   | ProjectVertexIntoSketchCommand
   | AddBoxFeatureCommand

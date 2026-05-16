@@ -105,6 +105,18 @@ export function makeProjectFaceIntoSketchCommand(faceId: string): CoreCommand {
   };
 }
 
+export function makeProjectProfileIntoSketchCommand(
+  profileId: string,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "project_profile_into_sketch",
+    payload: {
+      profile_id: profileId,
+    },
+  };
+}
+
 export function makeProjectEdgeIntoSketchCommand(edgeId: string): CoreCommand {
   return {
     id: crypto.randomUUID(),

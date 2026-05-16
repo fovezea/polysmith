@@ -703,18 +703,31 @@ export function createViewportScene(
   const projectedLineIds = new Set<string>();
   const projectedCircleIds = new Set<string>();
   const projectedArcIds = new Set<string>();
+  const projectedFixedPointIds = new Set<string>();
   if (document) {
     for (const feature of document.feature_history) {
       const sketch = feature.sketch_parameters;
       if (feature.kind !== "sketch" || !sketch) {
         continue;
       }
+      const lineById = new Map(sketch.lines.map((line) => [line.line_id, line]));
       for (const projection of sketch.projections) {
-        projection.generated_line_ids.forEach((id) => projectedLineIds.add(id));
-        projection.generated_circle_ids.forEach((id) =>
-          projectedCircleIds.add(id),
-        );
+        projection.generated_line_ids.forEach((id) => {
+          projectedLineIds.add(id);
+          const line = lineById.get(id);
+          if (line) {
+            projectedFixedPointIds.add(line.start_point_id);
+            projectedFixedPointIds.add(line.end_point_id);
+          }
+        });
+        projection.generated_circle_ids.forEach((id) => {
+          projectedCircleIds.add(id);
+          projectedFixedPointIds.add(`point-circle-${id}-center`);
+        });
         projection.generated_arc_ids.forEach((id) => projectedArcIds.add(id));
+        if (projection.generated_point_id) {
+          projectedFixedPointIds.add(projection.generated_point_id);
+        }
       }
     }
   }
@@ -769,6 +782,11 @@ export function createViewportScene(
   );
   const sketchConstraints = viewport.sketch_constraints
     .filter((constraint) => isSketchPlaneVisible(constraint.plane_id))
+    .filter(
+      (constraint) =>
+        constraint.kind !== "fixed" ||
+        !projectedFixedPointIds.has(constraint.entity_id),
+    )
     .map(makeSketchConstraint);
   let sketchProfiles = viewport.sketch_profiles
     .filter((profile) => isSketchPlaneVisible(profile.plane_id))

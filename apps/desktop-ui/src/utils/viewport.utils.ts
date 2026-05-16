@@ -855,9 +855,9 @@ export function buildSketchLineObject(line: SketchLineScene) {
   // "about to exist" rather than committed geometry. They share
   // the dashed material path with construction lines, just at
   // lower opacity.
-  const isDashed = line.isConstruction || line.isPreview || line.isProjected;
+  const isDashed = line.isConstruction || line.isPreview;
   const baseColor = line.isProjected
-    ? themeColor("--cad-sketch-projected", "#74d4ff")
+    ? themeColor("--cad-sketch-projected", "#ff4fd8")
     : themeColor("--color-tertiary-plane-fill", "#fff7c0");
   const material = isDashed
     ? new THREE.LineDashedMaterial({
@@ -865,10 +865,10 @@ export function buildSketchLineObject(line: SketchLineScene) {
           ? themeColor("--color-primary-edge-active", "#c3f5ff")
           : baseColor,
         transparent: true,
-        opacity: line.isPreview ? 0.55 : line.isProjected ? 0.92 : 0.85,
+        opacity: line.isPreview ? 0.55 : 0.85,
         linewidth: line.isSelected ? 2 : 1,
-        dashSize: line.isProjected ? 0.75 : 1,
-        gapSize: line.isProjected ? 0.45 : 0.6,
+        dashSize: 1,
+        gapSize: 0.6,
       })
     : new THREE.LineBasicMaterial({
         color: line.isSelected
@@ -897,6 +897,7 @@ export function buildSketchLineObject(line: SketchLineScene) {
     sketchLine.userData.sketchEntityId = line.lineId;
     sketchLine.userData.sketchEntityKind = "line";
     sketchLine.userData.sketchEntityIsConstruction = line.isConstruction;
+    sketchLine.userData.sketchEntityIsProjected = line.isProjected;
   }
   return sketchLine;
 }
@@ -913,9 +914,9 @@ export function buildSketchCircleObject(
 ) {
   // See `buildSketchLineObject` for the rationale on the dashed +
   // translucent treatment of preview circles.
-  const isDashed = circle.isPreview || circle.isConstruction || circle.isProjected;
+  const isDashed = circle.isPreview || circle.isConstruction;
   const baseColor = circle.isProjected
-    ? themeColor("--cad-sketch-projected", "#74d4ff")
+    ? themeColor("--cad-sketch-projected", "#ff4fd8")
     : themeColor("--color-tertiary-plane-fill", "#fff7c0");
   const material = isDashed
     ? new THREE.LineDashedMaterial({
@@ -923,9 +924,9 @@ export function buildSketchCircleObject(
           ? themeColor("--color-primary-edge-active", "#c3f5ff")
           : baseColor,
         transparent: true,
-        opacity: circle.isPreview ? 0.55 : circle.isProjected ? 0.92 : 0.72,
-        dashSize: circle.isProjected ? 0.75 : 1,
-        gapSize: circle.isProjected ? 0.45 : 0.6,
+        opacity: circle.isPreview ? 0.55 : 0.72,
+        dashSize: 1,
+        gapSize: 0.6,
       })
     : new THREE.LineBasicMaterial({
         color: circle.isSelected
@@ -986,6 +987,7 @@ export function buildSketchCircleObject(
     sketchCircle.userData.sketchEntityId = circle.circleId;
     sketchCircle.userData.sketchEntityKind = "circle";
     sketchCircle.userData.sketchEntityIsConstruction = circle.isConstruction;
+    sketchCircle.userData.sketchEntityIsProjected = circle.isProjected;
   }
   return sketchCircle;
 }
@@ -1002,17 +1004,17 @@ export function buildSketchArcObject(
   planeFrame: SketchPlaneFrame | null = null,
 ) {
   const baseColor = arc.isProjected
-    ? themeColor("--cad-sketch-projected", "#74d4ff")
+    ? themeColor("--cad-sketch-projected", "#ff4fd8")
     : themeColor("--color-tertiary-plane-fill", "#fff7c0");
-  const material = arc.isPreview || arc.isProjected
+  const material = arc.isPreview
     ? new THREE.LineDashedMaterial({
         color: arc.isSelected
           ? themeColor("--color-primary-edge-active", "#c3f5ff")
           : baseColor,
         transparent: true,
-        opacity: arc.isPreview ? 0.55 : 0.92,
-        dashSize: arc.isProjected ? 0.75 : 1,
-        gapSize: arc.isProjected ? 0.45 : 0.6,
+        opacity: 0.55,
+        dashSize: 1,
+        gapSize: 0.6,
       })
     : new THREE.LineBasicMaterial({
         color: arc.isSelected
@@ -1093,11 +1095,12 @@ export function buildSketchArcObject(
   const geometry = new THREE.BufferGeometry().setFromPoints(points);
   const sketchArc = new THREE.Line(geometry, material);
   sketchArc.renderOrder = 7;
-  if (arc.isPreview || arc.isProjected) {
+  if (arc.isPreview) {
     sketchArc.computeLineDistances();
   } else {
     sketchArc.userData.sketchEntityId = arc.arcId;
     sketchArc.userData.sketchEntityKind = "arc";
+    sketchArc.userData.sketchEntityIsProjected = arc.isProjected;
   }
   return sketchArc;
 }

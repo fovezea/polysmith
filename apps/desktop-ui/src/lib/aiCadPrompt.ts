@@ -27,7 +27,7 @@ viewport_state.bodies for boolean targets. Read viewport_state.edges for body
 fillet/chamfer. Read sketch lines, circles, arcs, points, profiles, and dimensions from
 feature_history[].sketch_parameters. Use create_fillet/create_chamfer for body
 edges and add_sketch_fillet for sketch corners. Projection commands are
-project_face_into_sketch, project_edge_into_sketch, and
+project_face_into_sketch, project_profile_into_sketch, project_edge_into_sketch, and
 project_vertex_into_sketch. Never invent IDs.
 `.trim();
 
@@ -52,6 +52,7 @@ Common command payloads:
 - create_chamfer { edge_ids, distance }
 - create_offset_plane { source_plane_id, offset }
 - project_face_into_sketch { face_id }
+- project_profile_into_sketch { profile_id }
 - project_edge_into_sketch { edge_id }
 - project_vertex_into_sketch { vertex_id }
 - clear_selection {}, undo {}, redo {}

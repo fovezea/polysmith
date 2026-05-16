@@ -127,7 +127,7 @@
     "--cad-sketch-label-selected": "#1e66f5",
     "--cad-sketch-label": "rgba(76, 79, 105, 0.92)",
     "--cad-sketch-dimension-label": "rgba(76, 79, 105, 0.84)",
-    "--cad-sketch-projected": "#209fb5",
+    "--cad-sketch-projected": "#ff4fd8",
     "--cad-dimension-editor-bg": "rgba(239, 241, 245, 0.9)",
     "--cad-dimension-editor-border": "rgba(114, 135, 253, 0.36)",
     "--cad-dimension-editor-shadow": "rgba(76, 79, 105, 0.2)"

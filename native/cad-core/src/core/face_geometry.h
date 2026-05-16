@@ -16,6 +16,12 @@ struct FaceOutlinePoint {
   double z;
 };
 
+struct FaceOutlineCircle {
+  FaceOutlinePoint center;
+  FaceOutlinePoint axis;
+  double radius;
+};
+
 struct FaceOutline {
   // "rectangle", "circle", or "polygon". Polygon outlines come from
   // body-derived faces (numeric face ids) where we walked the outer
@@ -36,6 +42,7 @@ struct FaceOutline {
   FaceOutlinePoint circle_center;
   FaceOutlinePoint circle_axis;  // unit normal to the disc
   double circle_radius;
+  std::vector<FaceOutlineCircle> inner_circles;
 };
 
 // Resolve a face id of the form "{owner_feature_id}:face:{suffix}" against

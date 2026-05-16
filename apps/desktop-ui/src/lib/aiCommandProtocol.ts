@@ -31,6 +31,7 @@ const commandPayloadSchemas = {
   save_document: z.object({ file_path: stringField }).strict(),
   load_document: z.object({ file_path: stringField }).strict(),
   project_face_into_sketch: z.object({ face_id: stringField }).strict(),
+  project_profile_into_sketch: z.object({ profile_id: stringField }).strict(),
   project_edge_into_sketch: z.object({ edge_id: stringField }).strict(),
   project_vertex_into_sketch: z.object({ vertex_id: stringField }).strict(),
   add_box_feature: z
@@ -404,6 +405,7 @@ const activeSketchRequiredCommands = new Set<string>([
   "select_sketch_dimension",
   "finish_sketch",
   "project_face_into_sketch",
+  "project_profile_into_sketch",
   "project_edge_into_sketch",
   "project_vertex_into_sketch",
 ]);
@@ -477,6 +479,14 @@ export function validateAiCommandBatchForState(
       ) {
         throw new Error(
           `extrude_profile references unknown target body "${command.payload.target_body_id}". Use a body id from viewport state.`,
+        );
+      }
+    }
+
+    if (command.type === "project_profile_into_sketch") {
+      if (!knownProfileIds.has(command.payload.profile_id)) {
+        throw new Error(
+          `project_profile_into_sketch references unknown profile "${command.payload.profile_id}". Use a profile id from current state.`,
         );
       }
     }

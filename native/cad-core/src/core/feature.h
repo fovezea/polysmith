@@ -215,9 +215,9 @@ struct SketchProjectedPoint {
 // upstream feature whose body the projection points at moves the
 // projected geometry in lockstep, mirroring Fusion 360's behaviour.
 //
-// `source_kind` mirrors the topology id's middle segment ("face",
-// "edge", "vertex") so the refresher can pick the right resolver
-// without re-parsing the id. `generated_*` ids are the entity ids
+// `source_kind` mirrors the topology id's middle segment for body
+// projections ("face", "edge", "vertex"); sketch profile projections
+// use "profile" for UI identity. `generated_*` ids are the entity ids
 // the project methods minted; the refresher walks them by id,
 // finds the entity in the sketch, and rewrites its coords.
 //
@@ -230,7 +230,7 @@ struct SketchProjectedPoint {
 struct SketchProjection {
   std::string id;
   std::string source_id;
-  std::string source_kind; // "face" | "edge" | "vertex"
+  std::string source_kind; // "face" | "edge" | "vertex" | "profile"
   std::vector<std::string> generated_line_ids;
   std::vector<std::string> generated_circle_ids;
   std::vector<std::string> generated_arc_ids;

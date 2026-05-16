@@ -301,6 +301,7 @@ class DocumentManager {
   // what the raycaster hit. Each routes through `project_*_into_sketch`
   // and shares the active-sketch validation + idempotency check (see
   // `projected_sources` / `projected_points`).
+  DocumentState project_profile_into_sketch(const std::string& profile_id);
   DocumentState project_edge_into_sketch(const std::string& edge_id);
   DocumentState project_vertex_into_sketch(const std::string& vertex_id);
   DocumentState clear_selection();
