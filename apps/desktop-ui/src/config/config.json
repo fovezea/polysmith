@@ -21,6 +21,9 @@
       "fillet": { "code": "KeyF", "label": "F" },
       "project": { "code": "KeyP", "label": "P" }
     },
+    "viewport": {
+      "toggleGrid": { "code": "KeyG", "label": "G" }
+    },
     "sketchToolbar": {
       "createSketch": { "code": "KeyS", "label": "S" },
       "line": { "code": "KeyL", "label": "L" },

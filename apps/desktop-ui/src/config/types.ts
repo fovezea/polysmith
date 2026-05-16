@@ -16,6 +16,9 @@ export interface AppHotkeys {
     fillet: HotkeyBinding;
     project: HotkeyBinding;
   };
+  viewport: {
+    toggleGrid: HotkeyBinding;
+  };
   sketchToolbar: {
     createSketch: HotkeyBinding;
     line: HotkeyBinding;

@@ -169,6 +169,12 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
       binding: config.hotkeys.toolbar.project,
     },
     {
+      group: "viewport",
+      key: "toggleGrid",
+      label: "Toggle Grid",
+      binding: config.hotkeys.viewport.toggleGrid,
+    },
+    {
       group: "sketchToolbar",
       key: "createSketch",
       label: "Create Sketch",

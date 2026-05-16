@@ -463,6 +463,45 @@ button:not(:disabled),
       -1px -1px;
   }
 
+  .cad-view-mini-toolbar {
+    border-radius: 10px;
+    border: 1px solid var(--cad-panel-border);
+    background: var(--cad-panel-floating-bg);
+    box-shadow: 0 10px 28px var(--cad-shadow-medium);
+  }
+
+  .cad-view-mini-button {
+    display: flex;
+    height: 30px;
+    width: 30px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    color: var(--color-on-surface-muted);
+    background: var(--cad-subtle-surface);
+    transition:
+      color 160ms var(--cad-ease),
+      background 160ms var(--cad-ease),
+      box-shadow 160ms var(--cad-ease);
+  }
+
+  .cad-view-mini-button:hover {
+    color: var(--color-primary-soft);
+    background: var(--cad-accent-surface);
+    box-shadow: 0 0 14px var(--cad-accent-glow-soft);
+  }
+
+  .cad-view-mini-button-active:hover {
+    color: var(--color-primary-on);
+    background: var(--color-primary-hover);
+  }
+
+  .cad-view-mini-button-active {
+    color: var(--color-primary-on);
+    background: var(--color-primary-soft);
+    box-shadow: 0 0 16px var(--cad-accent-glow);
+  }
+
   .cad-scrollbar {
     scrollbar-width: thin;
     scrollbar-color: var(--cad-scrollbar-track) transparent;
@@ -757,11 +796,13 @@ button:not(:disabled),
     box-shadow: 0 0 14px var(--cad-accent-glow-selection);
   }
 
-  .cad-icon-button {
+  .cad-icon-button,
+  .cad-tooltip-trigger {
     position: relative;
   }
 
-  .cad-icon-button::after {
+  .cad-icon-button::after,
+  .cad-tooltip-trigger::after {
     content: attr(data-tooltip);
     position: absolute;
     left: 50%;
@@ -786,7 +827,9 @@ button:not(:disabled),
   }
 
   .cad-icon-button:hover::after,
-  .cad-icon-button:focus-visible::after {
+  .cad-icon-button:focus-visible::after,
+  .cad-tooltip-trigger:hover::after,
+  .cad-tooltip-trigger:focus-within::after {
     opacity: 1;
     transform: translateX(-50%) translateY(0);
   }

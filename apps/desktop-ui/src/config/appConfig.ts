@@ -139,6 +139,10 @@ function mergeAppConfig(input: Partial<AppConfig>): AppConfig {
         ...defaultAppConfig.hotkeys.toolbar,
         ...input.hotkeys?.toolbar,
       },
+      viewport: {
+        ...defaultAppConfig.hotkeys.viewport,
+        ...input.hotkeys?.viewport,
+      },
       sketchToolbar: {
         ...defaultAppConfig.hotkeys.sketchToolbar,
         ...input.hotkeys?.sketchToolbar,
