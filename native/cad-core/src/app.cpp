@@ -820,6 +820,30 @@ void CadCoreApp::handle_command_line(const std::string& line) {
     return;
   }
 
+  if (command.type == "extrude_face") {
+    std::string mode = "new_body";
+    if (command.payload.contains("mode") &&
+        command.payload.at("mode").is_string()) {
+      mode = command.payload.at("mode").get<std::string>();
+    }
+    std::optional<std::string> target_body_id;
+    if (command.payload.contains("target_body_id") &&
+        command.payload.at("target_body_id").is_string()) {
+      target_body_id =
+          command.payload.at("target_body_id").get<std::string>();
+    }
+    const auto document = document_manager().extrude_face(
+        read_string(command.payload, "face_id"),
+        read_dimension(command.payload, "depth"),
+        mode,
+        target_body_id);
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
   if (command.type == "update_extrude_mode") {
     const auto document = document_manager().update_extrude_mode(
         read_string(command.payload, "feature_id"),

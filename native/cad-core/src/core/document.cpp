@@ -162,6 +162,22 @@ std::string plane_id_from_frame(
   return "ref-plane-xz";
 }
 
+std::string plane_id_from_frame(const PlaneFrame& plane_frame) {
+  const double abs_x = std::abs(plane_frame.normal_x);
+  const double abs_y = std::abs(plane_frame.normal_y);
+  const double abs_z = std::abs(plane_frame.normal_z);
+
+  if (abs_x >= abs_y && abs_x >= abs_z) {
+    return "ref-plane-yz";
+  }
+
+  if (abs_y >= abs_x && abs_y >= abs_z) {
+    return "ref-plane-xy";
+  }
+
+  return "ref-plane-xz";
+}
+
 PlaneFrame make_plane_frame(
     const SketchFeatureParameters::SketchPlaneFrame& plane_frame) {
   return PlaneFrame{
@@ -2387,6 +2403,66 @@ DocumentState DocumentManager::extrude_profiles(
   return document_.value();
 }
 
+DocumentState DocumentManager::extrude_face(
+    const std::string& face_id,
+    double depth,
+    const std::string& mode,
+    const std::optional<std::string>& target_body_id) {
+  require_document();
+
+  const auto profile = compute_planar_face_profile(*document_, face_id);
+  if (!profile.has_value()) {
+    throw std::runtime_error("Selected face is not a supported planar face");
+  }
+
+  ExtrudeFeatureParameters extrude_parameters{
+      .sketch_feature_id = "",
+      .profile_id = "face:" + face_id,
+      .profile_ids = {"face:" + face_id},
+      .plane_id = plane_id_from_frame(profile->plane_frame),
+      .plane_frame = profile->plane_frame,
+      .profile_kind = "polygon",
+      .start_x = 0.0,
+      .start_y = 0.0,
+      .width = 0.0,
+      .height = 0.0,
+      .radius = 0.0,
+      .profile_points = profile->outer_points,
+      .inner_loops = profile->inner_loops,
+      .depth = depth,
+      .mode = mode,
+      .target_body_id = target_body_id,
+  };
+
+  if (extrude_parameters.mode == "new_body" &&
+      !extrude_parameters.target_body_id.has_value()) {
+    const auto intersected =
+        find_intersecting_body_for_extrude(*document_, extrude_parameters);
+    if (intersected.has_value()) {
+      extrude_parameters.mode = "cut";
+      extrude_parameters.target_body_id = intersected;
+    }
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+  document_->feature_history.push_back(
+      create_extrude_feature(next_feature_id_++, extrude_parameters));
+  document_->selected_feature_id = document_->feature_history.back().id;
+  document_->selected_reference_id = std::nullopt;
+  document_->selected_face_id = std::nullopt;
+  document_->active_sketch_plane_id = std::nullopt;
+  document_->active_sketch_feature_id = std::nullopt;
+  document_->active_sketch_tool = std::nullopt;
+  document_->selected_sketch_point_id = std::nullopt;
+  document_->selected_sketch_entity_id = std::nullopt;
+  document_->selected_sketch_dimension_id = std::nullopt;
+  document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
+  bump_geometry_revision();
+  return document_.value();
+}
+
 DocumentState DocumentManager::update_extrude_profiles(
     const std::string& feature_id,
     const std::vector<std::string>& profile_ids) {
@@ -3505,6 +3581,26 @@ DocumentState DocumentManager::project_face_into_sketch(
                                        a.second,
                                        b.first,
                                        b.second);
+    }
+    for (const auto& inner_loop : outline->inner_loops) {
+      if (inner_loop.size() < 3) {
+        continue;
+      }
+      std::vector<std::pair<double, double>> inner_local;
+      inner_local.reserve(inner_loop.size());
+      for (const auto& corner : inner_loop) {
+        inner_local.push_back(project_to_sketch_local(corner));
+      }
+      for (size_t i = 0; i < inner_local.size(); ++i) {
+        const auto& a = inner_local[i];
+        const auto& b = inner_local[(i + 1) % inner_local.size()];
+        polysmith::core::add_sketch_line(*sketch_it,
+                                         next_sketch_line_id_++,
+                                         a.first,
+                                         a.second,
+                                         b.first,
+                                         b.second);
+      }
     }
 
     // Lock every endpoint of the projected lines (same Fusion-like

@@ -1,13 +1,18 @@
 #include "core/face_geometry.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepAdaptor_Surface.hxx>
 #include <BRep_Tool.hxx>
 #include <BRepTools.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <GeomAbs_CurveType.hxx>
+#include <GeomAbs_SurfaceType.hxx>
+#include <TopAbs_Orientation.hxx>
 #include <TopExp.hxx>
+#include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
@@ -15,7 +20,11 @@
 #include <TopoDS_Vertex.hxx>
 #include <TopoDS_Wire.hxx>
 #include <gp_Circ.hxx>
+#include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
+#include <gp_Ax3.hxx>
+#include <gp_Pln.hxx>
+#include <gp_Vec.hxx>
 
 #include "core/body_compiler.h"
 #include "core/document.h"
@@ -64,6 +73,140 @@ FaceOutlinePoint plane_to_world(const PlaneFrame& frame,
            frame.normal_y * w,
       .z = frame.origin_z + frame.x_axis_z * u + frame.y_axis_z * v +
            frame.normal_z * w,
+  };
+}
+
+FaceOutlinePoint to_outline_point(const gp_Pnt& point) {
+  return FaceOutlinePoint{.x = point.X(), .y = point.Y(), .z = point.Z()};
+}
+
+std::vector<TopoDS_Edge> ordered_wire_edges(const TopoDS_Wire& wire) {
+  std::vector<TopoDS_Edge> ordered_edges;
+  for (BRepTools_WireExplorer explorer(wire); explorer.More();
+       explorer.Next()) {
+    ordered_edges.push_back(TopoDS::Edge(explorer.Current()));
+  }
+  return ordered_edges;
+}
+
+std::vector<FaceOutlinePoint> sample_circle_edge_loop(const TopoDS_Edge& edge) {
+  std::vector<FaceOutlinePoint> points;
+  try {
+    BRepAdaptor_Curve curve(edge);
+    if (curve.GetType() != GeomAbs_Circle) {
+      return points;
+    }
+    constexpr int kSegments = 64;
+    points.reserve(kSegments);
+    const double first = curve.FirstParameter();
+    const double last = curve.LastParameter();
+    for (int index = 0; index < kSegments; ++index) {
+      const double t =
+          first + (last - first) * static_cast<double>(index) /
+                      static_cast<double>(kSegments);
+      points.push_back(to_outline_point(curve.Value(t)));
+    }
+  } catch (const std::exception&) {
+    points.clear();
+  }
+  return points;
+}
+
+std::vector<FaceOutlinePoint> sample_wire_loop(const TopoDS_Wire& wire) {
+  const auto ordered_edges = ordered_wire_edges(wire);
+  if (ordered_edges.empty()) {
+    return {};
+  }
+
+  if (ordered_edges.size() == 1) {
+    auto circle_points = sample_circle_edge_loop(ordered_edges.front());
+    if (!circle_points.empty()) {
+      return circle_points;
+    }
+  }
+
+  std::vector<FaceOutlinePoint> points;
+  points.reserve(ordered_edges.size());
+  for (const auto& edge : ordered_edges) {
+    if (edge.IsNull()) {
+      continue;
+    }
+    TopoDS_Vertex first_vertex;
+    TopoDS_Vertex last_vertex;
+    TopExp::Vertices(edge, first_vertex, last_vertex,
+                     /*CumOri=*/true);
+    if (first_vertex.IsNull()) {
+      continue;
+    }
+    points.push_back(to_outline_point(BRep_Tool::Pnt(first_vertex)));
+  }
+  return points;
+}
+
+std::vector<std::vector<FaceOutlinePoint>> inner_wire_loops(
+    const TopoDS_Face& face,
+    const TopoDS_Wire& outer_wire) {
+  std::vector<std::vector<FaceOutlinePoint>> loops;
+  for (TopExp_Explorer explorer(face, TopAbs_WIRE); explorer.More();
+       explorer.Next()) {
+    const TopoDS_Wire wire = TopoDS::Wire(explorer.Current());
+    if (wire.IsNull() || wire.IsSame(outer_wire)) {
+      continue;
+    }
+    auto points = sample_wire_loop(wire);
+    if (points.size() >= 3) {
+      loops.push_back(std::move(points));
+    }
+  }
+  return loops;
+}
+
+std::optional<PlaneFrame> derive_planar_frame(const TopoDS_Face& face) {
+  if (face.IsNull()) {
+    return std::nullopt;
+  }
+  try {
+    BRepAdaptor_Surface surface(face, false);
+    if (surface.GetType() != GeomAbs_Plane) {
+      return std::nullopt;
+    }
+    gp_Pln plane = surface.Plane();
+    gp_Ax3 axes = plane.Position();
+    gp_Dir x_axis = axes.XDirection();
+    gp_Dir y_axis = axes.YDirection();
+    gp_Dir normal = axes.Direction();
+    if (face.Orientation() == TopAbs_REVERSED) {
+      normal.Reverse();
+      y_axis.Reverse();
+    }
+    const gp_Pnt origin = axes.Location();
+    return PlaneFrame{
+        .origin_x = origin.X(),
+        .origin_y = origin.Y(),
+        .origin_z = origin.Z(),
+        .x_axis_x = x_axis.X(),
+        .x_axis_y = x_axis.Y(),
+        .x_axis_z = x_axis.Z(),
+        .y_axis_x = y_axis.X(),
+        .y_axis_y = y_axis.Y(),
+        .y_axis_z = y_axis.Z(),
+        .normal_x = normal.X(),
+        .normal_y = normal.Y(),
+        .normal_z = normal.Z(),
+    };
+  } catch (const std::exception&) {
+    return std::nullopt;
+  }
+}
+
+SketchProfilePoint to_local_profile_point(const PlaneFrame& frame,
+                                          const FaceOutlinePoint& world) {
+  const double dx = world.x - frame.origin_x;
+  const double dy = world.y - frame.origin_y;
+  const double dz = world.z - frame.origin_z;
+  return SketchProfilePoint{
+      .x = dx * frame.x_axis_x + dy * frame.x_axis_y + dz * frame.x_axis_z,
+      .y = dx * frame.y_axis_x + dy * frame.y_axis_y + dz * frame.y_axis_z,
   };
 }
 
@@ -197,19 +340,18 @@ std::optional<FaceOutline> outline_from_face(const TopoDS_Face& face) {
 
   // Collect edges in order around the wire so the projected polygon's
   // corners follow the face's actual outline.
-  std::vector<TopoDS_Edge> ordered_edges;
-  for (BRepTools_WireExplorer explorer(outer); explorer.More();
-       explorer.Next()) {
-    ordered_edges.push_back(TopoDS::Edge(explorer.Current()));
-  }
+  const std::vector<TopoDS_Edge> ordered_edges = ordered_wire_edges(outer);
   if (ordered_edges.empty()) {
     return std::nullopt;
   }
 
+  auto inner_loops = inner_wire_loops(face, outer);
+
   // Special-case a single-circle wire so circular cap faces project as
   // sketch circles (the natural representation) instead of dense
-  // polygons.
-  if (ordered_edges.size() == 1) {
+  // polygons. Annular faces stay in polygon mode so the inner loop is
+  // preserved instead of dropped.
+  if (ordered_edges.size() == 1 && inner_loops.empty()) {
     try {
       BRepAdaptor_Curve curve(ordered_edges.front());
       if (curve.GetType() == GeomAbs_Circle) {
@@ -232,26 +374,8 @@ std::optional<FaceOutline> outline_from_face(const TopoDS_Face& face) {
 
   FaceOutline outline{};
   outline.kind = "polygon";
-
-  // Walk edges in wire order; each edge contributes its first vertex
-  // (with respect to the wire's traversal) to the corner list. The
-  // last vertex of the last edge closes the loop and matches corner[0]
-  // for a watertight wire — the projector adds that closing line.
-  for (const auto& edge : ordered_edges) {
-    if (edge.IsNull()) {
-      continue;
-    }
-    TopoDS_Vertex first_vertex;
-    TopoDS_Vertex last_vertex;
-    TopExp::Vertices(edge, first_vertex, last_vertex,
-                     /*CumOri=*/true);
-    if (first_vertex.IsNull()) {
-      continue;
-    }
-    const gp_Pnt point = BRep_Tool::Pnt(first_vertex);
-    outline.polygon_corners.push_back(
-        FaceOutlinePoint{.x = point.X(), .y = point.Y(), .z = point.Z()});
-  }
+  outline.polygon_corners = sample_wire_loop(outer);
+  outline.inner_loops = std::move(inner_loops);
 
   if (outline.polygon_corners.size() < 3) {
     return std::nullopt;
@@ -293,6 +417,43 @@ std::optional<FaceOutline> outline_for_body_face(
   return std::nullopt;
 }
 
+std::optional<TopoDS_Face> resolve_body_face(const DocumentState& document,
+                                             const std::string& body_id,
+                                             int face_index) {
+  if (face_index < 0) {
+    return std::nullopt;
+  }
+  const CompiledBodies compiled = compile_bodies(document);
+  for (const auto& body : compiled.bodies) {
+    if (body.id != body_id || body.shape.IsNull()) {
+      continue;
+    }
+    TopTools_IndexedMapOfShape face_map;
+    TopExp::MapShapes(body.shape, TopAbs_FACE, face_map);
+    const int one_based = face_index + 1;
+    if (one_based < 1 || one_based > face_map.Extent()) {
+      return std::nullopt;
+    }
+    const TopoDS_Face face = TopoDS::Face(face_map(one_based));
+    if (face.IsNull()) {
+      return std::nullopt;
+    }
+    return face;
+  }
+  return std::nullopt;
+}
+
+std::vector<SketchProfilePoint> to_local_profile_loop(
+    const PlaneFrame& frame,
+    const std::vector<FaceOutlinePoint>& loop) {
+  std::vector<SketchProfilePoint> local;
+  local.reserve(loop.size());
+  for (const auto& point : loop) {
+    local.push_back(to_local_profile_point(frame, point));
+  }
+  return local;
+}
+
 }  // namespace
 
 std::optional<FaceOutline> compute_face_outline(const DocumentState& document,
@@ -324,6 +485,56 @@ std::optional<FaceOutline> compute_face_outline(const DocumentState& document,
   // Box and cylinder source features are placed in viewport-space using a
   // running x-offset and are not supported by the projection helper yet.
   return std::nullopt;
+}
+
+std::optional<PlanarFaceProfile> compute_planar_face_profile(
+    const DocumentState& document,
+    const std::string& face_id) {
+  const auto parsed = parse_face_id(face_id);
+  if (!parsed.has_value()) {
+    return std::nullopt;
+  }
+
+  int face_index = -1;
+  if (!suffix_is_numeric_index(parsed->suffix, face_index)) {
+    return std::nullopt;
+  }
+
+  const auto face = resolve_body_face(document, parsed->owner_id, face_index);
+  if (!face.has_value()) {
+    return std::nullopt;
+  }
+
+  const auto plane_frame = derive_planar_frame(face.value());
+  if (!plane_frame.has_value()) {
+    return std::nullopt;
+  }
+
+  TopoDS_Wire outer;
+  try {
+    outer = BRepTools::OuterWire(face.value());
+  } catch (const std::exception&) {
+    return std::nullopt;
+  }
+  if (outer.IsNull()) {
+    return std::nullopt;
+  }
+
+  const auto outer_points = sample_wire_loop(outer);
+  if (outer_points.size() < 3) {
+    return std::nullopt;
+  }
+
+  PlanarFaceProfile profile{};
+  profile.plane_frame = plane_frame.value();
+  profile.outer_points = to_local_profile_loop(profile.plane_frame, outer_points);
+  for (const auto& loop : inner_wire_loops(face.value(), outer)) {
+    if (loop.size() >= 3) {
+      profile.inner_loops.push_back(
+          to_local_profile_loop(profile.plane_frame, loop));
+    }
+  }
+  return profile;
 }
 
 }  // namespace polysmith::core

@@ -485,25 +485,37 @@ bool refresh_sketch_projections(const DocumentState& prefix,
                             a.first, a.second, b.first, b.second);
         }
       } else if (outline->kind == "polygon") {
-        if (projection.generated_line_ids.size() !=
-            outline->polygon_corners.size()) {
+        size_t expected_line_count = outline->polygon_corners.size();
+        for (const auto& inner_loop : outline->inner_loops) {
+          expected_line_count += inner_loop.size();
+        }
+        if (projection.generated_line_ids.size() != expected_line_count) {
           projection.dependency_broken = true;
           projection.dependency_warning =
               "Projected face vertex count changed. Re-project to update.";
           any_broken = true;
           continue;
         }
-        std::vector<std::pair<double, double>> local;
-        local.reserve(outline->polygon_corners.size());
-        for (const auto& corner : outline->polygon_corners) {
-          local.push_back(world_to_sketch_local(
-              frame, corner.x, corner.y, corner.z));
-        }
-        for (size_t k = 0; k < local.size(); ++k) {
-          const auto& a = local[k];
-          const auto& b = local[(k + 1) % local.size()];
-          patch_sketch_line(parameters, projection.generated_line_ids[k],
-                            a.first, a.second, b.first, b.second);
+        size_t line_id_index = 0;
+        auto patch_loop =
+            [&](const std::vector<FaceOutlinePoint>& loop) {
+              std::vector<std::pair<double, double>> local;
+              local.reserve(loop.size());
+              for (const auto& corner : loop) {
+                local.push_back(world_to_sketch_local(
+                    frame, corner.x, corner.y, corner.z));
+              }
+              for (size_t k = 0; k < local.size(); ++k) {
+                const auto& a = local[k];
+                const auto& b = local[(k + 1) % local.size()];
+                patch_sketch_line(parameters,
+                                  projection.generated_line_ids[line_id_index++],
+                                  a.first, a.second, b.first, b.second);
+              }
+            };
+        patch_loop(outline->polygon_corners);
+        for (const auto& inner_loop : outline->inner_loops) {
+          patch_loop(inner_loop);
         }
       } else if (outline->kind == "circle") {
         if (projection.generated_circle_ids.size() != 1) {

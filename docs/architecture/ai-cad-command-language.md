@@ -1303,6 +1303,28 @@ Rules:
   falls back to the most recent body when possible.
 - Use `viewport_state.bodies[]` to discover explicit target body IDs.
 
+#### `extrude_face`
+
+Creates an extrude feature directly from a planar solid face. This command does
+not require an active sketch.
+
+Payload:
+
+```ts
+{
+  face_id: string;
+  depth: number;
+  mode?: "new_body" | "join" | "cut";
+  target_body_id?: string;
+}
+```
+
+Rules:
+
+- Use a planar face ID from `viewport_state.solid_faces[]`.
+- Annular faces carry their inner loop into the extrude profile.
+- `mode` and `target_body_id` follow the same rules as `extrude_profile`.
+
 #### `update_extrude_depth`
 
 Live-edits an extrude depth.
@@ -1488,7 +1510,8 @@ Payload:
 ```
 
 Use a face ID from `viewport_state.solid_faces[]`. Repeated projection of the
-same source is idempotent.
+same source is idempotent. Annular / holed planar faces preserve inner loops as
+projected sketch lines.
 
 #### `project_edge_into_sketch`
 
@@ -1853,6 +1876,7 @@ After non-construction closed geometry:
 - `select_*` commands are not required before modeling commands that accept
   explicit IDs.
 - `extrude_profile` accepts profiles from finished sketches.
+- `extrude_face` accepts planar body faces from `viewport_state.solid_faces[]`.
 - `finish_sketch` is separate from `extrude_profile`; extrusion can happen
   while a sketch is active.
 - `is_construction: true` geometry does not create closed profiles.
@@ -1883,7 +1907,9 @@ this:
   `add_sketch_arc`, and `add_sketch_fillet`.
 - Closed non-construction geometry creates `sketch_profiles`.
 - Extrude profiles with `extrude_profile { profile_ids, depth, mode,
-  target_body_id? }`, where mode is `new_body`, `join`, or `cut`.
+  target_body_id? }`, or planar body faces with
+  `extrude_face { face_id, depth, mode, target_body_id? }`, where mode is
+  `new_body`, `join`, or `cut`.
 - Update extrudes with `update_extrude_depth`, `update_extrude_mode`,
   `update_extrude_target_body`, and `update_extrude_profiles`.
 - Read `viewport_state.bodies[]` for boolean targets.

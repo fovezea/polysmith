@@ -239,6 +239,10 @@ function App() {
       (profile) => profile.profile_id,
     );
   const selectedSketchProfileIdsKey = selectedSketchProfileIds.join("|");
+  const selectedExtrudableFaceId =
+    selectedSketchProfileIds.length === 0
+      ? selectedSketchableFace?.face_id ?? null
+      : null;
   const activeSketchPlaneId = document?.active_sketch_plane_id ?? null;
   const activeSketchTool = document?.active_sketch_tool ?? null;
   // The active sketch's pending mirror state lives in the document.
@@ -377,6 +381,7 @@ function App() {
     updateSketchDimension,
     selectSketchProfile,
     extrudeProfile,
+    extrudeFace,
     updateExtrudeMode,
     updateExtrudeProfiles,
     updateExtrudeTargetBody,
@@ -584,20 +589,26 @@ function App() {
       initialDepth: DEFAULT_EXTRUDE_DEPTH,
       initialMode: defaultSettings.mode,
       initialTargetBodyId: defaultSettings.targetBodyId,
-      profileCount: selectedSketchProfileIds.length,
+      profileCount:
+        selectedSketchProfileIds.length || (selectedExtrudableFaceId ? 1 : 0),
       originalSnapshot: null,
       canCombineWithExistingBody: hasExistingBody,
     });
   }
 
-  function getDefaultExtrudeSettings(profileIds: readonly string[]): {
+  function getDefaultExtrudeSettings(
+    profileIds: readonly string[],
+    faceIdOverride: string | null = null,
+  ): {
     mode: ExtrudeMode;
     targetBodyId: string | null;
   } {
     const bodyIds = new Set((viewport?.bodies ?? []).map((body) => body.id));
 
     if (profileIds.length === 0) {
-      const selectedFaceBodyId = bodyIdFromFaceId(document?.selected_face_id);
+      const selectedFaceBodyId = bodyIdFromFaceId(
+        faceIdOverride ?? document?.selected_face_id,
+      );
       if (selectedFaceBodyId && bodyIds.has(selectedFaceBodyId)) {
         return {mode: "join", targetBodyId: selectedFaceBodyId};
       }
@@ -704,8 +715,95 @@ function App() {
     });
   }
 
+  async function createExtrudeFromSelectedFace(
+    faceId: string,
+    depth: number,
+    mode: ExtrudeMode,
+    targetBodyId: string | null,
+  ) {
+    if (extrudeCreateInFlightRef.current) {
+      return;
+    }
+    extrudeCreateInFlightRef.current = true;
+
+    const documentPromise = awaitDocumentChange((next, previous) => {
+      if (!next.selected_feature_id) {
+        return false;
+      }
+      const previousLength = previous?.feature_history.length ?? 0;
+      if (next.feature_history.length <= previousLength) {
+        return false;
+      }
+      const lastFeature = next.feature_history[next.feature_history.length - 1];
+      return (
+        lastFeature.feature_id === next.selected_feature_id &&
+        lastFeature.kind === "extrude"
+      );
+    });
+
+    await runAction(async () => {
+      try {
+        await extrudeFace(faceId, depth, mode, targetBodyId);
+        const nextDocument = await documentPromise;
+        const newFeatureId = nextDocument.selected_feature_id ?? null;
+        if (!newFeatureId) {
+          return;
+        }
+        const createdFeature = nextDocument.feature_history.find(
+          (entry) => entry.feature_id === newFeatureId,
+        );
+        const createdParams = createdFeature?.extrude_parameters;
+        setExtrudeAction({
+          phase: "active",
+          featureId: newFeatureId,
+          initialDepth: depth,
+          initialMode: createdParams?.mode ?? mode,
+          initialTargetBodyId:
+            createdParams?.target_body_id ?? targetBodyId ?? null,
+          profileCount: 1,
+          originalSnapshot: null,
+          canCombineWithExistingBody:
+            (document?.feature_history ?? []).some(
+              (entry) =>
+                entry.kind === "box" ||
+                entry.kind === "cylinder" ||
+                entry.kind === "extrude",
+            ) ?? false,
+        });
+      } catch (error) {
+        addMessage(`extrude face action error: ${String(error)}`);
+      } finally {
+        extrudeCreateInFlightRef.current = false;
+      }
+    });
+  }
+
   useEffect(() => {
-    if (!extrudeAction || selectedSketchProfileIds.length === 0) {
+    if (!extrudeAction) {
+      return;
+    }
+
+    if (selectedSketchProfileIds.length === 0) {
+      if (extrudeAction.phase === "pending" && selectedExtrudableFaceId) {
+        const defaultSettings = getDefaultExtrudeSettings(
+          [],
+          selectedExtrudableFaceId,
+        );
+        const mode =
+          extrudeAction.initialMode === "new_body"
+            ? defaultSettings.mode
+            : extrudeAction.initialMode;
+        const targetBodyId =
+          mode === "new_body"
+            ? null
+            : extrudeAction.initialTargetBodyId ?? defaultSettings.targetBodyId;
+        void createExtrudeFromSelectedFace(
+          selectedExtrudableFaceId,
+          extrudeAction.initialDepth,
+          mode,
+          targetBodyId,
+        );
+      }
       return;
     }
 
@@ -745,7 +843,7 @@ function App() {
           : current,
       );
     });
-  }, [extrudeAction, selectedSketchProfileIdsKey]);
+  }, [extrudeAction, selectedSketchProfileIdsKey, selectedExtrudableFaceId]);
 
   // Latest typed value while in the "pending" phase. The panel debounces
   // its onPreviewValue callback, so a click that lands mid-typing must
@@ -1838,6 +1936,39 @@ function App() {
                   });
                   return;
                 }
+                if (
+                  extrudeAction &&
+                  extrudeAction.phase === "pending" &&
+                  selectedSketchProfileIds.length === 0
+                ) {
+                  const face = viewport?.solid_faces.find(
+                    (entry) => entry.face_id === faceId,
+                  );
+                  if (face && face.sketchability === "planar") {
+                    const defaultSettings = getDefaultExtrudeSettings(
+                      [],
+                      faceId,
+                    );
+                    const mode =
+                      extrudeAction.initialMode === "new_body"
+                        ? defaultSettings.mode
+                        : extrudeAction.initialMode;
+                    const targetBodyId =
+                      mode === "new_body"
+                        ? null
+                        : extrudeAction.initialTargetBodyId ??
+                          defaultSettings.targetBodyId ??
+                          bodyIdFromFaceId(faceId);
+                    await createExtrudeFromSelectedFace(
+                      faceId,
+                      extrudeAction.initialDepth,
+                      mode,
+                      targetBodyId,
+                    );
+                    return;
+                  }
+                  return;
+                }
                 await runAction(async () => {
                   await selectFace(faceId);
                 });
@@ -2246,7 +2377,7 @@ function App() {
                   phase="pending"
                   initialDepth={extrudeAction.initialDepth}
                   initialMode={extrudeAction.initialMode}
-                  selectedProfileCount={selectedSketchProfileIds.length}
+                  selectedProfileCount={extrudeAction.profileCount}
                   canCombineWithExistingBody={
                     extrudeAction.canCombineWithExistingBody
                   }
@@ -2285,11 +2416,22 @@ function App() {
                     );
                   }}
                   onConfirm={async (depth, mode, targetBodyId) => {
-                    await createExtrudeFromSelectedProfiles(
-                      depth,
-                      mode,
-                      targetBodyId,
-                    );
+                    if (selectedSketchProfileIds.length > 0) {
+                      await createExtrudeFromSelectedProfiles(
+                        depth,
+                        mode,
+                        targetBodyId,
+                      );
+                      return;
+                    }
+                    if (selectedExtrudableFaceId) {
+                      await createExtrudeFromSelectedFace(
+                        selectedExtrudableFaceId,
+                        depth,
+                        mode,
+                        targetBodyId,
+                      );
+                    }
                   }}
                   onCancel={async () => {
                     setExtrudeAction(null);

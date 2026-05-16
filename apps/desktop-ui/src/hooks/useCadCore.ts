@@ -70,6 +70,7 @@ import {
   makeCommitMirrorPreviewCommand,
   makeCancelMirrorPreviewCommand,
   makeSetSketchPointFixedCommand,
+  makeExtrudeFaceCommand,
   makeExtrudeProfileCommand,
   makeSetSketchLineConstraintCommand,
   makeSetSketchToolCommand,
@@ -670,6 +671,18 @@ export function useCadCore() {
     ) => {
       await sendCoreCommand(
         makeExtrudeProfileCommand(profileIds, depth, mode, targetBodyId),
+      );
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    extrudeFace: async (
+      faceId: string,
+      depth: number,
+      mode: ExtrudeMode = "new_body",
+      targetBodyId: string | null = null,
+    ) => {
+      await sendCoreCommand(
+        makeExtrudeFaceCommand(faceId, depth, mode, targetBodyId),
       );
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());

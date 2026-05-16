@@ -270,6 +270,14 @@ const commandPayloadSchemas = {
     .refine((payload) => payload.profile_id || payload.profile_ids?.length, {
       message: "extrude_profile requires profile_id or profile_ids",
     }),
+  extrude_face: z
+    .object({
+      face_id: stringField,
+      depth: numberField,
+      mode: z.enum(["new_body", "join", "cut"]).optional(),
+      target_body_id: stringField.optional(),
+    })
+    .strict(),
   update_extrude_mode: z
     .object({
       feature_id: stringField,
@@ -415,6 +423,7 @@ export function validateAiCommandBatchForState(
   let hasActiveSketch = Boolean(document?.active_sketch_feature_id);
   const knownProfileIds = new Set<string>();
   const knownBodyIds = new Set<string>();
+  const knownPlanarFaceIds = new Set<string>();
 
   for (const feature of document?.feature_history ?? []) {
     for (const profile of feature.sketch_parameters?.profiles ?? []) {
@@ -426,6 +435,11 @@ export function validateAiCommandBatchForState(
   }
   for (const body of viewport?.bodies ?? []) {
     knownBodyIds.add(body.id);
+  }
+  for (const face of viewport?.solid_faces ?? []) {
+    if (face.sketchability === "planar") {
+      knownPlanarFaceIds.add(face.face_id);
+    }
   }
 
   for (const command of commands) {
@@ -463,6 +477,22 @@ export function validateAiCommandBatchForState(
       ) {
         throw new Error(
           `extrude_profile references unknown target body "${command.payload.target_body_id}". Use a body id from viewport state.`,
+        );
+      }
+    }
+
+    if (command.type === "extrude_face") {
+      if (!knownPlanarFaceIds.has(command.payload.face_id)) {
+        throw new Error(
+          `extrude_face references unknown or non-planar face "${command.payload.face_id}". Use a planar face id from viewport state.`,
+        );
+      }
+      if (
+        command.payload.target_body_id &&
+        !knownBodyIds.has(command.payload.target_body_id)
+      ) {
+        throw new Error(
+          `extrude_face references unknown target body "${command.payload.target_body_id}". Use a body id from viewport state.`,
         );
       }
     }

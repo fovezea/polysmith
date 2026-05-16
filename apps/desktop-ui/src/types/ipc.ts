@@ -890,6 +890,17 @@ export interface ExtrudeProfileCommand {
   };
 }
 
+export interface ExtrudeFaceCommand {
+  id: string;
+  type: "extrude_face";
+  payload: {
+    face_id: string;
+    depth: number;
+    mode?: ExtrudeMode;
+    target_body_id?: string;
+  };
+}
+
 export interface UpdateExtrudeModeCommand {
   id: string;
   type: "update_extrude_mode";
@@ -1033,6 +1044,7 @@ export type CoreCommand =
   | SelectSketchProfileCommand
   | AddSketchDistanceDimensionCommand
   | ExtrudeProfileCommand
+  | ExtrudeFaceCommand
   | AddSketchLineCommand
   | SetSketchLineConstructionCommand
   | SetSketchMidpointAnchorCommand

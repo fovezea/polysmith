@@ -188,7 +188,10 @@ function makeReferenceAxis(axis: ViewportReferenceAxis): ReferenceAxisScene {
   };
 }
 
-function makeSketchCircle(circle: ViewportSketchCircle): SketchCircleScene {
+function makeSketchCircle(
+  circle: ViewportSketchCircle,
+  projectedCircleIds: Set<string>,
+): SketchCircleScene {
   return {
     isPreview: circle.is_preview,
     circleId: circle.circle_id,
@@ -198,10 +201,14 @@ function makeSketchCircle(circle: ViewportSketchCircle): SketchCircleScene {
     radius: circle.radius,
     isSelected: circle.is_selected,
     isConstruction: circle.is_construction,
+    isProjected: projectedCircleIds.has(circle.circle_id),
   };
 }
 
-function makeSketchArc(arc: ViewportSketchArc): SketchArcScene {
+function makeSketchArc(
+  arc: ViewportSketchArc,
+  projectedArcIds: Set<string>,
+): SketchArcScene {
   return {
     isPreview: arc.is_preview,
     arcId: arc.arc_id,
@@ -216,6 +223,7 @@ function makeSketchArc(arc: ViewportSketchArc): SketchArcScene {
     ccw: arc.ccw,
     isSelected: arc.is_selected,
     isConstruction: arc.is_construction,
+    isProjected: projectedArcIds.has(arc.arc_id),
   };
 }
 
@@ -692,6 +700,24 @@ export function createViewportScene(
   ];
   const isSketchPlaneVisible = (planeId: string) =>
     !hiddenSketchPlaneIds.has(planeId);
+  const projectedLineIds = new Set<string>();
+  const projectedCircleIds = new Set<string>();
+  const projectedArcIds = new Set<string>();
+  if (document) {
+    for (const feature of document.feature_history) {
+      const sketch = feature.sketch_parameters;
+      if (feature.kind !== "sketch" || !sketch) {
+        continue;
+      }
+      for (const projection of sketch.projections) {
+        projection.generated_line_ids.forEach((id) => projectedLineIds.add(id));
+        projection.generated_circle_ids.forEach((id) =>
+          projectedCircleIds.add(id),
+        );
+        projection.generated_arc_ids.forEach((id) => projectedArcIds.add(id));
+      }
+    }
+  }
 
   const sketchLines = viewport.sketch_lines
     .filter((line) => isSketchPlaneVisible(line.plane_id))
@@ -710,13 +736,14 @@ export function createViewportScene(
       constraint: line.constraint,
       isConstruction: line.is_construction,
       isPreview: line.is_preview,
+      isProjected: projectedLineIds.has(line.line_id),
     }));
   const sketchCircles = viewport.sketch_circles
     .filter((circle) => isSketchPlaneVisible(circle.plane_id))
-    .map(makeSketchCircle);
+    .map((circle) => makeSketchCircle(circle, projectedCircleIds));
   const sketchArcs = viewport.sketch_arcs
     .filter((arc) => isSketchPlaneVisible(arc.plane_id))
-    .map(makeSketchArc);
+    .map((arc) => makeSketchArc(arc, projectedArcIds));
   const sketchPoints: SketchPointScene[] = viewport.sketch_points
     .filter((point) => isSketchPlaneVisible(point.plane_id))
     .map((point) => ({

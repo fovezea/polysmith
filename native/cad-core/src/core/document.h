@@ -220,6 +220,11 @@ class DocumentManager {
       double depth,
       const std::string& mode = "new_body",
       const std::optional<std::string>& target_body_id = std::nullopt);
+  DocumentState extrude_face(
+      const std::string& face_id,
+      double depth,
+      const std::string& mode = "new_body",
+      const std::optional<std::string>& target_body_id = std::nullopt);
   DocumentState add_sketch_line(double start_x,
                                 double start_y,
                                 double end_x,

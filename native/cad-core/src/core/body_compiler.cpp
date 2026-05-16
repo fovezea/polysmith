@@ -14,6 +14,7 @@
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRep_Tool.hxx>
 #include <Poly_Triangulation.hxx>
+#include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <TopAbs_Orientation.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
@@ -32,6 +33,26 @@ namespace {
 
 constexpr double kLinearDeflection = 0.1;
 constexpr double kAngularDeflection = 0.5;
+
+TopoDS_Shape unify_same_domain(const TopoDS_Shape& shape) {
+  if (shape.IsNull()) {
+    return shape;
+  }
+  try {
+    ShapeUpgrade_UnifySameDomain unify(shape,
+                                       /*UnifyEdges=*/true,
+                                       /*UnifyFaces=*/true,
+                                       /*ConcatBSplines=*/false);
+    unify.Build();
+    const TopoDS_Shape unified = unify.Shape();
+    if (!unified.IsNull()) {
+      return unified;
+    }
+  } catch (const std::exception&) {
+    // Keep the original boolean result if OCCT cannot merge domains.
+  }
+  return shape;
+}
 
 // Triangulate `shape` and accumulate world-space vertices/indices/normals
 // into `out`. Each face is processed independently so we get per-face
@@ -457,6 +478,7 @@ CompiledBodies compile_bodies(const DocumentState& document) {
         body_order.push_back(feature.id);
         continue;
       }
+      combined = unify_same_domain(combined);
 
       body_shapes[target_id] = combined;
       // A boolean op replaced the body's topology, so any stale

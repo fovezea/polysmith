@@ -64,6 +64,7 @@
         "select_sketch_dimension",
         "select_sketch_profile",
         "extrude_profile",
+        "extrude_face",
         "finish_sketch",
         "reenter_sketch",
         "clear_selection"

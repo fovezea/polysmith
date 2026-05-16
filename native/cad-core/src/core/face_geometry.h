@@ -30,6 +30,7 @@ struct FaceOutline {
   // order (open list — the projector closes the loop by drawing back
   // to corner[0]).
   std::vector<FaceOutlinePoint> polygon_corners;
+  std::vector<std::vector<FaceOutlinePoint>> inner_loops;
 
   // Populated when kind == "circle".
   FaceOutlinePoint circle_center;
@@ -43,5 +44,15 @@ struct FaceOutline {
 // roadmap).
 std::optional<FaceOutline> compute_face_outline(const DocumentState& document,
                                                 const std::string& face_id);
+
+struct PlanarFaceProfile {
+  PlaneFrame plane_frame;
+  std::vector<SketchProfilePoint> outer_points;
+  std::vector<std::vector<SketchProfilePoint>> inner_loops;
+};
+
+std::optional<PlanarFaceProfile> compute_planar_face_profile(
+    const DocumentState& document,
+    const std::string& face_id);
 
 }  // namespace polysmith::core

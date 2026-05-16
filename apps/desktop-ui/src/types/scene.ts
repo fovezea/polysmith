@@ -146,6 +146,7 @@ export interface SketchLineScene {
   // Reference-only construction lines render dashed and don't
   // contribute to profile loop detection in the core.
   isConstruction: boolean;
+  isProjected: boolean;
 }
 
 export interface SketchCircleScene {
@@ -163,6 +164,7 @@ export interface SketchCircleScene {
   radius: number;
   isSelected: boolean;
   isConstruction: boolean;
+  isProjected: boolean;
 }
 
 // 2D arc derived from `ViewportSketchArc`. The renderer turns this
@@ -191,6 +193,7 @@ export interface SketchArcScene {
   ccw: boolean;
   isSelected: boolean;
   isConstruction: boolean;
+  isProjected: boolean;
 }
 
 export interface SketchPointScene {

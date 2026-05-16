@@ -855,22 +855,25 @@ export function buildSketchLineObject(line: SketchLineScene) {
   // "about to exist" rather than committed geometry. They share
   // the dashed material path with construction lines, just at
   // lower opacity.
-  const isDashed = line.isConstruction || line.isPreview;
+  const isDashed = line.isConstruction || line.isPreview || line.isProjected;
+  const baseColor = line.isProjected
+    ? themeColor("--cad-sketch-projected", "#74d4ff")
+    : themeColor("--color-tertiary-plane-fill", "#fff7c0");
   const material = isDashed
     ? new THREE.LineDashedMaterial({
         color: line.isSelected
           ? themeColor("--color-primary-edge-active", "#c3f5ff")
-          : themeColor("--color-tertiary-plane-fill", "#fff7c0"),
+          : baseColor,
         transparent: true,
-        opacity: line.isPreview ? 0.55 : 0.85,
+        opacity: line.isPreview ? 0.55 : line.isProjected ? 0.92 : 0.85,
         linewidth: line.isSelected ? 2 : 1,
-        dashSize: 1,
-        gapSize: 0.6,
+        dashSize: line.isProjected ? 0.75 : 1,
+        gapSize: line.isProjected ? 0.45 : 0.6,
       })
     : new THREE.LineBasicMaterial({
         color: line.isSelected
           ? themeColor("--color-primary-edge-active", "#c3f5ff")
-          : themeColor("--color-tertiary-plane-fill", "#fff7c0"),
+          : baseColor,
         transparent: true,
         opacity: 0.98,
         linewidth: line.isSelected ? 2 : 1,
@@ -910,19 +913,24 @@ export function buildSketchCircleObject(
 ) {
   // See `buildSketchLineObject` for the rationale on the dashed +
   // translucent treatment of preview circles.
-  const isDashed = circle.isPreview || circle.isConstruction;
+  const isDashed = circle.isPreview || circle.isConstruction || circle.isProjected;
+  const baseColor = circle.isProjected
+    ? themeColor("--cad-sketch-projected", "#74d4ff")
+    : themeColor("--color-tertiary-plane-fill", "#fff7c0");
   const material = isDashed
     ? new THREE.LineDashedMaterial({
-        color: themeColor("--color-tertiary-plane-fill", "#fff7c0"),
+        color: circle.isSelected
+          ? themeColor("--color-primary-edge-active", "#c3f5ff")
+          : baseColor,
         transparent: true,
-        opacity: circle.isPreview ? 0.55 : 0.72,
-        dashSize: 1,
-        gapSize: 0.6,
+        opacity: circle.isPreview ? 0.55 : circle.isProjected ? 0.92 : 0.72,
+        dashSize: circle.isProjected ? 0.75 : 1,
+        gapSize: circle.isProjected ? 0.45 : 0.6,
       })
     : new THREE.LineBasicMaterial({
         color: circle.isSelected
           ? themeColor("--color-primary-edge-active", "#c3f5ff")
-          : themeColor("--color-tertiary-plane-fill", "#fff7c0"),
+          : baseColor,
         transparent: true,
         opacity: 0.98,
       });
@@ -993,18 +1001,23 @@ export function buildSketchArcObject(
   arc: SketchArcScene,
   planeFrame: SketchPlaneFrame | null = null,
 ) {
-  const material = arc.isPreview
+  const baseColor = arc.isProjected
+    ? themeColor("--cad-sketch-projected", "#74d4ff")
+    : themeColor("--color-tertiary-plane-fill", "#fff7c0");
+  const material = arc.isPreview || arc.isProjected
     ? new THREE.LineDashedMaterial({
-        color: themeColor("--color-tertiary-plane-fill", "#fff7c0"),
+        color: arc.isSelected
+          ? themeColor("--color-primary-edge-active", "#c3f5ff")
+          : baseColor,
         transparent: true,
-        opacity: 0.55,
-        dashSize: 1,
-        gapSize: 0.6,
+        opacity: arc.isPreview ? 0.55 : 0.92,
+        dashSize: arc.isProjected ? 0.75 : 1,
+        gapSize: arc.isProjected ? 0.45 : 0.6,
       })
     : new THREE.LineBasicMaterial({
         color: arc.isSelected
           ? themeColor("--color-primary-edge-active", "#c3f5ff")
-          : themeColor("--color-tertiary-plane-fill", "#fff7c0"),
+          : baseColor,
         transparent: true,
         opacity: 0.98,
       });
@@ -1080,7 +1093,7 @@ export function buildSketchArcObject(
   const geometry = new THREE.BufferGeometry().setFromPoints(points);
   const sketchArc = new THREE.Line(geometry, material);
   sketchArc.renderOrder = 7;
-  if (arc.isPreview) {
+  if (arc.isPreview || arc.isProjected) {
     sketchArc.computeLineDistances();
   } else {
     sketchArc.userData.sketchEntityId = arc.arcId;
@@ -1415,6 +1428,7 @@ export function buildSketchProfileObject(profile: SketchProfileScene) {
     edgeMaterials.push(material);
     const line = new THREE.LineLoop(geometry, material);
     line.renderOrder = 7;
+    line.userData.sketchProfileId = profile.profileId;
     return line;
   };
 
@@ -1429,6 +1443,7 @@ export function buildSketchProfileObject(profile: SketchProfileScene) {
     geometry.translate(profile.start[0], profile.start[1], 0);
     const mesh = new THREE.Mesh(geometry, fillMaterial);
     mesh.renderOrder = 6;
+    mesh.userData.sketchProfileId = profile.profileId;
     const points = new THREE.EllipseCurve(
       profile.start[0],
       profile.start[1],
@@ -1499,6 +1514,7 @@ export function buildSketchProfileObject(profile: SketchProfileScene) {
   const geometry = new THREE.ShapeGeometry(shape);
   const mesh = new THREE.Mesh(geometry, fillMaterial);
   mesh.renderOrder = 6;
+  mesh.userData.sketchProfileId = profile.profileId;
   group.add(mesh);
   group.add(makeEdgeLoop(profile.profilePoints));
   for (const loop of profile.innerLoops) {

@@ -742,6 +742,24 @@ export function makeExtrudeProfileCommand(
   };
 }
 
+export function makeExtrudeFaceCommand(
+  faceId: string,
+  depth: number,
+  mode: ExtrudeMode = "new_body",
+  targetBodyId: string | null = null,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "extrude_face",
+    payload: {
+      face_id: faceId,
+      depth,
+      mode,
+      ...(targetBodyId ? { target_body_id: targetBodyId } : {}),
+    },
+  };
+}
+
 export function makeUpdateExtrudeModeCommand(
   featureId: string,
   mode: ExtrudeMode,

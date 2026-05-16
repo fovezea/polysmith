@@ -118,6 +118,7 @@ type DraftDimensionSession = {
   current: [number, number];
   values: Record<DraftDimensionField, string>;
   activeField: DraftDimensionField;
+  lockedFields: Partial<Record<DraftDimensionField, boolean>>;
 };
 
 function GridMiniIcon() {
@@ -693,14 +694,104 @@ function draftSessionFields(tool: DraftDimensionTool): DraftDimensionField[] {
   return ["length"];
 }
 
+function applyDraftDimensionFieldValue(
+  session: DraftDimensionSession,
+  field: DraftDimensionField,
+  rawValue: string,
+  lockField = true,
+): DraftDimensionSession {
+  const numeric = Number(rawValue);
+  const nextValues = { ...session.values, [field]: rawValue };
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return {
+      ...session,
+      values: nextValues,
+      activeField: field,
+      lockedFields: lockField
+        ? {...session.lockedFields, [field]: true}
+        : session.lockedFields,
+    };
+  }
+
+  const dx = session.current[0] - session.start[0];
+  const dy = session.current[1] - session.start[1];
+  const signX = dx < 0 ? -1 : 1;
+  const signY = dy < 0 ? -1 : 1;
+  let current = session.current;
+  if (session.tool === "rectangle") {
+    current = [
+      field === "width" ? session.start[0] + signX * numeric : current[0],
+      field === "length" ? session.start[1] + signY * numeric : current[1],
+    ];
+  } else if (session.tool === "circle") {
+    const radius = numeric / 2;
+    const length = Math.hypot(dx, dy) || 1;
+    current = [
+      session.start[0] + (dx / length) * radius,
+      session.start[1] + (dy / length) * radius,
+    ];
+  } else {
+    const length = Math.hypot(dx, dy) || 1;
+    current = [
+      session.start[0] + (dx / length) * numeric,
+      session.start[1] + (dy / length) * numeric,
+    ];
+  }
+
+  return {
+    ...session,
+    current,
+    values: {
+      ...draftSessionValues(session.tool, session.start, current),
+      [field]: rawValue,
+    },
+    activeField: field,
+    lockedFields: lockField
+      ? {...session.lockedFields, [field]: true}
+      : session.lockedFields,
+  };
+}
+
 function updateDraftSessionCurrent(
   session: DraftDimensionSession,
   current: [number, number],
 ): DraftDimensionSession {
-  return {
+  const next: DraftDimensionSession = {
     ...session,
     current,
     values: draftSessionValues(session.tool, session.start, current),
+  };
+
+  for (const field of draftSessionFields(session.tool)) {
+    if (!session.lockedFields[field]) {
+      continue;
+    }
+    const lockedValue = Number(session.values[field]);
+    if (!Number.isFinite(lockedValue) || lockedValue <= 0) {
+      next.values[field] = session.values[field];
+      continue;
+    }
+    return applyDraftDimensionFieldValue(
+      {...next, values: {...next.values, [field]: session.values[field]}},
+      field,
+      session.values[field],
+      false,
+    );
+  }
+
+  return {
+    ...next,
+    values: {
+      ...next.values,
+      ...Object.fromEntries(
+        Object.entries(session.lockedFields)
+          .filter(([, locked]) => locked)
+          .map(([field]) => [
+            field,
+            session.values[field as DraftDimensionField],
+          ]),
+      ),
+    },
   };
 }
 
@@ -805,6 +896,11 @@ export function ViewportPanel({
   >({});
   const [draftDimensionSession, setDraftDimensionSession] =
     useState<DraftDimensionSession | null>(null);
+  const pendingCircleDimensionPlacementRef = useRef<{
+    fromCircleCount: number;
+    center: [number, number];
+    end: [number, number];
+  } | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const dimensionEditorRef = useRef<HTMLFormElement | null>(null);
@@ -819,6 +915,10 @@ export function ViewportPanel({
   const sketchGroupRef = useRef<THREE.Group | null>(null);
   const previewLineRef = useRef<THREE.Line | null>(null);
   const previewCircleRef = useRef<THREE.LineLoop | null>(null);
+  const previewDimensionRef = useRef<{
+    line: THREE.LineSegments;
+    label: THREE.Sprite;
+  } | null>(null);
   // Mirrors `previewLineRef` / `previewCircleRef` for the arc tool.
   // Carries the dashed in-progress arc preview rendered while the
   // user is between clicks 2 and 3 (or, in center+start+end mode, a
@@ -1094,6 +1194,45 @@ export function ViewportPanel({
   );
   const activeSketchPlaneFrame =
     sketchFeature?.sketch_parameters?.plane_frame ?? null;
+  useEffect(() => {
+    const pending = pendingCircleDimensionPlacementRef.current;
+    const sketch = sketchFeature?.sketch_parameters;
+    if (!pending || !sketch || sketch.circles.length <= pending.fromCircleCount) {
+      return;
+    }
+
+    const circle =
+      sketch.circles[pending.fromCircleCount] ??
+      sketch.circles[sketch.circles.length - 1];
+    if (!circle) {
+      return;
+    }
+    const radius = distanceBetweenPoints(pending.center, pending.end);
+    if (radius <= 1e-6) {
+      pendingCircleDimensionPlacementRef.current = null;
+      return;
+    }
+    const dx = pending.end[0] - pending.center[0];
+    const dy = pending.end[1] - pending.center[1];
+    const length = Math.hypot(dx, dy);
+    if (length <= 1e-6) {
+      pendingCircleDimensionPlacementRef.current = null;
+      return;
+    }
+    const labelLocal: [number, number] = [
+      pending.center[0] + (dx / length) * (radius + 4),
+      pending.center[1] + (dy / length) * (radius + 4),
+    ];
+    setDimensionLabelPositions((current) => ({
+      ...current,
+      [`dim-circle-${circle.circle_id}`]: toWorldPoint(
+        sketch.plane_id,
+        labelLocal,
+        sketch.plane_frame,
+      ),
+    }));
+    pendingCircleDimensionPlacementRef.current = null;
+  }, [sketchFeature]);
   const selectedPrimitiveLabel = useMemo(() => {
     const selectedBox = viewport?.boxes.find((box) => box.is_selected);
     if (selectedBox) {
@@ -1263,6 +1402,43 @@ export function ViewportPanel({
         }
       }
       if (dimension.kind !== "angle") {
+        if (dimension.kind === "circle_radius") {
+          const center = new THREE.Vector3(...dimension.dimensionStart)
+            .add(new THREE.Vector3(...dimension.dimensionEnd))
+            .multiplyScalar(0.5);
+          const radius =
+            new THREE.Vector3(...dimension.dimensionStart).distanceTo(
+              new THREE.Vector3(...dimension.dimensionEnd),
+            ) * 0.5;
+          const direction = new THREE.Vector3(...labelPosition).sub(center);
+          const planeNormal = getSketchGridFrame(
+            dimension.planeId,
+            activeSketchPlaneFrame,
+          ).normal;
+          direction.addScaledVector(planeNormal, -direction.dot(planeNormal));
+          if (direction.lengthSq() > 1e-8 && radius > 1e-8) {
+            direction.normalize();
+            const start = center
+              .clone()
+              .add(direction.clone().multiplyScalar(-radius));
+            const end = center
+              .clone()
+              .add(direction.clone().multiplyScalar(radius));
+            const toTuple = (point: THREE.Vector3): [number, number, number] => [
+              point.x,
+              point.y,
+              point.z,
+            ];
+            return {
+              ...dimension,
+              anchorStart: toTuple(start),
+              anchorEnd: toTuple(end),
+              dimensionStart: toTuple(start),
+              dimensionEnd: toTuple(end),
+              labelPosition,
+            };
+          }
+        }
         const extensionAxis = new THREE.Vector3(
           ...dimension.dimensionStart,
         ).sub(new THREE.Vector3(...dimension.anchorStart));
@@ -1548,6 +1724,25 @@ export function ViewportPanel({
     previewArcRef.current = null;
   }
 
+  function clearPreviewDimension() {
+    const previewDimension = previewDimensionRef.current;
+    const sketchGroup = sketchGroupRef.current;
+    if (!previewDimension || !sketchGroup) {
+      return;
+    }
+
+    sketchGroup.remove(previewDimension.line);
+    sketchGroup.remove(previewDimension.label);
+    previewDimension.line.geometry.dispose();
+    disposeMaterial(previewDimension.line.material);
+    const labelMaterial = previewDimension.label.material;
+    if (labelMaterial instanceof THREE.SpriteMaterial) {
+      labelMaterial.map?.dispose();
+    }
+    disposeMaterial(labelMaterial);
+    previewDimensionRef.current = null;
+  }
+
   function snapRawPointToGrid(
     rawPoint: {
       local: [number, number];
@@ -1595,6 +1790,7 @@ export function ViewportPanel({
       current,
       values: draftSessionValues(tool, start, current),
       activeField: fields[0],
+      lockedFields: {},
     };
   }
 
@@ -1854,6 +2050,7 @@ export function ViewportPanel({
     clearPreviewLine();
     clearPreviewCircle();
     clearPreviewArc();
+    clearPreviewDimension();
     clearDraftDimensionSession();
     setSketchSnapLabel(null);
     setConstraintPreview(null);
@@ -1886,6 +2083,7 @@ export function ViewportPanel({
     clearPreviewLine();
     clearPreviewCircle();
     clearPreviewArc();
+    clearPreviewDimension();
     const [sx, sy] = session.start;
     const [ex, ey] = session.current;
 
@@ -1908,6 +2106,7 @@ export function ViewportPanel({
           isSelected: false,
           isConstruction: sketchToolConstructionRef.current,
           isPreview: false,
+          isProjected: false,
         },
         activeSketchPlaneFrame,
       );
@@ -1952,53 +2151,18 @@ export function ViewportPanel({
     const next = updateDraftSessionCurrent(session, point);
     draftDimensionSessionRef.current = next;
     setDraftDimensionSession(next);
+    if (!next.lockedFields[next.activeField]) {
+      focusDraftField(next.activeField);
+    }
   }
 
   function applyDraftDimensionField(
     session: DraftDimensionSession,
     field: DraftDimensionField,
     rawValue: string,
+    lockField = true,
   ): DraftDimensionSession {
-    const numeric = Number(rawValue);
-    const nextValues = { ...session.values, [field]: rawValue };
-    if (!Number.isFinite(numeric) || numeric <= 0) {
-      return { ...session, values: nextValues, activeField: field };
-    }
-
-    const dx = session.current[0] - session.start[0];
-    const dy = session.current[1] - session.start[1];
-    const signX = dx < 0 ? -1 : 1;
-    const signY = dy < 0 ? -1 : 1;
-    let current = session.current;
-    if (session.tool === "rectangle") {
-      current = [
-        field === "width" ? session.start[0] + signX * numeric : current[0],
-        field === "length" ? session.start[1] + signY * numeric : current[1],
-      ];
-    } else if (session.tool === "circle") {
-      const radius = numeric / 2;
-      const length = Math.hypot(dx, dy) || 1;
-      current = [
-        session.start[0] + (dx / length) * radius,
-        session.start[1] + (dy / length) * radius,
-      ];
-    } else {
-      const length = Math.hypot(dx, dy) || 1;
-      current = [
-        session.start[0] + (dx / length) * numeric,
-        session.start[1] + (dy / length) * numeric,
-      ];
-    }
-
-    return {
-      ...session,
-      current,
-      values: {
-        ...draftSessionValues(session.tool, session.start, current),
-        [field]: rawValue,
-      },
-      activeField: field,
-    };
+    return applyDraftDimensionFieldValue(session, field, rawValue, lockField);
   }
 
   async function commitDraftDimensionSession(
@@ -2012,6 +2176,7 @@ export function ViewportPanel({
     clearPreviewLine();
     clearPreviewCircle();
     clearPreviewArc();
+    clearPreviewDimension();
     lineDraftStartRef.current = null;
     clearDraftDimensionSession();
     suppressDimensionEditorAfterSketchCommit();
@@ -2028,6 +2193,11 @@ export function ViewportPanel({
       return;
     }
     if (session.tool === "circle") {
+      pendingCircleDimensionPlacementRef.current = {
+        fromCircleCount: sketchFeature?.sketch_parameters?.circles.length ?? 0,
+        center: session.start,
+        end: session.current,
+      };
       await addSketchCircleRef.current(
         startX,
         startY,
@@ -3663,6 +3833,33 @@ export function ViewportPanel({
 
       function pickSketchProfileId() {
         const profiles = sceneDataRef.current?.sketchProfiles ?? [];
+        const profileById = new Map(
+          profiles.map((profile) => [profile.profileId, profile]),
+        );
+        const profileObjectHits = raycaster
+          .intersectObjects(sketchProfileObjectsRef.current, true)
+          .map((hit) => {
+            const profileId = hit.object.userData.sketchProfileId;
+            if (typeof profileId !== "string") {
+              return null;
+            }
+            const profile = profileById.get(profileId);
+            if (!profile) {
+              return null;
+            }
+            return {
+              profileId,
+              area: profileArea(profile),
+            };
+          })
+          .filter(
+            (hit): hit is { profileId: string; area: number } => hit !== null,
+          );
+        if (profileObjectHits.length > 0) {
+          profileObjectHits.sort((left, right) => left.area - right.area);
+          return profileObjectHits[0].profileId;
+        }
+
         const hits = profiles
           .map((profile) => {
             const point = profileLocalPoint(profile);
@@ -4057,6 +4254,7 @@ export function ViewportPanel({
           clearPreviewLine();
           clearPreviewCircle();
           clearPreviewArc();
+          clearPreviewDimension();
           setSketchSnapLabel(null);
           setConstraintPreview(null);
           clearDraftDimensionSession();
@@ -4088,6 +4286,7 @@ export function ViewportPanel({
           clearPreviewLine();
           clearPreviewCircle();
           clearPreviewArc();
+          clearPreviewDimension();
           setSketchSnapLabel(null);
           setConstraintPreview(null);
           clearDraftDimensionSession();
@@ -4128,6 +4327,16 @@ export function ViewportPanel({
         ) {
           updateDraftSessionFromPoint(sketchPoint.local);
         }
+        const draftPreviewLocal =
+          isDraftDimensionTool(activeSketchToolRef.current) &&
+          draftDimensionSessionRef.current
+            ? draftDimensionSessionRef.current.current
+            : sketchPoint.local;
+        const draftPreviewWorld = toWorldPoint(
+          activeSketchPlaneId,
+          draftPreviewLocal,
+          activeSketchPlaneFrame,
+        );
 
         // Hover-time constraint preview. The badge sits next to the
         // cursor in viewport-local coordinates so it stays glued to
@@ -4198,6 +4407,7 @@ export function ViewportPanel({
         clearPreviewLine();
         clearPreviewCircle();
         clearPreviewArc();
+        clearPreviewDimension();
         if (activeSketchToolRef.current === "arc") {
           // Arc preview branches on the user's progress through the
           // three-click sequence and the active arc creation mode.
@@ -4251,6 +4461,7 @@ export function ViewportPanel({
                 isSelected: false,
                 isConstruction: sketchToolConstructionRef.current,
                 isPreview: true,
+                isProjected: false,
               },
               activeSketchPlaneFrame,
             );
@@ -4351,6 +4562,7 @@ export function ViewportPanel({
                     // though the ref is typed as Line — the
                     // dispose path only touches geometry/material.)
                     isPreview: true,
+                    isProjected: false,
                   },
                   activeSketchPlaneFrame,
                 );
@@ -4393,7 +4605,7 @@ export function ViewportPanel({
           return;
         }
         if (activeSketchToolRef.current === "circle") {
-          const radius = distanceBetweenPoints(draftStart, sketchPoint.local);
+          const radius = distanceBetweenPoints(draftStart, draftPreviewLocal);
           if (radius > 0.001) {
             // Pass the active sketch's plane frame so the perimeter is
             // projected onto the actual sketch plane. Without it the
@@ -4421,11 +4633,67 @@ export function ViewportPanel({
                 // so leaving it false keeps the existing draft
                 // styling intact.
                 isPreview: false,
+                isProjected: false,
               },
               activeSketchPlaneFrame,
             );
             previewCircleRef.current = preview;
             sketchGroupRefValue.add(preview);
+            const dx = draftPreviewLocal[0] - draftStart[0];
+            const dy = draftPreviewLocal[1] - draftStart[1];
+            const length = Math.hypot(dx, dy);
+            if (length > 1e-6) {
+              const ux = dx / length;
+              const uy = dy / length;
+              const dimensionStartLocal: [number, number] = [
+                draftStart[0] - ux * radius,
+                draftStart[1] - uy * radius,
+              ];
+              const dimensionEndLocal: [number, number] = [
+                draftStart[0] + ux * radius,
+                draftStart[1] + uy * radius,
+              ];
+              const labelLocal: [number, number] = [
+                draftStart[0] + ux * (radius + 4),
+                draftStart[1] + uy * (radius + 4),
+              ];
+              const draftDimension = buildSketchDimensionObject({
+                dimensionId: "preview-circle-diameter",
+                planeId: activeSketchPlaneId,
+                kind: "circle_radius",
+                entityId: "preview-circle",
+                label: `D ${formatDraftDimension(radius * 2)} mm`,
+                isSelected: false,
+                anchorStart: toWorldPoint(
+                  activeSketchPlaneId,
+                  dimensionStartLocal,
+                  activeSketchPlaneFrame,
+                ),
+                anchorEnd: toWorldPoint(
+                  activeSketchPlaneId,
+                  dimensionEndLocal,
+                  activeSketchPlaneFrame,
+                ),
+                dimensionStart: toWorldPoint(
+                  activeSketchPlaneId,
+                  dimensionStartLocal,
+                  activeSketchPlaneFrame,
+                ),
+                dimensionEnd: toWorldPoint(
+                  activeSketchPlaneId,
+                  dimensionEndLocal,
+                  activeSketchPlaneFrame,
+                ),
+                labelPosition: toWorldPoint(
+                  activeSketchPlaneId,
+                  labelLocal,
+                  activeSketchPlaneFrame,
+                ),
+              });
+              previewDimensionRef.current = draftDimension;
+              sketchGroupRefValue.add(draftDimension.line);
+              sketchGroupRefValue.add(draftDimension.label);
+            }
           }
         } else if (activeSketchToolRef.current === "rectangle") {
           // Show the full 4-corner outline as the user drags so they
@@ -4433,7 +4701,7 @@ export function ViewportPanel({
           // single-segment diagonal preview made sizing rectangles
           // largely guesswork.
           const [sx, sy] = draftStart;
-          const [ex, ey] = sketchPoint.local;
+          const [ex, ey] = draftPreviewLocal;
           const corners: Array<[number, number]> = [
             [sx, sy],
             [ex, sy],
@@ -4470,7 +4738,7 @@ export function ViewportPanel({
                   activeSketchPlaneFrame,
                 ),
               ),
-              new THREE.Vector3(...sketchPoint.world),
+              new THREE.Vector3(...draftPreviewWorld),
             ]),
             makeDraftLineMaterial(),
           );
@@ -4992,10 +5260,16 @@ export function ViewportPanel({
           return;
         }
 
-        const [startX, startY] = lineDraftStartRef.current;
-        clearPreviewLine();
-        clearPreviewCircle();
-        clearPreviewArc();
+	        const [startX, startY] = lineDraftStartRef.current;
+	        const committedEnd =
+	          draftDimensionSessionRef.current &&
+	          isDraftDimensionTool(activeSketchToolRef.current)
+	            ? draftDimensionSessionRef.current.current
+	            : sketchPoint.local;
+	        clearPreviewLine();
+	        clearPreviewCircle();
+	        clearPreviewArc();
+	        clearPreviewDimension();
 
         if (activeSketchToolRef.current === "arc") {
           // Three-click arc placement. The first click landed in the
@@ -5056,8 +5330,8 @@ export function ViewportPanel({
           void addSketchRectangleRef.current(
             startX,
             startY,
-            sketchPoint.local[0],
-            sketchPoint.local[1],
+            committedEnd[0],
+            committedEnd[1],
             sketchToolConstructionRef.current,
           );
           return;
@@ -5065,11 +5339,17 @@ export function ViewportPanel({
 
         if (activeSketchToolRef.current === "circle") {
           lineDraftStartRef.current = null;
+          pendingCircleDimensionPlacementRef.current = {
+            fromCircleCount:
+              sketchFeature?.sketch_parameters?.circles.length ?? 0,
+            center: [startX, startY],
+            end: committedEnd,
+          };
           clearDraftDimensionSession();
           suppressDimensionEditorAfterSketchCommit();
           const radius = distanceBetweenPoints(
             [startX, startY],
-            sketchPoint.local,
+            committedEnd,
           );
           void addSketchCircleRef.current(
             startX,
@@ -5175,7 +5455,7 @@ export function ViewportPanel({
         // the *new* draft start (= the end of the line we just
         // committed). Keeping the host in sync avoids attributing the
         // previous line's start anchor to the next line.
-        lineDraftStartRef.current = sketchPoint.local;
+	        lineDraftStartRef.current = committedEnd;
         draftStartMidpointHostRef.current = endHostLineId;
         // Reset the perpendicular host: a fresh draft segment starts
         // from the just-clicked end. Only set it again if that end
@@ -5190,20 +5470,20 @@ export function ViewportPanel({
         });
         suppressDimensionEditorAfterSketchCommit();
         const nextLineSession = createDraftDimensionSession(
-          "line",
-          sketchPoint.local,
-          sketchPoint.local,
-        );
+	          "line",
+	          committedEnd,
+	          committedEnd,
+	        );
         draftDimensionSessionRef.current = nextLineSession;
         setDraftDimensionSession(nextLineSession);
         focusDraftField(nextLineSession.activeField);
         void addSketchLineRef.current(
-          startX,
-          startY,
-          sketchPoint.local[0],
-          sketchPoint.local[1],
-          sketchToolConstructionRef.current,
-        );
+	          startX,
+	          startY,
+	          committedEnd[0],
+	          committedEnd[1],
+	          sketchToolConstructionRef.current,
+	        );
         return;
       }
 
@@ -5691,6 +5971,7 @@ export function ViewportPanel({
     clearPreviewLine();
     clearPreviewCircle();
     clearPreviewArc();
+    clearPreviewDimension();
     setSketchSnapLabel(null);
     setConstraintPreview(null);
     clearDraftDimensionSession();

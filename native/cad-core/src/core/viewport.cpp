@@ -47,6 +47,7 @@ constexpr double kSketchPlaneOffset = 0.2;
 constexpr double kLineDimensionOffset = 6.0;
 constexpr double kCircleDimensionOffset = 4.0;
 constexpr double kConstraintBadgeOffset = 3.5;
+constexpr double kPi = 3.14159265358979323846264338327950288;
 
 struct WorldPoint {
   double x;
@@ -1095,6 +1096,90 @@ void sample_edge(const TopoDS_Edge& edge,
   }
 }
 
+bool edge_curve_type_is(const TopoDS_Edge& edge, GeomAbs_CurveType type) {
+  try {
+    BRepAdaptor_Curve curve(edge);
+    return curve.GetType() == type;
+  } catch (const std::exception&) {
+    return false;
+  }
+}
+
+bool is_nonsemantic_seam_line_edge(const TopoDS_Shape& body_shape,
+                                   const TopoDS_Edge& edge) {
+  if (body_shape.IsNull() || edge.IsNull() ||
+      !edge_curve_type_is(edge, GeomAbs_Line)) {
+    return false;
+  }
+  for (TopExp_Explorer explorer(body_shape, TopAbs_FACE); explorer.More();
+       explorer.Next()) {
+    const TopoDS_Face face = TopoDS::Face(explorer.Current());
+    if (face.IsNull()) {
+      continue;
+    }
+    try {
+      if (BRep_Tool::IsClosed(edge, face)) {
+        return true;
+      }
+    } catch (const std::exception&) {
+      continue;
+    }
+  }
+  return false;
+}
+
+bool is_full_circle_edge(const TopoDS_Edge& edge) {
+  try {
+    BRepAdaptor_Curve curve(edge);
+    if (curve.GetType() != GeomAbs_Circle) {
+      return false;
+    }
+    const double span = std::abs(curve.LastParameter() - curve.FirstParameter());
+    if (span >= 2.0 * kPi - 1e-4) {
+      return true;
+    }
+    TopoDS_Vertex first;
+    TopoDS_Vertex last;
+    TopExp::Vertices(edge, first, last, /*CumOri=*/false);
+    if (first.IsNull() || last.IsNull()) {
+      return false;
+    }
+    return BRep_Tool::Pnt(first).Distance(BRep_Tool::Pnt(last)) <= 1e-5;
+  } catch (const std::exception&) {
+    return false;
+  }
+}
+
+bool edge_contains_vertex(const TopoDS_Edge& edge, const TopoDS_Vertex& vertex) {
+  TopoDS_Vertex first;
+  TopoDS_Vertex last;
+  TopExp::Vertices(edge, first, last, /*CumOri=*/false);
+  return (!first.IsNull() && first.IsSame(vertex)) ||
+         (!last.IsNull() && last.IsSame(vertex));
+}
+
+bool is_nonsemantic_circle_seam_vertex(const TopoDS_Shape& body_shape,
+                                       const TopoDS_Vertex& vertex) {
+  if (body_shape.IsNull() || vertex.IsNull()) {
+    return false;
+  }
+  TopTools_IndexedMapOfShape edge_map;
+  TopExp::MapShapes(body_shape, TopAbs_EDGE, edge_map);
+  bool found_incident_edge = false;
+  for (int i = 1; i <= edge_map.Extent(); ++i) {
+    const TopoDS_Edge edge = TopoDS::Edge(edge_map(i));
+    if (edge.IsNull() || !edge_contains_vertex(edge, vertex)) {
+      continue;
+    }
+    found_incident_edge = true;
+    if (!is_nonsemantic_seam_line_edge(body_shape, edge) &&
+        !is_full_circle_edge(edge)) {
+      return false;
+    }
+  }
+  return found_incident_edge;
+}
+
 // Append every unique edge of `body_shape` to `out`, owned by `body_id`.
 // Edge ids match the format expected by DocumentManager::select_edge.
 // `selected_edge_ids` carries the multi-edge selection set; an edge is
@@ -1115,6 +1200,9 @@ void enumerate_body_edges(const TopoDS_Shape& body_shape,
 
   for (int i = 1; i <= edge_map.Extent(); ++i) {
     const TopoDS_Edge edge = TopoDS::Edge(edge_map(i));
+    if (is_nonsemantic_seam_line_edge(body_shape, edge)) {
+      continue;
+    }
     ViewportEdgePrimitive primitive{};
     primitive.id = body_id + ":edge:" + std::to_string(i - 1);
     primitive.owner_body_id = body_id;
@@ -1160,6 +1248,9 @@ void enumerate_body_vertices(
   for (int i = 1; i <= vertex_map.Extent(); ++i) {
     const TopoDS_Vertex vertex = TopoDS::Vertex(vertex_map(i));
     if (vertex.IsNull()) {
+      continue;
+    }
+    if (is_nonsemantic_circle_seam_vertex(body_shape, vertex)) {
       continue;
     }
     gp_Pnt position;
