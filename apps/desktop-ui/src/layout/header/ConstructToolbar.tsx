@@ -5,6 +5,7 @@ import {
   MidplaneIcon,
   OffsetPlaneIcon,
 } from "./ToolBarIcons";
+import { useTranslation } from "react-i18next";
 
 interface ConstructToolbarProps {
   disabled: boolean;
@@ -25,12 +26,12 @@ const ICON_BUTTON_BASE = "cad-icon-button cad-icon-tool h-9 w-9 p-0";
 // yet. Kept as disabled icon buttons so the user can see what's
 // coming. Removed from this list as each action lands.
 const placeholderTools: Array<{
-  label: string;
+  labelKey: string;
   Icon: () => ReactElement;
 }> = [
-  { label: "Midplane", Icon: MidplaneIcon },
-  { label: "Axis", Icon: ConstructAxisIcon },
-  { label: "Point", Icon: ConstructPointIcon },
+  { labelKey: "toolbar.midplane", Icon: MidplaneIcon },
+  { labelKey: "toolbar.axis", Icon: ConstructAxisIcon },
+  { labelKey: "toolbar.constructPoint", Icon: ConstructPointIcon },
 ];
 
 export function ConstructToolbar({
@@ -38,25 +39,26 @@ export function ConstructToolbar({
   canOffsetPlane,
   onOffsetPlane,
 }: ConstructToolbarProps) {
+  const { t } = useTranslation();
   return (
     <>
       <button
         type="button"
         className={ICON_BUTTON_BASE}
-        data-tooltip="Offset Plane"
-        aria-label="Offset Plane"
+        data-tooltip={t("toolbar.offsetPlane")}
+        aria-label={t("toolbar.offsetPlane")}
         disabled={disabled || !canOffsetPlane}
         onClick={onOffsetPlane}
       >
         <OffsetPlaneIcon />
       </button>
-      {placeholderTools.map(({ label, Icon }) => (
+      {placeholderTools.map(({ labelKey, Icon }) => (
         <button
-          key={label}
+          key={labelKey}
           type="button"
           className={ICON_BUTTON_BASE}
-          data-tooltip={label}
-          aria-label={label}
+          data-tooltip={t(labelKey)}
+          aria-label={t(labelKey)}
           disabled
         >
           <Icon />

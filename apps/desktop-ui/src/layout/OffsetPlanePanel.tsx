@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 const PREVIEW_DEBOUNCE_MS = 200;
 
@@ -41,6 +42,7 @@ export function OffsetPlanePanel({
   onConfirm,
   onCancel,
 }: OffsetPlanePanelProps) {
+  const { t } = useTranslation();
   const [value, setValue] = useState(String(initialOffset));
   const inputRef = useRef<HTMLInputElement | null>(null);
   const previewTimerRef = useRef<number | null>(null);
@@ -117,14 +119,14 @@ export function OffsetPlanePanel({
 
   return (
     <section className="pointer-events-auto cad-floating-panel px-5 py-5">
-      <p className="cad-kicker">Construction</p>
-      <h2 className="cad-title mt-2">Offset Plane</h2>
+      <p className="cad-kicker">{t("common.construction")}</p>
+      <h2 className="cad-title mt-2">{t("panels.offsetPlane.title")}</h2>
       <p className="mt-1 text-xs text-on-surface-muted">
         {isPending
-          ? "Click a plane or planar face in the viewport"
+          ? t("panels.offsetPlane.pickSource")
           : sourceSummary
-            ? `From ${sourceSummary}`
-            : "Adjust offset"}
+            ? t("panels.offsetPlane.fromSource", { source: sourceSummary })
+            : t("panels.offsetPlane.adjustOffset")}
       </p>
       <form
         className="mt-4 space-y-4"
@@ -134,7 +136,7 @@ export function OffsetPlanePanel({
         }}
       >
         <label className="block text-xs uppercase tracking-[0.18em] text-on-surface-muted">
-          Offset (mm)
+          {t("forms.offsetMm")}
           <input
             ref={inputRef}
             className="cad-input mt-2"
@@ -159,7 +161,7 @@ export function OffsetPlanePanel({
             className="cad-action-primary flex-1"
             disabled={disabled || isPending || !Number.isFinite(Number(value))}
           >
-            Confirm
+            {t("common.confirm")}
           </button>
           <button
             type="button"
@@ -169,11 +171,11 @@ export function OffsetPlanePanel({
               void onCancel();
             }}
           >
-            Cancel
+            {t("common.cancel")}
           </button>
         </div>
         <p className="text-[11px] uppercase tracking-[0.16em] text-on-surface-dim">
-          Enter to confirm · Esc to cancel
+          {t("panels.shortcutHint.confirm")}
         </p>
       </form>
     </section>

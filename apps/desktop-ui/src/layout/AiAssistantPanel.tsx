@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { AiConfig } from "@/config";
 import {
   buildAiCadSystemPrompt,
@@ -79,6 +80,7 @@ export function AiAssistantPanel({
   onClose,
   onStartCore,
 }: AiAssistantPanelProps) {
+  const { t } = useTranslation();
   const [prompt, setPrompt] = useState("");
   const [activePrompt, setActivePrompt] = useState("");
   const [entries, setEntries] = useState<ChatEntry[]>([]);
@@ -165,9 +167,10 @@ export function AiAssistantPanel({
         ...current,
         {
           role: "system",
-          text: `Executed ${pendingBatch.commands.length} command${
-            pendingBatch.commands.length === 1 ? "" : "s"
-          }.`,
+          text: t("aiAssistant.executedCommands", {
+            count: pendingBatch.commands.length,
+            plural: pendingBatch.commands.length === 1 ? "" : "s",
+          }),
         },
       ]);
       const shouldContinue =
@@ -196,9 +199,9 @@ export function AiAssistantPanel({
     <aside className="cad-panel-soft flex w-[min(420px,42vw)] min-w-[360px] flex-col !rounded-none border-l border-white/10">
       <header className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
         <div>
-          <p className="cad-kicker">AI Assistant</p>
+          <p className="cad-kicker">{t("aiAssistant.title")}</p>
           <p className="mt-1 text-xs text-on-surface-muted">
-            Ollama · {config.model.trim() || "No model"}
+            Ollama · {config.model.trim() || t("aiAssistant.noModel")}
           </p>
         </div>
         <button
@@ -206,7 +209,7 @@ export function AiAssistantPanel({
           className="cad-ribbon-action"
           onClick={onClose}
         >
-          Close
+          {t("common.close")}
         </button>
       </header>
 
@@ -214,27 +217,26 @@ export function AiAssistantPanel({
         {status !== "connected" ? (
           <div className="rounded-md border border-white/10 bg-white/[0.025] px-3 py-3">
             <p className="text-sm text-on-surface">
-              The CAD core is not running.
+              {t("aiAssistant.coreNotRunning")}
             </p>
             <button
               type="button"
               className="cad-ribbon-action mt-3"
               onClick={() => void onStartCore()}
             >
-              Start Core
+              {t("header.startCore")}
             </button>
           </div>
         ) : null}
 
         {entries.length === 0 ? (
           <p className="text-sm leading-5 text-on-surface-muted">
-            Ask for simple CAD actions. The assistant will return JSON command
-            batches for review before anything is sent to the core.
+            {t("aiAssistant.intro")}
           </p>
         ) : null}
 
         <section className="rounded-md border border-white/10 bg-black/15 px-3 py-3">
-          <p className="cad-kicker">Working References</p>
+          <p className="cad-kicker">{t("aiAssistant.workingReferences")}</p>
           <div className="mt-2 space-y-1 font-mono text-[0.7rem] leading-4 text-on-surface-muted">
             {workingReferences.map((reference) => (
               <p key={reference} className="break-words">
@@ -261,7 +263,7 @@ export function AiAssistantPanel({
 
         {pendingBatch ? (
           <section className="rounded-md border border-primary-edge/40 bg-white/[0.025] px-3 py-3">
-            <p className="cad-kicker">Command Preview</p>
+            <p className="cad-kicker">{t("aiAssistant.commandPreview")}</p>
             <div className="mt-3 max-h-60 space-y-2 overflow-auto">
               {pendingBatch.commands.map((command) => (
                 <pre
@@ -279,7 +281,7 @@ export function AiAssistantPanel({
                 disabled={isExecuting || status !== "connected"}
                 onClick={() => void runPendingBatch()}
               >
-                {isExecuting ? "Running..." : "Run Commands"}
+                {isExecuting ? t("aiAssistant.running") : t("aiAssistant.runCommands")}
               </button>
               <button
                 type="button"
@@ -287,14 +289,16 @@ export function AiAssistantPanel({
                 disabled={isExecuting}
                 onClick={() => setPendingBatch(null)}
               >
-                Cancel
+                {t("common.cancel")}
               </button>
             </div>
           </section>
         ) : null}
 
         {isThinking ? (
-          <p className="text-sm text-on-surface-muted">Waiting for Ollama...</p>
+          <p className="text-sm text-on-surface-muted">
+            {t("aiAssistant.waiting")}
+          </p>
         ) : null}
         {error ? (
           <p className="rounded-md border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
@@ -307,14 +311,16 @@ export function AiAssistantPanel({
         <textarea
           className="min-h-24 w-full resize-none rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-on-surface outline-none transition-colors focus:border-primary-edge"
           value={prompt}
-          placeholder="Create a 60 by 40 mm rectangle on XY and extrude it 20 mm"
+          placeholder={t("aiAssistant.placeholder")}
           disabled={Boolean(pendingBatch) || isThinking || isExecuting}
           onChange={(event) => setPrompt(event.target.value)}
           onKeyDown={handlePromptKeyDown}
         />
         <div className="mt-3 flex items-center justify-between gap-3">
           <span className="text-xs text-on-surface-muted">
-            {config.enabled ? "Preview before run" : "AI disabled"}
+            {config.enabled
+              ? t("aiAssistant.previewBeforeRun")
+              : t("aiAssistant.disabled")}
           </span>
           <button
             type="button"
@@ -322,7 +328,7 @@ export function AiAssistantPanel({
             disabled={!canAsk || status !== "connected"}
             onClick={() => void submitPrompt()}
           >
-            Send
+            {t("aiAssistant.send")}
           </button>
         </div>
       </footer>

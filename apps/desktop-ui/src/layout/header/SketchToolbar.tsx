@@ -3,6 +3,7 @@ import { formatHotkey, useAppConfig } from "@/config";
 import type { AppHotkeys, CrosshairMode } from "@/config";
 import { Dropdown } from "@/lib";
 import { ConstraintIcon, SketchToolIcon } from "./ToolBarIcons";
+import { useTranslation } from "react-i18next";
 
 interface SketchToolbarProps {
   disabled?: boolean;
@@ -32,30 +33,30 @@ interface SketchToolbarProps {
 
 const sketchTools: Array<{
   id: SketchTool;
-  label: string;
+  labelKey: string;
   hotkey?: keyof AppHotkeys["sketchToolbar"] | "project";
   enabled: boolean;
 }> = [
-  { id: "select", label: "Select", enabled: true },
-  { id: "line", label: "Line", hotkey: "line", enabled: true },
-  { id: "dimension", label: "Dimension", hotkey: "dimension", enabled: true },
-  { id: "rectangle", label: "Rectangle", hotkey: "rectangle", enabled: true },
-  { id: "circle", label: "Circle", hotkey: "circle", enabled: true },
-  { id: "arc", label: "Arc", enabled: true },
-  { id: "fillet", label: "Fillet", enabled: true },
+  { id: "select", labelKey: "toolbar.select", enabled: true },
+  { id: "line", labelKey: "toolbar.line", hotkey: "line", enabled: true },
+  { id: "dimension", labelKey: "toolbar.dimension", hotkey: "dimension", enabled: true },
+  { id: "rectangle", labelKey: "toolbar.rectangle", hotkey: "rectangle", enabled: true },
+  { id: "circle", labelKey: "toolbar.circle", hotkey: "circle", enabled: true },
+  { id: "arc", labelKey: "toolbar.arc", enabled: true },
+  { id: "fillet", labelKey: "toolbar.fillet", enabled: true },
   // Modal Project tool. While active, viewport face / edge / vertex
   // clicks are routed to `project_*_into_sketch` instead of the
   // normal selection. Toggling the button (or pressing P / Esc /
   // picking another tool) deactivates it. See App.tsx click intercept.
-  { id: "project", label: "Project", hotkey: "project", enabled: true },
+  { id: "project", labelKey: "toolbar.project", hotkey: "project", enabled: true },
 ];
 
-const crosshairOptions: Array<{ id: CrosshairMode; label: string }> = [
-  { id: "default", label: "Default" },
+const crosshairOptions: Array<{ id: CrosshairMode; labelKey?: string; label?: string }> = [
+  { id: "default", labelKey: "crosshair.default" },
   { id: "viewport-25", label: "25%" },
   { id: "viewport-50", label: "50%" },
   { id: "viewport-75", label: "75%" },
-  { id: "infinite", label: "Infinite" },
+  { id: "infinite", labelKey: "crosshair.infinite" },
 ];
 
 export function SketchToolbar({
@@ -76,16 +77,18 @@ export function SketchToolbar({
   onSetArcToolMode,
 }: SketchToolbarProps) {
   const { config, updateConfig } = useAppConfig();
+  const { t } = useTranslation();
   const canCreateSketch = Boolean(selectedReferenceId || selectedFaceId);
   const toolLabel = (tool: (typeof sketchTools)[number]) => {
+    const label = t(tool.labelKey);
     if (!tool.hotkey) {
-      return tool.label;
+      return label;
     }
     const binding =
       tool.hotkey === "project"
         ? config.hotkeys.toolbar.project
         : config.hotkeys.sketchToolbar[tool.hotkey];
-    return `${tool.label} (${formatHotkey(binding)})`;
+    return `${label} (${formatHotkey(binding)})`;
   };
   return (
     <>
@@ -97,15 +100,15 @@ export function SketchToolbar({
         }
         data-tooltip={
           activeSketchPlaneId
-            ? "Finish Sketch"
-            : `Create Sketch (${formatHotkey(config.hotkeys.sketchToolbar.createSketch)})`
+            ? t("toolbar.finishSketch")
+            : `${t("toolbar.createSketch")} (${formatHotkey(config.hotkeys.sketchToolbar.createSketch)})`
         }
         onClick={() => {
           void (activeSketchPlaneId ? onFinishSketch() : onStartSketch());
         }}
         disabled={disabled || (!activeSketchPlaneId && !canCreateSketch)}
       >
-        {activeSketchPlaneId ? "Finish Sketch" : "Create Sketch"}
+        {activeSketchPlaneId ? t("toolbar.finishSketch") : t("toolbar.createSketch")}
       </button>
       {sketchTools.map((tool) => (
         <button
@@ -116,7 +119,7 @@ export function SketchToolbar({
               : "cad-icon-button cad-icon-tool h-9 w-9 p-0"
           }
           data-tooltip={toolLabel(tool)}
-          aria-label={tool.label}
+          aria-label={t(tool.labelKey)}
           disabled={!activeSketchPlaneId || !tool.enabled}
           onClick={() => {
             if (
@@ -157,7 +160,7 @@ export function SketchToolbar({
         // mid-sketch without leaving the tool.
         <div
           role="group"
-          aria-label="Arc creation mode"
+          aria-label={t("toolbar.arcCreationMode")}
           className="ml-1 flex items-center rounded-md border border-white/10 bg-black/20 p-0.5 text-xs"
         >
           <button
@@ -167,10 +170,10 @@ export function SketchToolbar({
                 ? "rounded px-2 py-1 bg-white/15 text-on-surface"
                 : "rounded px-2 py-1 text-on-surface-dim hover:text-on-surface"
             }
-            data-tooltip="Three-point arc: click start, end, then a point on the arc"
+            data-tooltip={t("toolbar.arcThreePointTooltip")}
             onClick={() => onSetArcToolMode("three_point")}
           >
-            3-point
+            {t("toolbar.arcThreePoint")}
           </button>
           <button
             type="button"
@@ -179,10 +182,10 @@ export function SketchToolbar({
                 ? "rounded px-2 py-1 bg-white/15 text-on-surface"
                 : "rounded px-2 py-1 text-on-surface-dim hover:text-on-surface"
             }
-            data-tooltip="Center + start + end: click center, start, then end"
+            data-tooltip={t("toolbar.arcCenterTooltip")}
             onClick={() => onSetArcToolMode("center_start_end")}
           >
-            Center
+            {t("toolbar.arcCenter")}
           </button>
         </div>
       ) : null}
@@ -193,8 +196,8 @@ export function SketchToolbar({
             ? "cad-icon-button cad-icon-tool cad-icon-tool-active h-9 w-9 p-0"
             : "cad-icon-button cad-icon-tool h-9 w-9 p-0"
         }
-        data-tooltip="Horizontal"
-        aria-label="Horizontal"
+        data-tooltip={t("toolbar.horizontal")}
+        aria-label={t("toolbar.horizontal")}
         disabled={!activeSketchPlaneId}
         onClick={() => {
           void onArmSketchConstraint("horizontal");
@@ -208,8 +211,8 @@ export function SketchToolbar({
             ? "cad-icon-button cad-icon-tool cad-icon-tool-active h-9 w-9 p-0"
             : "cad-icon-button cad-icon-tool h-9 w-9 p-0"
         }
-        data-tooltip="Vertical"
-        aria-label="Vertical"
+        data-tooltip={t("toolbar.vertical")}
+        aria-label={t("toolbar.vertical")}
         disabled={!activeSketchPlaneId}
         onClick={() => {
           void onArmSketchConstraint("vertical");
@@ -223,8 +226,8 @@ export function SketchToolbar({
             ? "cad-icon-button cad-icon-tool cad-icon-tool-active h-9 w-9 p-0"
             : "cad-icon-button cad-icon-tool h-9 w-9 p-0"
         }
-        data-tooltip="Clear"
-        aria-label="Clear Constraint"
+        data-tooltip={t("toolbar.clearConstraint")}
+        aria-label={t("toolbar.clearConstraint")}
         disabled={!activeSketchPlaneId}
         onClick={() => {
           void onArmSketchConstraint("clear");
@@ -238,8 +241,8 @@ export function SketchToolbar({
             ? "cad-icon-button cad-icon-tool cad-icon-tool-active h-9 w-9 p-0"
             : "cad-icon-button cad-icon-tool h-9 w-9 p-0"
         }
-        data-tooltip="Coincident"
-        aria-label="Coincident"
+        data-tooltip={t("toolbar.coincident")}
+        aria-label={t("toolbar.coincident")}
         disabled={!activeSketchPlaneId}
         onClick={() => {
           void onArmSketchConstraint("coincident");
@@ -253,8 +256,8 @@ export function SketchToolbar({
             ? "cad-icon-button cad-icon-tool cad-icon-tool-active h-9 w-9 p-0"
             : "cad-icon-button cad-icon-tool h-9 w-9 p-0"
         }
-        data-tooltip="Equal Length"
-        aria-label="Equal Length"
+        data-tooltip={t("toolbar.equalLength")}
+        aria-label={t("toolbar.equalLength")}
         disabled={!activeSketchPlaneId}
         onClick={() => {
           void onArmSketchConstraint("equal_length");
@@ -268,8 +271,8 @@ export function SketchToolbar({
             ? "cad-icon-button cad-icon-tool cad-icon-tool-active h-9 w-9 p-0"
             : "cad-icon-button cad-icon-tool h-9 w-9 p-0"
         }
-        data-tooltip="Perpendicular"
-        aria-label="Perpendicular"
+        data-tooltip={t("toolbar.perpendicular")}
+        aria-label={t("toolbar.perpendicular")}
         disabled={!activeSketchPlaneId}
         onClick={() => {
           void onArmSketchConstraint("perpendicular");
@@ -283,8 +286,8 @@ export function SketchToolbar({
             ? "cad-icon-button cad-icon-tool cad-icon-tool-active h-9 w-9 p-0"
             : "cad-icon-button cad-icon-tool h-9 w-9 p-0"
         }
-        data-tooltip="Parallel"
-        aria-label="Parallel"
+        data-tooltip={t("toolbar.parallel")}
+        aria-label={t("toolbar.parallel")}
         disabled={!activeSketchPlaneId}
         onClick={() => {
           void onArmSketchConstraint("parallel");
@@ -298,8 +301,8 @@ export function SketchToolbar({
             ? "cad-icon-button cad-icon-tool cad-icon-tool-active h-9 w-9 p-0"
             : "cad-icon-button cad-icon-tool h-9 w-9 p-0"
         }
-        data-tooltip="Mirror"
-        aria-label="Mirror"
+        data-tooltip={t("toolbar.mirror")}
+        aria-label={t("toolbar.mirror")}
         disabled={!activeSketchPlaneId}
         onClick={() => {
           void onStartMirrorTool();
@@ -309,13 +312,13 @@ export function SketchToolbar({
       </button>
       <div className="h-8 w-px bg-white/10" />
       <Dropdown
-        label="Sketch crosshair"
+        label={t("toolbar.sketchCrosshair")}
         className="w-[104px]"
         buttonClassName="h-9"
         value={config.viewport.crosshair}
         options={crosshairOptions.map((option) => ({
           value: option.id,
-          label: option.label,
+          label: option.labelKey ? t(option.labelKey) : option.label,
         }))}
         onChange={(crosshair) => {
           updateConfig((current) => ({
@@ -331,15 +334,31 @@ export function SketchToolbar({
         <p className="text-xs uppercase tracking-[0.14em] text-on-surface-dim">
           {armedSketchConstraint.kind === "coincident"
             ? armedSketchConstraint.firstPointId
-              ? "Coincident: click second point"
-              : "Coincident: click first point"
+              ? t("constraints.coincidentSecondPointColon")
+              : t("constraints.coincidentFirstPointColon")
             : armedSketchConstraint.kind === "equal_length" ||
                 armedSketchConstraint.kind === "perpendicular" ||
                 armedSketchConstraint.kind === "parallel"
               ? armedSketchConstraint.firstLineId
-                ? `${armedSketchConstraint.kind === "equal_length" ? "Equal length" : armedSketchConstraint.kind === "perpendicular" ? "Perpendicular" : "Parallel"}: click second line`
-                : `${armedSketchConstraint.kind === "equal_length" ? "Equal length" : armedSketchConstraint.kind === "perpendicular" ? "Perpendicular" : "Parallel"}: click first line`
-              : `${armedSketchConstraint.kind}: click line`}
+                ? t("constraints.lineSecondColon", {
+                    label:
+                      armedSketchConstraint.kind === "equal_length"
+                        ? t("toolbar.equalLength")
+                        : armedSketchConstraint.kind === "perpendicular"
+                          ? t("toolbar.perpendicular")
+                          : t("toolbar.parallel"),
+                  })
+                : t("constraints.lineFirstColon", {
+                    label:
+                      armedSketchConstraint.kind === "equal_length"
+                        ? t("toolbar.equalLength")
+                        : armedSketchConstraint.kind === "perpendicular"
+                          ? t("toolbar.perpendicular")
+                          : t("toolbar.parallel"),
+                  })
+              : t("constraints.clickLineColon", {
+                  kind: armedSketchConstraint.kind,
+                })}
         </p>
       ) : null}
     </>

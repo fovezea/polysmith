@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { useTranslation } from "react-i18next";
 import { awaitDocumentChange, useCadCoreStore } from "./state";
 import { useCadCore } from "./hooks";
 import { findDependents, matchesHotkey, useAppConfig } from "./lib";
@@ -111,6 +112,7 @@ type ActiveEdgeOpAction =
     };
 
 function App() {
+  const { t } = useTranslation();
   const { config } = useAppConfig();
   const [armedSketchConstraint, setArmedSketchConstraint] =
     useState<ArmedSketchConstraint>(null);
@@ -874,9 +876,9 @@ function App() {
   // their feature name (e.g. "Offset Plane 2"), and faces use the
   // owning body name + the face's kind label.
   function describePlaneSource(referenceId: string): string {
-    if (referenceId === "ref-plane-xy") return "XY plane";
-    if (referenceId === "ref-plane-yz") return "YZ plane";
-    if (referenceId === "ref-plane-xz") return "XZ plane";
+    if (referenceId === "ref-plane-xy") return t("geometry.xyPlane");
+    if (referenceId === "ref-plane-yz") return t("geometry.yzPlane");
+    if (referenceId === "ref-plane-xz") return t("geometry.xzPlane");
     const feature = document?.feature_history.find(
       (entry) => entry.feature_id === referenceId,
     );
@@ -889,9 +891,9 @@ function App() {
       (entry) => entry.face_id === referenceId,
     );
     if (face) {
-      return face.label || `${face.owner_kind} face`;
+      return face.label || t("geometry.ownerFace", { owner: face.owner_kind });
     }
-    return "selected plane";
+    return t("geometry.selectedPlane");
   }
 
   // Start the Fusion-style Offset Plane flow. Opens the panel in
@@ -1285,11 +1287,11 @@ function App() {
 
   async function pickExportPath() {
     const filePath = await save({
-      title: "Export STEP",
+      title: t("dialogs.exportStepTitle"),
       defaultPath: `${makeDefaultExportBaseName()}.step`,
       filters: [
         {
-          name: "STEP",
+          name: t("dialogs.stepFileType"),
           extensions: ["step", "stp"],
         },
       ],
@@ -1305,11 +1307,11 @@ function App() {
 
   async function pickExportStlPath() {
     const filePath = await save({
-      title: "Export STL",
+      title: t("dialogs.exportStlTitle"),
       defaultPath: `${makeDefaultExportBaseName()}.stl`,
       filters: [
         {
-          name: "STL",
+          name: t("dialogs.stlFileType"),
           extensions: ["stl"],
         },
       ],
@@ -1325,11 +1327,11 @@ function App() {
 
   async function pickSaveDocumentPath() {
     const filePath = await save({
-      title: "Save PolySmith document",
+      title: t("dialogs.saveDocumentTitle"),
       defaultPath: `${makeDefaultExportBaseName()}.polysmith`,
       filters: [
         {
-          name: "PolySmith document",
+          name: t("dialogs.polysmithDocumentType"),
           extensions: ["polysmith", "json"],
         },
       ],
@@ -1344,12 +1346,12 @@ function App() {
 
   async function pickLoadDocumentPath() {
     const result = await open({
-      title: "Open PolySmith document",
+      title: t("dialogs.openDocumentTitle"),
       multiple: false,
       directory: false,
       filters: [
         {
-          name: "PolySmith document",
+          name: t("dialogs.polysmithDocumentType"),
           extensions: ["polysmith", "json"],
         },
       ],
@@ -1386,7 +1388,7 @@ function App() {
       feature?.kind === "sketch" &&
       document.active_sketch_feature_id === featureId
     ) {
-      addMessage("Finish the active sketch before deleting it.");
+      addMessage(t("timeline.activeSketchDeleteBlocked"));
       return;
     }
     const dependents = findDependents(document, featureId);
@@ -1755,10 +1757,12 @@ function App() {
               type="button"
               className="cad-sidebar-collapsed"
               onClick={() => setIsHierarchyCollapsed(false)}
-              aria-label="Expand hierarchy panel"
-              title="Expand hierarchy"
+              aria-label={t("document.expandHierarchyPanel")}
+              title={t("document.expandHierarchy")}
             >
-              <span className="cad-sidebar-collapsed-label">Hierarchy</span>
+              <span className="cad-sidebar-collapsed-label">
+                {t("document.hierarchy")}
+              </span>
             </button>
           ) : (
             <aside
@@ -1767,13 +1771,13 @@ function App() {
             >
               <div className="flex h-full min-h-0 flex-col">
                 <div className="flex items-center justify-between gap-2 px-3 pt-2">
-                  <span className="cad-kicker">Hierarchy</span>
+                  <span className="cad-kicker">{t("document.hierarchy")}</span>
                   <button
                     type="button"
                     className="cad-sidebar-collapse-button"
                     onClick={() => setIsHierarchyCollapsed(true)}
-                    aria-label="Collapse hierarchy panel"
-                    title="Collapse"
+                    aria-label={t("document.collapseHierarchyPanel")}
+                    title={t("document.collapse")}
                   >
                     ◀
                   </button>
@@ -2687,11 +2691,15 @@ function App() {
               ) : null}
               {edgeOpAction ? (
                 <EdgeOpPreviewPanel
-                  title={edgeOpAction.kind === "fillet" ? "Fillet" : "Chamfer"}
+                  title={
+                    edgeOpAction.kind === "fillet"
+                      ? t("toolbar.fillet")
+                      : t("toolbar.chamfer")
+                  }
                   valueLabel={
                     edgeOpAction.kind === "fillet"
-                      ? "Radius (mm)"
-                      : "Distance (mm)"
+                      ? t("forms.radiusMm")
+                      : t("forms.distanceMm")
                   }
                   initialValue={edgeOpAction.initialValue}
                   disabled={status !== "connected"}
@@ -2893,26 +2901,27 @@ function App() {
                       </svg>
                     </span>
                     <div>
-                      <p className="cad-kicker text-amber-300">Warning</p>
+                      <p className="cad-kicker text-amber-300">
+                        {t("sketchDelete.warning")}
+                      </p>
                       <h2 className="mt-2 font-display text-lg text-on-surface">
-                        Delete sketch geometry?
+                        {t("sketchDelete.title")}
                       </h2>
                       <p className="mt-3 text-sm leading-5 text-on-surface-muted">
-                        This will break{" "}
-                        {
-                          pendingSketchDeleteConfirmation.affectedFeatureNames
-                            .length
-                        }{" "}
-                        downstream feature
-                        {pendingSketchDeleteConfirmation.affectedFeatureNames
-                          .length === 1
-                          ? ""
-                          : "s"}
-                        :{" "}
-                        {pendingSketchDeleteConfirmation.affectedFeatureNames.join(
-                          ", ",
-                        )}
-                        .
+                        {t("sketchDelete.body", {
+                          count:
+                            pendingSketchDeleteConfirmation.affectedFeatureNames
+                              .length,
+                          plural:
+                            pendingSketchDeleteConfirmation.affectedFeatureNames
+                              .length === 1
+                              ? ""
+                              : "s",
+                          names:
+                            pendingSketchDeleteConfirmation.affectedFeatureNames.join(
+                              ", ",
+                            ),
+                        })}
                       </p>
                     </div>
                   </div>
@@ -2926,7 +2935,7 @@ function App() {
                         deleteSketchSelectionNow(selection);
                       }}
                     >
-                      OK
+                      {t("common.ok")}
                     </button>
                     <button
                       type="button"
@@ -2935,7 +2944,7 @@ function App() {
                         setPendingSketchDeleteConfirmation(null);
                       }}
                     >
-                      Cancel
+                      {t("common.cancel")}
                     </button>
                   </div>
                 </section>

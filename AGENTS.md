@@ -71,6 +71,11 @@ and is binding for new features.
   ("3 selected"), or by user-meaningful labels ("Sketch on XY").
   Ids are allowed in debug overlays gated behind a flag, never in
   default UI.
+- When adding or changing user-visible UI labels, put the English string in
+  `apps/desktop-ui/src/i18n/en.json` and render it through the translation
+  layer. Do not hardcode new labels in React components. You do not need to
+  translate every other locale in the same change; make the label translatable
+  and let missing locales fall back to English.
 
 ## UI Theme Rules
 

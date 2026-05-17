@@ -1,0 +1,24 @@
+{
+  "common": {
+    "ai": "AI",
+    "cancel": "キャンセル",
+    "close": "閉じる",
+    "reset": "リセット"
+  },
+  "header": {
+    "settings": "設定"
+  },
+  "settings": {
+    "appearance": "外観",
+    "general": "一般",
+    "keybinds": "キーバインド",
+    "language": "言語",
+    "title": "設定"
+  },
+  "languages": {
+    "chinese": "中国語",
+    "english": "英語",
+    "japanese": "日本語",
+    "spanish": "スペイン語"
+  }
+}

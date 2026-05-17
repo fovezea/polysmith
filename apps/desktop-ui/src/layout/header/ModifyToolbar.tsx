@@ -7,6 +7,7 @@ import {
   ShellIcon,
 } from "./ToolBarIcons";
 import { formatHotkey, useAppConfig } from "@/config";
+import { useTranslation } from "react-i18next";
 
 interface ModifyToolbarProps {
   disabled: boolean;
@@ -28,12 +29,12 @@ const ICON_BUTTON_BASE = "cad-icon-button cad-icon-tool h-9 w-9 p-0";
 // the user can see what's coming on the roadmap; the buttons stay
 // non-interactive until each action is wired up.
 const placeholderTools: Array<{
-  label: string;
+  labelKey: string;
   Icon: () => ReactElement;
 }> = [
-  { label: "Press Pull", Icon: PressPullIcon },
-  { label: "Shell", Icon: ShellIcon },
-  { label: "Move", Icon: MoveIcon },
+  { labelKey: "toolbar.pressPull", Icon: PressPullIcon },
+  { labelKey: "toolbar.shell", Icon: ShellIcon },
+  { labelKey: "toolbar.move", Icon: MoveIcon },
 ];
 
 export function ModifyToolbar({
@@ -43,14 +44,15 @@ export function ModifyToolbar({
   onChamfer,
 }: ModifyToolbarProps) {
   const { config } = useAppConfig();
+  const { t } = useTranslation();
   const edgeOpDisabled = disabled || !canEdgeOp;
   return (
     <>
       <button
         type="button"
         className={ICON_BUTTON_BASE}
-        data-tooltip={`Fillet (${formatHotkey(config.hotkeys.toolbar.fillet)})`}
-        aria-label="Fillet"
+        data-tooltip={`${t("toolbar.fillet")} (${formatHotkey(config.hotkeys.toolbar.fillet)})`}
+        aria-label={t("toolbar.fillet")}
         disabled={edgeOpDisabled}
         onClick={onFillet}
       >
@@ -59,20 +61,20 @@ export function ModifyToolbar({
       <button
         type="button"
         className={ICON_BUTTON_BASE}
-        data-tooltip="Chamfer"
-        aria-label="Chamfer"
+        data-tooltip={t("toolbar.chamfer")}
+        aria-label={t("toolbar.chamfer")}
         disabled={edgeOpDisabled}
         onClick={onChamfer}
       >
         <ChamferIcon />
       </button>
-      {placeholderTools.map(({ label, Icon }) => (
+      {placeholderTools.map(({ labelKey, Icon }) => (
         <button
-          key={label}
+          key={labelKey}
           type="button"
           className={ICON_BUTTON_BASE}
-          data-tooltip={label}
-          aria-label={label}
+          data-tooltip={t(labelKey)}
+          aria-label={t(labelKey)}
           disabled
         >
           <Icon />

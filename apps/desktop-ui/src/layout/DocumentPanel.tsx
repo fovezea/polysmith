@@ -1,4 +1,5 @@
 import type { DocumentState } from "@/types";
+import { useTranslation } from "react-i18next";
 
 interface DocumentPanelProps {
   document: DocumentState | null;
@@ -11,13 +12,14 @@ export function DocumentPanel({
   onSelectFeature,
   onClearSelection,
 }: DocumentPanelProps) {
+  const { t } = useTranslation();
   if (!document) {
     return (
       <section className="flex h-full flex-col overflow-hidden px-4 py-4">
-        <p className="cad-kicker">Browser</p>
-        <h2 className="cad-title mt-2">Document</h2>
+        <p className="cad-kicker">{t("common.browser")}</p>
+        <h2 className="cad-title mt-2">{t("document.document")}</h2>
         <p className="mt-4 text-sm text-on-surface-muted">
-          No active document.
+          {t("document.noActiveDocument")}
         </p>
       </section>
     );
@@ -27,24 +29,24 @@ export function DocumentPanel({
     <section className="flex h-full min-h-0 flex-col overflow-hidden px-4 py-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="cad-kicker">Browser</p>
+          <p className="cad-kicker">{t("common.browser")}</p>
           <h2 className="cad-title mt-2">{document.name}</h2>
         </div>
         <p className="text-xs uppercase tracking-[0.22em] text-on-surface-dim">
-          Rev {document.revision}
+          {t("document.revision", { revision: document.revision })}
         </p>
       </div>
 
       <div className="mt-5 grid grid-cols-2 gap-2">
         <div className="cad-subtle-block rounded-2xl px-3 py-3">
           <p className="text-[11px] uppercase tracking-[0.18em] text-on-surface-dim">
-            Units
+            {t("document.units")}
           </p>
           <p className="cad-metric mt-2">{document.units}</p>
         </div>
         <div className="cad-subtle-block rounded-2xl px-3 py-3">
           <p className="text-[11px] uppercase tracking-[0.18em] text-on-surface-dim">
-            Features
+            {t("document.features")}
           </p>
           <p className="cad-metric mt-2">{document.feature_history.length}</p>
         </div>
@@ -60,38 +62,38 @@ export function DocumentPanel({
           document.selected_reference_id === null
         }
       >
-        Clear Selection
+        {t("document.clearSelection")}
       </button>
 
       <div className="mt-4 space-y-3">
         <div className="cad-subtle-block rounded-2xl px-3 py-3">
           <p className="text-[11px] uppercase tracking-[0.18em] text-on-surface-dim">
-            Selection
+            {t("common.selection")}
           </p>
           <p className="mt-2 text-sm text-on-surface-muted">
             {document.selected_feature_id
-              ? `Feature: ${document.selected_feature_id}`
+              ? t("document.featureSelected")
               : document.selected_reference_id
-                ? `Reference: ${document.selected_reference_id}`
-                : "Nothing selected"}
+                ? t("document.referenceSelected")
+                : t("document.noSelection")}
           </p>
         </div>
         <div className="cad-subtle-block rounded-2xl px-3 py-3">
           <p className="text-[11px] uppercase tracking-[0.18em] text-on-surface-dim">
-            Sketch Plane
+            {t("document.sketchPlane")}
           </p>
           <p className="mt-2 text-sm text-on-surface-muted">
-            {document.active_sketch_plane_id ?? "No active sketch plane"}
+            {document.active_sketch_plane_id ?? t("document.activeSketchPlane")}
           </p>
         </div>
       </div>
 
       <div className="mt-5 flex items-center justify-between gap-3">
         <p className="font-display text-sm uppercase tracking-[0.16em] text-on-surface-muted">
-          Hierarchy
+          {t("document.hierarchy")}
         </p>
         <p className="text-[11px] uppercase tracking-[0.18em] text-on-surface-dim">
-          Feature History
+          {t("document.featureHistory")}
         </p>
       </div>
 

@@ -1,0 +1,24 @@
+{
+  "common": {
+    "ai": "IA",
+    "cancel": "Cancelar",
+    "close": "Cerrar",
+    "reset": "Restablecer"
+  },
+  "header": {
+    "settings": "Configuración"
+  },
+  "settings": {
+    "appearance": "Apariencia",
+    "general": "General",
+    "keybinds": "Atajos",
+    "language": "Idioma",
+    "title": "Configuración"
+  },
+  "languages": {
+    "chinese": "Chino",
+    "english": "Inglés",
+    "japanese": "Japonés",
+    "spanish": "Español"
+  }
+}

@@ -6,6 +6,7 @@ import {
   type MutableRefObject,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
+import { useTranslation } from "react-i18next";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
@@ -649,17 +650,17 @@ function isDrawableSketchTool(
   );
 }
 
-function sketchToolLabel(tool: DraftDimensionTool | "arc"): string {
+function sketchToolLabelKey(tool: DraftDimensionTool | "arc"): string {
   if (tool === "line") {
-    return "Line";
+    return "toolbar.line";
   }
   if (tool === "rectangle") {
-    return "Rectangle";
+    return "toolbar.rectangle";
   }
   if (tool === "circle") {
-    return "Circle";
+    return "toolbar.circle";
   }
-  return "Arc";
+  return "toolbar.arc";
 }
 
 function formatDraftDimension(value: number): string {
@@ -838,6 +839,7 @@ export function ViewportPanel({
   hideReferences,
 }: ViewportPanelProps) {
   const { config, activeTheme } = useAppConfig();
+  const { t: translate } = useTranslation();
   const [showReferencePlanes, setShowReferencePlanes] = useState(true);
   const [showViewportGrid, setShowViewportGrid] = useState(true);
   const [contextMenu, setContextMenu] =
@@ -1623,21 +1625,26 @@ export function ViewportPanel({
       tValue?: number;
       endpointHostLineId?: string;
     };
-    const candidates: Candidate[] = [{ local: [0, 0], label: "Origin" }];
+    const candidates: Candidate[] = [{ local: [0, 0], label: translate("snap.origin") }];
     const params = sketchFeature.sketch_parameters;
     for (const line of params.lines) {
       candidates.push({
         local: [line.start_x, line.start_y],
         label:
           line.constraint === "horizontal" || line.constraint === "vertical"
-            ? `${line.constraint} line`
-            : "Line endpoint",
+            ? translate("snap.constrainedLine", {
+                constraint:
+                  line.constraint === "horizontal"
+                    ? translate("toolbar.horizontal")
+                    : translate("toolbar.vertical"),
+              })
+            : translate("snap.lineEndpoint"),
         kind: "endpoint",
         endpointHostLineId: line.line_id,
       });
       candidates.push({
         local: [line.end_x, line.end_y],
-        label: "Line endpoint",
+        label: translate("snap.lineEndpoint"),
         kind: "endpoint",
         endpointHostLineId: line.line_id,
       });
@@ -1680,7 +1687,9 @@ export function ViewportPanel({
           // The label deliberately avoids ids — see AGENTS.md UI
           // copy rules. "Midpoint" reads naturally for both whole-
           // line and sub-segment cases.
-          label: isWholeLine ? "Midpoint" : "Sub-segment midpoint",
+          label: isWholeLine
+            ? translate("snap.midpoint")
+            : translate("snap.subSegmentMidpoint"),
           kind: "midpoint",
           hostLineId: line.line_id,
           tValue: tMid,
@@ -1690,11 +1699,11 @@ export function ViewportPanel({
     for (const circle of params.circles) {
       candidates.push({
         local: [circle.center_x, circle.center_y],
-        label: "Circle center",
+        label: translate("snap.circleCenter"),
       });
     }
     return candidates;
-  }, [sketchFeature]);
+  }, [sketchFeature, translate]);
   const activeSketchPlaneIdRef = useRef(activeSketchPlaneId);
   const activeSketchPlaneFrameRef = useRef(activeSketchPlaneFrame);
   const showViewportGridRef = useRef(showViewportGrid);
@@ -2504,7 +2513,7 @@ export function ViewportPanel({
                 [footX, footY],
                 activeSketchPlaneFrame,
               ),
-              snapLabel: `Perpendicular to ${perpHostId}`,
+              snapLabel: translate("snap.perpendicular"),
               snapMidpointHostLineId: null,
               snapPerpendicularHostLineId: perpHostId,
               snapEndpointHostLineId: null,
@@ -2579,7 +2588,7 @@ export function ViewportPanel({
             bestTangentSnap.local,
             activeSketchPlaneFrame,
           ),
-          snapLabel: `Tangent to ${bestTangentSnap.circleId}`,
+          snapLabel: translate("snap.tangent"),
           snapMidpointHostLineId: null,
           snapPerpendicularHostLineId: null,
           snapEndpointHostLineId: null,
@@ -2677,7 +2686,10 @@ export function ViewportPanel({
                 crossedLine.intersectionLocal,
                 activeSketchPlaneFrame,
               ),
-              snapLabel: axis === "horizontal" ? "Horizontal" : "Vertical",
+              snapLabel:
+                axis === "horizontal"
+                  ? translate("toolbar.horizontal")
+                  : translate("toolbar.vertical"),
               snapMidpointHostLineId: null,
               snapPerpendicularHostLineId: null,
               snapEndpointHostLineId: null,
@@ -2694,7 +2706,10 @@ export function ViewportPanel({
               lockedLocal,
               activeSketchPlaneFrame,
             ),
-            snapLabel: axis === "horizontal" ? "Horizontal" : "Vertical",
+            snapLabel:
+              axis === "horizontal"
+                ? translate("toolbar.horizontal")
+                : translate("toolbar.vertical"),
             snapMidpointHostLineId: null,
             snapPerpendicularHostLineId: null,
             snapEndpointHostLineId: null,
@@ -2776,7 +2791,7 @@ export function ViewportPanel({
             bestLineSnap.local,
             activeSketchPlaneFrame,
           ),
-          snapLabel: `On ${bestLineSnap.lineId}`,
+          snapLabel: translate("snap.onLine"),
           snapMidpointHostLineId: null,
           snapPerpendicularHostLineId: null,
           snapEndpointHostLineId: null,
@@ -6658,7 +6673,7 @@ export function ViewportPanel({
         <div className="pointer-events-auto absolute bottom-4 left-1/2 z-20 -translate-x-1/2">
           <div className="cad-view-mini-toolbar flex items-center gap-1 px-1.5 py-1.5 backdrop-blur-xl">
             <ToolbarTooltip
-              label={`${showViewportGrid ? "Hide grid" : "Show grid"} (${formatHotkey(config.hotkeys.viewport.toggleGrid)})`}
+              label={`${showViewportGrid ? translate("viewport.hideGrid") : translate("viewport.showGrid")} (${formatHotkey(config.hotkeys.viewport.toggleGrid)})`}
             >
               <button
                 type="button"
@@ -6668,7 +6683,9 @@ export function ViewportPanel({
                     : "cad-view-mini-button"
                 }
                 aria-label={
-                  showViewportGrid ? "Hide viewport grid" : "Show viewport grid"
+                  showViewportGrid
+                    ? translate("viewport.hideViewportGrid")
+                    : translate("viewport.showViewportGrid")
                 }
                 aria-pressed={showViewportGrid}
                 onClick={() => {
@@ -6777,16 +6794,16 @@ export function ViewportPanel({
           : null}
         {activeSketchPlaneId && isDrawableSketchTool(activeSketchTool) ? (
           <section className="pointer-events-auto cad-floating-panel absolute right-4 top-4 z-20 w-72 px-5 py-5">
-            <p className="cad-kicker">Sketch · Tool</p>
+            <p className="cad-kicker">{translate("common.sketchTool")}</p>
             <h2 className="cad-title mt-2">
               {isDrawableSketchTool(activeSketchTool)
-                ? sketchToolLabel(activeSketchTool)
-                : "Line"}
+                ? translate(sketchToolLabelKey(activeSketchTool))
+                : translate("toolbar.line")}
             </h2>
             <div className="mt-5 flex flex-col gap-4">
               {isDrawableSketchTool(activeSketchTool) ? (
                 <label className="flex items-center justify-between gap-4 text-sm text-on-surface">
-                  <span>Construction</span>
+                  <span>{translate("common.construction")}</span>
                   <input
                     type="checkbox"
                     className="h-4 w-4 cursor-pointer accent-cyan-300"
@@ -6800,11 +6817,11 @@ export function ViewportPanel({
               ) : null}
               {activeSketchTool === "arc" ? (
                 <div>
-                  <p className="cad-kicker">Mode</p>
+                  <p className="cad-kicker">{translate("viewport.mode")}</p>
                   <div className="mt-3 flex gap-2">
                     {[
-                      { value: "three_point", label: "3 Point" },
-                      { value: "center_start_end", label: "Center" },
+                      { value: "three_point", label: translate("toolbar.arcThreePointTitle") },
+                      { value: "center_start_end", label: translate("toolbar.arcCenter") },
                     ].map((option) => (
                       <button
                         key={option.value}
@@ -6841,17 +6858,17 @@ export function ViewportPanel({
         {activeSketchPlaneId && activeSketchTool === "dimension" ? (
           <div className="cad-floating-panel pointer-events-auto absolute left-4 top-4 z-20 flex flex-col gap-1 px-3 py-2 text-xs">
             <p className="text-[10px] uppercase tracking-[0.18em] text-on-surface-dim">
-              Dimension Tool{" "}
+              {translate("viewport.dimensionTool")}{" "}
               <span className="opacity-60">
                 ({formatHotkey(config.hotkeys.sketchToolbar.dimension)})
               </span>
             </p>
             <p className="text-on-surface">
               {dimensionToolFirstLine === null ? (
-                <>Click a line or circle. Pick a second element for angle or distance.</>
+                <>{translate("viewport.placeDimension")}</>
               ) : (
                 <>
-                  Dimension ready. Pick another element, drag the label, or type a value.
+                  {translate("viewport.dimensionReady")}
                 </>
               )}
             </p>
@@ -6924,9 +6941,9 @@ export function ViewportPanel({
             style={{ background: "var(--cad-overlay-strong)" }}
           >
             <div className="text-center">
-              <p className="cad-kicker">Viewport</p>
+              <p className="cad-kicker">{translate("viewport.title")}</p>
               <p className="mt-4 text-sm text-on-surface-muted">
-                No active document to render.
+                {translate("viewport.noActiveDocument")}
               </p>
             </div>
           </div>
@@ -6939,9 +6956,9 @@ export function ViewportPanel({
             <div className="cad-floating-panel flex min-w-[220px] items-center gap-4 px-5 py-4">
               <span className="cad-loader-spinner" aria-hidden="true" />
               <div>
-                <p className="cad-kicker">Core Startup</p>
+                <p className="cad-kicker">{translate("viewport.coreStartup")}</p>
                 <p className="mt-2 text-sm text-on-surface-muted">
-                  Starting the native CAD core...
+                  {translate("viewport.startingCore")}
                 </p>
               </div>
             </div>
@@ -6951,12 +6968,12 @@ export function ViewportPanel({
           <>
             <div className="pointer-events-none absolute bottom-4 right-4 cad-floating-panel px-4 py-3 text-right">
               <p className="text-[11px] uppercase tracking-[0.18em] text-on-surface-dim">
-                Selection
+                {translate("common.selection")}
               </p>
               <p className="mt-1 text-sm text-on-surface-muted">
                 {selectedReference?.label ??
                   selectedPrimitiveLabel ??
-                  "No selection"}
+                  translate("viewport.noSelection")}
               </p>
               {measurementText ? (
                 <p className="mt-1 text-sm text-primary-soft">
@@ -6968,8 +6985,14 @@ export function ViewportPanel({
                     AGENTS.md UI Copy Rules. The status line just
                     reports the active tool and entity counts. */}
                 {activeSketchPlaneId
-                  ? `Sketching · ${activeSketchTool} · ${lineCount} line${lineCount === 1 ? "" : "s"} · ${circleCount} circle${circleCount === 1 ? "" : "s"}`
-                  : "No active sketch"}
+                  ? translate("viewport.sketchStatus", {
+                      tool: activeSketchTool,
+                      lineCount,
+                      linePlural: lineCount === 1 ? "" : "s",
+                      circleCount,
+                      circlePlural: circleCount === 1 ? "" : "s",
+                    })
+                  : translate("viewport.noActiveSketch")}
               </p>
               {activeSketchPlaneId ? (
                 <p className="mt-1 text-xs text-on-surface-dim">
@@ -6982,33 +7005,51 @@ export function ViewportPanel({
                   {armedSketchConstraint
                     ? armedSketchConstraint.kind === "coincident"
                       ? armedSketchConstraint.firstPointId
-                        ? "Coincident armed · click second point"
-                        : "Coincident armed · click first point"
+                        ? translate("constraints.coincidentSecondPoint")
+                        : translate("constraints.coincidentFirstPoint")
                       : armedSketchConstraint.kind === "equal_length" ||
                           armedSketchConstraint.kind === "perpendicular" ||
                           armedSketchConstraint.kind === "parallel"
                         ? armedSketchConstraint.firstLineId
-                          ? `${armedSketchConstraint.kind === "equal_length" ? "Equal length" : armedSketchConstraint.kind === "perpendicular" ? "Perpendicular" : "Parallel"} armed · click second line`
-                          : `${armedSketchConstraint.kind === "equal_length" ? "Equal length" : armedSketchConstraint.kind === "perpendicular" ? "Perpendicular" : "Parallel"} armed · click first line`
-                        : `${armedSketchConstraint.kind} constraint armed · click a line`
+                          ? translate("constraints.lineSecond", {
+                              label:
+                                armedSketchConstraint.kind === "equal_length"
+                                  ? translate("toolbar.equalLength")
+                                  : armedSketchConstraint.kind ===
+                                      "perpendicular"
+                                    ? translate("toolbar.perpendicular")
+                                    : translate("toolbar.parallel"),
+                            })
+                          : translate("constraints.lineFirst", {
+                              label:
+                                armedSketchConstraint.kind === "equal_length"
+                                  ? translate("toolbar.equalLength")
+                                  : armedSketchConstraint.kind ===
+                                      "perpendicular"
+                                    ? translate("toolbar.perpendicular")
+                                    : translate("toolbar.parallel"),
+                            })
+                        : translate("constraints.lineConstraint", {
+                            kind: armedSketchConstraint.kind,
+                          })
                     : document?.selected_sketch_entity_id
                       ? document?.selected_sketch_dimension_id
-                        ? "Dimension selected"
-                        : "Entity selected"
+                        ? translate("viewport.dimensionSelected")
+                        : translate("viewport.entitySelected")
                       : document?.selected_sketch_point_id
-                        ? "Point selected"
+                        ? translate("viewport.pointSelected")
                         : document?.selected_sketch_profile_id
-                          ? "Profile selected"
+                          ? translate("viewport.profileSelected")
                           : sketchSnapLabel
-                            ? `Snap: ${sketchSnapLabel}`
+                            ? translate("viewport.snap", { label: sketchSnapLabel })
                             : activeSketchTool === "select"
-                              ? "Selection mode · press a sketch tool to draw"
+                              ? translate("viewport.selectionMode")
                               : activeSketchTool === "project"
-                                ? "Click a face, edge, or vertex to project"
+                                ? translate("viewport.projectPrompt")
                                 : activeSketchTool === "line" &&
                                     lineDraftStartRef.current
-                                  ? "Line chain active · click to continue or press Escape"
-                                  : "Click to place geometry"}
+                                  ? translate("viewport.lineChainActive")
+                                  : translate("viewport.clickPlaceGeometry")}
                 </p>
               ) : null}
             </div>

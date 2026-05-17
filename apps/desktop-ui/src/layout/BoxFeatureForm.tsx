@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 interface BoxFeatureFormProps {
   disabled: boolean;
@@ -19,6 +20,7 @@ export function BoxFeatureForm({
   mode = "create",
   initialValues,
 }: BoxFeatureFormProps) {
+  const { t } = useTranslation();
   const [width, setWidth] = useState(() =>
     initialValues ? String(initialValues.width) : "20",
   );
@@ -54,7 +56,7 @@ export function BoxFeatureForm({
       className={variant === "toolbar" ? "px-4 py-4" : "cad-panel px-5 py-5"}
     >
       <p className="cad-kicker">
-        {mode === "edit" ? "Edit Feature" : "Create Primitive"}
+        {mode === "edit" ? t("forms.editFeature") : t("forms.createPrimitive")}
       </p>
       <h2
         className={
@@ -63,7 +65,7 @@ export function BoxFeatureForm({
             : "cad-title mt-2"
         }
       >
-        {mode === "edit" ? "Edit Box Feature" : "Add Box Feature"}
+        {mode === "edit" ? t("forms.editBoxFeature") : t("forms.addBoxFeature")}
       </h2>
       <form
         onSubmit={(event) => {
@@ -76,7 +78,7 @@ export function BoxFeatureForm({
         }
       >
         <label className="min-w-[96px] flex-1 text-xs uppercase tracking-[0.2em] text-on-surface-muted">
-          Width
+          {t("forms.width")}
           <input
             className="cad-input mt-2"
             type="number"
@@ -90,7 +92,7 @@ export function BoxFeatureForm({
           />
         </label>
         <label className="min-w-[96px] flex-1 text-xs uppercase tracking-[0.2em] text-on-surface-muted">
-          Height
+          {t("forms.height")}
           <input
             className="cad-input mt-2"
             type="number"
@@ -104,7 +106,7 @@ export function BoxFeatureForm({
           />
         </label>
         <label className="min-w-[96px] flex-1 text-xs uppercase tracking-[0.2em] text-on-surface-muted">
-          Depth
+          {t("forms.depth")}
           <input
             className="cad-input mt-2"
             type="number"
@@ -126,7 +128,7 @@ export function BoxFeatureForm({
           type="submit"
           disabled={disabled}
         >
-          {mode === "edit" ? "Apply" : "Add Box"}
+          {mode === "edit" ? t("common.apply") : t("forms.addBox")}
         </button>
       </form>
     </section>

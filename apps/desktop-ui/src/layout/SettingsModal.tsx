@@ -1,4 +1,6 @@
 import { useState } from "react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import {
   defaultAppConfig,
   formatHotkey,
@@ -8,7 +10,8 @@ import {
 import type { AppConfig, HotkeyBinding } from "@/config";
 import { Dropdown, testOllamaConnection } from "@/lib";
 
-type SettingsSection = "appearance" | "keybinds" | "ai";
+type SettingsSection = "general" | "appearance" | "keybinds" | "ai";
+type LanguageCode = "en" | "es" | "ja" | "zh";
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -89,17 +92,18 @@ function validateHotkey(
   binding: HotkeyBinding,
   row: HotkeyRow,
   rows: HotkeyRow[],
+  t: TFunction,
 ) {
   if (BLOCKED_KEY_CODES.has(binding.code)) {
-    return "Use a letter, number, symbol, function key, or navigation key.";
+    return t("settings.hotkeyUseAllowedKey");
   }
 
   if (binding.shift && !binding.ctrlOrMeta && !binding.alt) {
-    return "Shift-only shortcuts are not allowed. Add Ctrl/Cmd or Alt, or use a plain key.";
+    return t("settings.hotkeyShiftOnly");
   }
 
   if (RESERVED_HOTKEYS.has(hotkeySignature(binding))) {
-    return "That shortcut is reserved by the system or common editing commands.";
+    return t("settings.hotkeyReserved");
   }
 
   const conflict = rows.find(
@@ -108,7 +112,7 @@ function validateHotkey(
       hotkeySignature(entry.binding) === hotkeySignature(binding),
   );
   if (conflict) {
-    return `Conflicts with ${conflict.label}. Update that binding first.`;
+    return t("settings.hotkeyConflict", { label: conflict.label });
   }
 
   return null;
@@ -120,6 +124,7 @@ function getDefaultHotkey(row: HotkeyRow): HotkeyBinding {
 }
 
 export function SettingsModal({ onClose }: SettingsModalProps) {
+  const { i18n, t } = useTranslation();
   const {
     config,
     availableThemes,
@@ -128,7 +133,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     setConfig,
     updateConfig,
   } = useAppConfig();
-  const [section, setSection] = useState<SettingsSection>("appearance");
+  const [section, setSection] = useState<SettingsSection>("general");
   const [activeHotkeyId, setActiveHotkeyId] = useState<string | null>(null);
   const [hotkeyError, setHotkeyError] = useState<string | null>(null);
   const [isConfirmingResetAll, setIsConfirmingResetAll] = useState(false);
@@ -136,78 +141,89 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     null,
   );
   const [isTestingAiConnection, setIsTestingAiConnection] = useState(false);
+  const language = (
+    ["en", "es", "ja", "zh"].includes(i18n.resolvedLanguage ?? "")
+      ? i18n.resolvedLanguage
+      : "en"
+  ) as LanguageCode;
+  const languageOptions: Array<{ value: LanguageCode; label: string }> = [
+    { value: "en", label: t("languages.english") },
+    { value: "es", label: t("languages.spanish") },
+    { value: "ja", label: t("languages.japanese") },
+    { value: "zh", label: t("languages.chinese") },
+  ];
 
   const hotkeyRows: HotkeyRow[] = [
     {
       group: "global",
       key: "undo",
-      label: "Undo",
+      label: t("settingsHotkeys.undo"),
       binding: config.hotkeys.global.undo,
     },
     {
       group: "global",
       key: "redo",
-      label: "Redo",
+      label: t("settingsHotkeys.redo"),
       binding: config.hotkeys.global.redo,
     },
     {
       group: "toolbar",
       key: "extrude",
-      label: "Extrude",
+      label: t("settingsHotkeys.extrude"),
       binding: config.hotkeys.toolbar.extrude,
     },
     {
       group: "toolbar",
       key: "fillet",
-      label: "Fillet",
+      label: t("settingsHotkeys.fillet"),
       binding: config.hotkeys.toolbar.fillet,
     },
     {
       group: "toolbar",
       key: "project",
-      label: "Project",
+      label: t("settingsHotkeys.project"),
       binding: config.hotkeys.toolbar.project,
     },
     {
       group: "viewport",
       key: "toggleGrid",
-      label: "Toggle Grid",
+      label: t("settingsHotkeys.toggleGrid"),
       binding: config.hotkeys.viewport.toggleGrid,
     },
     {
       group: "sketchToolbar",
       key: "createSketch",
-      label: "Create Sketch",
+      label: t("settingsHotkeys.createSketch"),
       binding: config.hotkeys.sketchToolbar.createSketch,
     },
     {
       group: "sketchToolbar",
       key: "line",
-      label: "Sketch Line",
+      label: t("settingsHotkeys.sketchLine"),
       binding: config.hotkeys.sketchToolbar.line,
     },
     {
       group: "sketchToolbar",
       key: "rectangle",
-      label: "Sketch Rectangle",
+      label: t("settingsHotkeys.sketchRectangle"),
       binding: config.hotkeys.sketchToolbar.rectangle,
     },
     {
       group: "sketchToolbar",
       key: "circle",
-      label: "Sketch Circle",
+      label: t("settingsHotkeys.sketchCircle"),
       binding: config.hotkeys.sketchToolbar.circle,
     },
     {
       group: "sketchToolbar",
       key: "dimension",
-      label: "Sketch Dimension",
+      label: t("settingsHotkeys.sketchDimension"),
       binding: config.hotkeys.sketchToolbar.dimension,
     },
     {
       group: "sketchToolbar",
       key: "toggleConstruction",
-      label: "Toggle Construction",
+      label: t("settingsHotkeys.toggleConstruction"),
       binding: config.hotkeys.sketchToolbar.toggleConstruction,
     },
   ];
@@ -237,7 +253,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     }
 
     const binding = bindingFromKeyboardEvent(event);
-    const error = validateHotkey(binding, row, hotkeyRows);
+    const error = validateHotkey(binding, row, hotkeyRows, t);
     if (error) {
       setHotkeyError(error);
       return;
@@ -252,13 +268,14 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
       <section className="cad-floating-panel grid h-[min(680px,calc(100vh-64px))] min-h-0 w-[min(920px,calc(100vw-48px))] grid-cols-[220px_minmax(0,1fr)] overflow-hidden p-0">
         <aside className="border-r border-white/10 bg-black/15 p-3">
           <div className="px-2 py-2">
-            <p className="cad-kicker">Settings</p>
+            <p className="cad-kicker">{t("settings.title")}</p>
           </div>
           <nav className="mt-3 flex flex-col gap-1">
             {[
-              ["appearance", "Appearance"],
-              ["keybinds", "Keybinds"],
-              ["ai", "AI"],
+              ["general", t("settings.general")],
+              ["appearance", t("settings.appearance")],
+              ["keybinds", t("settings.keybinds")],
+              ["ai", t("common.ai")],
             ].map(([id, label]) => (
               <button
                 key={id}
@@ -280,19 +297,34 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           <header className="flex items-center justify-between gap-4 border-b border-white/10 px-5 py-4">
             <h2 className="font-display text-lg text-on-surface">
               {section === "appearance"
-                ? "Appearance"
-                : section === "keybinds"
-                  ? "Keybinds"
-                  : "AI"}
+                ? t("settings.appearance")
+                : section === "general"
+                  ? t("settings.general")
+                  : section === "keybinds"
+                  ? t("settings.keybinds")
+                  : t("common.ai")}
             </h2>
           </header>
 
           <div className="cad-scrollbar min-h-0 flex-1 overflow-auto p-5">
-            {section === "appearance" ? (
+            {section === "general" ? (
               <div className="block max-w-sm">
-                <span className="cad-kicker">Theme</span>
+                <span className="cad-kicker">{t("settings.language")}</span>
                 <Dropdown
-                  label="Theme"
+                  label={t("settings.language")}
+                  className="mt-3 w-full"
+                  value={language}
+                  options={languageOptions}
+                  onChange={(nextLanguage) => {
+                    void i18n.changeLanguage(nextLanguage);
+                  }}
+                />
+              </div>
+            ) : section === "appearance" ? (
+              <div className="block max-w-sm">
+                <span className="cad-kicker">{t("settings.theme")}</span>
+                <Dropdown
+                  label={t("settings.theme")}
                   className="mt-3 w-full"
                   value={config.theme}
                   options={availableThemes.map((theme) => ({
@@ -336,7 +368,9 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                     </span>
                     <button
                       type="button"
-                      aria-label={`Set ${row.label} hotkey`}
+                      aria-label={t("settings.setHotkey", {
+                        label: row.label,
+                      })}
                       className={
                         activeHotkeyId === rowId(row)
                           ? "cad-ribbon-action justify-center border-primary-edge text-on-surface"
@@ -354,7 +388,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                       }}
                     >
                       {activeHotkeyId === rowId(row)
-                        ? "Press shortcut"
+                        ? t("settings.pressShortcut")
                         : formatHotkey(row.binding)}
                     </button>
                     <button
@@ -362,7 +396,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                       className="cad-ribbon-action"
                       onClick={() => {
                         const binding = getDefaultHotkey(row);
-                        const error = validateHotkey(binding, row, hotkeyRows);
+                        const error = validateHotkey(binding, row, hotkeyRows, t);
                         if (error) {
                           setHotkeyError(error);
                           return;
@@ -371,7 +405,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                         setActiveHotkeyId(null);
                       }}
                     >
-                      Reset
+                      {t("common.reset")}
                     </button>
                   </div>
                 ))}
@@ -382,11 +416,10 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                   <label className="flex items-center justify-between gap-4">
                     <span>
                       <span className="block text-sm font-medium text-on-surface">
-                        Enable AI assistant
+                    {t("settings.enableAiAssistant")}
                       </span>
                       <span className="mt-1 block text-xs text-on-surface-muted">
-                        Connects to a local Ollama server and previews validated
-                        CAD commands before execution.
+                        {t("settings.enableAiAssistantDescription")}
                       </span>
                     </span>
                     <input
@@ -407,7 +440,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
 
                 <div className="space-y-3">
                   <label className="block">
-                    <span className="cad-kicker">Ollama URL</span>
+                    <span className="cad-kicker">{t("settings.ollamaUrl")}</span>
                     <input
                       className="mt-2 w-full rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-on-surface outline-none transition-colors focus:border-primary-edge"
                       value={config.ai.baseUrl}
@@ -426,7 +459,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                   </label>
 
                   <label className="block">
-                    <span className="cad-kicker">Model</span>
+                    <span className="cad-kicker">{t("settings.model")}</span>
                     <input
                       className="mt-2 w-full rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-on-surface outline-none transition-colors focus:border-primary-edge"
                       value={config.ai.model}
@@ -445,7 +478,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                   </label>
 
                   <label className="block">
-                    <span className="cad-kicker">Max Agent Steps</span>
+                    <span className="cad-kicker">{t("settings.maxAgentSteps")}</span>
                     <input
                       className="mt-2 w-28 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-on-surface outline-none transition-colors focus:border-primary-edge"
                       type="number"
@@ -473,14 +506,16 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                     disabled={isTestingAiConnection}
                     onClick={() => {
                       setIsTestingAiConnection(true);
-                      setAiConnectionStatus("Testing connection...");
+                      setAiConnectionStatus(t("settings.testingConnection"));
                       void testOllamaConnection(config.ai)
                         .then((message) => {
                           setAiConnectionStatus(message);
                         })
                         .catch((error) => {
                           setAiConnectionStatus(
-                            `Connection failed: ${String(error)}`,
+                            t("settings.connectionFailed", {
+                              error: String(error),
+                            }),
                           );
                         })
                         .finally(() => {
@@ -488,7 +523,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                         });
                     }}
                   >
-                    Test Connection
+                    {t("settings.testConnection")}
                   </button>
                   {aiConnectionStatus ? (
                     <span className="text-sm text-on-surface-muted">
@@ -504,14 +539,14 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             {isConfirmingResetAll ? (
               <>
                 <span className="mr-auto text-sm text-on-surface-muted">
-                  Reset all settings?
+                  {t("settings.resetAllQuestion")}
                 </span>
                 <button
                   type="button"
                   className="cad-ribbon-action"
                   onClick={() => setIsConfirmingResetAll(false)}
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button
                   type="button"
@@ -523,7 +558,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                     setIsConfirmingResetAll(false);
                   }}
                 >
-                  Confirm Reset
+                  {t("settings.confirmReset")}
                 </button>
               </>
             ) : (
@@ -532,7 +567,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                 className="cad-ribbon-action"
                 onClick={() => setIsConfirmingResetAll(true)}
               >
-                Reset All
+                {t("settings.resetAll")}
               </button>
             )}
             <button
@@ -540,7 +575,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               className="cad-ribbon-action"
               onClick={onClose}
             >
-              Close
+              {t("common.close")}
             </button>
           </footer>
         </div>

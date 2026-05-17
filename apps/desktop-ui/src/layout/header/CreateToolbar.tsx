@@ -2,6 +2,7 @@ import { BoxFeatureForm } from "../BoxFeatureForm";
 import { CylinderFeatureForm } from "../CylinderFeatureForm";
 import { BoxIcon, CylinderIcon, ExtrudeIcon } from "./ToolBarIcons";
 import { formatHotkey, useAppConfig } from "@/config";
+import { useTranslation } from "react-i18next";
 
 export interface CreateToolbarProps {
   openMenu: "box" | "cylinder" | null;
@@ -39,13 +40,14 @@ export function CreateToolbar({
   onExtrude,
 }: CreateToolbarProps) {
   const { config } = useAppConfig();
+  const { t } = useTranslation();
   return (
     <>
       <div className="relative flex items-center gap-1.5">
         <button
           className={openMenu === "box" ? ICON_BUTTON_ACTIVE : ICON_BUTTON_BASE}
-          data-tooltip="Box"
-          aria-label="Box"
+          data-tooltip={t("toolbar.box")}
+          aria-label={t("toolbar.box")}
           onClick={() => {
             setOpenMenu((current) => (current === "box" ? null : "box"));
           }}
@@ -57,8 +59,8 @@ export function CreateToolbar({
           className={
             openMenu === "cylinder" ? ICON_BUTTON_ACTIVE : ICON_BUTTON_BASE
           }
-          data-tooltip="Cylinder"
-          aria-label="Cylinder"
+          data-tooltip={t("toolbar.cylinder")}
+          aria-label={t("toolbar.cylinder")}
           onClick={() => {
             setOpenMenu((current) =>
               current === "cylinder" ? null : "cylinder",
@@ -70,8 +72,8 @@ export function CreateToolbar({
         </button>
         <button
           className={ICON_BUTTON_BASE}
-          data-tooltip={`Extrude (${formatHotkey(config.hotkeys.toolbar.extrude)})`}
-          aria-label="Extrude"
+          data-tooltip={`${t("toolbar.extrude")} (${formatHotkey(config.hotkeys.toolbar.extrude)})`}
+          aria-label={t("toolbar.extrude")}
           onClick={() => {
             void onExtrude();
           }}

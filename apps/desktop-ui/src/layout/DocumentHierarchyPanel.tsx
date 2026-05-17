@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import type { DocumentState } from "@/types";
 import { ContextMenuShell } from "./ContextMenuShell";
 
@@ -219,6 +220,9 @@ interface RowProps {
   onRenameSubmit?: (nextName: string) => void;
   onRenameCancel?: () => void;
   rightContent?: React.ReactNode;
+  showLabel: string;
+  hideLabel: string;
+  needsAttentionLabel: string;
 }
 
 function Row({
@@ -236,6 +240,9 @@ function Row({
   onRenameSubmit,
   onRenameCancel,
   rightContent,
+  showLabel,
+  hideLabel,
+  needsAttentionLabel,
 }: RowProps) {
   const [draft, setDraft] = useState(label);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -306,8 +313,8 @@ function Row({
       {hasWarning ? (
         <span
           className="flex h-5 w-5 shrink-0 items-center justify-center text-amber-300"
-          title={warningText || "Needs attention"}
-          aria-label={warningText || "Needs attention"}
+          title={warningText || needsAttentionLabel}
+          aria-label={warningText || needsAttentionLabel}
         >
           <WarningIcon />
         </span>
@@ -321,8 +328,8 @@ function Row({
             event.stopPropagation();
             onToggleVisibility();
           }}
-          aria-label={isHidden ? "Show" : "Hide"}
-          title={isHidden ? "Show" : "Hide"}
+          aria-label={isHidden ? showLabel : hideLabel}
+          title={isHidden ? showLabel : hideLabel}
         >
           <EyeIcon open={!isHidden} />
         </button>
@@ -340,6 +347,8 @@ interface CategoryProps {
   onToggleVisibility: () => void;
   children: React.ReactNode;
   emptyHint?: string;
+  showCategoryLabel: string;
+  hideCategoryLabel: string;
 }
 
 function Category({
@@ -350,6 +359,8 @@ function Category({
   onToggleVisibility,
   children,
   emptyHint,
+  showCategoryLabel,
+  hideCategoryLabel,
 }: CategoryProps) {
   return (
     <div className="select-none">
@@ -373,8 +384,8 @@ function Category({
             event.stopPropagation();
             onToggleVisibility();
           }}
-          aria-label={isHidden ? "Show category" : "Hide category"}
-          title={isHidden ? "Show category" : "Hide category"}
+          aria-label={isHidden ? showCategoryLabel : hideCategoryLabel}
+          title={isHidden ? showCategoryLabel : hideCategoryLabel}
         >
           <EyeIcon open={!isHidden} />
         </button>
@@ -421,6 +432,7 @@ export function DocumentHierarchyPanel({
   onDeleteFeature,
   onSetFeatureSuppressed,
 }: DocumentHierarchyPanelProps) {
+  const { t } = useTranslation();
   const [openCategories, setOpenCategories] = useState<Set<CategoryId>>(
     () => new Set<CategoryId>(["origin", "construction", "sketches", "bodies"]),
   );
@@ -495,9 +507,9 @@ export function DocumentHierarchyPanel({
   if (!document) {
     return (
       <section className="flex h-full flex-col overflow-hidden px-3 py-3">
-        <p className="cad-kicker">Browser</p>
+        <p className="cad-kicker">{t("common.browser")}</p>
         <p className="mt-3 text-sm text-on-surface-muted">
-          No active document.
+          {t("document.noActiveDocument")}
         </p>
       </section>
     );
@@ -548,16 +560,26 @@ export function DocumentHierarchyPanel({
   const cancelRename = () => {
     setRenamingFeatureId(null);
   };
+  const rowLabels = {
+    showLabel: t("common.show"),
+    hideLabel: t("common.hide"),
+    needsAttentionLabel: t("common.needsAttention"),
+  };
+  const categoryLabels = {
+    showCategoryLabel: t("document.showCategory"),
+    hideCategoryLabel: t("document.hideCategory"),
+  };
 
   return (
     <section className="cad-scrollbar relative flex h-full min-h-0 flex-col overflow-y-auto px-2 py-2">
       <Category
         id="origin"
-        label="Origin"
+        label={t("document.origin")}
         isOpen={openCategories.has("origin")}
         onToggleOpen={() => toggleOpen("origin")}
         isHidden={hiddenCategories.has("origin")}
         onToggleVisibility={() => onToggleCategoryVisibility("origin")}
+        {...categoryLabels}
       >
         {ORIGIN_PLANES.map((plane) => (
           <Row
@@ -565,25 +587,27 @@ export function DocumentHierarchyPanel({
             icon={<PlaneIcon />}
             label={plane.label}
             isSelected={document.selected_reference_id === plane.id}
+            {...rowLabels}
           />
         ))}
         {ORIGIN_AXES.map((axis) => (
-          <Row key={axis.id} icon={<AxisIcon />} label={axis.label} />
+          <Row key={axis.id} icon={<AxisIcon />} label={axis.label} {...rowLabels} />
         ))}
       </Category>
 
       <Category
         id="construction"
-        label="Construction"
+        label={t("document.construction")}
         isOpen={openCategories.has("construction")}
         onToggleOpen={() => toggleOpen("construction")}
         isHidden={hiddenCategories.has("construction")}
         onToggleVisibility={() => onToggleCategoryVisibility("construction")}
         emptyHint={
           constructionPlanes.length === 0
-            ? "No construction geometry"
+            ? t("document.noConstructionGeometry")
             : undefined
         }
+        {...categoryLabels}
       >
         {constructionPlanes.map((plane) => {
           const isHidden = hiddenFeatureIds.has(plane.feature_id);
@@ -623,6 +647,7 @@ export function DocumentHierarchyPanel({
                 void submitRename(plane.feature_id, nextName);
               }}
               onRenameCancel={cancelRename}
+              {...rowLabels}
             />
           );
         })}
@@ -630,12 +655,13 @@ export function DocumentHierarchyPanel({
 
       <Category
         id="sketches"
-        label="Sketches"
+        label={t("document.sketches")}
         isOpen={openCategories.has("sketches")}
         onToggleOpen={() => toggleOpen("sketches")}
         isHidden={hiddenCategories.has("sketches")}
         onToggleVisibility={() => onToggleCategoryVisibility("sketches")}
-        emptyHint={sketches.length === 0 ? "No sketches yet" : undefined}
+        emptyHint={sketches.length === 0 ? t("document.noSketches") : undefined}
+        {...categoryLabels}
       >
         {sketches.map((sketch) => {
           const isHidden = hiddenFeatureIds.has(sketch.feature_id);
@@ -668,6 +694,7 @@ export function DocumentHierarchyPanel({
                 void submitRename(sketch.feature_id, nextName);
               }}
               onRenameCancel={cancelRename}
+              {...rowLabels}
             />
           );
         })}
@@ -675,12 +702,13 @@ export function DocumentHierarchyPanel({
 
       <Category
         id="bodies"
-        label="Bodies"
+        label={t("document.bodies")}
         isOpen={openCategories.has("bodies")}
         onToggleOpen={() => toggleOpen("bodies")}
         isHidden={hiddenCategories.has("bodies")}
         onToggleVisibility={() => onToggleCategoryVisibility("bodies")}
-        emptyHint={bodies.length === 0 ? "No bodies yet" : undefined}
+        emptyHint={bodies.length === 0 ? t("document.noBodies") : undefined}
+        {...categoryLabels}
       >
         {bodies.map((body) => {
           const isHidden = hiddenFeatureIds.has(body.feature_id);
@@ -710,6 +738,7 @@ export function DocumentHierarchyPanel({
                 void submitRename(body.feature_id, nextName);
               }}
               onRenameCancel={cancelRename}
+              {...rowLabels}
             />
           );
         })}
@@ -738,7 +767,7 @@ export function DocumentHierarchyPanel({
                   startRename(contextMenu.featureId);
                 }}
               >
-                Rename
+                {t("common.rename")}
               </button>
               <button
                 type="button"
@@ -748,7 +777,7 @@ export function DocumentHierarchyPanel({
                   setContextMenu(null);
                 }}
               >
-                {contextMenu.isHidden ? "Show" : "Hide"}
+                {contextMenu.isHidden ? t("common.show") : t("common.hide")}
               </button>
               {onSetFeatureSuppressed ? (
                 <button
@@ -760,7 +789,9 @@ export function DocumentHierarchyPanel({
                     void onSetFeatureSuppressed(featureId, !suppressed);
                   }}
                 >
-                  {contextMenu.suppressed ? "Unsuppress" : "Suppress"}
+                  {contextMenu.suppressed
+                    ? t("common.unsuppress")
+                    : t("common.suppress")}
                 </button>
               ) : null}
               <button
@@ -768,7 +799,7 @@ export function DocumentHierarchyPanel({
                 disabled={!contextCanDelete}
                 title={
                   contextIsActiveSketch
-                    ? "Finish the active sketch before deleting it"
+                    ? t("timeline.activeSketchDeleteBlocked")
                     : undefined
                 }
                 className="flex w-full items-center rounded-lg px-3 py-1.5 text-left text-sm text-red-300 transition-colors hover:bg-red-500/15 disabled:cursor-not-allowed disabled:text-on-surface-dim disabled:hover:bg-transparent"
@@ -778,7 +809,7 @@ export function DocumentHierarchyPanel({
                   void onDeleteFeature(id);
                 }}
               >
-                Delete
+                {t("common.delete")}
               </button>
             </ContextMenuShell>,
             window.document.body,

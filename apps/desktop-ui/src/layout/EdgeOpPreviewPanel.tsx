@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 const PREVIEW_DEBOUNCE_MS = 200;
 
@@ -34,6 +35,7 @@ export function EdgeOpPreviewPanel({
   onConfirm,
   onCancel,
 }: EdgeOpPreviewPanelProps) {
+  const { t } = useTranslation();
   const [value, setValue] = useState(String(initialValue));
   const inputRef = useRef<HTMLInputElement | null>(null);
   const previewTimerRef = useRef<number | null>(null);
@@ -105,11 +107,13 @@ export function EdgeOpPreviewPanel({
 
   return (
     <section className="pointer-events-auto cad-floating-panel px-5 py-5">
-      <p className="cad-kicker">Action</p>
+      <p className="cad-kicker">{t("common.action")}</p>
       <h2 className="cad-title mt-2">{title}</h2>
       <p className="mt-1 text-xs text-on-surface-muted">
-        {edgeCount} edge{edgeCount === 1 ? "" : "s"} · click an edge to add /
-        remove
+        {t("panels.edgeOp.edgePicker", {
+          count: edgeCount,
+          plural: edgeCount === 1 ? "" : "s",
+        })}
       </p>
       <form
         className="mt-4 space-y-4"
@@ -145,7 +149,7 @@ export function EdgeOpPreviewPanel({
             className="cad-action-primary flex-1"
             disabled={disabled || Number(value) <= 0}
           >
-            Confirm
+            {t("common.confirm")}
           </button>
           <button
             type="button"
@@ -155,11 +159,11 @@ export function EdgeOpPreviewPanel({
               void onCancel();
             }}
           >
-            Cancel
+            {t("common.cancel")}
           </button>
         </div>
         <p className="text-[11px] uppercase tracking-[0.16em] text-on-surface-dim">
-          Enter to confirm · Esc to cancel
+          {t("panels.shortcutHint.confirm")}
         </p>
       </form>
     </section>

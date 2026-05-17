@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useTranslation } from "react-i18next";
 
 interface MirrorToolPanelProps {
   // Live state from the document. The panel is purely reactive:
@@ -44,6 +45,7 @@ export function MirrorToolPanel({
   onConfirm,
   onCancel,
 }: MirrorToolPanelProps) {
+  const { t } = useTranslation();
   // Esc / Enter shortcuts when the panel has focus. Global hotkeys
   // (when focus is in the canvas) live in App.tsx — those take
   // precedence and call the same callbacks.
@@ -69,10 +71,10 @@ export function MirrorToolPanel({
 
   return (
     <section className="pointer-events-auto cad-floating-panel px-5 py-5 w-72">
-      <p className="cad-kicker">Sketch · Action</p>
-      <h2 className="cad-title mt-2">Mirror</h2>
+      <p className="cad-kicker">{t("common.sketchAction")}</p>
+      <h2 className="cad-title mt-2">{t("panels.mirror.title")}</h2>
       <p className="mt-1 text-xs text-on-surface-muted">
-        Pick objects to reflect, then a line as the mirror axis.
+        {t("panels.mirror.instructions")}
       </p>
 
       <div className="mt-4 space-y-3">
@@ -90,12 +92,12 @@ export function MirrorToolPanel({
           onClick={onFocusObjects}
         >
           <span className="block text-[11px] uppercase tracking-[0.16em] text-on-surface-muted">
-            Objects
+            {t("panels.mirror.objects")}
           </span>
           <span className="mt-1 block text-sm">
             {objectIds.length === 0
-              ? "Click to select…"
-              : `${objectIds.length} selected`}
+              ? t("panels.mirror.clickToSelect")
+              : t("panels.mirror.selected", { count: objectIds.length })}
           </span>
         </button>
         {objectIds.length > 0 ? (
@@ -107,7 +109,7 @@ export function MirrorToolPanel({
               void onClearObjects();
             }}
           >
-            Clear objects
+            {t("panels.mirror.clearObjects")}
           </button>
         ) : null}
 
@@ -125,12 +127,14 @@ export function MirrorToolPanel({
           onClick={onFocusAxis}
         >
           <span className="block text-[11px] uppercase tracking-[0.16em] text-on-surface-muted">
-            Mirror line
+            {t("panels.mirror.axis")}
           </span>
           <span className="mt-1 block text-sm">
             {/* Never expose internal ids in the UI — the user
                 only needs to know whether something is selected. */}
-            {axisLineId ? "1 selected" : "Click to select…"}
+            {axisLineId
+              ? t("panels.mirror.selected", { count: 1 })
+              : t("panels.mirror.clickToSelect")}
           </span>
         </button>
         {axisLineId !== null ? (
@@ -142,13 +146,16 @@ export function MirrorToolPanel({
               void onClearAxis();
             }}
           >
-            Clear axis
+            {t("panels.mirror.clearAxis")}
           </button>
         ) : null}
       </div>
 
       <p className="mt-4 text-[11px] text-on-surface-dim">
-        Preview: {totalGenerated} entit{totalGenerated === 1 ? "y" : "ies"}
+        {t("panels.mirror.preview", {
+          count: totalGenerated,
+          entityLabel: totalGenerated === 1 ? "entity" : "entities",
+        })}
       </p>
 
       <div className="mt-4 flex gap-3">
@@ -160,7 +167,7 @@ export function MirrorToolPanel({
             void onConfirm();
           }}
         >
-          Apply
+          {t("common.apply")}
         </button>
         <button
           type="button"
@@ -170,11 +177,11 @@ export function MirrorToolPanel({
             void onCancel();
           }}
         >
-          Cancel
+          {t("common.cancel")}
         </button>
       </div>
       <p className="mt-3 text-[11px] uppercase tracking-[0.16em] text-on-surface-dim">
-        Enter to apply · Esc to cancel
+        {t("panels.shortcutHint.apply")}
       </p>
     </section>
   );

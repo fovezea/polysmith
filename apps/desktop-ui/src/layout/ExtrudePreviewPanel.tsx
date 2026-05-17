@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import type { ExtrudeMode } from "@/types";
 
@@ -54,6 +55,7 @@ export function ExtrudePreviewPanel({
   onConfirm,
   onCancel,
 }: ExtrudePreviewPanelProps) {
+  const { t } = useTranslation();
   const [depth, setDepth] = useState(String(initialDepth));
   const [mode, setMode] = useState<ExtrudeMode>(initialMode);
   const [targetBodyId, setTargetBodyId] = useState<string | null>(
@@ -144,12 +146,12 @@ export function ExtrudePreviewPanel({
 
   return (
     <section className="pointer-events-auto cad-floating-panel px-5 py-5">
-      <p className="cad-kicker">Action</p>
-      <h2 className="cad-title mt-2">Extrude</h2>
+      <p className="cad-kicker">{t("common.action")}</p>
+      <h2 className="cad-title mt-2">{t("panels.extrude.title")}</h2>
       <div className="mt-3 rounded-md bg-surface-container-low px-3 py-2 text-xs uppercase tracking-[0.16em] text-on-surface-muted">
         {selectedProfileCount === 1
-          ? "1 face selected"
-          : `${selectedProfileCount} faces selected`}
+          ? t("panels.extrude.faceSelected", { count: selectedProfileCount })
+          : t("panels.extrude.facesSelected", { count: selectedProfileCount })}
       </div>
       <form
         className="mt-4 space-y-4"
@@ -159,13 +161,13 @@ export function ExtrudePreviewPanel({
         }}
       >
         <fieldset className="block text-xs uppercase tracking-[0.18em] text-on-surface-muted">
-          <legend className="mb-2">Operation</legend>
+          <legend className="mb-2">{t("panels.extrude.operation")}</legend>
           <div className="flex gap-2">
             {(
               [
-                { value: "new_body", label: "New body" },
-                { value: "join", label: "Join" },
-                { value: "cut", label: "Cut" },
+                { value: "new_body", label: t("panels.extrude.newBody") },
+                { value: "join", label: t("panels.extrude.join") },
+                { value: "cut", label: t("panels.extrude.cut") },
               ] satisfies Array<{ value: ExtrudeMode; label: string }>
             ).map((option) => {
               const isBoolean = option.value !== "new_body";
@@ -196,13 +198,13 @@ export function ExtrudePreviewPanel({
           </div>
           {!canCombineWithExistingBody ? (
             <p className="mt-2 text-[10px] tracking-wide text-on-surface-dim normal-case">
-              Join &amp; Cut need an existing body to combine with.
+              {t("panels.extrude.combineNeedsBody")}
             </p>
           ) : null}
         </fieldset>
         {mode !== "new_body" && availableTargetBodies.length > 1 ? (
           <label className="block text-xs uppercase tracking-[0.18em] text-on-surface-muted">
-            Target body
+            {t("panels.extrude.targetBody")}
             <select
               className="cad-input mt-2"
               value={targetBodyId ?? ""}
@@ -218,7 +220,7 @@ export function ExtrudePreviewPanel({
             >
               {/* Empty value = "most recent body" — keeps single-body
                   workflows working without forcing the user to pick. */}
-              <option value="">Most recent body</option>
+              <option value="">{t("panels.extrude.mostRecentBody")}</option>
               {availableTargetBodies.map((body) => (
                 <option key={body.id} value={body.id}>
                   {body.label}
@@ -228,7 +230,7 @@ export function ExtrudePreviewPanel({
           </label>
         ) : null}
         <label className="block text-xs uppercase tracking-[0.18em] text-on-surface-muted">
-          Depth (mm)
+          {t("forms.depthMm")}
           <input
             ref={inputRef}
             className="cad-input mt-2"
@@ -258,7 +260,7 @@ export function ExtrudePreviewPanel({
               !Number.isFinite(Number(depth))
             }
           >
-            Confirm
+            {t("common.confirm")}
           </button>
           <button
             type="button"
@@ -268,11 +270,11 @@ export function ExtrudePreviewPanel({
               void onCancel();
             }}
           >
-            Cancel
+            {t("common.cancel")}
           </button>
         </div>
         <p className="text-[11px] uppercase tracking-[0.16em] text-on-surface-dim">
-          Enter to confirm · Esc to cancel
+          {t("panels.shortcutHint.confirm")}
         </p>
       </form>
     </section>

@@ -1,6 +1,7 @@
 {
   "name": "polysmith",
   "private": true,
+  "license": "AGPL-3.0-or-later",
   "packageManager": "pnpm@9.0.0",
   "workspaces": [
     "apps/*"

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import type { DocumentState } from "@/types";
 import { ContextMenuShell } from "./ContextMenuShell";
 import { FeatureKindIcon } from "./header/ToolBarIcons";
@@ -54,6 +55,7 @@ export function FeatureTimeline({
   onSuppressFeature,
   onDeleteFeature,
 }: FeatureTimelineProps) {
+  const { t } = useTranslation();
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
   // Global dismiss: clicking anywhere outside the menu closes it. We
@@ -116,7 +118,7 @@ export function FeatureTimeline({
                 : feature.kind;
             let tooltip = baseTooltip;
             if (suppressed) {
-              tooltip = `${tooltip} — suppressed`;
+              tooltip = `${tooltip} - ${t("timeline.suppressed")}`;
             }
             if (dependencyBroken && feature.dependency_warning) {
               tooltip = `${tooltip}\n⚠ ${feature.dependency_warning}`;
@@ -179,7 +181,7 @@ export function FeatureTimeline({
                   onEditFeature?.(id);
                 }}
               >
-                Edit
+                {t("common.edit")}
               </button>
               {onSuppressFeature ? (
                 <button
@@ -192,7 +194,9 @@ export function FeatureTimeline({
                     onSuppressFeature(featureId, !suppressed);
                   }}
                 >
-                  {contextMenu.suppressed ? "Unsuppress" : "Suppress"}
+                  {contextMenu.suppressed
+                    ? t("common.unsuppress")
+                    : t("common.suppress")}
                 </button>
               ) : null}
               {onDeleteFeature ? (
@@ -201,7 +205,7 @@ export function FeatureTimeline({
                   disabled={!canDelete}
                   title={
                     isActiveSketch
-                      ? "Finish the active sketch before deleting it"
+                      ? t("timeline.activeSketchDeleteBlocked")
                       : undefined
                   }
                   className="flex w-full items-center rounded-lg px-3 py-1.5 text-left text-sm text-red-300 transition-colors hover:bg-red-500/15 disabled:cursor-not-allowed disabled:text-on-surface-dim disabled:hover:bg-transparent"
@@ -211,7 +215,7 @@ export function FeatureTimeline({
                     onDeleteFeature(id);
                   }}
                 >
-                  Delete
+                  {t("common.delete")}
                 </button>
               ) : null}
             </ContextMenuShell>,

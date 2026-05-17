@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 interface CylinderFeatureFormProps {
   disabled: boolean;
@@ -19,6 +20,7 @@ export function CylinderFeatureForm({
   mode = "create",
   initialValues,
 }: CylinderFeatureFormProps) {
+  const { t } = useTranslation();
   const [radius, setRadius] = useState(() =>
     initialValues ? String(initialValues.radius) : "10",
   );
@@ -44,7 +46,7 @@ export function CylinderFeatureForm({
       className={variant === "toolbar" ? "px-4 py-4" : "cad-panel px-5 py-5"}
     >
       <p className="cad-kicker">
-        {mode === "edit" ? "Edit Feature" : "Create Primitive"}
+        {mode === "edit" ? t("forms.editFeature") : t("forms.createPrimitive")}
       </p>
       <h2
         className={
@@ -53,7 +55,9 @@ export function CylinderFeatureForm({
             : "cad-title mt-2"
         }
       >
-        {mode === "edit" ? "Edit Cylinder Feature" : "Add Cylinder Feature"}
+        {mode === "edit"
+          ? t("forms.editCylinderFeature")
+          : t("forms.addCylinderFeature")}
       </h2>
       <form
         onSubmit={(event) => {
@@ -66,7 +70,7 @@ export function CylinderFeatureForm({
         }
       >
         <label className="min-w-[96px] flex-1 text-xs uppercase tracking-[0.2em] text-on-surface-muted">
-          Radius
+          {t("forms.radius")}
           <input
             className="cad-input mt-2"
             type="number"
@@ -80,7 +84,7 @@ export function CylinderFeatureForm({
           />
         </label>
         <label className="min-w-[96px] flex-1 text-xs uppercase tracking-[0.2em] text-on-surface-muted">
-          Height
+          {t("forms.height")}
           <input
             className="cad-input mt-2"
             type="number"
@@ -102,7 +106,7 @@ export function CylinderFeatureForm({
           type="submit"
           disabled={disabled}
         >
-          {mode === "edit" ? "Apply" : "Add Cylinder"}
+          {mode === "edit" ? t("common.apply") : t("forms.addCylinder")}
         </button>
       </form>
     </section>

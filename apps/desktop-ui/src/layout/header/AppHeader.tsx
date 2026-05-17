@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ConstraintType, SketchTool, ArmedSketchConstraint } from "@/types";
 import { SketchToolbar } from "./SketchToolbar";
 import { CreateToolbar } from "./CreateToolbar";
 import { ModifyToolbar } from "./ModifyToolbar";
 import { ConstructToolbar } from "./ConstructToolbar";
 
-const workspaces = ["Create", "Modify", "Construct", "Sketch"] as const;
+const workspaces = ["create", "modify", "construct", "sketch"] as const;
 
 interface MenuDropdownItem {
   label: string;
@@ -221,8 +222,9 @@ export function AppHeader({
   onStartMirrorTool,
   onCancelSketchConstraint,
 }: AppHeaderProps) {
+  const { t } = useTranslation();
   const [activeWorkspace, setActiveWorkspace] =
-    useState<(typeof workspaces)[number]>("Create");
+    useState<(typeof workspaces)[number]>("create");
   const [openMenu, setOpenMenu] = useState<"box" | "cylinder" | null>(null);
 
   useEffect(() => {
@@ -231,7 +233,7 @@ export function AppHeader({
 
   useEffect(() => {
     if (activeSketchPlaneId) {
-      setActiveWorkspace("Sketch");
+      setActiveWorkspace("sketch");
     }
   }, [activeSketchPlaneId]);
 
@@ -241,7 +243,7 @@ export function AppHeader({
         <div className="flex items-center gap-6">
           <div>
             <p className="font-display text-[1.05rem] font-bold uppercase tracking-[0.08em] text-primary-glow">
-              PolySmith
+              {t("app.name")}
             </p>
           </div>
           <nav className="flex items-center gap-1 rounded-full p-0.5 cad-subtle-block">
@@ -257,7 +259,7 @@ export function AppHeader({
                   setActiveWorkspace(workspace);
                 }}
               >
-                {workspace}
+                {t(`header.workspace.${workspace}`)}
               </button>
             ))}
           </nav>
@@ -275,44 +277,44 @@ export function AppHeader({
               className="cad-ribbon-action cad-ribbon-action-primary"
               onClick={() => void onStart()}
             >
-              Start Core
+              {t("header.startCore")}
             </button>
           ) : null}
           <MenuDropdown
-            label="File"
+            label={t("header.file")}
             disabled={disabled}
             items={[
-              { label: "New", onSelect: () => void onCreateDocument() },
-              { label: "Open…", onSelect: () => void onLoadDocument() },
-              { label: "Save…", onSelect: () => void onSaveDocument() },
+              { label: t("header.new"), onSelect: () => void onCreateDocument() },
+              { label: t("header.open"), onSelect: () => void onLoadDocument() },
+              { label: t("header.save"), onSelect: () => void onSaveDocument() },
               {
-                label: "Export STEP…",
+                label: t("header.exportStep"),
                 onSelect: () => void onExportDocument(),
               },
               {
-                label: "Export STL…",
+                label: t("header.exportStl"),
                 onSelect: () => void onExportDocumentStl(),
               },
             ]}
           />
           <MenuDropdown
-            label="Edit"
+            label={t("header.edit")}
             disabled={disabled}
             items={[
               {
-                label: "Undo",
+                label: t("header.undo"),
                 disabled: !canUndo,
                 onSelect: () => void onUndo(),
               },
               {
-                label: "Redo",
+                label: t("header.redo"),
                 disabled: !canRedo,
                 onSelect: () => void onRedo(),
               },
             ]}
           />
           <button type="button" className="cad-ribbon-action" onClick={onOpenLogs}>
-            Logs
+            {t("header.logs")}
             <span
               className={`ml-2 rounded-full px-1.5 py-0.5 text-[0.65rem] ${
                 errorLogCount > 0
@@ -327,8 +329,8 @@ export function AppHeader({
             type="button"
             className="cad-ribbon-action h-8 w-8 px-0 py-0 text-on-surface-muted hover:text-on-surface"
             onClick={onOpenSettings}
-            aria-label="Settings"
-            title="Settings"
+            aria-label={t("header.settings")}
+            title={t("header.settings")}
           >
             <SettingsGearIcon />
           </button>
@@ -341,8 +343,8 @@ export function AppHeader({
                   : "cad-ribbon-action h-8 w-8 px-0 py-0 text-on-surface-muted hover:text-on-surface"
               }
               onClick={onToggleAiPanel}
-              aria-label="AI Assistant"
-              title="AI Assistant"
+              aria-label={t("header.aiAssistant")}
+              title={t("header.aiAssistant")}
             >
               <AiSparkIcon />
             </button>
@@ -356,7 +358,9 @@ export function AppHeader({
               }`}
             />
             <span>
-              {status === "connected" ? "Local Session" : "Core Offline"}
+              {status === "connected"
+                ? t("header.localSession")
+                : t("header.coreOffline")}
             </span>
           </div>
         </div>
@@ -367,7 +371,7 @@ export function AppHeader({
         style={{ borderTop: "1px solid var(--cad-panel-soft-border)" }}
       >
         <div className="flex min-w-0 items-center gap-3">
-          {activeWorkspace === "Create" ? (
+          {activeWorkspace === "create" ? (
             <CreateToolbar
               openMenu={openMenu}
               disabled={disabled}
@@ -379,7 +383,7 @@ export function AppHeader({
             />
           ) : null}
 
-          {activeWorkspace === "Modify" ? (
+          {activeWorkspace === "modify" ? (
             <ModifyToolbar
               disabled={disabled}
               canEdgeOp={canEdgeOp}
@@ -388,7 +392,7 @@ export function AppHeader({
             />
           ) : null}
 
-          {activeWorkspace === "Construct" ? (
+          {activeWorkspace === "construct" ? (
             <ConstructToolbar
               disabled={disabled}
               canOffsetPlane={canOffsetPlane}
@@ -396,7 +400,7 @@ export function AppHeader({
             />
           ) : null}
 
-          {activeWorkspace === "Sketch" ? (
+          {activeWorkspace === "sketch" ? (
             <SketchToolbar
               activeSketchPlaneId={activeSketchPlaneId}
               activeSketchTool={activeSketchTool}
