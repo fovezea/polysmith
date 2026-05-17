@@ -603,6 +603,44 @@ std::vector<LineSegment> circle_boundary_segments(const SketchCircle& circle) {
   return segments;
 }
 
+bool segment_intersects_circle_boundary(const LineSegment& segment,
+                                        const SketchCircle& circle) {
+  const double dx = segment.end.x - segment.start.x;
+  const double dy = segment.end.y - segment.start.y;
+  const double fx = segment.start.x - circle.center_x;
+  const double fy = segment.start.y - circle.center_y;
+  const double a = dx * dx + dy * dy;
+  if (a <= kProfileTolerance * kProfileTolerance) {
+    return false;
+  }
+
+  const double b = 2.0 * (fx * dx + fy * dy);
+  const double c = fx * fx + fy * fy - circle.radius * circle.radius;
+  const double discriminant = b * b - 4.0 * a * c;
+  if (discriminant < -kProfileTolerance) {
+    return false;
+  }
+
+  const double sqrt_discriminant = std::sqrt(std::max(0.0, discriminant));
+  const double t0 = (-b - sqrt_discriminant) / (2.0 * a);
+  const double t1 = (-b + sqrt_discriminant) / (2.0 * a);
+  return (t0 >= -kProfileTolerance && t0 <= 1.0 + kProfileTolerance) ||
+         (t1 >= -kProfileTolerance && t1 <= 1.0 + kProfileTolerance);
+}
+
+bool any_line_intersects_circle_boundary(
+    const std::vector<LineSegment>& segments,
+    const std::vector<const SketchCircle*>& circles) {
+  for (const auto& segment : segments) {
+    for (const auto* circle : circles) {
+      if (segment_intersects_circle_boundary(segment, *circle)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 std::vector<ArrangementFace> detect_arrangement_faces(
     const std::vector<LineSegment>& segments) {
   std::vector<std::vector<SketchProfilePoint>> split_points(segments.size());
@@ -803,13 +841,15 @@ std::vector<SketchProfileRegion> build_sketch_profile_regions(
       solid_edges.begin(), solid_edges.end(), [](const ProfileEdge& edge) {
         return edge.kind == ProfileEdge::Kind::Line;
       });
+  auto line_segments = solid_line_segments(parameters);
   const bool use_circle_arrangement_profiles =
-      !has_solid_arcs && has_solid_lines && !solid_circles.empty();
+      !has_solid_arcs && has_solid_lines && !solid_circles.empty() &&
+      any_line_intersects_circle_boundary(line_segments, solid_circles);
 
   if (!has_solid_arcs) {
     std::vector<ArrangementFace> arrangement_faces;
     if (use_circle_arrangement_profiles) {
-      auto segments = solid_line_segments(parameters);
+      auto segments = line_segments;
       for (const auto* circle : solid_circles) {
         auto circle_segments = circle_boundary_segments(*circle);
         segments.insert(segments.end(), circle_segments.begin(),

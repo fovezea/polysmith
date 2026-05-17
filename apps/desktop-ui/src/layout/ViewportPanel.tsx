@@ -4146,12 +4146,13 @@ export function ViewportPanel({
           sketchEntityHit?.object.userData.sketchEntityKind;
         const sketchEntityIsProjected =
           sketchEntityHit?.object.userData.sketchEntityIsProjected === true;
-        if (typeof sketchEntityId === "string" && !sketchEntityIsProjected) {
+        if (typeof sketchEntityId === "string") {
           return {
             kind: "sketch_entity" as const,
             id: sketchEntityId,
             entityKind:
               typeof sketchEntityKind === "string" ? sketchEntityKind : null,
+            isProjected: sketchEntityIsProjected,
           };
         }
 
@@ -5123,6 +5124,7 @@ export function ViewportPanel({
           if (
             mirrorFocusedSlotRef.current &&
             hit?.kind === "sketch_entity" &&
+            !hit.isProjected &&
             (hit.entityKind === "line" || hit.entityKind === "circle")
           ) {
             void mirrorEntityPickRef.current(hit.id, hit.entityKind);
@@ -5132,6 +5134,7 @@ export function ViewportPanel({
           if (
             armedSketchConstraintRef.current &&
             hit?.kind === "sketch_entity" &&
+            !hit.isProjected &&
             hit.entityKind === "line"
           ) {
             void selectSketchEntityRef.current(hit.id, false);
@@ -5188,6 +5191,9 @@ export function ViewportPanel({
             return;
           }
           if (hit?.kind === "sketch_entity") {
+            if (hit.isProjected) {
+              return;
+            }
             if (hit.entityKind === "circle") {
               const firstEntityId = dimensionToolFirstLineRef.current;
               if (firstEntityId && firstEntityId !== hit.id) {

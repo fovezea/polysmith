@@ -401,29 +401,34 @@ void add_ids(std::unordered_set<std::string>& ids,
   }
 }
 
-bool generated_projection_touches_deleted(
-    const SketchProjection& projection,
-    const std::unordered_set<std::string>& line_ids,
-    const std::unordered_set<std::string>& circle_ids,
-    const std::unordered_set<std::string>& arc_ids,
-    const std::unordered_set<std::string>& projected_point_ids) {
-  for (const auto& id : projection.generated_line_ids) {
-    if (id_in_set(line_ids, id)) {
-      return true;
-    }
-  }
-  for (const auto& id : projection.generated_circle_ids) {
-    if (id_in_set(circle_ids, id)) {
-      return true;
-    }
-  }
-  for (const auto& id : projection.generated_arc_ids) {
-    if (id_in_set(arc_ids, id)) {
-      return true;
-    }
-  }
-  return !projection.generated_point_id.empty() &&
-         id_in_set(projected_point_ids, projection.generated_point_id);
+void remove_ids_from_vector(std::vector<std::string>& ids,
+                            const std::unordered_set<std::string>& deleted_ids) {
+  ids.erase(std::remove_if(ids.begin(),
+                           ids.end(),
+                           [&](const std::string& id) {
+                             return id_in_set(deleted_ids, id);
+                           }),
+            ids.end());
+}
+
+bool projection_has_generated_entities(const SketchProjection& projection) {
+  return !projection.generated_line_ids.empty() ||
+         !projection.generated_circle_ids.empty() ||
+         !projection.generated_arc_ids.empty() ||
+         !projection.generated_point_id.empty();
+}
+
+bool projection_generates_entity(const SketchProjection& projection,
+                                 const std::string& entity_id) {
+  return std::find(projection.generated_line_ids.begin(),
+                   projection.generated_line_ids.end(),
+                   entity_id) != projection.generated_line_ids.end() ||
+         std::find(projection.generated_circle_ids.begin(),
+                   projection.generated_circle_ids.end(),
+                   entity_id) != projection.generated_circle_ids.end() ||
+         std::find(projection.generated_arc_ids.begin(),
+                   projection.generated_arc_ids.end(),
+                   entity_id) != projection.generated_arc_ids.end();
 }
 
 }  // namespace
@@ -3097,16 +3102,20 @@ DocumentState DocumentManager::delete_sketch_selection(
                               id_in_set(line_ids, anchor.line_id);
                      }),
       parameters.point_line_anchors.end());
+  for (auto& projection : parameters.projections) {
+    remove_ids_from_vector(projection.generated_line_ids, line_ids);
+    remove_ids_from_vector(projection.generated_circle_ids, circle_ids);
+    remove_ids_from_vector(projection.generated_arc_ids, arc_ids);
+    if (!projection.generated_point_id.empty() &&
+        id_in_set(projected_point_ids, projection.generated_point_id)) {
+      projection.generated_point_id.clear();
+    }
+  }
   parameters.projections.erase(
       std::remove_if(parameters.projections.begin(),
                      parameters.projections.end(),
-                     [&](const SketchProjection& projection) {
-                       return generated_projection_touches_deleted(
-                           projection,
-                           line_ids,
-                           circle_ids,
-                           arc_ids,
-                           projected_point_ids);
+                     [](const SketchProjection& projection) {
+                       return !projection_has_generated_entities(projection);
                      }),
       parameters.projections.end());
 
@@ -3258,6 +3267,13 @@ DocumentState DocumentManager::select_sketch_entity(
     throw std::runtime_error("Sketch entity not found: " + entity_id);
   }
 
+  const bool is_projected_entity = std::any_of(
+      feature_it->sketch_parameters->projections.begin(),
+      feature_it->sketch_parameters->projections.end(),
+      [&](const SketchProjection& projection) {
+        return projection_generates_entity(projection, entity_id);
+      });
+
   document_->selected_feature_id = feature_it->id;
   document_->selected_sketch_point_ids.clear();
   document_->selected_sketch_point_id = std::nullopt;
@@ -3281,7 +3297,8 @@ DocumentState DocumentManager::select_sketch_entity(
       feature_it->sketch_parameters->dimensions.begin(),
       feature_it->sketch_parameters->dimensions.end(),
       [&](const SketchDimension& dimension) {
-        return document_->selected_sketch_entity_ids.size() == 1 &&
+        return !is_projected_entity &&
+               document_->selected_sketch_entity_ids.size() == 1 &&
                dimension.entity_id == document_->selected_sketch_entity_ids.front();
       });
   document_->selected_sketch_dimension_id =

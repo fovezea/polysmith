@@ -703,6 +703,7 @@ export function createViewportScene(
   const projectedLineIds = new Set<string>();
   const projectedCircleIds = new Set<string>();
   const projectedArcIds = new Set<string>();
+  const projectedEntityIds = new Set<string>();
   const projectedFixedPointIds = new Set<string>();
   if (document) {
     for (const feature of document.feature_history) {
@@ -714,6 +715,7 @@ export function createViewportScene(
       for (const projection of sketch.projections) {
         projection.generated_line_ids.forEach((id) => {
           projectedLineIds.add(id);
+          projectedEntityIds.add(id);
           const line = lineById.get(id);
           if (line) {
             projectedFixedPointIds.add(line.start_point_id);
@@ -722,9 +724,13 @@ export function createViewportScene(
         });
         projection.generated_circle_ids.forEach((id) => {
           projectedCircleIds.add(id);
+          projectedEntityIds.add(id);
           projectedFixedPointIds.add(`point-circle-${id}-center`);
         });
-        projection.generated_arc_ids.forEach((id) => projectedArcIds.add(id));
+        projection.generated_arc_ids.forEach((id) => {
+          projectedArcIds.add(id);
+          projectedEntityIds.add(id);
+        });
         if (projection.generated_point_id) {
           projectedFixedPointIds.add(projection.generated_point_id);
         }
@@ -774,6 +780,7 @@ export function createViewportScene(
     rectangleDuplicateDimensionEntityIds(sketchLines);
   const sketchDimensions = viewport.sketch_dimensions
     .filter((dimension) => isSketchPlaneVisible(dimension.plane_id))
+    .filter((dimension) => !projectedEntityIds.has(dimension.entity_id))
     .map(makeSketchDimension);
   const visibleSketchDimensions = sketchDimensions.filter(
     (dimension) =>
@@ -784,8 +791,11 @@ export function createViewportScene(
     .filter((constraint) => isSketchPlaneVisible(constraint.plane_id))
     .filter(
       (constraint) =>
-        constraint.kind !== "fixed" ||
-        !projectedFixedPointIds.has(constraint.entity_id),
+        !projectedEntityIds.has(constraint.entity_id) &&
+        (constraint.related_entity_id === null ||
+          !projectedEntityIds.has(constraint.related_entity_id)) &&
+        (constraint.kind !== "fixed" ||
+          !projectedFixedPointIds.has(constraint.entity_id)),
     )
     .map(makeSketchConstraint);
   let sketchProfiles = viewport.sketch_profiles
