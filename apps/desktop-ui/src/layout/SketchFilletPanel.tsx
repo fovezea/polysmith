@@ -26,7 +26,7 @@ interface SketchFilletPanelProps {
   onCancel: () => Promise<void>;
 }
 
-// Fusion-style floating panel for the 2D sketch Fillet tool.
+// contextual modeling floating panel for the 2D sketch Fillet tool.
 // Mirrors `EdgeOpPreviewPanel` (3D fillet/chamfer) one-to-one:
 // pending phase (count === 0) prompts the user to click a corner;
 // each click adds a fillet at the panel's current radius; the

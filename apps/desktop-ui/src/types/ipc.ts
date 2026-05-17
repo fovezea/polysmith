@@ -90,7 +90,7 @@ export interface ViewportMeshPrimitive {
 // cut extrude. Emitted by the core only while the user is editing the
 // cut (i.e. the corresponding feature is selected). Renders as a red
 // translucent overlay so the user sees exactly which volume is about
-// to be removed, mirroring Fusion's behavior.
+// to be removed, mirroring common CAD workflow's behavior.
 export interface ViewportCutPreview {
   id: string;
   positions: number[];
@@ -780,8 +780,8 @@ export interface SetSketchPerpendicularConstraintCommand {
   };
 }
 
-// Mirror tool — Fusion-style pending preview lifecycle. See
-// `docs/architecture/fusion-style-behavior.md` and
+// Mirror tool — contextual modeling pending preview lifecycle. See
+// `docs/architecture/contextual-modeling-workflow.md` and
 // `core/sketch_feature.h`.
 export interface StartMirrorPreviewCommand {
   id: string;

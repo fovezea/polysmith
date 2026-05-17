@@ -36,7 +36,7 @@ interface ExtrudePreviewPanelProps {
   onCancel: () => Promise<void>;
 }
 
-// Floating Fusion-style "Edit Feature" panel for the in-progress extrude.
+// Floating contextual modeling "Edit Feature" panel for the in-progress extrude.
 // The native core already created the extrude with the initial depth, so the
 // viewport is showing a real preview. Typing here drives update_extrude_depth
 // for live updates; Enter/Confirm closes; Escape/Cancel undoes.

@@ -20,7 +20,7 @@ interface EdgeOpPreviewPanelProps {
   onCancel: () => Promise<void>;
 }
 
-// Floating Fusion-style "Edit Feature" panel for the in-progress fillet
+// Floating contextual modeling "Edit Feature" panel for the in-progress fillet
 // or chamfer. The native core has already created the feature with the
 // initial value, so the viewport is showing a real preview. Typing here
 // drives update_fillet_radius / update_chamfer_distance for live

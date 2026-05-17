@@ -338,7 +338,7 @@ struct ViewportMeshPrimitive {
 // extrude. Emitted only while the cut feature is the currently selected
 // feature (i.e. the user is editing it via the floating panel). The UI
 // renders this in red so the user can see exactly which volume is
-// about to be removed, mirroring Fusion's cut preview.
+// about to be removed, mirroring common CAD workflow's cut preview.
 struct ViewportCutPreview {
   // The feature id of the cut extrude this preview belongs to.
   std::string id;

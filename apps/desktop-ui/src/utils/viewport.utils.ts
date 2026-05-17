@@ -100,7 +100,7 @@ export function disposeGroup(group: THREE.Group) {
   }
 }
 
-// Visual state for body primitives. Bodies render as solid Fusion-
+// Visual state for body primitives. Bodies render as solid CAD-
 // style gray (opaque, no transparency) so the model reads like a real
 // CAD surface. Hover lifts the body slightly toward white; selection
 // is signaled mostly via the body's own edges (see
@@ -249,7 +249,7 @@ export function applyReferencePlaneVisualState(
 }
 
 export function buildPrimitiveObject(primitive: ScenePrimitive) {
-  // Solid Fusion-style gray at construction time. Previous defaults
+  // Solid contextual modeling gray at construction time. Previous defaults
   // were `transparent: true, opacity: 0.72` (the cyan look) and were
   // only flipped to opaque when `applyPrimitiveVisualState` ran from
   // hover / selection — which meant freshly-built bodies always
@@ -637,7 +637,7 @@ export function buildSceneEdgeObject(edge: SceneEdge): THREE.Line {
     transparent: true,
     linewidth: 1, // most browsers ignore this; selection still reads via color
     // depthTest stays ON so edges on the far side of an opaque body
-    // are occluded by the surface, matching Fusion. With it off, the
+    // are occluded by the surface, matching common CAD workflows. With it off, the
     // wireframe shows through the body and reads as transparency.
     // `polygonOffset` plus a small `polygonOffsetUnits` keeps the line
     // visually on top of the face fill at the same depth (otherwise
@@ -687,7 +687,7 @@ export function buildCutPreviewObject(preview: CutPreviewScene): THREE.Mesh {
   geometry.setIndex(new THREE.BufferAttribute(preview.indices, 1));
   // Solid red translucent so the user reads it as "this volume is being
   // removed". We render with depthWrite off and a higher renderOrder so
-  // the overlay always reads through other geometry, matching Fusion's
+  // the overlay always reads through other geometry, matching common CAD workflow's
   // preview behavior.
   const material = new THREE.MeshBasicMaterial({
     color: 0xff3344,
@@ -1107,7 +1107,7 @@ export function buildSketchArcObject(
 
 export function buildSketchPointObject(point: SketchPointScene) {
   // Projected points get a slightly larger sphere in a cyan-violet
-  // to read as "derived from a body vertex" — matches the Fusion
+  // to read as "derived from a body vertex" — matches the CAD
   // visual convention. Endpoint / center keep the original look.
   const radius =
     point.kind === "center" ? 0.9 : point.kind === "projected" ? 0.85 : 0.7;
@@ -1589,7 +1589,7 @@ export function frameCameraToSketchPlane(
       planeFrame.normal.z,
     ).normalize();
 
-    // Fusion-like up: prefer world Y; if the face normal is vertical, fall
+    // CAD-style up: prefer world Y; if the face normal is vertical, fall
     // back to world -Z so the sketch reads top-down without rolling.
     const worldUp = new THREE.Vector3(0, 1, 0);
     const up =

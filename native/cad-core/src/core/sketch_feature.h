@@ -182,10 +182,10 @@ void delete_sketch_fillet(FeatureEntry& feature,
                           const std::string& fillet_id);
 
 // ---------------------------------------------------------------
-// Mirror tool — Fusion-style pending preview lifecycle.
+// Mirror tool — contextual modeling pending preview lifecycle.
 //
 // The mirror feature follows the canonical action pattern (see
-// `docs/architecture/fusion-style-behavior.md`):
+// `docs/architecture/contextual-modeling-workflow.md`):
 //   1. `start_mirror_preview` — opens a transient `pending_mirror`
 //      with empty selections. No geometry yet.
 //   2. `update_mirror_preview_axis` / `update_mirror_preview_objects`

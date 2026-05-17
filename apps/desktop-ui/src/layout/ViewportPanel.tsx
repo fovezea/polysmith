@@ -849,7 +849,7 @@ export function ViewportPanel({
   // viewport container. Shown next to the cursor whenever the snap
   // resolver is producing a midpoint or perpendicular snap so the
   // user sees *which* constraint the next click would auto-create
-  // (Fusion convention). `kind` controls the glyph; `x`/`y` are
+  // (CAD convention). `kind` controls the glyph; `x`/`y` are
   // container-local pixel offsets so the overlay scrolls with the
   // viewport.
   // First line picked while the dimension tool is armed. After a
@@ -1262,7 +1262,7 @@ export function ViewportPanel({
     [viewport],
   );
   // Live "quick measurement" readout for the bottom-right Selection
-  // panel, mirroring Fusion's behavior where a single edge shows its
+  // panel, mirroring common CAD workflow's behavior where a single edge shows its
   // length and two vertices show their straight-line distance. Edge
   // length is computed by the core (BRepGProp) and shipped on the
   // viewport edge primitive; vertex distance is a trivial Euclidean
@@ -2600,7 +2600,7 @@ export function ViewportPanel({
     // Axis lock: while a draft is in progress, if the segment from
     // start → cursor lies within ~3° of the world horizontal or
     // vertical axis, pull the off-axis coordinate onto the start so
-    // the line lands flat. We check H first (Fusion convention),
+    // the line lands flat. We check H first (CAD convention),
     // and gate on a minimum draft length so the lock doesn't fight
     // the user during the first few pixels of motion. Threshold uses
     // sin(3°) ≈ 0.0523 against `|orthogonal| / hypot`. Higher
@@ -3420,7 +3420,7 @@ export function ViewportPanel({
     scene.add(referenceGroup);
     scene.add(sketchGroup);
     // Neutral studio lighting so MeshStandardMaterial bodies render as
-    // true Fusion-style gray. The previous cyan-tinted ambient + key
+    // true contextual modeling gray. The previous cyan-tinted ambient + key
     // + rim lights were leaking cyan into the body fill, which made
     // the new gray material look like the old translucent cyan even
     // after the material itself was switched to opaque.
@@ -5701,7 +5701,7 @@ export function ViewportPanel({
       if (hit?.kind === "sketch_profile") {
         // Profiles are pickable outside sketch mode so the user can
         // run Extrude on a closed profile without re-entering its
-        // sketch (Fusion-style). Selection is a no-op on the core's
+        // sketch (contextual modeling). Selection is a no-op on the core's
         // body picking path; the floating Extrude action consumes
         // `selected_sketch_profile_id` directly.
         void selectSketchProfileRef.current(
@@ -6274,7 +6274,7 @@ export function ViewportPanel({
         return;
       }
 
-      // D arms the dimension tool (Fusion convention). Clicking a
+      // D arms the dimension tool (CAD convention). Clicking a
       // line or circle while armed opens its driving dimension's
       // inline editor.
       if (matchesHotkey(event, config.hotkeys.sketchToolbar.dimension)) {

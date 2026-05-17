@@ -56,11 +56,11 @@ When implementing a task:
 
 ## UX Pattern
 
-PolySmith follows a **Fusion 360-style behavior pattern** for all modeling
+PolySmith follows a **contextual modeling workflow** for all modeling
 features: select inputs → invoke action → floating context panel with real
 geometry preview → confirm or cancel.
 
-This pattern is documented in `docs/architecture/fusion-style-behavior.md`
+This pattern is documented in `docs/architecture/contextual-modeling-workflow.md`
 and is binding for new features.
 
 ## UI Copy Rules

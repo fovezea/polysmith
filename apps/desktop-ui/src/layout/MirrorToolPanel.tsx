@@ -24,7 +24,7 @@ interface MirrorToolPanelProps {
   onCancel: () => Promise<void>;
 }
 
-// Floating Fusion-style panel for the in-progress Mirror tool.
+// Floating contextual modeling panel for the in-progress Mirror tool.
 // The native core has already opened a `pending_mirror` on the
 // active sketch, and is regenerating preview geometry on every
 // `update_mirror_preview_axis` / `update_mirror_preview_objects`

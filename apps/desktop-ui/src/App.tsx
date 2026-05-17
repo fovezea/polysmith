@@ -30,7 +30,7 @@ const DEFAULT_FILLET_RADIUS = 1;
 const DEFAULT_CHAMFER_DISTANCE = 1;
 // Default seed for the Offset Plane panel. Zero would be a valid
 // frame (sitting on top of the source) but gives no visible preview;
-// 10 mm matches Fusion's "show me something" default.
+// 10 mm matches common CAD workflow's "show me something" default.
 const DEFAULT_OFFSET_PLANE_DISTANCE = 10;
 
 // The Core Messages debug panel is hidden by default. Set
@@ -79,7 +79,7 @@ function bodyIdFromFaceId(faceId: string | null | undefined) {
   return faceId.slice(0, markerIndex);
 }
 
-// In-progress fillet or chamfer feature. Two-phase Fusion-style flow:
+// In-progress fillet or chamfer feature. Two-phase contextual modeling flow:
 //
 //   - phase "pending": panel is open but no feature exists yet. The
 //     user opens this by invoking Fillet / Chamfer with no edges
@@ -128,7 +128,7 @@ function App() {
     useState<ActiveExtrudeAction | null>(null);
   const extrudeCreateInFlightRef = useRef(false);
   const lastExtrudeProfileUpdateRef = useRef("");
-  // Arc tool creation mode. Defaults to three-point (Fusion's default
+  // Arc tool creation mode. Defaults to three-point (common CAD workflow's default
   // and the most ergonomic for shaping curves on the fly). The
   // SketchToolbar exposes a segmented control to toggle to
   // center+start+end without leaving the tool.
@@ -863,7 +863,7 @@ function App() {
   // sidesteps both that and the IPC-echo-lag race in one move.
   const activeEdgeIdsRef = useRef<string[]>([]);
 
-  // Fusion-style flow for Fillet / Chamfer. The user invokes the action
+  // contextual modeling flow for Fillet / Chamfer. The user invokes the action
   // first (button or hotkey), the panel opens in "pending" phase, and
   // the *first* edge click is what actually creates the feature in the
   // core via create_fillet / create_chamfer. If edges happen to be
@@ -896,7 +896,7 @@ function App() {
     return t("geometry.selectedPlane");
   }
 
-  // Start the Fusion-style Offset Plane flow. Opens the panel in
+  // Start the contextual modeling Offset Plane flow. Opens the panel in
   // pending phase; the next viewport click on a plane / planar face
   // promotes the session to active by calling `create_offset_plane`.
   // If a plane / face is already selected we honor the
@@ -991,7 +991,7 @@ function App() {
       return;
     }
 
-    // Pre-selected edges: behave like Fusion's "select-then-invoke"
+    // Pre-selected edges: behave like common CAD workflow's "select-then-invoke"
     // shortcut and create the feature immediately.
     await createEdgeOpFeature(kind, preSelectedEdgeIds, initialValue);
   }
@@ -1567,7 +1567,7 @@ function App() {
           }}
           onStartMirrorTool={async () => {
             // Idempotent: clicking Mirror while it's already open
-            // re-focuses the Objects slot (a Fusion-style "I'd
+            // re-focuses the Objects slot (a contextual modeling "I'd
             // like to redo my selection from scratch" gesture
             // would be Cancel + reopen, but we keep this lighter).
             await runAction(async () => {
@@ -2294,7 +2294,7 @@ function App() {
                     }
                     await updateMirrorPreviewAxis(entityId);
                     // Auto-advance to the Objects slot if it's
-                    // empty — Fusion's small UX touch that saves
+                    // empty — common CAD workflow's small UX touch that saves
                     // a click on the typical "axis first, then
                     // objects" flow. If the user explicitly
                     // re-focused Axis with objects already
@@ -2507,7 +2507,7 @@ function App() {
                         }}
                         onConfirm={async () => {
                           // Look up the just-confirmed extrude in the
-                          // current document so we can apply Fusion-
+                          // current document so we can apply CAD-
                           // style post-confirm UX without round-
                           // tripping new state through the core:
                           //   - hide the source sketch (the user is

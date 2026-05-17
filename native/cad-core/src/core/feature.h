@@ -133,7 +133,7 @@ struct SketchLine {
   double end_x;
   double end_y;
   std::optional<std::string> constraint;
-  // True when the line is a "construction" line (Fusion-style
+  // True when the line is a "construction" line (contextual modeling
   // dashed reference geometry). Construction lines participate in
   // snapping and constraints, but are excluded from profile loop
   // detection so they don't seal profiles for face picking / extrude
@@ -213,7 +213,7 @@ struct SketchProjectedPoint {
 // coords on the matching `lines` / `circles` / `arcs` /
 // `projected_points` entries in place. End result: editing an
 // upstream feature whose body the projection points at moves the
-// projected geometry in lockstep, mirroring Fusion 360's behaviour.
+// projected geometry in lockstep, mirroring mainstream CAD's behaviour.
 //
 // `source_kind` mirrors the topology id's middle segment for body
 // projections ("face", "edge", "vertex"); sketch profile projections

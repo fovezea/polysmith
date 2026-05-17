@@ -175,7 +175,7 @@ class DocumentManager {
   // `circle_id` to clear an existing tangent relation.
   DocumentState set_sketch_tangent_constraint(const std::string& line_id,
                                               const std::string& circle_id);
-  // Mirror tool — Fusion-style pending preview lifecycle. Each
+  // Mirror tool — contextual modeling pending preview lifecycle. Each
   // method maps directly onto the sketch_feature core ops; the
   // wrapping here is bookkeeping (undo, refresh, selection).
   // Note: only `commit` writes a permanent change, so it's the

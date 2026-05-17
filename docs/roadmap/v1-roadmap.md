@@ -7,7 +7,7 @@ PolySmith v1 is intentionally narrow:
 - local-first desktop CAD
 - hobbyist 3D-printing workflows
 - single-part parametric modeling
-- a familiar workflow inspired by Fusion 360
+- a familiar, modern parametric CAD workflow
 - a strong architecture boundary between UI and native CAD logic
 
 This roadmap intentionally avoids CAM, cloud collaboration, simulation,
@@ -34,12 +34,12 @@ codebase now has:
   origin plane or any solid face
 - finished sketches can be re-entered without rebuilding via `reenter_sketch`
 - STEP export of the live document
-- a Fusion-style UX pattern documented in
-  `docs/architecture/fusion-style-behavior.md`: select inputs → invoke
+- a contextual modeling workflow documented in
+  `docs/architecture/contextual-modeling-workflow.md`: select inputs → invoke
   action → floating context panel → real geometry preview → confirm/cancel
 - an `E` hotkey + floating extrude preview panel that drives live, debounced
   `update_extrude_depth` recomputes
-- a Fusion-like document hierarchy with collapsible Origin / Sketches /
+- a CAD-style document hierarchy with collapsible Origin / Sketches /
   Bodies categories, eye-icon visibility toggles, double-click to re-enter
   sketches, and a right-click context menu for rename / hide / delete
 
@@ -54,8 +54,8 @@ These are rules going forward, not goals to chase:
   source of truth for documents, features, geometry, and selection.
 - The IPC protocol is the contract. Schema, TypeScript types, C++ command
   dispatch, and `docs/architecture/ipc-protocol.md` move together.
-- All modeling features follow the Fusion-style UX pattern in
-  `docs/architecture/fusion-style-behavior.md`.
+- All modeling features follow the contextual modeling workflow in
+  `docs/architecture/contextual-modeling-workflow.md`.
 - Live previews are real geometry recomputed by the core. The UI does not
   invent geometry locally.
 - Changes stay minimal, scoped, and reviewable. No vibe-coded rewrites.
@@ -88,7 +88,7 @@ These three close the gap between fancy demo and real workflow:
   feature kinds (`fillet`, `chamfer`) are applied during body
   compilation via `BRepFilletAPI_MakeFillet` /
   `BRepFilletAPI_MakeChamfer` against the target body's edges.
-  Hotkey `F` / `C` on a selected edge spawns a Fusion-style floating
+  Hotkey `F` / `C` on a selected edge spawns a contextual floating
   preview panel with live `update_fillet_radius` /
   `update_chamfer_distance` updates and Confirm / Cancel.
 - **Hole feature.** Parametric simple/counterbore/countersink on a face,
@@ -103,7 +103,7 @@ These three close the gap between fancy demo and real workflow:
   reference plane.
 - ⚠️ **Sketch arcs, slots, polygons, and offset-curve.** Arcs shipped
   in v1: `add_sketch_arc` supports three-point and center+start+end
-  modes through a Fusion-style segmented toolbar control, the closed-
+  modes through a segmented toolbar control, the closed-
   profile detector walks lines and arcs uniformly so loops mixing the
   two extrude cleanly, and arc endpoints share the SketchPoint graph.
   Endpoints are stored fixed for v1 (no post-creation reshape /
@@ -144,7 +144,7 @@ Small individually but they shape day-to-day usability:
 5. **Hole feature** (cut-extrude variant on a selected face).
 6. Polish: measure tool, named parameters, view cube, active sketch panel.
 
-Each row above maps cleanly onto the existing Fusion-style action pattern
+Each row above maps cleanly onto the existing contextual modeling action pattern
 (select inputs → invoke action → floating panel → live preview →
 confirm/cancel) and reuses the panel + hotkey machinery already built.
 

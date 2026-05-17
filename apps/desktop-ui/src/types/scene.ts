@@ -80,7 +80,7 @@ export interface MeshScenePrimitive {
 }
 
 // Translucent red overlay rendered on top of the booleaned body while
-// the user is editing a cut extrude. Mirrors the Fusion-style "you're
+// the user is editing a cut extrude. Mirrors the contextual modeling "you're
 // about to remove this volume" feedback. The renderer keeps the
 // material non-pickable (the user picks the booleaned body's faces,
 // not this overlay).

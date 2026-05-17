@@ -19,7 +19,7 @@ std::string make_parameters_summary(
 PlaneFrame derive_offset_frame(const PlaneFrame& source_frame, double offset) {
   // The offset slides the source frame along its own normal. Basis
   // vectors stay aligned with the source so a sketch on the new
-  // plane keeps a predictable orientation (Fusion does the same).
+  // plane keeps a predictable orientation (common CAD tools do the same).
   return PlaneFrame{
       .origin_x = source_frame.origin_x + source_frame.normal_x * offset,
       .origin_y = source_frame.origin_y + source_frame.normal_y * offset,

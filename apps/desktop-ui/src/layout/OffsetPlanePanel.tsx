@@ -24,7 +24,7 @@ interface OffsetPlanePanelProps {
   onCancel: () => Promise<void> | void;
 }
 
-// Floating Fusion-style "Offset Plane" panel. Two phases:
+// Floating contextual modeling "Offset Plane" panel. Two phases:
 //
 //   * Pending: panel is open, no feature yet. The user picks a plane
 //     in the viewport; the parent's click handler reads the typed

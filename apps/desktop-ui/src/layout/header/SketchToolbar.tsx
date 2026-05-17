@@ -12,7 +12,7 @@ interface SketchToolbarProps {
   selectedReferenceId: string | null;
   selectedFaceId: string | null;
   armedSketchConstraint: ArmedSketchConstraint;
-  // Mirror tool is a Fusion-style action with its own panel, not
+  // Mirror tool is a contextual modeling action with its own panel, not
   // an armed constraint. The toolbar uses this flag only to
   // light up the Mirror button while the panel is open.
   isMirrorToolOpen: boolean;

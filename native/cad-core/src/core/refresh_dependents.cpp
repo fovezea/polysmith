@@ -638,7 +638,7 @@ void refresh_history_dependencies(DocumentState& document) {
       // re-resolves its body source against the prefix [0, i) — which
       // already reflects every upstream edit by the time we get here
       // — and patches the cached coords on the matching generated
-      // sketch entities. Mirrors Fusion 360's "edit the original,
+      // sketch entities. Mirrors mainstream CAD's "edit the original,
       // the projection follows" behaviour. Skipped when the sketch
       // has no projections, or when its plane frame is missing
       // (broken sketches stay frozen on their last-known coords).

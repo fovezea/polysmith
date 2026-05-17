@@ -682,7 +682,7 @@ ViewportSketchDimensionPrimitive make_angle_dimension_primitive(
       pivot_x + bisector_ux * kLabelRadius,
       pivot_y + bisector_uy * kLabelRadius);
 
-  // Render the value in degrees (Fusion convention) with the same
+  // Render the value in degrees (CAD convention) with the same
   // formatter as length / radius so trailing-zero handling stays
   // consistent.
   const double degrees = dimension.value * 180.0 / 3.14159265358979323846;
@@ -2891,7 +2891,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
 
         // Midpoint anchors render a small "M" badge at the host
         // line's midpoint so the user sees that the bound point is
-        // tracking the line's midpoint (Fusion convention).
+        // tracking the line's midpoint (CAD convention).
         for (const auto& anchor : feature.sketch_parameters->midpoint_anchors) {
           const auto host_it = std::find_if(
               feature.sketch_parameters->lines.begin(),

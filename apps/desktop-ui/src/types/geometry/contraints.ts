@@ -28,6 +28,6 @@ export type ArmedSketchConstraint =
       firstLineId: string | null;
     }
   | { kind: "coincident"; firstPointId: string | null };
-// Note: Mirror is NOT an armed constraint — it's a full Fusion-
+// Note: Mirror is NOT an armed constraint — it's a full CAD-
 // style tool with its own floating panel and lifecycle. See
 // `mirrorFocusedSlot` in App.tsx and `MirrorToolPanel`.

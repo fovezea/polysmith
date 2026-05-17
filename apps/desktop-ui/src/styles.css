@@ -45,7 +45,7 @@
   --color-tertiary-plane-edge-selected: #ffe99a;
   --color-tertiary-plane-edge-hover: #fff2b2;
 
-  /* Fusion-style neutral palette for the 3D viewport. The cyan
+  /* contextual modeling neutral palette for the 3D viewport. The cyan
    * primary palette above still drives the chrome / hover effects in
    * the rest of the UI; the viewport itself uses these grays + a
    * single warm selection accent so the model reads like a real CAD

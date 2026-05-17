@@ -1,15 +1,15 @@
-# Fusion-Style Behavior Pattern
+# Contextual Modeling Workflow
 
-PolySmith intentionally mirrors **Autodesk Fusion 360** for its modeling
-interactions. AI assistants and human contributors must follow the same UX
-pattern when adding new features.
+PolySmith uses a contextual modeling workflow for its modeling interactions.
+AI assistants and human contributors must follow the same UX pattern when
+adding new features.
 
 This document is binding. Diverging from this pattern requires an explicit
 design discussion before implementation.
 
-## Why Fusion
+## Why This Pattern
 
-Fusion is a strong reference for parametric CAD UX:
+This is a strong pattern for parametric CAD UX:
 
 - it has a clear separation between "what is selected" and "what action is
   being performed"
@@ -78,7 +78,7 @@ The two-phase flow above lands as follows for edge-input actions:
    the session.
 
 If the user happens to have edges pre-selected when they invoke the
-action (the Fusion "select-then-invoke" shortcut), the panel skips the
+action (the "select-then-invoke" shortcut), the panel skips the
 pending phase and creates the feature immediately with the existing
 selection. The user-facing flow is the same from that point on.
 
@@ -125,18 +125,18 @@ functional `setState` so toggles compound correctly.
 - Live previews must be real geometry recomputed by the core. The UI may
   poll viewport snapshots; it must not invent geometry locally.
 
-## What "Fusion-style" is not
+## What This Pattern Is Not
 
-- It is not a 1:1 visual clone of Fusion. PolySmith uses the
+- It is not a 1:1 visual clone of another CAD product. PolySmith uses the
   `Midnight Carbon` design language (see `docs/DESIGN.md`).
-- It is not a contract to expose every Fusion option. We add parameters
+- It is not a contract to expose every option from other CAD tools. We add parameters
   only when the core supports them.
 - It is not a license to build modal blocking dialogs. Floating panels are
   preferred.
 
 ## Checklist for new features
 
-When adding a Fusion-style action:
+When adding a contextual modeling action:
 
 - [ ] Selection is owned by the core, not React.
 - [ ] Hover feedback is provided through the existing `applyXVisualState`

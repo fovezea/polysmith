@@ -329,7 +329,7 @@ export const SphereIcon = () => (
   </svg>
 );
 
-// Fusion-style Extrude icon: dominant isometric cube taking most of
+// contextual modeling Extrude icon: dominant isometric cube taking most of
 // the viewbox, with a small vertical arrow tucked into the upper-right
 // corner. The size ratio (cube ~12 units wide vs. arrow ~4 units) is
 // what reads "push the profile *up* to make this body" rather than

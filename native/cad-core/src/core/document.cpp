@@ -2377,7 +2377,7 @@ DocumentState DocumentManager::extrude_profiles(
   extrude_parameters->mode = mode;
   extrude_parameters->target_body_id = target_body_id;
 
-  // Auto-cut detection (Fusion-style): when the user invokes a default
+  // Auto-cut detection (contextual modeling): when the user invokes a default
   // new_body extrude on a profile whose swept volume overlaps an
   // existing body, silently promote the feature to a cut against that
   // body. Explicit modes (the user picked join/cut) are honored as-is.
@@ -3482,7 +3482,7 @@ DocumentState DocumentManager::project_face_into_sketch(
   // Idempotency: if the user already projected this face onto this
   // sketch (typical when the modal Project tool stays active and they
   // accidentally click the same face twice), skip the rebuild and
-  // return the current document state unchanged. Matches Fusion's
+  // return the current document state unchanged. Matches common CAD workflow's
   // "second click is a no-op" behaviour. Vertex / edge projections
   // share this dedup index so all three project_* methods walk a
   // single `projections` list.
@@ -3549,7 +3549,7 @@ DocumentState DocumentManager::project_face_into_sketch(
     }
 
     // Lock every endpoint of the four projected lines so the user cannot
-    // drag them away from their projected location. This mirrors Fusion's
+    // drag them away from their projected location. This mirrors common CAD workflow's
     // "Project" behaviour where projected entities are derived geometry.
     for (size_t i = lines_before; i < sketch_it->sketch_parameters->lines.size();
          ++i) {
@@ -3631,7 +3631,7 @@ DocumentState DocumentManager::project_face_into_sketch(
       }
     }
 
-    // Lock every endpoint of the projected lines (same Fusion-like
+    // Lock every endpoint of the projected lines (same CAD-style
     // "derived geometry" lock as the rectangle path).
     for (size_t i = lines_before; i < sketch_it->sketch_parameters->lines.size();
          ++i) {

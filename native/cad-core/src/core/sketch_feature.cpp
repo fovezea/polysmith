@@ -557,7 +557,7 @@ void rebuild_sketch_points(SketchFeatureParameters& parameters) {
   // these ids, so without this loop they would vanish on the next
   // recompute. Marked `kind = "projected"` so the renderer / hit
   // testing can give them a distinct visual (a small cross, similar
-  // to Fusion). `is_fixed` is forced true below by
+  // to common CAD behavior). `is_fixed` is forced true below by
   // `enforce_projected_points_fixed` so the user can't drag them.
   for (const auto& projected : parameters.projected_points) {
     append_point(projected.id, "projected", projected.x, projected.y);
@@ -2759,7 +2759,7 @@ void add_sketch_rectangle(FeatureEntry& feature,
   // sides are exactly axis-aligned by construction. What's missing
   // is the equal-length pairing: top↔bottom and left↔right. Adding
   // these two relations means editing one side's length dimension
-  // also updates its mirror, matching Fusion's behavior.
+  // also updates its mirror, matching common CAD workflow's behavior.
   if (!feature.sketch_parameters.has_value()) {
     return;
   }

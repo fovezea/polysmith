@@ -12,7 +12,7 @@ Runtime source of truth:
 - Core command dispatch: `native/cad-core/src/app.cpp`
 - Core response validation schema: `apps/desktop-ui/src/lib/schemas/ipcSchema.ts`
 - Protocol rules: `docs/architecture/ipc-protocol.md`
-- Fusion-style behavior rule: `docs/architecture/fusion-style-behavior.md`
+- Contextual modeling workflow rule: `docs/architecture/contextual-modeling-workflow.md`
 
 ## Mental Model
 
@@ -1211,7 +1211,7 @@ Dimension kinds emitted by state:
 
 ### Mirror Preview Lifecycle
 
-Mirror follows the Fusion-style lifecycle: start preview, update inputs, commit
+Mirror follows the contextual modeling lifecycle: start preview, update inputs, commit
 or cancel.
 
 #### `start_mirror_preview`

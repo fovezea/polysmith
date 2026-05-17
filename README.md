@@ -163,7 +163,7 @@ PolySmith v1 is intentionally narrow:
 
 - Single-part parametric modeling
 - Desktop-first, offline-first workflows
-- A familiar experience for users coming from Fusion 360
+- A familiar, modern parametric CAD experience
 - A strong architecture boundary between UI and native CAD logic
 
 ## Non-Goals
