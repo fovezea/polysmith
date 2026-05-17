@@ -11,7 +11,7 @@ PolySmith is a local-first desktop CAD application for hobbyists who want a clea
 ### 1. Clone with submodules
 
 ```bash
-git clone --recurse-submodules https://github.com/<your-org>/polysmith.git
+git clone --recurse-submodules https://github.com/stefan-ovezea/polysmith.git
 cd polysmith
 ```
 

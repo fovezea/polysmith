@@ -1,6 +1,7 @@
 {
   "name": "polysmith",
   "private": true,
+  "author": "Stefan Ovezea <sovezea@gmail.com>",
   "license": "AGPL-3.0-or-later",
   "packageManager": "pnpm@9.0.0",
   "workspaces": [
