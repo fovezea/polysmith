@@ -3216,7 +3216,7 @@ DocumentState DocumentManager::add_sketch_polygon(int sides,
   document_->selected_sketch_profile_ids.clear();
   document_->selected_sketch_point_ids.clear();
   document_->selected_sketch_entity_ids.clear();
-  document_->active_sketch_tool = "circle";
+  document_->active_sketch_tool = "polygon";
   bump_geometry_revision();
   return document_.value();
 }

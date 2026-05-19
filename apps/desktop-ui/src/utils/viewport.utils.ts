@@ -13,6 +13,7 @@ import {
   SketchConstraintScene,
   SketchDimensionScene,
   SketchLineScene,
+  SketchPolygonScene,
   SceneEdge,
   SceneVertex,
   CutPreviewScene,
@@ -900,6 +901,53 @@ export function buildSketchLineObject(line: SketchLineScene) {
     sketchLine.userData.sketchEntityIsProjected = line.isProjected;
   }
   return sketchLine;
+}
+
+export function buildSketchPolygonObject(polygon: SketchPolygonScene) {
+  const n = polygon.corners.length / 3;
+  if (n < 3) {
+    return new THREE.Line();
+  }
+  const points = new Array<THREE.Vector3>(n + 1);
+  for (let i = 0; i < n; i++) {
+    points[i] = new THREE.Vector3(
+      polygon.corners[i * 3],
+      polygon.corners[i * 3 + 1],
+      polygon.corners[i * 3 + 2],
+    );
+  }
+  points[n] = points[0]; // close the loop
+  const isDashed = polygon.isConstruction;
+  const baseColor = themeColor("--color-tertiary-plane-fill", "#fff7c0");
+  const material = isDashed
+    ? new THREE.LineDashedMaterial({
+        color: polygon.isSelected
+          ? themeColor("--color-primary-edge-active", "#c3f5ff")
+          : baseColor,
+        transparent: true,
+        opacity: polygon.isPreview ? 0.55 : 0.85,
+        dashSize: 1,
+        gapSize: 0.6,
+      })
+    : new THREE.LineBasicMaterial({
+        color: polygon.isSelected
+          ? themeColor("--color-primary-edge-active", "#c3f5ff")
+          : baseColor,
+        transparent: true,
+        opacity: 0.98,
+      });
+  configureSketchOverlayMaterial(material);
+  const geometry = new THREE.BufferGeometry().setFromPoints(points);
+  const sketchPolygon = new THREE.Line(geometry, material);
+  sketchPolygon.renderOrder = 7;
+  if (isDashed) {
+    sketchPolygon.computeLineDistances();
+  }
+  if (!polygon.isPreview) {
+    sketchPolygon.userData.sketchEntityId = polygon.polygonId;
+    sketchPolygon.userData.sketchEntityKind = "line";
+  }
+  return sketchPolygon;
 }
 
 // Build the perimeter line for a sketch circle. The center comes

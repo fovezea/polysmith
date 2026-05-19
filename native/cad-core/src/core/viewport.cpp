@@ -371,15 +371,24 @@ ViewportSketchPolygonPrimitive make_sketch_polygon_primitive(
 
   // Compute world-space corners
   const int n = polygon.sides;
-  const double angle_offset = -M_PI / 2.0;  // start from top
+  // Align first vertex / edge midpoint with the click direction.
+  double angle_offset = -M_PI / 2.0;
+  if (polygon.mode == "inscribed") {
+    angle_offset = std::atan2(polygon.end_y - polygon.center_y, polygon.end_x - polygon.center_x);
+  } else if (polygon.mode == "circumscribed") {
+    // Click is edge midpoint; rotate so edge 0 sits there.
+    angle_offset = std::atan2(polygon.end_y - polygon.center_y, polygon.end_x - polygon.center_x) + M_PI / n;
+  } else if (polygon.mode == "edge") {
+    angle_offset = std::atan2(polygon.start_y - polygon.center_y, polygon.start_x - polygon.center_x);
+  }
   for (int i = 0; i < n; ++i) {
     double angle = angle_offset + 2.0 * M_PI * i / n;
     double local_x = polygon.center_x + polygon.radius * std::cos(angle);
     double local_y = polygon.center_y + polygon.radius * std::sin(angle);
-    // For circumscribed mode, push corners out
     if (polygon.mode == "circumscribed") {
-      local_x = polygon.center_x + (polygon.radius / std::cos(M_PI / n)) * std::cos(angle + M_PI / n - M_PI / 2.0);
-      local_y = polygon.center_y + (polygon.radius / std::cos(M_PI / n)) * std::sin(angle + M_PI / n - M_PI / 2.0);
+      double r = polygon.radius / std::cos(M_PI / n);
+      local_x = polygon.center_x + r * std::cos(angle);
+      local_y = polygon.center_y + r * std::sin(angle);
     }
     const WorldPoint corner = to_world_point(parameters, local_x, local_y);
     primitive.corner_x.push_back(corner.x);
@@ -3157,6 +3166,36 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
             is_sketch_entity_selected(polygon.id);
         sketch_polygons.push_back(make_sketch_polygon_primitive(
             polygon, *feature.sketch_parameters, is_selected_polygon));
+        // Emit polygon radius dimension
+        if (document->active_sketch_feature_id.has_value() &&
+            document->active_sketch_feature_id.value() == feature.id) {
+          const auto dim_it = std::find_if(
+              feature.sketch_parameters->dimensions.begin(),
+              feature.sketch_parameters->dimensions.end(),
+              [&](const SketchDimension& d) {
+                return d.kind == "polygon_radius" && d.entity_id == polygon.id;
+              });
+          if (dim_it != feature.sketch_parameters->dimensions.end()) {
+            const bool is_selected_dim =
+                document->selected_sketch_dimension_id.has_value() &&
+                document->selected_sketch_dimension_id.value() == dim_it->id;
+            const WorldPoint pc = to_world_point(*feature.sketch_parameters, polygon.center_x, polygon.center_y);
+            const WorldPoint pd = to_world_point(*feature.sketch_parameters, polygon.center_x + polygon.radius, polygon.center_y);
+            sketch_dimensions.push_back(ViewportSketchDimensionPrimitive{
+                .dimension_id = dim_it->id,
+                .plane_id = feature.sketch_parameters->plane_id,
+                .kind = "circle_radius",
+                .entity_id = polygon.id,
+                .label = "R " + format_dimension_value(dim_it->value) + " mm",
+                .is_selected = is_selected_dim,
+                .anchor_start_x = pc.x, .anchor_start_y = pc.y, .anchor_start_z = pc.z,
+                .anchor_end_x = pd.x, .anchor_end_y = pd.y, .anchor_end_z = pd.z,
+                .dimension_start_x = pc.x, .dimension_start_y = pc.y, .dimension_start_z = pc.z,
+                .dimension_end_x = pd.x, .dimension_end_y = pd.y, .dimension_end_z = pd.z,
+                .label_x = pd.x, .label_y = pd.y, .label_z = pd.z,
+            });
+          }
+        }
       }
 
       if (document->active_sketch_feature_id.has_value() &&

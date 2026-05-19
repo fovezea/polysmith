@@ -20,6 +20,7 @@ import type {
   SketchDimensionScene,
   SketchConstraintScene,
   SketchPointScene,
+  SketchPolygonScene,
   SketchProfileScene,
   DocumentState,
 } from "@/types";
@@ -243,6 +244,7 @@ export interface ViewportScene {
   references: SceneReference[];
   sketchLines: SketchLineScene[];
   sketchCircles: SketchCircleScene[];
+  sketchPolygons: SketchPolygonScene[];
   sketchArcs: SketchArcScene[];
   sketchDimensions: SketchDimensionScene[];
   sketchConstraints: SketchConstraintScene[];

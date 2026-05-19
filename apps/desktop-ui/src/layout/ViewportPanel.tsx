@@ -52,6 +52,7 @@ import {
   buildSketchDimensionObject,
   buildSketchLineObject,
   buildSketchPointObject,
+  buildSketchPolygonObject,
   buildSketchProfileObject,
   buildSolidFaceObject,
   buildCutPreviewObject,
@@ -2480,6 +2481,18 @@ export function ViewportPanel({
       );
       return;
     }
+    if ((session.tool as string) === "polygon") {
+      void addSketchPolygonRef.current(
+        6, // default hexagon
+        polygonToolModeRef.current,
+        startX,
+        startY,
+        endX,
+        endY,
+        sketchToolConstructionRef.current,
+      );
+      return;
+    }
     await addSketchLineRef.current(
       startX,
       startY,
@@ -4424,6 +4437,23 @@ export function ViewportPanel({
         draftDimensionSessionRef.current = session;
         setDraftDimensionSession(session);
         focusDraftField(session.activeField);
+      } else if (
+        activeSketchPlaneIdRef.current &&
+        activeSketchToolRef.current === "polygon" &&
+        !lineDraftStartRef.current
+      ) {
+        const rawPoint = resolveSketchPlanePoint(
+          event,
+          renderer,
+          camera,
+          activeSketchPlaneIdRef.current,
+          activeSketchPlaneFrameRef.current,
+        );
+        if (rawPoint) {
+          const sketchPoint = resolveSnappedSketchPoint(rawPoint);
+          lineDraftStartRef.current = sketchPoint.local;
+          draftStartedOnPointerDownRef.current = true;
+        }
       }
     }
 
@@ -5166,6 +5196,28 @@ export function ViewportPanel({
 
       if (draftStartedOnPointerDownRef.current) {
         draftStartedOnPointerDownRef.current = false;
+        if (
+          activeSketchToolRef.current === "polygon" &&
+          activeSketchPlaneId &&
+          lineDraftStartRef.current
+        ) {
+          const rawPoint = resolveSketchPlanePoint(
+            event, renderer, camera,
+            activeSketchPlaneId, activeSketchPlaneFrame,
+          );
+          if (rawPoint) {
+            const sketchPoint = resolveSnappedSketchPoint(rawPoint);
+            const [sx, sy] = lineDraftStartRef.current;
+            const [ex, ey] = sketchPoint.local;
+            lineDraftStartRef.current = null;
+            void addSketchPolygonRef.current(
+              6, polygonToolModeRef.current,
+              sx, sy, ex, ey,
+              sketchToolConstructionRef.current,
+            );
+            return;
+          }
+        }
         if (deltaX > 4 || deltaY > 4) {
           const field = draftDimensionSessionRef.current?.activeField;
           if (field) {
@@ -6264,6 +6316,17 @@ export function ViewportPanel({
         sketchCircleObject,
       );
       sketchGroup.add(sketchCircleObject);
+    }
+
+    for (const sketchPolygon of sceneData.sketchPolygons) {
+      const sketchPolygonObject = buildSketchPolygonObject(sketchPolygon);
+      sketchPolygonObject.userData.isSelected = sketchPolygon.isSelected;
+      sketchEntityObjectsRef.current.push(sketchPolygonObject);
+      sketchEntityObjectByIdRef.current.set(
+        sketchPolygon.polygonId,
+        sketchPolygonObject,
+      );
+      sketchGroup.add(sketchPolygonObject);
     }
 
     for (const sketchArc of sceneData.sketchArcs) {

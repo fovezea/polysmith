@@ -3520,6 +3520,15 @@ void add_sketch_polygon(FeatureEntry& feature,
       .end_y = end_y,
       .is_construction = is_construction,
   });
+  if (!is_construction) {
+    const auto& polygon = feature.sketch_parameters->polygons.back();
+    feature.sketch_parameters->dimensions.push_back(SketchDimension{
+        .id = "dim-polygon-" + polygon.id,
+        .kind = "polygon_radius",
+        .entity_id = polygon.id,
+        .value = polygon.radius,
+    });
+  }
 
   refresh_sketch_derived_state(feature);
 }
