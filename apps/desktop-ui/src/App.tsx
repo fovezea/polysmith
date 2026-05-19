@@ -135,6 +135,22 @@ function App() {
   const [arcToolMode, setArcToolMode] = useState<
     "three_point" | "center_start_end"
   >("three_point");
+  // Rectangle creation mode. Defaults to corner-to-corner (2-point).
+  // The SketchToolbar shows a split button with a variant dropdown
+  // to switch between corner-corner, center-point, and 3-point.
+  const [rectangleToolMode, setRectangleToolMode] = useState<
+    "corner_corner" | "center_point" | "three_point"
+  >("corner_corner");
+  // Circle creation mode. Defaults to center+radius.
+  // The SketchToolbar shows a split button with variants for
+  // 2-point, 3-point, and tangent circles (reserved for core support).
+  const [circleToolMode, setCircleToolMode] = useState<
+    "center_radius" | "two_point" | "three_point" | "tangent_two_lines" | "tangent_three_lines"
+  >("center_radius");
+  // Polygon creation mode. Defaults to inscribed.
+  const [polygonToolMode, setPolygonToolMode] = useState<
+    "circumscribed" | "inscribed" | "edge"
+  >("inscribed");
   // Sketch fillet panel session. Mirrors `ActiveEdgeOpAction` (the
   // 3D fillet/chamfer flow) shape-for-shape: it opens the moment
   // the user activates the Fillet tool (`pending` phase, no
@@ -395,6 +411,7 @@ function App() {
     addSketchDistanceDimension,
     addSketchRectangle,
     addSketchCircle,
+    addSketchPolygon,
     addSketchArc,
     addSketchFillet,
     updateSketchFilletRadius,
@@ -1562,6 +1579,12 @@ function App() {
           isMirrorToolOpen={isMirrorToolOpen}
           arcToolMode={arcToolMode}
           onSetArcToolMode={setArcToolMode}
+          rectangleToolMode={rectangleToolMode}
+          onSetRectangleToolMode={setRectangleToolMode}
+          circleToolMode={circleToolMode}
+          onSetCircleToolMode={setCircleToolMode}
+          polygonToolMode={polygonToolMode}
+          onSetPolygonToolMode={setPolygonToolMode}
           onStart={async () => {
             await runAction(start);
           }}
@@ -2191,6 +2214,30 @@ function App() {
               }}
               arcToolMode={arcToolMode}
               onSetArcToolMode={setArcToolMode}
+              rectangleToolMode={rectangleToolMode}
+              circleToolMode={circleToolMode}
+              polygonToolMode={polygonToolMode}
+              onAddSketchPolygon={async (
+                sides,
+                mode,
+                startX,
+                startY,
+                endX,
+                endY,
+                isConstruction,
+              ) => {
+                await runAction(async () => {
+                  await addSketchPolygon(
+                    sides,
+                    mode,
+                    startX,
+                    startY,
+                    endX,
+                    endY,
+                    isConstruction,
+                  );
+                });
+              }}
               onAddSketchFillet={async (cornerPointId, lineAId, lineBId) => {
                 // Panel must be open in either phase for adds to be
                 // accepted. The viewport's eligibility filter is the

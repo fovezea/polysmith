@@ -149,6 +149,24 @@ struct SketchCircle {
   bool is_construction = false;
 };
 
+// Regular polygon on the sketch plane. Supports three creation modes:
+//   "circumscribed" — polygon circumscribed around a circle (center+radius).
+//   "inscribed"     — polygon inscribed in a circle (center+radius).
+//   "edge"          — polygon defined by one edge (two points).
+struct SketchPolygon {
+  std::string id;
+  double center_x;
+  double center_y;
+  double radius;
+  int sides;          // >= 3
+  std::string mode;   // "circumscribed" | "inscribed" | "edge"
+  double start_x;
+  double start_y;
+  double end_x;
+  double end_y;
+  bool is_construction = false;
+};
+
 // 2D arc on the sketch plane. Stored as start/end endpoint ids (so it
 // participates in the shared point graph just like a SketchLine) plus
 // a fully-cached (center, radius, ccw) triple. v1 freezes the arc's
@@ -378,6 +396,7 @@ struct SketchFeatureParameters {
   std::string active_tool;
   std::vector<SketchLine> lines;
   std::vector<SketchCircle> circles;
+  std::vector<SketchPolygon> polygons;
   std::vector<SketchArc> arcs;
   std::vector<SketchPoint> points;
   std::vector<SketchDimension> dimensions;

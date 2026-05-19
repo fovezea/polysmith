@@ -35,6 +35,7 @@ const documentStateSchema = z.object({
       "line",
       "rectangle",
       "circle",
+      "polygon",
       "arc",
       "fillet",
       "project",
@@ -165,6 +166,7 @@ const documentStateSchema = z.object({
             "line",
             "rectangle",
             "circle",
+            "polygon",
             "arc",
             "fillet",
             "project",
@@ -588,6 +590,32 @@ const viewportStateSchema = z.object({
       is_preview: z.boolean().default(false),
     }),
   ),
+  // Sketch polygons — regular N-sided polygons on the sketch plane.
+  // Defaulted to `[]` so clients running against an older core
+  // don't crash.
+  sketch_polygons: z
+    .array(
+      z.object({
+        polygon_id: z.string(),
+        plane_id: z.string(),
+        plane_frame: planeFrameSchema.nullable().default(null),
+        corner_x: z.array(z.number()),
+        corner_y: z.array(z.number()),
+        corner_z: z.array(z.number()),
+        sides: z.number(),
+        mode: z.string(),
+        center: z.object({
+          x: z.number(),
+          y: z.number(),
+          z: z.number(),
+        }),
+        radius: z.number(),
+        is_selected: z.boolean(),
+        is_construction: z.boolean().default(false),
+        is_preview: z.boolean().default(false),
+      }),
+    )
+    .default([]),
   // Sketch arcs share the same visual treatment as sketch circles
   // (selectable, preview-aware) but carry both endpoints + center
   // separately because the renderer samples between the two

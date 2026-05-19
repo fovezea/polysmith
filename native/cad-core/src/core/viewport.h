@@ -262,6 +262,25 @@ struct ViewportSketchConstraintPrimitive {
   double position_z;
 };
 
+struct ViewportSketchPolygonPrimitive {
+  std::string polygon_id;
+  std::string plane_id;
+  std::optional<ViewportSketchPlaneFrame> plane_frame;
+  // World-space corner positions as a flat xyzw list for each corner.
+  std::vector<double> corner_x;
+  std::vector<double> corner_y;
+  std::vector<double> corner_z;
+  int sides;
+  std::string mode;
+  double center_x;
+  double center_y;
+  double center_z;
+  double radius;
+  bool is_selected;
+  bool is_construction = false;
+  bool is_preview = false;
+};
+
 struct ViewportSketchProfilePrimitive {
   std::string profile_id;
   std::string plane_id;
@@ -369,6 +388,7 @@ struct ViewportState {
   std::vector<ViewportReferenceAxis> reference_axes;
   std::vector<ViewportSketchLinePrimitive> sketch_lines;
   std::vector<ViewportSketchCirclePrimitive> sketch_circles;
+  std::vector<ViewportSketchPolygonPrimitive> sketch_polygons;
   std::vector<ViewportSketchArcPrimitive> sketch_arcs;
   std::vector<ViewportSketchPointPrimitive> sketch_points;
   std::vector<ViewportSketchDimensionPrimitive> sketch_dimensions;

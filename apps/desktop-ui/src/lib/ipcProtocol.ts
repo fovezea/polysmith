@@ -944,6 +944,30 @@ export function makeAddSketchCircleCommand(
   };
 }
 
+export function makeAddSketchPolygonCommand(
+  sides: number,
+  mode: string,
+  startX: number,
+  startY: number,
+  endX: number,
+  endY: number,
+  isConstruction = false,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "add_sketch_polygon",
+    payload: {
+      sides,
+      mode,
+      start_x: startX,
+      start_y: startY,
+      end_x: endX,
+      end_y: endY,
+      is_construction: isConstruction,
+    },
+  };
+}
+
 // Build an `add_sketch_arc` command. `mode` is one of "three_point"
 // (anchor lies on the arc and fixes the bulge) or "center_start_end"
 // (anchor is the center; end is snapped onto the resulting circle).

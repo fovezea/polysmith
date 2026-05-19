@@ -60,6 +60,7 @@
         "add_sketch_line",
         "add_sketch_rectangle",
         "add_sketch_circle",
+        "add_sketch_polygon",
         "select_sketch_point",
         "select_sketch_entity",
         "select_sketch_dimension",

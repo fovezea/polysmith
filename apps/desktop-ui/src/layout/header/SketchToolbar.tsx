@@ -1,8 +1,8 @@
 import { ConstraintType, SketchTool, ArmedSketchConstraint } from "@/types";
 import { formatHotkey, useAppConfig } from "@/config";
 import type { AppHotkeys, CrosshairMode } from "@/config";
-import { Dropdown } from "@/lib";
-import { ConstraintIcon, SketchToolIcon } from "./ToolBarIcons";
+import { Dropdown, SplitToolButton } from "@/lib";
+import { ConstraintIcon, SketchToolIcon, RectangleIcon, ArcIcon, CircleIcon, PolygonIcon } from "./ToolBarIcons";
 import { useTranslation } from "react-i18next";
 
 interface SketchToolbarProps {
@@ -21,6 +21,12 @@ interface SketchToolbarProps {
   // arc tool is active. v1 supports two modes; the toolbar passes
   // the user's choice back through `onSetArcToolMode`.
   arcToolMode: "three_point" | "center_start_end";
+  // Rectangle tool's creation mode — split button variant.
+  rectangleToolMode: "corner_corner" | "center_point" | "three_point";
+  // Circle tool's creation mode — split button variant.
+  circleToolMode: "center_radius" | "two_point" | "three_point" | "tangent_two_lines" | "tangent_three_lines";
+  // Polygon tool's creation mode — split button variant.
+  polygonToolMode: "circumscribed" | "inscribed" | "edge";
 
   onStartSketch: () => Promise<void>;
   onFinishSketch: () => Promise<void>;
@@ -29,6 +35,9 @@ interface SketchToolbarProps {
   onArmSketchConstraint: (constraint: ConstraintType) => Promise<void>;
   onStartMirrorTool: () => Promise<void>;
   onSetArcToolMode: (mode: "three_point" | "center_start_end") => void;
+  onSetRectangleToolMode: (mode: "corner_corner" | "center_point" | "three_point") => void;
+  onSetCircleToolMode: (mode: "center_radius" | "two_point" | "three_point" | "tangent_two_lines" | "tangent_three_lines") => void;
+  onSetPolygonToolMode: (mode: "circumscribed" | "inscribed" | "edge") => void;
 }
 
 const sketchTools: Array<{
@@ -42,6 +51,7 @@ const sketchTools: Array<{
   { id: "dimension", labelKey: "toolbar.dimension", hotkey: "dimension", enabled: true },
   { id: "rectangle", labelKey: "toolbar.rectangle", hotkey: "rectangle", enabled: true },
   { id: "circle", labelKey: "toolbar.circle", hotkey: "circle", enabled: true },
+  { id: "polygon", labelKey: "toolbar.polygon", enabled: true },
   { id: "arc", labelKey: "toolbar.arc", enabled: true },
   { id: "fillet", labelKey: "toolbar.fillet", enabled: true },
   // Modal Project tool. While active, viewport face / edge / vertex
@@ -68,6 +78,9 @@ export function SketchToolbar({
   armedSketchConstraint,
   isMirrorToolOpen,
   arcToolMode,
+  rectangleToolMode,
+  circleToolMode,
+  polygonToolMode,
   onStartSketch,
   onFinishSketch,
   onCancelSketchConstraint,
@@ -75,6 +88,9 @@ export function SketchToolbar({
   onArmSketchConstraint,
   onStartMirrorTool,
   onSetArcToolMode,
+  onSetRectangleToolMode,
+  onSetCircleToolMode,
+  onSetPolygonToolMode,
 }: SketchToolbarProps) {
   const { config, updateConfig } = useAppConfig();
   const { t } = useTranslation();
@@ -110,7 +126,9 @@ export function SketchToolbar({
       >
         {activeSketchPlaneId ? t("toolbar.finishSketch") : t("toolbar.createSketch")}
       </button>
-      {sketchTools.map((tool) => (
+      {sketchTools
+        .filter((t) => t.id !== "rectangle" && t.id !== "arc" && t.id !== "circle" && t.id !== "polygon")
+        .map((tool) => (
         <button
           key={tool.id}
           className={
@@ -124,15 +142,7 @@ export function SketchToolbar({
           onClick={() => {
             if (
               !activeSketchPlaneId ||
-              !tool.enabled ||
-              (tool.id !== "select" &&
-                tool.id !== "line" &&
-                tool.id !== "rectangle" &&
-                tool.id !== "circle" &&
-                tool.id !== "arc" &&
-                tool.id !== "fillet" &&
-                tool.id !== "project" &&
-                tool.id !== "dimension")
+              !tool.enabled
             ) {
               return;
             }
@@ -153,42 +163,91 @@ export function SketchToolbar({
           <SketchToolIcon tool={tool.id} />
         </button>
       ))}
-      {activeSketchPlaneId && activeSketchTool === "arc" ? (
-        // Arc creation mode toggle. Visible only while the arc tool
-        // is active so the toolbar stays compact otherwise. Three-
-        // point is the default; user can flip to center+start+end
-        // mid-sketch without leaving the tool.
-        <div
-          role="group"
-          aria-label={t("toolbar.arcCreationMode")}
-          className="ml-1 flex items-center rounded-md border border-white/10 bg-black/20 p-0.5 text-xs"
-        >
-          <button
-            type="button"
-            className={
-              arcToolMode === "three_point"
-                ? "rounded px-2 py-1 bg-white/15 text-on-surface"
-                : "rounded px-2 py-1 text-on-surface-dim hover:text-on-surface"
-            }
-            data-tooltip={t("toolbar.arcThreePointTooltip")}
-            onClick={() => onSetArcToolMode("three_point")}
-          >
-            {t("toolbar.arcThreePoint")}
-          </button>
-          <button
-            type="button"
-            className={
-              arcToolMode === "center_start_end"
-                ? "rounded px-2 py-1 bg-white/15 text-on-surface"
-                : "rounded px-2 py-1 text-on-surface-dim hover:text-on-surface"
-            }
-            data-tooltip={t("toolbar.arcCenterTooltip")}
-            onClick={() => onSetArcToolMode("center_start_end")}
-          >
-            {t("toolbar.arcCenter")}
-          </button>
-        </div>
-      ) : null}
+      <SplitToolButton
+        options={[
+          { value: "corner_corner" as const, label: t("toolbar.rectangleCornerCorner") },
+          { value: "center_point" as const, label: t("toolbar.rectangleCenterPoint") },
+          { value: "three_point" as const, label: t("toolbar.rectangleThreePoint") },
+        ]}
+        value={rectangleToolMode}
+        onChange={onSetRectangleToolMode}
+        onPrimaryAction={() => {
+          onCancelSketchConstraint();
+          void onSetSketchTool("rectangle");
+        }}
+        isActive={activeSketchPlaneId ? activeSketchTool === "rectangle" : false}
+        disabled={!activeSketchPlaneId}
+        tooltip={toolLabel(
+          sketchTools.find((t) => t.id === "rectangle")!,
+        )}
+        ariaLabel={t("toolbar.rectangle")}
+      >
+        <RectangleIcon />
+      </SplitToolButton>
+      <SplitToolButton
+        options={[
+          { value: "three_point" as const, label: t("toolbar.arcThreePoint") },
+          { value: "center_start_end" as const, label: t("toolbar.arcCenter") },
+        ]}
+        value={arcToolMode}
+        onChange={onSetArcToolMode}
+        onPrimaryAction={() => {
+          onCancelSketchConstraint();
+          void onSetSketchTool("arc");
+        }}
+        isActive={activeSketchPlaneId ? activeSketchTool === "arc" : false}
+        disabled={!activeSketchPlaneId}
+        tooltip={toolLabel(
+          sketchTools.find((t) => t.id === "arc")!,
+        )}
+        ariaLabel={t("toolbar.arc")}
+      >
+        <ArcIcon />
+      </SplitToolButton>
+      <SplitToolButton
+        options={[
+          { value: "center_radius" as const, label: t("toolbar.circleCenterRadius") },
+          { value: "two_point" as const, label: t("toolbar.circleTwoPoint") },
+          { value: "three_point" as const, label: t("toolbar.circleThreePoint") },
+          { value: "tangent_two_lines" as const, label: t("toolbar.circleTangentTwoLines") },
+          { value: "tangent_three_lines" as const, label: t("toolbar.circleTangentThreeLines") },
+        ]}
+        value={circleToolMode}
+        onChange={onSetCircleToolMode}
+        onPrimaryAction={() => {
+          onCancelSketchConstraint();
+          void onSetSketchTool("circle");
+        }}
+        isActive={activeSketchPlaneId ? activeSketchTool === "circle" : false}
+        disabled={!activeSketchPlaneId}
+        tooltip={toolLabel(
+          sketchTools.find((t) => t.id === "circle")!,
+        )}
+        ariaLabel={t("toolbar.circle")}
+      >
+        <CircleIcon />
+      </SplitToolButton>
+      <SplitToolButton
+        options={[
+          { value: "circumscribed" as const, label: t("toolbar.polygonCircumscribed") },
+          { value: "inscribed" as const, label: t("toolbar.polygonInscribed") },
+          { value: "edge" as const, label: t("toolbar.polygonEdge") },
+        ]}
+        value={polygonToolMode}
+        onChange={onSetPolygonToolMode}
+        onPrimaryAction={() => {
+          onCancelSketchConstraint();
+          void onSetSketchTool("polygon");
+        }}
+        isActive={activeSketchPlaneId ? activeSketchTool === "polygon" : false}
+        disabled={!activeSketchPlaneId}
+        tooltip={toolLabel(
+          sketchTools.find((t) => t.id === "polygon")!,
+        )}
+        ariaLabel={t("toolbar.polygon")}
+      >
+        <PolygonIcon />
+      </SplitToolButton>
       <div className="h-8 w-px bg-white/10" />
       <button
         className={

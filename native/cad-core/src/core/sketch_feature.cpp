@@ -205,7 +205,7 @@ void validate_constraint(const std::optional<std::string>& constraint) {
 
 void validate_tool(const std::string& tool) {
   if (tool != "select" && tool != "line" && tool != "rectangle" &&
-      tool != "circle" && tool != "arc" && tool != "fillet" &&
+      tool != "circle" && tool != "polygon" && tool != "arc" && tool != "fillet" &&
       tool != "project" && tool != "dimension") {
     throw std::runtime_error("Unsupported sketch tool: " + tool);
   }
@@ -3461,6 +3461,65 @@ void delete_sketch_fillet(FeatureEntry& feature,
           parameters.fillets.end(),
           [&](const SketchFillet& fillet) { return fillet.id == fillet_id; }),
       parameters.fillets.end());
+
+  refresh_sketch_derived_state(feature);
+}
+
+void add_sketch_polygon(FeatureEntry& feature,
+                        int polygon_index,
+                        int sides,
+                        const std::string& mode,
+                        double start_x,
+                        double start_y,
+                        double end_x,
+                        double end_y,
+                        bool is_construction) {
+  if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+    throw std::runtime_error("Only sketch features can accept sketch polygons");
+  }
+  if (sides < 3) {
+    throw std::runtime_error("Polygon must have at least 3 sides");
+  }
+
+  double center_x = start_x;
+  double center_y = start_y;
+  double radius = std::hypot(end_x - start_x, end_y - start_y);
+
+  if (mode == "edge") {
+    // Compute center from the edge. The polygon has `sides` sides
+    // of equal length. The edge AB is one side. The center is
+    // at the perpendicular bisector of AB at distance R where
+    // R = AB / (2 * sin(π/N)) for inscribed.
+    double dx = end_x - start_x;
+    double dy = end_y - start_y;
+    double edge_len = std::hypot(dx, dy);
+    if (edge_len <= kMinimumSketchDimensionValue) {
+      throw std::runtime_error("Polygon edge must have non-zero length");
+    }
+    double mid_x = (start_x + end_x) / 2.0;
+    double mid_y = (start_y + end_y) / 2.0;
+    // Unit perpendicular (rotate CCW vs CW — choose one side).
+    double nx = -dy / edge_len;
+    double ny = dx / edge_len;
+    // For inscribed: radius = edge_len / (2 * sin(π/N))
+    radius = edge_len / (2.0 * std::sin(M_PI / sides));
+    center_x = mid_x + nx * radius * std::cos(M_PI / sides);
+    center_y = mid_y + ny * radius * std::cos(M_PI / sides);
+  }
+
+  feature.sketch_parameters->polygons.push_back(SketchPolygon{
+      .id = "polygon-" + std::to_string(polygon_index),
+      .center_x = center_x,
+      .center_y = center_y,
+      .radius = radius,
+      .sides = sides,
+      .mode = mode,
+      .start_x = start_x,
+      .start_y = start_y,
+      .end_x = end_x,
+      .end_y = end_y,
+      .is_construction = is_construction,
+  });
 
   refresh_sketch_derived_state(feature);
 }

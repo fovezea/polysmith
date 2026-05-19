@@ -122,6 +122,20 @@ void add_sketch_circle(FeatureEntry& feature,
                        double radius,
                        bool is_construction = false);
 
+// Build a regular polygon on the sketch. mode is "circumscribed",
+// "inscribed", or "edge". For circumscribed/inscribed the polygon is
+// computed from (center, radius, sides). For edge mode the polygon is
+// computed from (start, end, sides) and center/radius are derived.
+void add_sketch_polygon(FeatureEntry& feature,
+                        int polygon_index,
+                        int sides,
+                        const std::string& mode,
+                        double start_x,
+                        double start_y,
+                        double end_x,
+                        double end_y,
+                        bool is_construction = false);
+
 // Build a SketchArc on the feature. Caller is expected to have already
 // computed the arc's center, radius, and ccw direction from whichever
 // creation flow they ran (three-point or center+start+end). The arc's

@@ -271,6 +271,24 @@ interface ViewportPanelProps {
   // "three_point"; the toolbar updates it through `onSetArcToolMode`.
   arcToolMode: "three_point" | "center_start_end";
   onSetArcToolMode: (mode: "three_point" | "center_start_end") => void;
+  // Rectangle creation mode — corner-to-corner, center-point, or 3-point.
+  // Lifted from App.tsx so the viewport commit handler can compute
+  // the rectangle corners differently per mode.
+  rectangleToolMode: "corner_corner" | "center_point" | "three_point";
+  // Circle creation mode — center+radius, 2-point, 3-point, or tangent.
+  // Lifted from App.tsx so the viewport handler can compute the
+  // circle geometry differently per mode.
+  circleToolMode: "center_radius" | "two_point" | "three_point" | "tangent_two_lines" | "tangent_three_lines";
+  polygonToolMode: "circumscribed" | "inscribed" | "edge";
+  onAddSketchPolygon: (
+    sides: number,
+    mode: string,
+    startX: number,
+    startY: number,
+    endX: number,
+    endY: number,
+    isConstruction: boolean,
+  ) => Promise<void>;
   // Sketch fillet — fired when the user clicks an eligible corner
   // point under the Fillet tool. Eligible = sketch point shared by
   // exactly two non-construction sketch lines that are not already
@@ -821,6 +839,10 @@ export function ViewportPanel({
   onAddSketchArc,
   arcToolMode,
   onSetArcToolMode,
+  rectangleToolMode,
+  circleToolMode,
+  polygonToolMode,
+  onAddSketchPolygon,
   onAddSketchFillet,
   onSelectSketchEntity,
   onPickSketchPoint,
@@ -1005,6 +1027,10 @@ export function ViewportPanel({
   const addSketchCircleRef = useRef(onAddSketchCircle);
   const addSketchArcRef = useRef(onAddSketchArc);
   const arcToolModeRef = useRef(arcToolMode);
+  const rectangleToolModeRef = useRef(rectangleToolMode);
+  const circleToolModeRef = useRef(circleToolMode);
+  const polygonToolModeRef = useRef(polygonToolMode);
+  const addSketchPolygonRef = useRef(onAddSketchPolygon);
   const addSketchFilletRef = useRef(onAddSketchFillet);
   // Arc placement requires three clicks. The first click goes through
   // `lineDraftStartRef` (shared with line/rect/circle to keep the
@@ -1014,6 +1040,8 @@ export function ViewportPanel({
   // Cleared after every committed arc and whenever the user switches
   // away from the arc tool.
   const arcSecondPointRef = useRef<[number, number] | null>(null);
+  const rectSecondPointRef = useRef<[number, number] | null>(null);
+  const circleSecondPointRef = useRef<[number, number] | null>(null);
   const selectSketchEntityRef = useRef(onSelectSketchEntity);
   const pickSketchPointRef = useRef(onPickSketchPoint);
   const selectSketchDimensionRef = useRef(onSelectSketchDimension);
@@ -2196,6 +2224,8 @@ export function ViewportPanel({
     }
     lineDraftStartRef.current = null;
     arcSecondPointRef.current = null;
+    rectSecondPointRef.current = null;
+    circleSecondPointRef.current = null;
     clearPreviewLine();
     clearPreviewCircle();
     clearPreviewArc();
@@ -2401,9 +2431,21 @@ export function ViewportPanel({
     rendererRef.current?.domElement.focus();
 
     if (session.tool === "rectangle") {
+      if (rectangleToolModeRef.current === "three_point") {
+        // 3-point mode can't commit from drag; handled in snap handler.
+        return;
+      }
+      const rectStartX =
+        rectangleToolModeRef.current === "center_point"
+          ? 2 * startX - endX
+          : startX;
+      const rectStartY =
+        rectangleToolModeRef.current === "center_point"
+          ? 2 * startY - endY
+          : startY;
       await addSketchRectangleRef.current(
-        startX,
-        startY,
+        rectStartX,
+        rectStartY,
         endX,
         endY,
         sketchToolConstructionRef.current,
@@ -2411,15 +2453,29 @@ export function ViewportPanel({
       return;
     }
     if (session.tool === "circle") {
+      const circleMode = circleToolModeRef.current;
+      let cx = startX;
+      let cy = startY;
+      let r = distanceBetweenPoints(session.start, session.current);
+      if (circleMode === "two_point") {
+        // 2-point circle: start/end are diameter endpoints
+        cx = (startX + endX) / 2;
+        cy = (startY + endY) / 2;
+        r = distanceBetweenPoints(session.start, session.current) / 2;
+      }
+      // 3-point and tangent modes can't commit from a 2-click drag
+      if (circleMode === "three_point" || circleMode === "tangent_two_lines" || circleMode === "tangent_three_lines") {
+        return;
+      }
       pendingCircleDimensionPlacementRef.current = {
         fromCircleCount: sketchFeature?.sketch_parameters?.circles.length ?? 0,
-        center: session.start,
+        center: [cx, cy],
         end: session.current,
       };
       await addSketchCircleRef.current(
-        startX,
-        startY,
-        distanceBetweenPoints(session.start, session.current),
+        cx,
+        cy,
+        r,
         sketchToolConstructionRef.current,
       );
       return;
@@ -3075,6 +3131,10 @@ export function ViewportPanel({
     addSketchCircleRef.current = onAddSketchCircle;
     addSketchArcRef.current = onAddSketchArc;
     arcToolModeRef.current = arcToolMode;
+    rectangleToolModeRef.current = rectangleToolMode;
+    circleToolModeRef.current = circleToolMode;
+    polygonToolModeRef.current = polygonToolMode;
+    addSketchPolygonRef.current = onAddSketchPolygon;
     addSketchFilletRef.current = onAddSketchFillet;
     selectSketchEntityRef.current = onSelectSketchEntity;
     pickSketchPointRef.current = onPickSketchPoint;
@@ -3101,6 +3161,10 @@ export function ViewportPanel({
     onAddSketchCircle,
     onAddSketchArc,
     arcToolMode,
+    rectangleToolMode,
+    circleToolMode,
+    polygonToolMode,
+    onAddSketchPolygon,
     onAddSketchFillet,
     onSelectSketchEntity,
     onPickSketchPoint,
@@ -5534,12 +5598,63 @@ export function ViewportPanel({
         }
 
         if (activeSketchToolRef.current === "rectangle") {
+          const mode = rectangleToolModeRef.current;
+          // 3-point rectangle: click 1 = corner, click 2 = second corner
+          // of first edge, click 3 = perpendicular offset point.
+          if (mode === "three_point") {
+            if (!rectSecondPointRef.current) {
+              rectSecondPointRef.current = [committedEnd[0], committedEnd[1]];
+              return;
+            }
+            const [secondX, secondY] = rectSecondPointRef.current;
+            rectSecondPointRef.current = null;
+            lineDraftStartRef.current = null;
+            clearDraftDimensionSession();
+            suppressDimensionEditorAfterSketchCommit();
+            const p1x = startX;
+            const p1y = startY;
+            const p2x = secondX;
+            const p2y = secondY;
+            const p3x = committedEnd[0];
+            const p3y = committedEnd[1];
+            const dx = p2x - p1x;
+            const dy = p2y - p1y;
+            const edgeLen = Math.hypot(dx, dy);
+            if (edgeLen < 1e-9) return;
+            const nx = -dy / edgeLen;
+            const ny = dx / edgeLen;
+            const offset = nx * (p3x - p1x) + ny * (p3y - p1y);
+            const cx = p1x + nx * offset;
+            const cy = p1y + ny * offset;
+            const c2x = p2x + nx * offset;
+            const c2y = p2y + ny * offset;
+            const minX = Math.min(p1x, p2x, cx, c2x);
+            const minY = Math.min(p1y, p2y, cy, c2y);
+            const maxX = Math.max(p1x, p2x, cx, c2x);
+            const maxY = Math.max(p1y, p2y, cy, c2y);
+            void addSketchRectangleRef.current(
+              minX,
+              minY,
+              maxX,
+              maxY,
+              sketchToolConstructionRef.current,
+            );
+            return;
+          }
           lineDraftStartRef.current = null;
           clearDraftDimensionSession();
           suppressDimensionEditorAfterSketchCommit();
+          const rectStartX =
+            mode === "center_point"
+              ? 2 * startX - committedEnd[0]
+              : startX;
+          const rectStartY =
+            mode === "center_point"
+              ? 2 * startY - committedEnd[1]
+              : startY;
           void addSketchRectangleRef.current(
-            startX,
-            startY,
+            rectStartX,
+            rectStartY,
             committedEnd[0],
             committedEnd[1],
             sketchToolConstructionRef.current,
@@ -5548,6 +5663,41 @@ export function ViewportPanel({
         }
 
         if (activeSketchToolRef.current === "circle") {
+          const circleMode = circleToolModeRef.current;
+          // 3-point circle: click 1 = point on circle, click 2 = point on
+          // circle, click 3 = third point on circle → compute circumcenter.
+          if (circleMode === "three_point") {
+            if (!circleSecondPointRef.current) {
+              circleSecondPointRef.current = [committedEnd[0], committedEnd[1]];
+              return;
+            }
+            const [p2x, p2y] = circleSecondPointRef.current;
+            circleSecondPointRef.current = null;
+            lineDraftStartRef.current = null;
+            clearDraftDimensionSession();
+            suppressDimensionEditorAfterSketchCommit();
+            const p1x = startX;
+            const p1y = startY;
+            const p3x = committedEnd[0];
+            const p3y = committedEnd[1];
+            // Circumcenter from three points using perpendicular bisectors
+            const d = 2 * (p1x * (p2y - p3y) + p2x * (p3y - p1y) + p3x * (p1y - p2y));
+            if (Math.abs(d) < 1e-9) return; // collinear
+            const ux = ((p1x*p1x + p1y*p1y)*(p2y - p3y) + (p2x*p2x + p2y*p2y)*(p3y - p1y) + (p3x*p3x + p3y*p3y)*(p1y - p2y)) / d;
+            const uy = ((p1x*p1x + p1y*p1y)*(p3x - p2x) + (p2x*p2x + p2y*p2y)*(p1x - p3x) + (p3x*p3x + p3y*p3y)*(p2x - p1x)) / d;
+            const radius = Math.hypot(ux - p1x, uy - p1y);
+            void addSketchCircleRef.current(
+              ux,
+              uy,
+              radius,
+              sketchToolConstructionRef.current,
+            );
+            return;
+          }
+          // Tangent modes: reserved for future core support.
+          if (circleMode === "tangent_two_lines" || circleMode === "tangent_three_lines") {
+            return;
+          }
           lineDraftStartRef.current = null;
           pendingCircleDimensionPlacementRef.current = {
             fromCircleCount:
@@ -5557,14 +5707,41 @@ export function ViewportPanel({
           };
           clearDraftDimensionSession();
           suppressDimensionEditorAfterSketchCommit();
-          const radius = distanceBetweenPoints(
+          let cx = startX;
+          let cy = startY;
+          let radius = distanceBetweenPoints(
             [startX, startY],
             committedEnd,
           );
+          if (circleMode === "two_point") {
+            cx = (startX + committedEnd[0]) / 2;
+            cy = (startY + committedEnd[1]) / 2;
+            radius = distanceBetweenPoints(
+              [startX, startY],
+              committedEnd,
+            ) / 2;
+          }
           void addSketchCircleRef.current(
+            cx,
+            cy,
+            radius,
+            sketchToolConstructionRef.current,
+          );
+          return;
+        }
+
+        if (activeSketchToolRef.current === "polygon") {
+          lineDraftStartRef.current = null;
+          clearDraftDimensionSession();
+          suppressDimensionEditorAfterSketchCommit();
+          const sides = 6; // default hexagon
+          void addSketchPolygonRef.current(
+            sides,
+            polygonToolModeRef.current,
             startX,
             startY,
-            radius,
+            committedEnd[0],
+            committedEnd[1],
             sketchToolConstructionRef.current,
           );
           return;
@@ -6178,6 +6355,8 @@ export function ViewportPanel({
   useEffect(() => {
     lineDraftStartRef.current = null;
     arcSecondPointRef.current = null;
+    rectSecondPointRef.current = null;
+    circleSecondPointRef.current = null;
     clearPreviewLine();
     clearPreviewCircle();
     clearPreviewArc();

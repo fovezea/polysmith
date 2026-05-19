@@ -345,6 +345,50 @@ ViewportSketchLinePrimitive make_sketch_line_primitive(const SketchLine& line,
   };
 }
 
+ViewportSketchPolygonPrimitive make_sketch_polygon_primitive(
+    const SketchPolygon& polygon,
+    const SketchFeatureParameters& parameters,
+    bool is_selected) {
+  const WorldPoint center = to_world_point(parameters, polygon.center_x, polygon.center_y);
+
+  ViewportSketchPolygonPrimitive primitive{
+      .polygon_id = polygon.id,
+      .plane_id = parameters.plane_id,
+      .plane_frame = parameters.plane_frame.has_value()
+                         ? std::optional<ViewportSketchPlaneFrame>(
+                               make_sketch_plane_frame(
+                                   parameters.plane_frame.value()))
+                         : std::nullopt,
+      .sides = polygon.sides,
+      .mode = polygon.mode,
+      .center_x = center.x,
+      .center_y = center.y,
+      .center_z = center.z,
+      .radius = polygon.radius,
+      .is_selected = is_selected,
+      .is_construction = polygon.is_construction,
+  };
+
+  // Compute world-space corners
+  const int n = polygon.sides;
+  const double angle_offset = -M_PI / 2.0;  // start from top
+  for (int i = 0; i < n; ++i) {
+    double angle = angle_offset + 2.0 * M_PI * i / n;
+    double local_x = polygon.center_x + polygon.radius * std::cos(angle);
+    double local_y = polygon.center_y + polygon.radius * std::sin(angle);
+    // For circumscribed mode, push corners out
+    if (polygon.mode == "circumscribed") {
+      local_x = polygon.center_x + (polygon.radius / std::cos(M_PI / n)) * std::cos(angle + M_PI / n - M_PI / 2.0);
+      local_y = polygon.center_y + (polygon.radius / std::cos(M_PI / n)) * std::sin(angle + M_PI / n - M_PI / 2.0);
+    }
+    const WorldPoint corner = to_world_point(parameters, local_x, local_y);
+    primitive.corner_x.push_back(corner.x);
+    primitive.corner_y.push_back(corner.y);
+    primitive.corner_z.push_back(corner.z);
+  }
+  return primitive;
+}
+
 ViewportSketchCirclePrimitive make_sketch_circle_primitive(
     const SketchCircle& circle,
     const SketchFeatureParameters& parameters,
@@ -1664,6 +1708,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
   std::vector<ViewportReferenceAxis> reference_axes;
   std::vector<ViewportSketchLinePrimitive> sketch_lines;
   std::vector<ViewportSketchCirclePrimitive> sketch_circles;
+  std::vector<ViewportSketchPolygonPrimitive> sketch_polygons;
   std::vector<ViewportSketchArcPrimitive> sketch_arcs;
   std::vector<ViewportSketchPointPrimitive> sketch_points;
   std::vector<ViewportSketchDimensionPrimitive> sketch_dimensions;
@@ -3107,6 +3152,13 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
         }
       }
 
+      for (const auto& polygon : feature.sketch_parameters->polygons) {
+        const bool is_selected_polygon =
+            is_sketch_entity_selected(polygon.id);
+        sketch_polygons.push_back(make_sketch_polygon_primitive(
+            polygon, *feature.sketch_parameters, is_selected_polygon));
+      }
+
       if (document->active_sketch_feature_id.has_value() &&
           document->active_sketch_feature_id.value() == feature.id) {
         for (const auto& point : feature.sketch_parameters->points) {
@@ -3332,6 +3384,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
       .reference_axes = reference_axes,
       .sketch_lines = sketch_lines,
       .sketch_circles = sketch_circles,
+      .sketch_polygons = sketch_polygons,
       .sketch_arcs = sketch_arcs,
       .sketch_points = sketch_points,
       .sketch_dimensions = sketch_dimensions,

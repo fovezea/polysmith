@@ -134,6 +134,14 @@ interface AppHeaderProps {
   // segmented control's behaviour.
   arcToolMode: "three_point" | "center_start_end";
   onSetArcToolMode: (mode: "three_point" | "center_start_end") => void;
+  // Rectangle tool's creation mode — split button variant.
+  rectangleToolMode: "corner_corner" | "center_point" | "three_point";
+  onSetRectangleToolMode: (mode: "corner_corner" | "center_point" | "three_point") => void;
+  // Circle tool's creation mode — split button variant.
+  circleToolMode: "center_radius" | "two_point" | "three_point" | "tangent_two_lines" | "tangent_three_lines";
+  onSetCircleToolMode: (mode: "center_radius" | "two_point" | "three_point" | "tangent_two_lines" | "tangent_three_lines") => void;
+  polygonToolMode: "circumscribed" | "inscribed" | "edge";
+  onSetPolygonToolMode: (mode: "circumscribed" | "inscribed" | "edge") => void;
   onStart: () => Promise<void>;
   onCreateDocument: () => Promise<void>;
   onExportDocument: () => Promise<void>;
@@ -191,6 +199,12 @@ export function AppHeader({
   isMirrorToolOpen,
   arcToolMode,
   onSetArcToolMode,
+  rectangleToolMode,
+  onSetRectangleToolMode,
+  circleToolMode,
+  onSetCircleToolMode,
+  polygonToolMode,
+  onSetPolygonToolMode,
   onStart,
   onCreateDocument,
   onExportDocument,
@@ -410,6 +424,12 @@ export function AppHeader({
               isMirrorToolOpen={isMirrorToolOpen}
               arcToolMode={arcToolMode}
               onSetArcToolMode={onSetArcToolMode}
+              rectangleToolMode={rectangleToolMode}
+              onSetRectangleToolMode={onSetRectangleToolMode}
+              circleToolMode={circleToolMode}
+              onSetCircleToolMode={onSetCircleToolMode}
+              polygonToolMode={polygonToolMode}
+              onSetPolygonToolMode={onSetPolygonToolMode}
               onStartSketch={onStartSketch}
               onFinishSketch={onFinishSketch}
               onCancelSketchConstraint={onCancelSketchConstraint}
