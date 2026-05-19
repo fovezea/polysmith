@@ -2,6 +2,44 @@
 
 This document tracks concrete implementation milestones as they land in the codebase.
 
+## 2026-05-19
+
+### Sketcher UI Overhaul — Split Buttons, Rectangle/Circle/Polygon Variants
+
+#### UI Framework
+- created reusable `SplitToolButton` component with icon + chevron dropdown for tool variant selection
+- redesigned SketchToolbar: rectangle (2-point / center-point / 3-point), circle (center+radius / 2-point / 3-point / tangent stubs), arc (3-point / center+start+end), polygon (circumscribed / inscribed / edge)
+- added `PolygonIcon` SVG to ToolBarIcons
+
+#### Polygon Tool (full-stack)
+- C++ core: `SketchPolygon` struct in `feature.h`, `add_sketch_polygon` in `sketch_feature.cpp` with inscribed / circumscribed / edge math, `DocumentManager` wrapper, viewport primitive builder `make_sketch_polygon_primitive` computing world-space corners
+- IPC: `add_sketch_polygon` command registered in `commands.schema.json`, dispatched in `app.cpp`
+- TS types: `PolygonToolMode`, `ViewportSketchPolygon`, `SketchPolygonScene`
+- Three.js rendering: `buildSketchPolygonObject` in `viewport.utils.ts`, closed `THREE.Line` loop from corner arrays
+- Serialization: `to_payload` for `ViewportSketchPolygonPrimitive` + viewport state emission in `serialization.cpp`
+- Zod schema: `sketch_polygons` field with `.default([])`, `active_sketch_tool` and `active_tool` enums extended with `"polygon"`
+- Polygon radius dimension: `polygon_radius` kind created in `add_sketch_polygon`, emitted by viewport builder
+- Polygon orientation: click-aligned for all three modes
+- Viewport event handling: polygon tool added to `handlePointerDown` (sets lineDraftStartRef) and `handlePointerUp` (draft commit), also handled in drag session fallback
+- Tool validation: `is_supported_sketch_tool` and `validate_tool` extended with `"polygon"`
+
+#### Circle Tool
+- 2-point circle: center = midpoint, radius = half distance between two diameter endpoints
+- 3-point circle: circumcenter computed from three points via perpendicular bisectors
+- tangent circles: dropdown entries reserved for future core support
+
+#### Rectangle Tool
+- 3-point rectangle: three-click flow — corner, second corner of first edge, perpendicular offset point
+
+#### Bug Fixes
+- `document.cpp` polygon handler was setting `active_sketch_tool = "circle"` (copy-paste error) → corrected to `"polygon"`
+- `serialization.cpp` was missing `sketch_polygons` JSON emission → polygons invisible in viewport
+
+#### Documentation
+- `ai-cad-command-language.md`: documented `add_sketch_polygon` with all three modes
+- `ipc-protocol.md`: added polygon command reference + viewport_state entry
+- updated `sketcher-improvements.md` and `sketcher-progress-report.md` (working notes)
+
 ## 2026-04-16
 
 ### Architecture and Protocol

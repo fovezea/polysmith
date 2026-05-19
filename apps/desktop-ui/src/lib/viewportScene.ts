@@ -10,6 +10,7 @@ import type {
   ViewportSketchCircle,
   ViewportSketchConstraint,
   ViewportSketchDimension,
+  ViewportSketchPolygon,
   ViewportSketchProfile,
   ViewportState,
   BoxScenePrimitive,
@@ -24,6 +25,7 @@ import type {
   SketchDimensionScene,
   SketchLineScene,
   SketchPointScene,
+  SketchPolygonScene,
   SketchProfileScene,
   SolidFaceScene,
   SceneEdge,
@@ -202,6 +204,24 @@ function makeSketchCircle(
     isSelected: circle.is_selected,
     isConstruction: circle.is_construction,
     isProjected: projectedCircleIds.has(circle.circle_id),
+  };
+}
+
+function makeSketchPolygon(polygon: ViewportSketchPolygon): SketchPolygonScene {
+  const n = polygon.corner_x.length;
+  const corners = new Array<number>(n * 3);
+  for (let i = 0; i < n; i++) {
+    corners[i * 3] = polygon.corner_x[i];
+    corners[i * 3 + 1] = polygon.corner_y[i];
+    corners[i * 3 + 2] = polygon.corner_z[i];
+  }
+  return {
+    isPreview: polygon.is_preview,
+    polygonId: polygon.polygon_id,
+    planeId: polygon.plane_id,
+    corners,
+    isSelected: polygon.is_selected,
+    isConstruction: polygon.is_construction,
   };
 }
 
@@ -760,6 +780,11 @@ export function createViewportScene(
   const sketchCircles = viewport.sketch_circles
     .filter((circle) => isSketchPlaneVisible(circle.plane_id))
     .map((circle) => makeSketchCircle(circle, projectedCircleIds));
+  const sketchPolygons = viewport.sketch_polygons
+    ? viewport.sketch_polygons
+        .filter((polygon) => isSketchPlaneVisible(polygon.plane_id))
+        .map((polygon) => makeSketchPolygon(polygon))
+    : [];
   const sketchArcs = viewport.sketch_arcs
     .filter((arc) => isSketchPlaneVisible(arc.plane_id))
     .map((arc) => makeSketchArc(arc, projectedArcIds));
@@ -888,6 +913,7 @@ export function createViewportScene(
     cutPreviews,
     sketchLines,
     sketchCircles,
+    sketchPolygons,
     sketchArcs,
     sketchDimensions: visibleSketchDimensions,
     sketchConstraints,
@@ -960,6 +986,12 @@ export function createViewportScene(
         sketchCircles.map(
           (circle) =>
             `sketch-circle:${circle.circleId}:${circle.planeId}:${circle.center.join(":")}:${circle.radius}:${circle.isSelected}`,
+        ),
+      )
+      .concat(
+        sketchPolygons.map(
+          (polygon) =>
+            `sketch-polygon:${polygon.polygonId}:${polygon.planeId}:${polygon.corners.join(":")}:${polygon.isSelected}`,
         ),
       )
       .concat(

@@ -20,6 +20,7 @@ import type {
   SketchDimensionScene,
   SketchConstraintScene,
   SketchPointScene,
+  SketchPolygonScene,
   SketchProfileScene,
   DocumentState,
 } from "@/types";
@@ -133,6 +134,22 @@ export interface ViewportSketchCircle {
   is_preview: boolean;
 }
 
+export interface ViewportSketchPolygon {
+  polygon_id: string;
+  plane_id: string;
+  plane_frame: PlaneFrame | null;
+  corner_x: number[];
+  corner_y: number[];
+  corner_z: number[];
+  sides: number;
+  mode: string;
+  center: Vector3;
+  radius: number;
+  is_selected: boolean;
+  is_construction: boolean;
+  is_preview: boolean;
+}
+
 // 2D arc primitive emitted by the core. Carries world-space start /
 // end / center coordinates plus the radius and ccw flag so the UI
 // renderer can sample the polyline locally without having to know
@@ -227,6 +244,7 @@ export interface ViewportScene {
   references: SceneReference[];
   sketchLines: SketchLineScene[];
   sketchCircles: SketchCircleScene[];
+  sketchPolygons: SketchPolygonScene[];
   sketchArcs: SketchArcScene[];
   sketchDimensions: SketchDimensionScene[];
   sketchConstraints: SketchConstraintScene[];

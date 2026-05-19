@@ -15,6 +15,7 @@ import {
   makeDeleteSketchFilletCommand,
   makeDeleteSketchSelectionCommand,
   makeAddSketchCircleCommand,
+  makeAddSketchPolygonCommand,
   makeAddSketchLineCommand,
   makeSetSketchLineConstructionCommand,
   makeSetSketchMidpointAnchorCommand,
@@ -595,6 +596,20 @@ export function useCadCore() {
     ) => {
       await sendCoreCommand(
         makeAddSketchCircleCommand(centerX, centerY, radius, isConstruction),
+      );
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    addSketchPolygon: async (
+      sides: number,
+      mode: string,
+      startX: number,
+      startY: number,
+      endX: number,
+      endY: number,
+      isConstruction = false,
+    ) => {
+      await sendCoreCommand(
+        makeAddSketchPolygonCommand(sides, mode, startX, startY, endX, endY, isConstruction),
       );
       await sendCoreCommand(makeGetViewportStateCommand());
     },

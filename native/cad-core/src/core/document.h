@@ -254,6 +254,15 @@ class DocumentManager {
                                   double center_y,
                                   double radius,
                                   bool is_construction = false);
+  // Add a regular polygon to the active sketch. mode is one of
+  // "circumscribed", "inscribed", "edge".
+  DocumentState add_sketch_polygon(int sides,
+                                   const std::string& mode,
+                                   double start_x,
+                                   double start_y,
+                                   double end_x,
+                                   double end_y,
+                                   bool is_construction = false);
   // Add an arc to the active sketch. `mode` selects how the three
   // input points are interpreted:
   //   - "three_point": (start, end, anchor) — anchor lies on the arc
@@ -329,6 +338,7 @@ class DocumentManager {
   int next_feature_id_ = 1;
   int next_sketch_line_id_ = 1;
   int next_sketch_circle_id_ = 1;
+  int next_sketch_polygon_id_ = 1;
   // Independent counter for arc ids ("arc-N"). Endpoint point ids
   // ("point-N") still come from `next_sketch_line_id_` so arc and
   // line endpoints share the same id space, keeping the points

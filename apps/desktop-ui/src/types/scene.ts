@@ -167,6 +167,16 @@ export interface SketchCircleScene {
   isProjected: boolean;
 }
 
+// Regular polygon derived from ViewportSketchPolygon.
+export interface SketchPolygonScene {
+  isPreview: boolean;
+  polygonId: string;
+  planeId: string;
+  corners: number[];
+  isSelected: boolean;
+  isConstruction: boolean;
+}
+
 // 2D arc derived from `ViewportSketchArc`. The renderer turns this
 // into a THREE.Line by sampling the arc between `start` and `end`
 // around `center` along the stored sweep direction. v1 freezes the

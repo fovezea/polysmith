@@ -1425,6 +1425,24 @@ json to_payload(const polysmith::core::ViewportSketchLinePrimitive& primitive) {
   };
 }
 
+json to_payload(const polysmith::core::ViewportSketchPolygonPrimitive& primitive) {
+  return {
+      {"polygon_id", primitive.polygon_id},
+      {"plane_id", primitive.plane_id},
+      {"plane_frame", primitive.plane_frame.has_value() ? viewport_sketch_plane_frame_to_payload(primitive.plane_frame.value()) : json(nullptr)},
+      {"corner_x", primitive.corner_x},
+      {"corner_y", primitive.corner_y},
+      {"corner_z", primitive.corner_z},
+      {"sides", primitive.sides},
+      {"mode", primitive.mode},
+      {"center", {{"x", primitive.center_x}, {"y", primitive.center_y}, {"z", primitive.center_z}}},
+      {"radius", primitive.radius},
+      {"is_selected", primitive.is_selected},
+      {"is_construction", primitive.is_construction},
+      {"is_preview", primitive.is_preview},
+  };
+}
+
 json to_payload(const polysmith::core::ViewportSketchCirclePrimitive& primitive) {
   return {
       {"circle_id", primitive.circle_id},
@@ -1664,6 +1682,11 @@ json to_payload(const polysmith::core::ViewportState& viewport) {
     sketch_circles.push_back(to_payload(circle));
   }
 
+  json sketch_polygons = json::array();
+  for (const auto& polygon : viewport.sketch_polygons) {
+    sketch_polygons.push_back(to_payload(polygon));
+  }
+
   json sketch_arcs = json::array();
   for (const auto& arc : viewport.sketch_arcs) {
     sketch_arcs.push_back(to_payload(arc));
@@ -1710,6 +1733,7 @@ json to_payload(const polysmith::core::ViewportState& viewport) {
       {"reference_axes", reference_axes},
       {"sketch_lines", sketch_lines},
       {"sketch_circles", sketch_circles},
+      {"sketch_polygons", sketch_polygons},
       {"sketch_arcs", sketch_arcs},
       {"sketch_points", sketch_points},
       {"sketch_dimensions", sketch_dimensions},

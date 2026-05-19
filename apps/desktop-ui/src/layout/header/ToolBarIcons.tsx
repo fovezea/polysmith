@@ -81,6 +81,22 @@ export const CircleIcon = () => (
   </svg>
 );
 
+export const PolygonIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-7 w-7"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M12 3l7 5-3.5 6 7 0-3.5-6" />
+    <path d="M12 3L5 8l-3.5 6h7L12 20l3.5-6" />
+  </svg>
+);
+
 export const ArcIcon = () => (
   <svg
     viewBox="0 0 24 24"
@@ -262,6 +278,8 @@ export function SketchToolIcon({ tool }: { tool: SketchTool }) {
       return <RectangleIcon />;
     case "circle":
       return <CircleIcon />;
+    case "polygon":
+      return <PolygonIcon />;
     case "arc":
       return <ArcIcon />;
     case "fillet":

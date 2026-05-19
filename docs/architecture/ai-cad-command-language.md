@@ -814,6 +814,40 @@ Payload:
 
 Non-construction circles produce circular profiles.
 
+#### `add_sketch_polygon`
+
+Adds a regular N-sided polygon.
+
+Payload:
+
+```ts
+{
+  sides: number;        // >= 3
+  mode: string;         // "inscribed" | "circumscribed" | "edge"
+  start_x: number;
+  start_y: number;
+  end_x: number;
+  end_y: number;
+  is_construction: boolean;
+}
+```
+
+Modes:
+
+- `inscribed`: center + vertex. `(start_x, start_y)` is the center; `(end_x, end_y)`
+  is a vertex on the polygon's circumcircle. The core computes vertices from the
+  center and radius (= distance to vertex).
+- `circumscribed`: center + apothem. `(start_x, start_y)` is the center;
+  `(end_x, end_y)` is the midpoint of one edge. The core pushes vertices
+  outward by `radius / cos(π/N)` so the polygon circumscribes the reference
+  circle.
+- `edge`: two endpoints of one edge. The core derives center and radius from
+  the edge length and side count. The polygon is oriented clockwise from
+  `(start_x, start_y)`.
+
+The core rejects `sides < 3` as a structured error. Non-construction polygons
+receive an automatic radius dimension.
+
 #### `add_sketch_arc`
 
 Adds an arc.
@@ -1922,7 +1956,7 @@ this:
 - Origin plane IDs: `ref-plane-xy`, `ref-plane-yz`, `ref-plane-xz`.
 - Start sketches with `start_sketch_on_plane` or `start_sketch_on_face`.
 - Draw with `add_sketch_line`, `add_sketch_rectangle`, `add_sketch_circle`,
-  `add_sketch_arc`, and `add_sketch_fillet`.
+  `add_sketch_arc`, `add_sketch_polygon`, and `add_sketch_fillet`.
 - Closed non-construction geometry creates `sketch_profiles`.
 - Extrude profiles with `extrude_profile { profile_ids, depth, mode,
   target_body_id? }`, or planar body faces with

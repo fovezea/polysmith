@@ -312,3 +312,25 @@ export interface FeatureEntry {
 // selection. Kept outside `Shape2D` so the shape unions don't grow
 // a non-shape value.
 export type SketchTool = "select" | Shape2D | "project" | "dimension";
+
+/** Rectangle creation modes for the split tool button. */
+export type RectangleToolMode =
+  | "corner_corner"
+  | "center_point"
+  | "three_point";
+
+/** Arc creation modes for the split tool button. */
+export type ArcToolMode = "three_point" | "center_start_end";
+
+/** Circle creation modes for the split tool button.
+ *  `tangent_two_lines` and `tangent_three_lines` are reserved for
+ *  future core support — selecting them has no effect yet. */
+export type CircleToolMode =
+  | "center_radius"
+  | "two_point"
+  | "three_point"
+  | "tangent_two_lines"
+  | "tangent_three_lines";
+
+/** Polygon creation modes for the split tool button. */
+export type PolygonToolMode = "circumscribed" | "inscribed" | "edge";

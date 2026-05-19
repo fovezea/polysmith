@@ -9,6 +9,7 @@ import {
   ViewportSketchArc,
   ViewportSketchCircle,
   ViewportSketchConstraint,
+  ViewportSketchPolygon,
   ViewportSketchDimension,
   ViewportSketchLine,
   ViewportSketchPoint,
@@ -60,6 +61,7 @@ export interface ViewportState {
   reference_axes: ViewportReferenceAxis[];
   sketch_lines: ViewportSketchLine[];
   sketch_circles: ViewportSketchCircle[];
+  sketch_polygons: ViewportSketchPolygon[];
   sketch_arcs: ViewportSketchArc[];
   sketch_points: ViewportSketchPoint[];
   sketch_dimensions: ViewportSketchDimension[];
@@ -659,6 +661,20 @@ export interface AddSketchCircleCommand {
   };
 }
 
+export interface AddSketchPolygonCommand {
+  id: string;
+  type: "add_sketch_polygon";
+  payload: {
+    sides: number;
+    mode: string;
+    start_x: number;
+    start_y: number;
+    end_x: number;
+    end_y: number;
+    is_construction: boolean;
+  };
+}
+
 // Add an arc to the active sketch. The third anchor's interpretation
 // depends on `mode`:
 //   - "three_point": (start, end, anchor) where anchor lies on the
@@ -1061,6 +1077,7 @@ export type CoreCommand =
   | AddSketchAngleDimensionCommand
   | AddSketchRectangleCommand
   | AddSketchCircleCommand
+  | AddSketchPolygonCommand
   | AddSketchArcCommand
   | AddSketchFilletCommand
   | UpdateSketchFilletRadiusCommand
