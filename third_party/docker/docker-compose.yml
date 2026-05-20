@@ -1,0 +1,16 @@
+---
+services:
+  orcaslicer:
+    image: lscr.io/linuxserver/orcaslicer:latest
+    container_name: orcaslicer
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+    volumes:
+      - ~/.config/orcaslicer-docker:/config
+    ports:
+      - 33000:3000
+      - 33001:3001
+    shm_size: "1gb" #optional
+    restart: unless-stopped

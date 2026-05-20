@@ -8,7 +8,7 @@ import {
   isThemeAvailable,
   useAppConfig,
 } from "@/config";
-import type { AppConfig, HotkeyBinding } from "@/config";
+import type { AppConfig, HotkeyBinding, OrcaIntegrationMode } from "@/config";
 import { Dropdown, testOllamaConnection } from "@/lib";
 
 type SettingsSection = "general" | "appearance" | "keybinds" | "ai" | "orca";
@@ -566,48 +566,111 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
 
                 <label className="block">
                   <span className="cad-kicker">
-                    {t("settings.orcaSlicerBinaryPath")}
+                    {t("settings.orcaSlicerIntegrationMode")}
                   </span>
-                  <div className="mt-2 flex gap-2">
-                    <input
-                      className="min-w-0 flex-1 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-on-surface outline-none transition-colors focus:border-primary-edge"
-                      value={config.orcaSlicer.binaryPath}
-                      placeholder={t("settings.orcaSlicerBinaryPlaceholder")}
-                      onChange={(event) => {
+                  <div className="mt-2">
+                    <Dropdown
+                      value={config.orcaSlicer.integrationMode}
+                      options={[
+                        {
+                          value: "native",
+                          label: t(
+                            "settings.orcaSlicerIntegrationModeNative",
+                          ),
+                        },
+                        {
+                          value: "web",
+                          label: t(
+                            "settings.orcaSlicerIntegrationModeWeb",
+                          ),
+                        },
+                      ]}
+                      label={t("settings.orcaSlicerIntegrationMode")}
+                      onChange={(value) => {
                         updateConfig((current) => ({
                           ...current,
                           orcaSlicer: {
                             ...current.orcaSlicer,
-                            binaryPath: event.target.value,
+                            integrationMode: value as OrcaIntegrationMode,
                           },
                         }));
                       }}
                     />
-                    <button
-                      type="button"
-                      className="cad-ribbon-action"
-                      onClick={async () => {
-                        const selectedPath = await open({
-                          title: t("settings.selectOrcaSlicerBinary"),
-                          multiple: false,
-                          directory: false,
-                        });
-                        if (typeof selectedPath !== "string") {
-                          return;
-                        }
-                        updateConfig((current) => ({
-                          ...current,
-                          orcaSlicer: {
-                            ...current.orcaSlicer,
-                            binaryPath: selectedPath,
-                          },
-                        }));
-                      }}
-                    >
-                      {t("common.browse")}
-                    </button>
                   </div>
                 </label>
+
+                {config.orcaSlicer.integrationMode === "native" ? (
+                  <label className="block">
+                    <span className="cad-kicker">
+                      {t("settings.orcaSlicerBinaryPath")}
+                    </span>
+                    <div className="mt-2 flex gap-2">
+                      <input
+                        className="min-w-0 flex-1 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-on-surface outline-none transition-colors focus:border-primary-edge"
+                        value={config.orcaSlicer.binaryPath}
+                        placeholder={t(
+                          "settings.orcaSlicerBinaryPlaceholder",
+                        )}
+                        onChange={(event) => {
+                          updateConfig((current) => ({
+                            ...current,
+                            orcaSlicer: {
+                              ...current.orcaSlicer,
+                              binaryPath: event.target.value,
+                            },
+                          }));
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="cad-ribbon-action"
+                        onClick={async () => {
+                          const selectedPath = await open({
+                            title: t("settings.selectOrcaSlicerBinary"),
+                            multiple: false,
+                            directory: false,
+                          });
+                          if (typeof selectedPath !== "string") {
+                            return;
+                          }
+                          updateConfig((current) => ({
+                            ...current,
+                            orcaSlicer: {
+                              ...current.orcaSlicer,
+                              binaryPath: selectedPath,
+                            },
+                          }));
+                        }}
+                      >
+                        {t("common.browse")}
+                      </button>
+                    </div>
+                  </label>
+                ) : (
+                  <label className="block">
+                    <span className="cad-kicker">
+                      {t("settings.orcaSlicerWebUrl")}
+                    </span>
+                    <div className="mt-2">
+                      <input
+                        className="w-full rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-on-surface outline-none transition-colors focus:border-primary-edge"
+                        value={config.orcaSlicer.webUrl}
+                        placeholder={t(
+                          "settings.orcaSlicerWebUrlPlaceholder",
+                        )}
+                        onChange={(event) => {
+                          updateConfig((current) => ({
+                            ...current,
+                            orcaSlicer: {
+                              ...current.orcaSlicer,
+                              webUrl: event.target.value,
+                            },
+                          }));
+                        }}
+                      />
+                    </div>
+                  </label>
+                )}
               </div>
             )}
           </div>

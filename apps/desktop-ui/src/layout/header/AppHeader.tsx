@@ -20,6 +20,7 @@ interface MenuDropdownProps {
   disabled?: boolean;
   align?: "start" | "end";
   items: MenuDropdownItem[];
+  onOpenChange?: (isOpen: boolean) => void;
 }
 
 function MenuDropdown({
@@ -27,8 +28,15 @@ function MenuDropdown({
   disabled,
   align = "end",
   items,
+  onOpenChange,
 }: MenuDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
+
+  // Notify parent when dropdown opens/closes so the native Orca window
+  // can be hidden/shown to avoid covering the dropdown popup.
+  useEffect(() => {
+    onOpenChange?.(isOpen);
+  }, [isOpen, onOpenChange]);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const alignmentClass = align === "start" ? "left-0" : "right-0";
 
@@ -199,6 +207,7 @@ interface AppHeaderProps {
   onArmSketchConstraint: (constraint: ConstraintType) => Promise<void>;
   onStartMirrorTool: () => Promise<void>;
   onCancelSketchConstraint: () => void;
+  onWorkspaceDropdownOpenChange?: (isOpen: boolean) => void;
 }
 
 export function AppHeader({
@@ -255,6 +264,7 @@ export function AppHeader({
   onArmSketchConstraint,
   onStartMirrorTool,
   onCancelSketchConstraint,
+  onWorkspaceDropdownOpenChange,
 }: AppHeaderProps) {
   const { t } = useTranslation();
   const [activeCadWorkspace, setActiveCadWorkspace] =
@@ -293,6 +303,7 @@ export function AppHeader({
                 onSelect: () => onSetWorkspaceView("slicer"),
               },
             ]}
+            onOpenChange={onWorkspaceDropdownOpenChange}
           />
           {workspaceView === "cad" ? (
             <nav className="flex items-center gap-1 rounded-full p-0.5 cad-subtle-block">
@@ -477,14 +488,16 @@ export function AppHeader({
             ) : null}
           </div>
 
-          <button
-            type="button"
-            className="cad-ribbon-action"
-            disabled={disabled || !canExportToSlicer}
-            onClick={onExportToSlicer}
-          >
-            {t("workspace.exportToSlicer")}
-          </button>
+          {canExportToSlicer ? (
+            <button
+              type="button"
+              className="cad-ribbon-action"
+              disabled={disabled}
+              onClick={onExportToSlicer}
+            >
+              {t("workspace.exportToSlicer")}
+            </button>
+          ) : null}
         </div>
       ) : null}
     </header>

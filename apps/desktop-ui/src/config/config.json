@@ -13,7 +13,9 @@
   },
   "orcaSlicer": {
     "enabled": false,
-    "binaryPath": ""
+    "integrationMode": "native",
+    "binaryPath": "",
+    "webUrl": "http://localhost:33000"
   },
   "hotkeys": {
     "global": {
