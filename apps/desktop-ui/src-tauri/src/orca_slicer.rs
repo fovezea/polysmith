@@ -367,8 +367,9 @@ fn platform_name() -> &'static str {
 #[cfg(target_os = "linux")]
 mod linux_x11_impl {
     use std::{
+        collections::{HashSet, VecDeque},
         ffi::{c_char, c_int, c_long, c_uchar, c_uint, c_ulong, c_void, CString},
-        ptr, thread,
+        fs, ptr, thread,
         time::Duration,
     };
 
@@ -575,30 +576,31 @@ mod linux_x11_impl {
 
     fn wait_for_process_window(display: *mut Display, process_id: u32) -> Result<Window, String> {
         for _ in 0..80 {
-            if let Some(window) = find_process_window(display, process_id)? {
+            let target_pids = process_family(process_id);
+            if let Some(window) = find_process_window(display, &target_pids)? {
                 return Ok(window);
             }
             thread::sleep(Duration::from_millis(125));
         }
-        Err("Timed out waiting for OrcaSlicer to create an X11 window".to_string())
+        Err("Timed out waiting for OrcaSlicer or its AppImage child process to create an X11 window".to_string())
     }
 
     fn find_process_window(
         display: *mut Display,
-        process_id: u32,
+        target_pids: &HashSet<u32>,
     ) -> Result<Option<Window>, String> {
         let root = unsafe { XDefaultRootWindow(display) };
         let pid_atom = intern_atom(display, "_NET_WM_PID")?;
-        find_process_window_under(display, root, pid_atom, process_id)
+        find_process_window_under(display, root, pid_atom, target_pids)
     }
 
     fn find_process_window_under(
         display: *mut Display,
         parent: Window,
         pid_atom: Atom,
-        process_id: u32,
+        target_pids: &HashSet<u32>,
     ) -> Result<Option<Window>, String> {
-        if window_pid(display, parent, pid_atom)? == Some(process_id) {
+        if window_pid(display, parent, pid_atom)?.is_some_and(|pid| target_pids.contains(&pid)) {
             return Ok(Some(parent));
         }
 
@@ -626,7 +628,7 @@ mod linux_x11_impl {
             unsafe { std::slice::from_raw_parts(children, child_count as usize) }
         };
         for child in child_slice.iter().copied().rev() {
-            if let Some(found) = find_process_window_under(display, child, pid_atom, process_id)? {
+            if let Some(found) = find_process_window_under(display, child, pid_atom, target_pids)? {
                 if !children.is_null() {
                     unsafe {
                         XFree(children as *mut c_void);
@@ -642,6 +644,46 @@ mod linux_x11_impl {
             }
         }
         Ok(None)
+    }
+
+    fn process_family(root_pid: u32) -> HashSet<u32> {
+        let mut result = HashSet::new();
+        let mut queue = VecDeque::new();
+        result.insert(root_pid);
+        queue.push_back(root_pid);
+
+        while let Some(parent_pid) = queue.pop_front() {
+            for child_pid in child_processes(parent_pid) {
+                if result.insert(child_pid) {
+                    queue.push_back(child_pid);
+                }
+            }
+        }
+
+        result
+    }
+
+    fn child_processes(parent_pid: u32) -> Vec<u32> {
+        let Ok(entries) = fs::read_dir("/proc") else {
+            return Vec::new();
+        };
+        entries
+            .flatten()
+            .filter_map(|entry| {
+                let pid = entry.file_name().to_str()?.parse::<u32>().ok()?;
+                let stat = fs::read_to_string(entry.path().join("stat")).ok()?;
+                (process_parent_pid(&stat) == Some(parent_pid)).then_some(pid)
+            })
+            .collect()
+    }
+
+    fn process_parent_pid(stat: &str) -> Option<u32> {
+        // /proc/[pid]/stat wraps the command name in parentheses, and the name
+        // may contain spaces. The parent pid is the second field after that.
+        let close_paren = stat.rfind(')')?;
+        let mut fields = stat.get(close_paren + 1..)?.split_whitespace();
+        fields.next()?;
+        fields.next()?.parse().ok()
     }
 
     fn window_pid(

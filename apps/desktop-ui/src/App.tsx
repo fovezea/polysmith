@@ -520,10 +520,7 @@ function App() {
   const isSlicerConfigured =
     config.orcaSlicer.enabled &&
     config.orcaSlicer.binaryPath.trim().length > 0;
-  const canExportToSlicer =
-    workspaceView === "slicer" &&
-    hasExportableBody &&
-    isSlicerConfigured;
+  const canExportToSlicer = hasExportableBody && isSlicerConfigured;
   useEffect(() => {
     const documentId = document?.document_id ?? null;
     if (previousDocumentIdRef.current !== documentId) {
@@ -1745,21 +1742,6 @@ function App() {
   function renderSlicerWorkspace() {
     return (
       <section className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-        <div className="flex items-center justify-end gap-3 border-b border-white/10 bg-black/10 px-3 py-2">
-          {slicerStatus ? (
-            <span className="truncate text-xs text-on-surface-muted">
-              {slicerStatus}
-            </span>
-          ) : null}
-          <button
-            type="button"
-            className="cad-ribbon-action"
-            disabled={!canExportToSlicer}
-            onClick={() => void exportToSlicer()}
-          >
-            {t("workspace.exportToSlicer")}
-          </button>
-        </div>
         <div
           id="slicer-viewport-container"
           ref={slicerViewportRef}
@@ -1781,6 +1763,7 @@ function App() {
         <AppHeader
           workspaceView={workspaceView}
           canOpenSlicerView={isSlicerConfigured}
+          canExportToSlicer={canExportToSlicer}
           onSetWorkspaceView={(view) => {
             if (view === "cad") {
               void showCadView();
@@ -1788,6 +1771,7 @@ function App() {
             }
             void showSlicerView();
           }}
+          onExportToSlicer={() => void exportToSlicer()}
           status={status}
           disabled={status !== "connected"}
           canUndo={session?.can_undo ?? false}

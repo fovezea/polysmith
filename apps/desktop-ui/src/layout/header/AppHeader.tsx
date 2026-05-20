@@ -18,12 +18,19 @@ interface MenuDropdownItem {
 interface MenuDropdownProps {
   label: string;
   disabled?: boolean;
+  align?: "start" | "end";
   items: MenuDropdownItem[];
 }
 
-function MenuDropdown({ label, disabled, items }: MenuDropdownProps) {
+function MenuDropdown({
+  label,
+  disabled,
+  align = "end",
+  items,
+}: MenuDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const alignmentClass = align === "start" ? "left-0" : "right-0";
 
   useEffect(() => {
     if (!isOpen) {
@@ -65,7 +72,9 @@ function MenuDropdown({ label, disabled, items }: MenuDropdownProps) {
         </span>
       </button>
       {isOpen ? (
-        <div className="cad-context-menu absolute right-0 top-[calc(100%+6px)] z-30 min-w-[180px] rounded-xl p-1 shadow-[0_8px_24px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+        <div
+          className={`cad-context-menu absolute ${alignmentClass} top-[calc(100%+6px)] z-30 min-w-[180px] rounded-xl p-1 shadow-[0_8px_24px_rgba(0,0,0,0.5)] backdrop-blur-xl`}
+        >
           {items.map((item) => (
             <button
               key={item.label}
@@ -123,7 +132,9 @@ function AiSparkIcon() {
 interface AppHeaderProps {
   workspaceView: WorkspaceView;
   canOpenSlicerView: boolean;
+  canExportToSlicer: boolean;
   onSetWorkspaceView: (view: WorkspaceView) => void;
+  onExportToSlicer: () => void;
   status: string;
   disabled: boolean;
   canUndo: boolean;
@@ -193,7 +204,9 @@ interface AppHeaderProps {
 export function AppHeader({
   workspaceView,
   canOpenSlicerView,
+  canExportToSlicer,
   onSetWorkspaceView,
+  onExportToSlicer,
   status,
   disabled,
   canUndo,
@@ -263,6 +276,7 @@ export function AppHeader({
       <div className="flex items-center justify-between gap-5 px-5 py-1">
         <div className="flex items-center gap-6">
           <MenuDropdown
+            align="start"
             label={
               workspaceView === "cad"
                 ? t("workspace.cad")
@@ -407,63 +421,70 @@ export function AppHeader({
           className="flex items-center justify-between gap-3 px-4 py-1"
           style={{ borderTop: "1px solid var(--cad-panel-soft-border)" }}
         >
-        <div className="flex min-w-0 items-center gap-3">
-          {activeCadWorkspace === "create" ? (
-            <CreateToolbar
-              openMenu={openMenu}
-              disabled={disabled}
-              setOpenMenu={setOpenMenu}
-              onAddBoxFeature={onAddBoxFeature}
-              onAddCylinderFeature={onAddCylinderFeature}
-              canExtrude={canExtrude}
-              onExtrude={onExtrude}
-            />
-          ) : null}
+          <div className="flex min-w-0 items-center gap-3">
+            {activeCadWorkspace === "create" ? (
+              <CreateToolbar
+                openMenu={openMenu}
+                disabled={disabled}
+                setOpenMenu={setOpenMenu}
+                onAddBoxFeature={onAddBoxFeature}
+                onAddCylinderFeature={onAddCylinderFeature}
+                canExtrude={canExtrude}
+                onExtrude={onExtrude}
+              />
+            ) : null}
 
-          {activeCadWorkspace === "modify" ? (
-            <ModifyToolbar
-              disabled={disabled}
-              canEdgeOp={canEdgeOp}
-              onFillet={() => void onFillet()}
-              onChamfer={() => void onChamfer()}
-            />
-          ) : null}
+            {activeCadWorkspace === "modify" ? (
+              <ModifyToolbar
+                disabled={disabled}
+                canEdgeOp={canEdgeOp}
+                onFillet={() => void onFillet()}
+                onChamfer={() => void onChamfer()}
+              />
+            ) : null}
 
-          {activeCadWorkspace === "construct" ? (
-            <ConstructToolbar
-              disabled={disabled}
-              canOffsetPlane={canOffsetPlane}
-              onOffsetPlane={onOffsetPlane}
-            />
-          ) : null}
+            {activeCadWorkspace === "construct" ? (
+              <ConstructToolbar
+                disabled={disabled}
+                canOffsetPlane={canOffsetPlane}
+                onOffsetPlane={onOffsetPlane}
+              />
+            ) : null}
 
-          {activeCadWorkspace === "sketch" ? (
-            <SketchToolbar
-              activeSketchPlaneId={activeSketchPlaneId}
-              activeSketchTool={activeSketchTool}
-              selectedReferenceId={selectedReferenceId}
-              selectedFaceId={selectedFaceId}
-              armedSketchConstraint={armedSketchConstraint}
-              isMirrorToolOpen={isMirrorToolOpen}
-              arcToolMode={arcToolMode}
-              onSetArcToolMode={onSetArcToolMode}
-              rectangleToolMode={rectangleToolMode}
-              onSetRectangleToolMode={onSetRectangleToolMode}
-              circleToolMode={circleToolMode}
-              onSetCircleToolMode={onSetCircleToolMode}
-              polygonToolMode={polygonToolMode}
-              onSetPolygonToolMode={onSetPolygonToolMode}
-              onStartSketch={onStartSketch}
-              onFinishSketch={onFinishSketch}
-              onCancelSketchConstraint={onCancelSketchConstraint}
-              onSetSketchTool={onSetSketchTool}
-              onArmSketchConstraint={onArmSketchConstraint}
-              onStartMirrorTool={onStartMirrorTool}
-            />
-          ) : null}
-        </div>
+            {activeCadWorkspace === "sketch" ? (
+              <SketchToolbar
+                activeSketchPlaneId={activeSketchPlaneId}
+                activeSketchTool={activeSketchTool}
+                selectedReferenceId={selectedReferenceId}
+                selectedFaceId={selectedFaceId}
+                armedSketchConstraint={armedSketchConstraint}
+                isMirrorToolOpen={isMirrorToolOpen}
+                arcToolMode={arcToolMode}
+                onSetArcToolMode={onSetArcToolMode}
+                rectangleToolMode={rectangleToolMode}
+                onSetRectangleToolMode={onSetRectangleToolMode}
+                circleToolMode={circleToolMode}
+                onSetCircleToolMode={onSetCircleToolMode}
+                polygonToolMode={polygonToolMode}
+                onSetPolygonToolMode={onSetPolygonToolMode}
+                onStartSketch={onStartSketch}
+                onFinishSketch={onFinishSketch}
+                onCancelSketchConstraint={onCancelSketchConstraint}
+                onSetSketchTool={onSetSketchTool}
+                onArmSketchConstraint={onArmSketchConstraint}
+                onStartMirrorTool={onStartMirrorTool}
+              />
+            ) : null}
+          </div>
 
-        <div />
+          <button
+            type="button"
+            className="cad-ribbon-action"
+            disabled={disabled || !canExportToSlicer}
+            onClick={onExportToSlicer}
+          >
+            {t("workspace.exportToSlicer")}
+          </button>
         </div>
       ) : null}
     </header>
