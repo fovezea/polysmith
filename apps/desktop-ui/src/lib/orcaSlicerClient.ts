@@ -40,3 +40,7 @@ export function resizeOrcaWindow(
 export function hideOrcaWindow(): Promise<OrcaEmbedResult> {
   return invoke("hide_orca_window");
 }
+
+export function setOrcaMapped(mapped: boolean): Promise<OrcaEmbedResult> {
+  return invoke("set_orca_mapped", { mapped });
+}

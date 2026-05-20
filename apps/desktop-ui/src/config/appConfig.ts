@@ -122,10 +122,20 @@ function normalizeOrcaSlicerConfig(
   return {
     enabled:
       typeof input?.enabled === "boolean" ? input.enabled : defaults.enabled,
+    integrationMode:
+      typeof input?.integrationMode === "string" &&
+      (input.integrationMode === "native" ||
+        input.integrationMode === "web")
+        ? input.integrationMode
+        : defaults.integrationMode,
     binaryPath:
       typeof input?.binaryPath === "string"
         ? input.binaryPath
         : defaults.binaryPath,
+    webUrl:
+      typeof input?.webUrl === "string"
+        ? input.webUrl
+        : defaults.webUrl,
   };
 }
 

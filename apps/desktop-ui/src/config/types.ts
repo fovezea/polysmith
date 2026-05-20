@@ -49,9 +49,13 @@ export interface AiConfig {
   maxAgentSteps: number;
 }
 
+export type OrcaIntegrationMode = "native" | "web";
+
 export interface OrcaSlicerConfig {
   enabled: boolean;
+  integrationMode: OrcaIntegrationMode;
   binaryPath: string;
+  webUrl: string;
 }
 
 export type ThemeSelection =

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useTranslation } from "react-i18next";
 import { awaitDocumentChange, awaitDocumentExport, useCadCoreStore } from "./state";
 import { useCadCore } from "./hooks";
@@ -9,6 +10,7 @@ import {
   hideOrcaWindow,
   prepareOrcaExportPath,
   resizeOrcaWindow,
+  setOrcaMapped,
   type SlicerViewportBounds,
 } from "./lib";
 import {
@@ -253,6 +255,8 @@ function App() {
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("cad");
   const [slicerStatus, setSlicerStatus] = useState<string | null>(null);
   const [hasOrcaEmbedSession, setHasOrcaEmbedSession] = useState(false);
+  const workspaceViewRef = useRef(workspaceView);
+  workspaceViewRef.current = workspaceView;
   const slicerViewportRef = useRef<HTMLDivElement | null>(null);
   const errorLogCount = logs.filter((entry) => entry.level === "error").length;
   const isAiAssistantAvailable =
@@ -529,7 +533,9 @@ function App() {
   const hasExportableBody = (viewport?.bodies.length ?? 0) > 0;
   const isSlicerConfigured =
     config.orcaSlicer.enabled &&
-    config.orcaSlicer.binaryPath.trim().length > 0;
+    (config.orcaSlicer.integrationMode === "web"
+      ? config.orcaSlicer.webUrl.trim().length > 0
+      : config.orcaSlicer.binaryPath.trim().length > 0);
   const canExportToSlicer = hasExportableBody && isSlicerConfigured;
   useEffect(() => {
     const documentId = document?.document_id ?? null;
@@ -1461,12 +1467,19 @@ function App() {
 
   async function showSlicerView() {
     setWorkspaceView("slicer");
-    setSlicerStatus(t("workspace.openingSlicer"));
 
     if (!config.orcaSlicer.enabled) {
       setSlicerStatus(t("workspace.slicerDisabled"));
       return;
     }
+
+    // Web mode — the iframe handles everything, no native embed needed.
+    if (config.orcaSlicer.integrationMode === "web") {
+      setSlicerStatus(null);
+      return;
+    }
+
+    setSlicerStatus(t("workspace.openingSlicer"));
     const binaryPath = config.orcaSlicer.binaryPath.trim();
     if (!binaryPath) {
       setSlicerStatus(t("workspace.slicerBinaryMissing"));
@@ -1505,6 +1518,31 @@ function App() {
       setSlicerStatus(t("workspace.slicerDisabled"));
       return;
     }
+
+    // Web mode — export STL, upload to Docker OrcaSlicer, then show iframe.
+    if (config.orcaSlicer.integrationMode === "web") {
+      try {
+        setSlicerStatus(t("workspace.exportingToSlicer"));
+        const exportPath = await prepareOrcaExportPath();
+        await exportDocumentStl(exportPath);
+        await awaitDocumentExport(
+          (result) =>
+            result.format === "stl" && result.file_path === exportPath,
+        );
+        await uploadStlToOrcaWeb(exportPath);
+        setWorkspaceView("slicer");
+        setSlicerStatus(null);
+        addMessage("slicer: exported STL to OrcaSlicer web.");
+      } catch (error) {
+        const message = String(error);
+        setSlicerStatus(
+          t("workspace.slicerEmbedFailed", { error: message }),
+        );
+        addMessage(`slicer web export error: ${message}`);
+      }
+      return;
+    }
+
     const binaryPath = config.orcaSlicer.binaryPath.trim();
     if (!binaryPath) {
       setSlicerStatus(t("workspace.slicerBinaryMissing"));
@@ -1558,6 +1596,20 @@ function App() {
       setSlicerStatus(t("workspace.slicerEmbedFailed", { error: message }));
       addMessage(`slicer export error: ${message}`);
     }
+  }
+
+  // When the workspace view dropdown opens, the HTML popup extends below
+  // the header into the content area where the native Orca X11 window sits.
+  // Native windows always render above the WebView, so we temporarily hide
+  // the Orca window to keep the dropdown visible. The ref guards against a
+  // race where workspaceView changes before the close event fires.
+  function handleWorkspaceDropdownOpenChange(isOpen: boolean) {
+    if (!hasOrcaEmbedSession || workspaceViewRef.current !== "slicer") {
+      return;
+    }
+    void setOrcaMapped(!isOpen).catch((error) => {
+      addMessage(`slicer map error: ${String(error)}`);
+    });
   }
 
   useEffect(() => {
@@ -1767,7 +1819,68 @@ function App() {
     deleteSketchSelectionNow(deleteSelection);
   }
 
+  async function uploadStlToOrcaWeb(stlPath: string): Promise<void> {
+    const webUrl = config.orcaSlicer.webUrl.trim();
+    // Read the STL file and upload it to the OrcaSlicer Docker instance.
+    const response = await fetch(stlPath);
+    if (!response.ok) {
+      throw new Error(`Failed to read STL file: ${response.statusText}`);
+    }
+    const blob = await response.blob();
+
+    const formData = new FormData();
+    formData.append("file", blob, "model.stl");
+
+    const uploadResponse = await fetch(`${webUrl}/api/upload`, {
+      method: "POST",
+      body: formData,
+    });
+    if (!uploadResponse.ok) {
+      throw new Error(
+        `OrcaSlicer web upload failed (${uploadResponse.status}): ${uploadResponse.statusText}`,
+      );
+    }
+  }
+
   function renderSlicerWorkspace() {
+    if (
+      config.orcaSlicer.enabled &&
+      config.orcaSlicer.integrationMode === "web"
+    ) {
+      return (
+        <section className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className="flex items-center gap-2 border-b border-white/10 px-3 py-1.5">
+            <span className="text-xs text-on-surface-muted">
+              OrcaSlicer Web
+            </span>
+            <div className="ml-auto">
+              <button
+                type="button"
+                className="rounded-md px-2 py-0.5 text-xs text-on-surface-muted transition-colors hover:bg-white/10 hover:text-on-surface"
+                onClick={() => {
+                  void openUrl(config.orcaSlicer.webUrl).catch(
+                    (error) => {
+                      addMessage(
+                        `slicer: failed to open browser: ${String(error)}`,
+                      );
+                    },
+                  );
+                }}
+              >
+                {t("workspace.openInBrowser")}
+              </button>
+            </div>
+          </div>
+          <iframe
+            src={config.orcaSlicer.webUrl}
+            className="flex-1 w-full border-0"
+            title="OrcaSlicer"
+            allow="autoplay;camera;microphone;fullscreen"
+          />
+        </section>
+      );
+    }
+
     return (
       <section className="relative flex min-h-0 min-w-0 flex-1 flex-col">
         <div
@@ -1790,7 +1903,10 @@ function App() {
       <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]">
         <AppHeader
           workspaceView={workspaceView}
-          canOpenSlicerView={isSlicerConfigured && !IS_MACOS}
+          canOpenSlicerView={
+            isSlicerConfigured &&
+            (config.orcaSlicer.integrationMode === "web" || !IS_MACOS)
+          }
           canExportToSlicer={canExportToSlicer}
           onSetWorkspaceView={(view) => {
             if (view === "cad") {
@@ -1989,6 +2105,7 @@ function App() {
             }
           }}
           onCancelSketchConstraint={clearArmedSketchConstraint}
+          onWorkspaceDropdownOpenChange={handleWorkspaceDropdownOpenChange}
         />
 
         <div className="flex min-h-0 min-w-0">

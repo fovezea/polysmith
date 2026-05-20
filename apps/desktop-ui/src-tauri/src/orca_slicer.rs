@@ -135,6 +135,20 @@ pub fn hide_orca_window(state: tauri::State<OrcaSlicerState>) -> Result<OrcaEmbe
     })
 }
 
+pub fn set_orca_mapped_window(
+    state: tauri::State<OrcaSlicerState>,
+    mapped: bool,
+) -> Result<OrcaEmbedResult, String> {
+    let (process_id, window_handle, display_handle) = current_orca_window(&state)?;
+    let result = platform_set_orca_mapped(window_handle, display_handle, mapped)?;
+    Ok(OrcaEmbedResult {
+        platform: platform_name().to_string(),
+        process_id,
+        status: result.status,
+        message: result.message,
+    })
+}
+
 fn ensure_orca_process(
     state: &tauri::State<OrcaSlicerState>,
     binary_path: &str,
@@ -452,6 +466,69 @@ fn platform_hide_orca_window(
     })
 }
 
+#[cfg(windows)]
+fn platform_set_orca_mapped(
+    window_handle: Option<i64>,
+    _display_handle: Option<usize>,
+    mapped: bool,
+) -> Result<PlatformWindowResult, String> {
+    if mapped {
+        // Window is already visible from the embed step; show is a no-op.
+        Ok(PlatformWindowResult {
+            status: "embedded".to_string(),
+            message: "OrcaSlicer window is visible on Windows.".to_string(),
+            window_handle,
+            display_handle: None,
+        })
+    } else {
+        windows_impl::hide_orca_window(window_handle)
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn platform_set_orca_mapped(
+    window_handle: Option<i64>,
+    display_handle: Option<usize>,
+    mapped: bool,
+) -> Result<PlatformWindowResult, String> {
+    linux_x11_impl::set_orca_mapped(window_handle, display_handle, mapped)
+}
+
+#[cfg(target_os = "macos")]
+fn platform_set_orca_mapped(
+    window_handle: Option<i64>,
+    _display_handle: Option<usize>,
+    mapped: bool,
+) -> Result<PlatformWindowResult, String> {
+    Ok(PlatformWindowResult {
+        status: if mapped { "running" } else { "hidden" }.to_string(),
+        message: if mapped {
+            "OrcaSlicer is visible as a separate macOS app.".to_string()
+        } else {
+            "OrcaSlicer hidden on macOS.".to_string()
+        },
+        window_handle,
+        display_handle: None,
+    })
+}
+
+#[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
+fn platform_set_orca_mapped(
+    _window_handle: Option<i64>,
+    _display_handle: Option<usize>,
+    _mapped: bool,
+) -> Result<PlatformWindowResult, String> {
+    Ok(PlatformWindowResult {
+        status: "unsupported".to_string(),
+        message: format!(
+            "Native OrcaSlicer window visibility toggling is not implemented on {} yet.",
+            platform_name()
+        ),
+        window_handle: None,
+        display_handle: None,
+    })
+}
+
 fn platform_name() -> &'static str {
     if cfg!(target_os = "windows") {
         "windows"
@@ -484,6 +561,24 @@ mod linux_x11_impl {
     const ANY_PROPERTY_TYPE: Atom = 0;
     const PROP_MODE_REPLACE: c_int = 0;
     const MWM_HINTS_DECORATIONS: c_ulong = 1 << 1;
+
+    const PROP_MODE_APPEND: c_int = 2;
+
+    // X event masks
+    const KEY_PRESS_MASK: c_long = 1;
+    const KEY_RELEASE_MASK: c_long = 1 << 1;
+    const BUTTON_PRESS_MASK: c_long = 1 << 2;
+    const BUTTON_RELEASE_MASK: c_long = 1 << 3;
+    const POINTER_MOTION_MASK: c_long = 1 << 6;
+    const FOCUS_CHANGE_MASK: c_long = 1 << 21;
+    const STRUCTURE_NOTIFY_MASK: c_long = 1 << 17;
+    const EXPOSURE_MASK: c_long = 1 << 15;
+    const ENTER_WINDOW_MASK: c_long = 1 << 4;
+    const LEAVE_WINDOW_MASK: c_long = 1 << 5;
+
+    const XA_ATOM: Atom = 4;
+
+    const XEMBED_MAPPED: c_ulong = 1;
 
     #[repr(C)]
     struct MotifWmHints {
@@ -567,7 +662,22 @@ mod linux_x11_impl {
         fn XUnmapWindow(display: *mut Display, window: Window) -> c_int;
         fn XFlush(display: *mut Display) -> c_int;
         fn XSync(display: *mut Display, discard: c_int) -> c_int;
+        fn XSelectInput(display: *mut Display, window: Window, event_mask: c_long) -> c_int;
+        fn XClearArea(
+            display: *mut Display,
+            window: Window,
+            x: c_int,
+            y: c_int,
+            width: c_uint,
+            height: c_uint,
+            exposures: c_int,
+        ) -> c_int;
     }
+
+    /// Number of pixels to clip from the top of the OrcaSlicer window so the
+    /// menu bar and toolbar are hidden, leaving only the 3-D viewport and
+    /// settings panel visible in the embedded area.
+    const MENU_BAR_CLIP: c_int = 100;
 
     pub fn attach_orca_window(
         window: &tauri::WebviewWindow,
@@ -584,14 +694,31 @@ mod linux_x11_impl {
         let root = unsafe { XDefaultRootWindow(display) };
         let old_parent = window_parent(display, child)?;
 
+        // Offset the child window upward so the Orca menu bar and toolbar are
+        // clipped by the parent boundary, and increase the height so the
+        // remaining content still fills the viewport.
+        let embed_y = y - MENU_BAR_CLIP;
+        let embed_height = height + MENU_BAR_CLIP as c_uint;
+
         unsafe {
             XUnmapWindow(display, child);
             strip_window_chrome(display, child);
-            XReparentWindow(display, child, parent, x, y);
-            XMoveResizeWindow(display, child, x, y, width, height);
+            XReparentWindow(display, child, parent, x, embed_y);
+            XMoveResizeWindow(display, child, x, embed_y, width, embed_height);
+
+            // Set XEmbed protocol, WM hints, and event selection *before*
+            // mapping so the compositor sees them when the window first
+            // appears — avoids a race where the compositor treats the
+            // embedded window as a standalone toplevel.
+            embed_protocol_setup(display, child)?;
+
             XMapWindow(display, child);
             XMapRaised(display, child);
             XRaiseWindow(display, child);
+
+            // Force the first paint cycle now that the window is mapped.
+            XClearArea(display, child, 0, 0, 0, 0, 1);
+
             XFlush(display);
             XSync(display, 0);
         }
@@ -630,8 +757,10 @@ mod linux_x11_impl {
         };
         let display = display_handle as *mut Display;
         let (x, y, width, height) = scaled_bounds(bounds);
+        let embed_y = y - MENU_BAR_CLIP;
+        let embed_height = height + MENU_BAR_CLIP as c_uint;
         unsafe {
-            XMoveResizeWindow(display, handle as Window, x, y, width, height);
+            XMoveResizeWindow(display, handle as Window, x, embed_y, width, embed_height);
             XFlush(display);
         }
         Ok(PlatformWindowResult {
@@ -660,6 +789,121 @@ mod linux_x11_impl {
         Ok(PlatformWindowResult {
             status: "hidden".to_string(),
             message: "OrcaSlicer window hidden; process state preserved.".to_string(),
+            window_handle,
+            display_handle: Some(display_handle),
+        })
+    }
+
+    /// Set up XEmbed protocol, compositor hints, and event forwarding on the
+    /// child window so the compositor treats it as an embedded window rather
+    /// than a separate toplevel.
+    fn embed_protocol_setup(display: *mut Display, child: Window) -> Result<(), String> {
+        let xembed_atom = intern_atom(display, "_XEMBED_INFO")?;
+        let net_wm_state = intern_atom(display, "_NET_WM_STATE")?;
+        let skip_taskbar = intern_atom(display, "_NET_WM_STATE_SKIP_TASKBAR")?;
+        let skip_pager = intern_atom(display, "_NET_WM_STATE_SKIP_PAGER")?;
+        let wm_protocols = intern_atom(display, "WM_PROTOCOLS")?;
+        let wm_take_focus = intern_atom(display, "WM_TAKE_FOCUS")?;
+
+        unsafe {
+            // _XEMBED_INFO — version 0, XEMBED_MAPPED flag.
+            // This tells the compositor (Mutter, KWin, etc.) that the window
+            // is an embedded plug, not a standalone toplevel.
+            let xembed_data: [u32; 2] = [0, XEMBED_MAPPED as u32];
+            XChangeProperty(
+                display,
+                child,
+                xembed_atom,
+                xembed_atom,
+                32,
+                PROP_MODE_REPLACE,
+                xembed_data.as_ptr() as *const c_uchar,
+                2,
+            );
+
+            // _NET_WM_STATE — remove from taskbar and pager so the embedded
+            // Orca window doesn't appear as a separate application entry.
+            let net_wm_data: [u32; 2] = [skip_taskbar as u32, skip_pager as u32];
+            XChangeProperty(
+                display,
+                child,
+                net_wm_state,
+                XA_ATOM,
+                32,
+                PROP_MODE_REPLACE,
+                net_wm_data.as_ptr() as *const c_uchar,
+                2,
+            );
+
+            // WM_PROTOCOLS — append WM_TAKE_FOCUS so the window manager
+            // sends a client message when the embedded window should receive
+            // keyboard focus, rather than calling XSetInputFocus directly.
+            let protocols_data: [u32; 1] = [wm_take_focus as u32];
+            XChangeProperty(
+                display,
+                child,
+                wm_protocols,
+                XA_ATOM,
+                32,
+                PROP_MODE_APPEND,
+                protocols_data.as_ptr() as *const c_uchar,
+                1,
+            );
+
+            // XSelectInput — subscribe to all the events Qt needs so its
+            // event loop receives keyboard, mouse, focus, expose, and
+            // structure-notify events on the reparented window.
+            XSelectInput(
+                display,
+                child,
+                KEY_PRESS_MASK
+                    | KEY_RELEASE_MASK
+                    | BUTTON_PRESS_MASK
+                    | BUTTON_RELEASE_MASK
+                    | POINTER_MOTION_MASK
+                    | FOCUS_CHANGE_MASK
+                    | STRUCTURE_NOTIFY_MASK
+                    | EXPOSURE_MASK
+                    | ENTER_WINDOW_MASK
+                    | LEAVE_WINDOW_MASK,
+            );
+
+        }
+
+        Ok(())
+    }
+
+    /// Temporarily hide or show the embedded Orca window without destroying
+    /// the process. Used when HTML dropdowns need to render above the native
+    /// X11 child window.
+    pub fn set_orca_mapped(
+        window_handle: Option<i64>,
+        display_handle: Option<usize>,
+        mapped: bool,
+    ) -> Result<PlatformWindowResult, String> {
+        let Some(handle) = window_handle else {
+            return Err("No cached OrcaSlicer X11 window is available".to_string());
+        };
+        let Some(display_handle) = display_handle else {
+            return Err("No cached X11 display handle is available".to_string());
+        };
+        let display = display_handle as *mut Display;
+        unsafe {
+            if mapped {
+                XMapWindow(display, handle as Window);
+                XMapRaised(display, handle as Window);
+            } else {
+                XUnmapWindow(display, handle as Window);
+            }
+            XFlush(display);
+        }
+        Ok(PlatformWindowResult {
+            status: if mapped { "embedded" } else { "hidden" }.to_string(),
+            message: if mapped {
+                "OrcaSlicer window shown.".to_string()
+            } else {
+                "OrcaSlicer window hidden; process state preserved.".to_string()
+            },
             window_handle,
             display_handle: Some(display_handle),
         })

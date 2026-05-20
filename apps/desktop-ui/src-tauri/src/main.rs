@@ -67,6 +67,14 @@ fn hide_orca_window(
     orca_slicer::hide_orca_window(state)
 }
 
+#[tauri::command]
+fn set_orca_mapped(
+    state: tauri::State<OrcaSlicerState>,
+    mapped: bool,
+) -> Result<orca_slicer::OrcaEmbedResult, String> {
+    orca_slicer::set_orca_mapped_window(state, mapped)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     orca_slicer::configure_linux_windowing_environment();
@@ -86,7 +94,8 @@ pub fn run() {
             prepare_orca_export_path,
             embed_orca_window,
             resize_orca_window,
-            hide_orca_window
+            hide_orca_window,
+            set_orca_mapped
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
