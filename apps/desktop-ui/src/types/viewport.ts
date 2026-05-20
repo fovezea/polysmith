@@ -303,6 +303,7 @@ export interface ViewportContextMenuState {
     pointIds: string[];
     profileIds: string[];
   } | null;
+  dimensionId?: string | null;
 }
 
 export interface SketchEntityInteractionState {

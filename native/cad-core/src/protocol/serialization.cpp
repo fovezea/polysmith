@@ -336,6 +336,12 @@ sketch_parameters_from_payload(const json& payload) {
             dim_payload.at("secondary_entity_id").get<std::string>();
       }
       dimension.value = read_number(dim_payload, "value");
+      // Expression field — absent in older saves, default to ""
+      if (dim_payload.contains("expression") &&
+          dim_payload.at("expression").is_string()) {
+        dimension.expression =
+            dim_payload.at("expression").get<std::string>();
+      }
       params.dimensions.push_back(dimension);
     }
   }
@@ -854,6 +860,7 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                           {"secondary_entity_id",
                            dimension.secondary_entity_id},
                           {"value", dimension.value},
+                          {"expression", dimension.expression},
                       });
                     }
                     return dimensions;
@@ -1194,6 +1201,20 @@ json to_payload(const polysmith::core::DocumentState& document) {
          return ids;
        }()},
       {"feature_history", feature_history},
+      {"parameters",
+       [&document]() {
+         json params = json::array();
+         for (const auto& p : document.parameters) {
+           params.push_back({
+               {"name", p.name},
+               {"expression", p.expression},
+               {"resolved_value", p.resolved_value},
+               {"has_error", p.has_error},
+               {"error_message", p.error_message},
+           });
+         }
+         return params;
+       }()},
   };
 }
 
@@ -2058,6 +2079,24 @@ polysmith::core::DocumentState document_from_payload(const json& payload) {
     for (const auto& feature_payload : payload.at("feature_history")) {
       document.feature_history.push_back(
           feature_entry_from_payload(feature_payload));
+    }
+  }
+
+  // Parameters — absent in older saves, default to empty
+  if (payload.contains("parameters") &&
+      payload.at("parameters").is_array()) {
+    for (const auto& param_payload : payload.at("parameters")) {
+      polysmith::core::ParameterEntry param;
+      param.name = read_string(param_payload, "name");
+      param.expression = read_string(param_payload, "expression");
+      param.resolved_value = read_number(param_payload, "resolved_value");
+      param.has_error = read_bool(param_payload, "has_error");
+      if (param_payload.contains("error_message") &&
+          param_payload.at("error_message").is_string()) {
+        param.error_message =
+            param_payload.at("error_message").get<std::string>();
+      }
+      document.parameters.push_back(param);
     }
   }
 

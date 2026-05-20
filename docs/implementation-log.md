@@ -4,6 +4,58 @@ This document tracks concrete implementation milestones as they land in the code
 
 ## 2026-05-20
 
+### Parametric Parameters & Dimension Formulas
+
+#### Goal
+Add a document-scoped parameter table (name → formula expression → resolved value) and allow sketch dimensions to accept formula expressions referencing those parameters.
+
+#### C++ Core
+- `parameter.h`: new `ParameterEntry` struct (`name`, `expression`, `resolved_value`, `has_error`, `error_message`)
+- `formula_eval.h/.cpp`: recursive-descent expression evaluator supporting `+`, `-`, `*`, `/`, parentheses, unary minus, and parameter name references. Cycle detection via a `resolving` set. `reify_parameters()` iterates parameters to fixpoint.
+- `feature.h`: added `expression` field to `SketchDimension`. `DocumentState` gained `parameters` vector in `document.h`.
+- `document.h/.cpp`: `add_parameter`, `update_parameter`, `delete_parameter` — CRUD with undo/redo, `reify_parameters`, `reify_dimension_expressions` per sketch, `refresh_history_dependencies`, and `bump_geometry_revision`.
+- `sketch_feature.h/.cpp`: `update_sketch_dimension` now accepts optional `expression` parameter. `reify_dimension_expressions()` re-evaluates dimension expressions against the current parameter table.
+- `app.cpp`: registered `add_parameter`, `update_parameter`, `delete_parameter` command handlers. Extended `update_sketch_dimension` to accept string expressions — evaluates them against current parameters, passes resolved value + expression to core.
+- `serialization.cpp`: `expression` in sketch dimension serialization/deserialization (backward compat: absent → `""`). `parameters` array in `DocumentState` serialization/deserialization (backward compat: absent → `[]`).
+- `CMakeLists.txt`: added `formula_eval.cpp`.
+
+#### Protocol / Schema
+- `protocol/schema/commands.schema.json`: `add_parameter`, `update_parameter`, `delete_parameter` in command enum.
+- `docs/architecture/ipc-protocol.md`: documented parametric parameters section and dimension expressions.
+
+#### TypeScript — Types & IPC
+- `types/ipc.ts`: `ParameterEntry` interface, `AddParameterCommand`, `UpdateParameterCommand`, `DeleteParameterCommand`, extended `UpdateSketchDimensionCommand.value` to `number | string`. `DocumentState.parameters` field.
+- `types/geometry/sketch.ts`: `expression` field on `SketchDimensionEntry`.
+- `lib/ipcProtocol.ts`: `makeAddParameterCommand`, `makeUpdateParameterCommand`, `makeDeleteParameterCommand` builders. Updated `makeUpdateSketchDimensionCommand` to accept `number | string`.
+- `hooks/useCadCore.ts`: `addParameter`, `updateParameter`, `deleteParameter` hooks. Updated `updateSketchDimension` to `number | string`.
+- `lib/schemas/ipcSchema.ts`: `expression` on sketch dimension schema (default `""`). `parameters` array on document state schema (default `[]`).
+
+#### Parameters Panel UI
+- `layout/ParametersPanel.tsx`: self-contained floating panel with parameter table (Name / Expression / Value columns). Inline editing on click, commit on Enter/blur, escape to cancel. Delete button on hover. "Add Parameter" button creates inline row. Error state rendered in red with tooltip.
+- `layout/header/AppHeader.tsx`: `f(x)` button to the right of workspace tabs (Create | Modify | Construct | Sketch). Toggles panel visibility via `parametersPanelOpen` prop.
+- `App.tsx`: `parametersPanelOpen` state + `onToggleParametersPanel` wired through to `AppHeader`.
+- `i18n/en.json`: `parameters.*` translation keys.
+
+#### Dimension Formula Input
+- `ViewportPanel.tsx`: `handleSubmitDimensionEdit` and `handleDimensionDraftChange` now accept both numeric and string values. Numeric values use the existing path; strings are sent as expressions through `updateSketchDimension` for core-side evaluation.
+
+#### Bug Fixes & UX Polish (2026-05-21)
+
+**Parameters panel — premature auto-commit.** The name field's `onBlur` fired when the user clicked into the expression field, sending `addParameter("name", "")` with an empty expression before the user could type a value. Fixed by removing `onBlur` from the name field. Additionally, a `useEffect` that auto-focused the name field was re-running on every `editing` keystroke, stealing focus from the expression field and triggering its `onBlur` → premature commit. Fixed to only focus when switching between rows or entering edit mode, not on every keystroke.
+
+**Dimension editor — live preview flood.** `handleDimensionDraftChange` was sending every keystroke as an expression to the core. Typing a parameter name like "test" sent "t", "te", "tes", "test" in rapid succession, flooding the core with "Unknown parameter" errors for partial names. Fixed by only sending numeric values as live preview; expressions are held until Enter.
+
+**Dimension editor — `inputMode`.** Changed the persistent dimension editor's `inputMode` from `"decimal"` to `"text"` so `*` and letter characters can be typed for formula expressions.
+
+**Dimension interaction model.** Changed from single-click-immediately-edits to a proper CAD convention:
+- First click selects the dimension (highlights it), no editor
+- Second click on the same dimension opens the inline value editor
+- Right-click on any dimension shows a context menu with "Delete"
+- Added `lastClickedDimensionRef` so rapid re-clicks work before the IPC selection round-trip completes
+- Added `dimensionId` field to `ViewportContextMenuState` type
+- Added `handleDeleteDimensionFromContextMenu` handler
+- Added `handleDimensionClick` (renamed from `selectSketchDimensionForEdit`) with select-then-edit logic
+
 ### Fusion-Style On-Demand Sketch Dimensions
 
 #### Goal

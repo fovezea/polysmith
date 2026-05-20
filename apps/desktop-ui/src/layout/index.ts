@@ -13,4 +13,5 @@ export * from "./OffsetPlanePanel";
 export * from "./SettingsModal";
 export * from "./SketchFilletPanel";
 export * from "./MirrorToolPanel";
+export * from "./ParametersPanel";
 export * from "./ViewportPanel";

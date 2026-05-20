@@ -5,6 +5,7 @@ import { SketchToolbar } from "./SketchToolbar";
 import { CreateToolbar } from "./CreateToolbar";
 import { ModifyToolbar } from "./ModifyToolbar";
 import { ConstructToolbar } from "./ConstructToolbar";
+import { ParametersPanel } from "../ParametersPanel";
 
 const workspaces = ["create", "modify", "construct", "sketch"] as const;
 type WorkspaceView = "cad" | "slicer";
@@ -208,6 +209,9 @@ interface AppHeaderProps {
   onStartMirrorTool: () => Promise<void>;
   onCancelSketchConstraint: () => void;
   onWorkspaceDropdownOpenChange?: (isOpen: boolean) => void;
+  // Parameters panel
+  parametersPanelOpen: boolean;
+  onToggleParametersPanel: () => void;
 }
 
 export function AppHeader({
@@ -265,6 +269,8 @@ export function AppHeader({
   onStartMirrorTool,
   onCancelSketchConstraint,
   onWorkspaceDropdownOpenChange,
+  parametersPanelOpen,
+  onToggleParametersPanel,
 }: AppHeaderProps) {
   const { t } = useTranslation();
   const [activeCadWorkspace, setActiveCadWorkspace] =
@@ -323,6 +329,26 @@ export function AppHeader({
                 </button>
               ))}
             </nav>
+          ) : null}
+          {workspaceView === "cad" ? (
+            <div className="relative">
+              <button
+                type="button"
+                className={
+                  parametersPanelOpen
+                    ? "cad-ribbon-tab cad-ribbon-tab-active"
+                    : "cad-ribbon-tab"
+                }
+                onClick={onToggleParametersPanel}
+              >
+                f(x)
+              </button>
+              {parametersPanelOpen ? (
+                <div className="cad-toolbar-popover absolute left-0 top-[calc(100%+0.75rem)]">
+                  <ParametersPanel />
+                </div>
+              ) : null}
+            </div>
           ) : null}
         </div>
 

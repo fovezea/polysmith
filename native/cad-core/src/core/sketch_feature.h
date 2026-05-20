@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/feature.h"
+#include "core/parameter.h"
 
 namespace polysmith::core {
 
@@ -67,7 +68,15 @@ void add_sketch_distance_dimension(FeatureEntry& feature,
                                    const std::string& second_entity_id);
 void update_sketch_dimension(FeatureEntry& feature,
                              const std::string& dimension_id,
-                             double value);
+                             double value,
+                             std::optional<std::string> expression = std::nullopt);
+// Re-evaluate every dimension that has a non-empty `expression` field
+// against the given parameter table. Dimension values are overwritten
+// with the resolved result; dimensions whose expressions fail to
+// resolve keep their last good value silently.
+void reify_dimension_expressions(
+    FeatureEntry& feature,
+    const std::vector<struct ParameterEntry>& parameters);
 void add_sketch_line(FeatureEntry& feature,
                      int line_index,
                      double start_x,

@@ -9,6 +9,7 @@
 #include <tuple>
 #include <unordered_map>
 
+#include "core/formula_eval.h"
 #include "core/sketch_profile.h"
 
 namespace polysmith::core {
@@ -2123,7 +2124,8 @@ void update_sketch_circle(FeatureEntry& feature,
 
 void update_sketch_dimension(FeatureEntry& feature,
                              const std::string& dimension_id,
-                             double value) {
+                             double value,
+                             std::optional<std::string> expression) {
   if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
     throw std::runtime_error("Only sketch features can update sketch dimensions");
   }
@@ -2134,6 +2136,10 @@ void update_sketch_dimension(FeatureEntry& feature,
 
   auto& parameters = feature.sketch_parameters.value();
   auto& dimension = require_dimension(parameters, dimension_id);
+
+  // Store expression if provided — cleared when expression is nullopt
+  // (plain numeric update).
+  dimension.expression = expression.value_or("");
 
   if (dimension.kind == "line_length") {
     const auto line_it = std::find_if(
@@ -2377,6 +2383,46 @@ void update_sketch_dimension(FeatureEntry& feature,
   }
 
   throw std::runtime_error("Unsupported sketch dimension kind: " + dimension.kind);
+}
+
+void reify_dimension_expressions(
+    FeatureEntry& feature,
+    const std::vector<struct ParameterEntry>& parameters) {
+  if (!feature.sketch_parameters.has_value()) {
+    return;
+  }
+
+  for (auto& dim : feature.sketch_parameters->dimensions) {
+    if (dim.expression.empty()) {
+      continue;
+    }
+
+    // Build a resolver against the current parameter table
+    auto resolver = [&parameters](const std::string& name) -> double {
+      for (const auto& p : parameters) {
+        if (p.name == name) {
+          if (p.has_error) {
+            throw std::runtime_error("Parameter '" + name +
+                                     "' has an unresolved expression");
+          }
+          return p.resolved_value;
+        }
+      }
+      throw std::runtime_error("Unknown parameter: '" + name + "'");
+    };
+
+    try {
+      double resolved = evaluate_formula(dim.expression, resolver);
+      if (resolved <= 0.0) {
+        // Keep last good value for invalid dimension values
+        continue;
+      }
+      dim.value = resolved;
+    } catch (const std::exception&) {
+      // Silently keep last good value — expression resolution
+      // failures shouldn't nuke the dimension's working value.
+    }
+  }
 }
 
 void add_sketch_angle_dimension(FeatureEntry& feature,
