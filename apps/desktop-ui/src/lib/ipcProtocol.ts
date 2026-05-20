@@ -708,7 +708,7 @@ export function makeUpdateSketchCircleCommand(
 
 export function makeUpdateSketchDimensionCommand(
   dimensionId: string,
-  value: number,
+  value: number | string,
 ): CoreCommand {
   return {
     id: crypto.randomUUID(),
@@ -1067,6 +1067,38 @@ export function makeDeleteSketchDimensionCommand(
     payload: {
       dimension_id: dimensionId,
     },
+  };
+}
+
+export function makeAddParameterCommand(
+  name: string,
+  expression: string,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "add_parameter",
+    payload: { name, expression },
+  };
+}
+
+export function makeUpdateParameterCommand(
+  name: string,
+  expression: string,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_parameter",
+    payload: { name, expression },
+  };
+}
+
+export function makeDeleteParameterCommand(
+  name: string,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "delete_parameter",
+    payload: { name },
   };
 }
 

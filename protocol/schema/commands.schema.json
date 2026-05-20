@@ -70,7 +70,10 @@
         "finish_sketch",
         "reenter_sketch",
         "clear_selection",
-        "delete_sketch_dimension"
+        "delete_sketch_dimension",
+        "add_parameter",
+        "update_parameter",
+        "delete_parameter"
       ]
     },
     "payload": { "type": "object" }

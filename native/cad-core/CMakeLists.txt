@@ -27,6 +27,7 @@ add_executable(cad_core
   src/core/extrude_feature.cpp
   src/core/face_geometry.cpp
   src/core/feature_shape.cpp
+  src/core/formula_eval.cpp
   src/core/logger.cpp
   src/core/refresh_dependents.cpp
   src/core/sketch_feature.cpp
@@ -46,6 +47,7 @@ target_include_directories(cad_core PRIVATE
 target_link_libraries(cad_core PRIVATE ${OpenCASCADE_LIBRARIES})
 
 add_executable(cad_core_sketch_profile_test
+  src/core/formula_eval.cpp
   src/core/sketch_feature.cpp
   src/core/sketch_profile.cpp
   tests/sketch_profile_test.cpp

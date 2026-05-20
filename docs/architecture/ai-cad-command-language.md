@@ -31,6 +31,7 @@ The React UI is only a presentation layer. The native core owns:
 - body compilation
 - selection state
 - face, edge, vertex, profile, sketch entity, and feature IDs
+- parameter definitions and formula evaluation
 
 An AI agent should therefore treat PolySmith like a small CAD language:
 
@@ -1234,14 +1235,18 @@ Supported combinations:
 
 #### `update_sketch_dimension`
 
-Solves a dimension to a new value.
+Solves a dimension to a new value. `value` can be a plain `number` (backward
+compatible) or a `string` expression referencing named parameters (e.g.
+`"width * 2"`, `"thickness / 3"`). When a string is supplied, the core
+evaluates it against the current parameter table and stores the expression
+so it re-evaluates on parameter changes.
 
 Payload:
 
 ```ts
 {
   dimension_id: string;
-  value: number;
+  value: number | string;
 }
 ```
 
@@ -1253,6 +1258,66 @@ Dimension kinds emitted by state:
 - `line_line_distance`
 - `circle_center_distance`
 - `circle_line_distance`
+
+### Parametric Parameters
+
+Document-scoped named parameters that can be referenced in dimension expressions.
+Parameters support simple arithmetic (`+`, `-`, `*`, `/`, parens) and can
+reference other parameters by name (e.g. `height = width * 2`). Cycle detection
+is built-in.
+
+#### `add_parameter`
+
+Adds a new named parameter.
+
+Payload:
+
+```ts
+{
+  name: string;       // e.g. "width" — must be unique, non-empty
+  expression: string; // e.g. "50", "width * 2", "(a + b) / 3"
+}
+```
+
+#### `update_parameter`
+
+Replaces the expression of an existing parameter. Re-evaluates all parameters
+and re-resolves dimension expressions across all sketch features.
+
+Payload:
+
+```ts
+{
+  name: string;
+  expression: string;
+}
+```
+
+#### `delete_parameter`
+
+Removes a parameter. Other parameters that reference it will have
+`has_error = true` until their expressions are updated. Dimensions that
+reference it keep their last resolved value silently.
+
+Payload:
+
+```ts
+{
+  name: string;
+}
+```
+
+Parameters appear in `document_state.parameters[]`:
+
+```ts
+{
+  name: string;
+  expression: string;
+  resolved_value: number;
+  has_error: boolean;
+  error_message: string;
+}
+```
 
 ### Mirror Preview Lifecycle
 
@@ -1862,10 +1927,23 @@ recompute.
 2. Read the relevant sketch entity IDs.
 3. Send an `add_sketch_*_dimension` command.
 4. Read the resulting `dimension_id`.
-5. Send `update_sketch_dimension` with the desired value.
+5. Send `update_sketch_dimension` with the desired value (number or expression string).
 
 For simple line length and circle radius dimensions, the core may auto-create
 dimensions. Always read state to confirm the dimension exists before updating.
+
+### Use Parameters to Drive Multiple Dimensions
+
+1. Define parameters with `add_parameter` (e.g. `width = 80`, `spacing = width / 4`).
+2. Read `document_state.parameters[]` to confirm resolved values.
+3. In dimension updates, use expression strings referencing parameter names
+   (e.g. `update_sketch_dimension` with `value: "width"` or `value: "spacing * 2"`).
+4. When a parameter changes via `update_parameter`, all dimensions referencing it
+   re-evaluate automatically.
+
+Parameters are evaluated with a fixpoint loop (max 50 passes). Expressions can
+reference other parameters by name. Cycle detection rejects circular references.
+Plain numbers and arithmetic can mix freely with parameter names.
 
 ## Command Planning Rules for Agents
 
@@ -1893,6 +1971,10 @@ holes" into PolySmith commands.
 13. Treat `error` as a failed command. Do not assume partial success.
 14. Never expose internal IDs to end users. IDs are for agent context and IPC
     only.
+15. Define named parameters with `add_parameter` before using them in dimension
+    expressions.
+16. After changing a parameter, dimension expressions that reference it
+    re-evaluate automatically — no need to manually update dimensions.
 
 ## Common ID Lookup Patterns
 
@@ -1911,6 +1993,16 @@ After a mutating command:
 1. Compare current `feature_history[]` with the previous state if available.
 2. Otherwise use the last entry of the expected `kind`.
 3. Confirm its parameter object is non-null.
+
+### Find a Parameter
+
+From `document_state`:
+
+1. Read `parameters[]`.
+2. Search by `name`.
+3. Read `resolved_value` for the current evaluated value.
+4. Check `has_error` — if true, `error_message` explains why evaluation failed.
+5. Parameters reference each other by `name` in their `expression` strings.
 
 ### Find Profiles After Drawing
 

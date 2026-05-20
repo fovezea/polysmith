@@ -9,6 +9,7 @@
 #include "core/export.h"
 #include "core/extrude_feature.h"
 #include "core/feature.h"
+#include "core/parameter.h"
 #include "core/sketch_profile.h"
 #include "core/sketch_feature.h"
 
@@ -47,6 +48,7 @@ struct DocumentState {
   std::optional<std::string> selected_sketch_profile_id;
   std::vector<std::string> selected_sketch_profile_ids;
   std::vector<FeatureEntry> feature_history;
+  std::vector<ParameterEntry> parameters;
 };
 
 struct SessionState {
@@ -207,7 +209,8 @@ class DocumentManager {
       const std::string& first_entity_id,
       const std::string& second_entity_id);
   DocumentState update_sketch_dimension(const std::string& dimension_id,
-                                        double value);
+                                        double value,
+                                        std::optional<std::string> expression = std::nullopt);
   DocumentState select_sketch_profile(const std::string& profile_id,
                                       bool additive = false);
   DocumentState extrude_profile(
@@ -315,6 +318,14 @@ class DocumentManager {
   DocumentState project_edge_into_sketch(const std::string& edge_id);
   DocumentState project_vertex_into_sketch(const std::string& vertex_id);
   DocumentState clear_selection();
+  // Parameter CRUD — document-scoped named numeric parameters that can
+  // be referenced by name in sketch dimension expressions.
+  DocumentState add_parameter(const std::string& name,
+                              const std::string& expression);
+  DocumentState update_parameter(const std::string& name,
+                                 const std::string& expression);
+  DocumentState delete_parameter(const std::string& name);
+
   ExportResult export_document_as_step(const std::string& file_path) const;
   ExportResult export_document_as_stl(const std::string& file_path) const;
   void save_document_to_path(const std::string& file_path) const;

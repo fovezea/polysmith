@@ -14,6 +14,9 @@ import {
   makeUpdateSketchFilletRadiusCommand,
   makeDeleteSketchFilletCommand,
   makeDeleteSketchDimensionCommand,
+  makeAddParameterCommand,
+  makeUpdateParameterCommand,
+  makeDeleteParameterCommand,
   makeDeleteSketchSelectionCommand,
   makeAddSketchCircleCommand,
   makeAddSketchPolygonCommand,
@@ -510,7 +513,7 @@ export function useCadCore() {
       );
       await sendCoreCommand(makeGetViewportStateCommand());
     },
-    updateSketchDimension: async (dimensionId: string, value: number) => {
+    updateSketchDimension: async (dimensionId: string, value: number | string) => {
       await sendCoreCommand(
         makeUpdateSketchDimensionCommand(dimensionId, value),
       );
@@ -661,6 +664,18 @@ export function useCadCore() {
     },
     deleteSketchDimension: async (dimensionId: string) => {
       await sendCoreCommand(makeDeleteSketchDimensionCommand(dimensionId));
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    addParameter: async (name: string, expression: string) => {
+      await sendCoreCommand(makeAddParameterCommand(name, expression));
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateParameter: async (name: string, expression: string) => {
+      await sendCoreCommand(makeUpdateParameterCommand(name, expression));
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    deleteParameter: async (name: string) => {
+      await sendCoreCommand(makeDeleteParameterCommand(name));
       await sendCoreCommand(makeGetViewportStateCommand());
     },
     deleteSketchSelection: async (

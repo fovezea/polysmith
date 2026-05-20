@@ -323,6 +323,7 @@ const documentStateSchema = z.object({
               // Empty string for unary dims; second line id for angle.
               secondary_entity_id: z.string().default(""),
               value: z.number(),
+              expression: z.string().default(""),
             }),
           ),
           line_relations: z.array(
@@ -394,6 +395,15 @@ const documentStateSchema = z.object({
         .nullable(),
     }),
   ),
+  parameters: z.array(
+    z.object({
+      name: z.string(),
+      expression: z.string(),
+      resolved_value: z.number(),
+      has_error: z.boolean(),
+      error_message: z.string().default(""),
+    }),
+  ).default([]),
 });
 
 const sessionStateSchema = z.object({

@@ -381,5 +381,15 @@
     "snap": "Snap: {{label}}",
     "startingCore": "Starting the native CAD core...",
     "title": "Viewport"
+  },
+  "parameters": {
+    "title": "Parameters",
+    "name": "Name",
+    "expression": "Expression",
+    "value": "Value",
+    "addParameter": "Add Parameter",
+    "deleteParameter": "Delete Parameter",
+    "emptyName": "Name cannot be empty",
+    "duplicateName": "A parameter with this name already exists"
   }
 }

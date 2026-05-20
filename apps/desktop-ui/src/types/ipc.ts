@@ -41,6 +41,7 @@ export interface DocumentState {
   selected_sketch_profile_id: string | null;
   selected_sketch_profile_ids: string[];
   feature_history: FeatureEntry[];
+  parameters: ParameterEntry[];
 }
 
 export interface SessionState {
@@ -890,12 +891,46 @@ export interface UpdateSketchCircleCommand {
   };
 }
 
+export interface ParameterEntry {
+  name: string;
+  expression: string;
+  resolved_value: number;
+  has_error: boolean;
+  error_message: string;
+}
+
+export interface AddParameterCommand {
+  id: string;
+  type: "add_parameter";
+  payload: {
+    name: string;
+    expression: string;
+  };
+}
+
+export interface UpdateParameterCommand {
+  id: string;
+  type: "update_parameter";
+  payload: {
+    name: string;
+    expression: string;
+  };
+}
+
+export interface DeleteParameterCommand {
+  id: string;
+  type: "delete_parameter";
+  payload: {
+    name: string;
+  };
+}
+
 export interface UpdateSketchDimensionCommand {
   id: string;
   type: "update_sketch_dimension";
   payload: {
     dimension_id: string;
-    value: number;
+    value: number | string;
   };
 }
 
@@ -1098,4 +1133,7 @@ export type CoreCommand =
   | FinishSketchCommand
   | ReenterSketchCommand
   | ClearSelectionCommand
+  | AddParameterCommand
+  | UpdateParameterCommand
+  | DeleteParameterCommand
   | ShutdownCommand;

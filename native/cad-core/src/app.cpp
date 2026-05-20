@@ -7,6 +7,7 @@
 #include <TopoDS_Shape.hxx>
 
 #include "core/document.h"
+#include "core/formula_eval.h"
 #include "core/logger.h"
 #include "core/viewport.h"
 #include "protocol/ipc.h"
@@ -736,9 +737,59 @@ void CadCoreApp::handle_command_line(const std::string& line) {
   }
 
   if (command.type == "update_sketch_dimension") {
+    // Accept either a numeric value (backward compatible) or a string
+    // expression like "width * 2". If it's a string, evaluate against
+    // the current parameter table, then pass the resolved value and
+    // expression to the core for storage.
+    double resolved_value = 0.0;
+    std::optional<std::string> expression;
+
+    if (command.payload.contains("value")) {
+      if (command.payload.at("value").is_number()) {
+        resolved_value = command.payload.at("value").get<double>();
+      } else if (command.payload.at("value").is_string()) {
+        std::string expr_str =
+            command.payload.at("value").get<std::string>();
+        expression = expr_str;
+
+        // Evaluate against current parameters
+        const auto doc = document_manager().get_document();
+        std::vector<core::ParameterEntry> params;
+        if (doc.has_value()) {
+          params = doc->parameters;
+        }
+
+        auto resolver = [&params](const std::string& name) -> double {
+          for (const auto& p : params) {
+            if (p.name == name) {
+              if (p.has_error) {
+                throw std::runtime_error("Parameter '" + name +
+                                         "' has an unresolved expression");
+              }
+              return p.resolved_value;
+            }
+          }
+          throw std::runtime_error("Unknown parameter: '" + name + "'");
+        };
+
+        try {
+          resolved_value = core::evaluate_formula(expr_str, resolver);
+        } catch (const std::exception& e) {
+          throw std::runtime_error(
+              std::string("Dimension expression error: ") + e.what());
+        }
+      } else {
+        throw std::runtime_error(
+            "Dimension 'value' must be a number or string expression");
+      }
+    } else {
+      throw std::runtime_error("Dimension command missing 'value' field");
+    }
+
     const auto document = document_manager().update_sketch_dimension(
         read_string(command.payload, "dimension_id"),
-        read_dimension(command.payload, "value"));
+        resolved_value,
+        expression);
 
     polysmith::protocol::write_message(
         polysmith::protocol::make_document_state_event(
@@ -1233,6 +1284,38 @@ void CadCoreApp::handle_command_line(const std::string& line) {
 
   if (command.type == "clear_selection") {
     const auto document = document_manager().clear_selection();
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "add_parameter") {
+    const auto document = document_manager().add_parameter(
+        read_string(command.payload, "name"),
+        read_string(command.payload, "expression"));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "update_parameter") {
+    const auto document = document_manager().update_parameter(
+        read_string(command.payload, "name"),
+        read_string(command.payload, "expression"));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "delete_parameter") {
+    const auto document = document_manager().delete_parameter(
+        read_string(command.payload, "name"));
 
     polysmith::protocol::write_message(
         polysmith::protocol::make_document_state_event(

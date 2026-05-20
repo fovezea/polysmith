@@ -21,6 +21,7 @@
 #include "core/edge_geometry.h"
 #include "core/face_geometry.h"
 #include "core/feature_shape.h"
+#include "core/formula_eval.h"
 #include "core/refresh_dependents.h"
 #include "protocol/serialization.h"
 
@@ -2148,7 +2149,9 @@ DocumentState DocumentManager::add_sketch_distance_dimension(
 }
 
 DocumentState DocumentManager::update_sketch_dimension(
-    const std::string& dimension_id, double value) {
+    const std::string& dimension_id,
+    double value,
+    std::optional<std::string> expression) {
   require_document();
 
   if (!document_->active_sketch_feature_id.has_value()) {
@@ -2188,7 +2191,7 @@ DocumentState DocumentManager::update_sketch_dimension(
 
   push_undo_state();
   clear_redo_stack();
-  polysmith::core::update_sketch_dimension(*feature_it, dimension_id, value);
+  polysmith::core::update_sketch_dimension(*feature_it, dimension_id, value, expression);
   refresh_linked_extrudes(*document_, *feature_it);
   document_->selected_feature_id = feature_it->id;
   document_->selected_sketch_point_id = std::nullopt;
@@ -4351,6 +4354,111 @@ DocumentState DocumentManager::update_offset_plane(
   clear_redo_stack();
   polysmith::core::update_construction_plane(*feature_it, offset, frame.value());
   bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::add_parameter(const std::string& name,
+                                            const std::string& expression) {
+  require_document();
+
+  if (name.empty()) {
+    throw std::runtime_error("Parameter name cannot be empty");
+  }
+
+  // Reject duplicates
+  for (const auto& p : document_->parameters) {
+    if (p.name == name) {
+      throw std::runtime_error("Parameter '" + name + "' already exists");
+    }
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+
+  ParameterEntry entry;
+  entry.name = name;
+  entry.expression = expression;
+  document_->parameters.push_back(entry);
+
+  // Re-evaluate all parameters and refresh dimension expressions
+  reify_parameters(document_->parameters);
+  for (auto& feat : document_->feature_history) {
+    reify_dimension_expressions(feat, document_->parameters);
+  }
+  refresh_history_dependencies(document_.value());
+  bump_geometry_revision();
+
+  return document_.value();
+}
+
+DocumentState DocumentManager::update_parameter(const std::string& name,
+                                                 const std::string& expression) {
+  require_document();
+
+  if (name.empty()) {
+    throw std::runtime_error("Parameter name cannot be empty");
+  }
+
+  ParameterEntry* target = nullptr;
+  for (auto& p : document_->parameters) {
+    if (p.name == name) {
+      target = &p;
+      break;
+    }
+  }
+
+  if (!target) {
+    throw std::runtime_error("Parameter '" + name + "' not found");
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+
+  target->expression = expression;
+
+  // Re-evaluate all parameters and refresh dimension expressions
+  reify_parameters(document_->parameters);
+  for (auto& feat : document_->feature_history) {
+    reify_dimension_expressions(feat, document_->parameters);
+  }
+  refresh_history_dependencies(document_.value());
+  bump_geometry_revision();
+
+  return document_.value();
+}
+
+DocumentState DocumentManager::delete_parameter(const std::string& name) {
+  require_document();
+
+  if (name.empty()) {
+    throw std::runtime_error("Parameter name cannot be empty");
+  }
+
+  auto it = document_->parameters.begin();
+  for (; it != document_->parameters.end(); ++it) {
+    if (it->name == name) {
+      break;
+    }
+  }
+
+  if (it == document_->parameters.end()) {
+    throw std::runtime_error("Parameter '" + name + "' not found");
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+
+  document_->parameters.erase(it);
+
+  // Re-evaluate remaining parameters (those referencing the deleted
+  // one will now have errors) and refresh dimension expressions
+  reify_parameters(document_->parameters);
+  for (auto& feat : document_->feature_history) {
+    reify_dimension_expressions(feat, document_->parameters);
+  }
+  refresh_history_dependencies(document_.value());
+  bump_geometry_revision();
+
   return document_.value();
 }
 

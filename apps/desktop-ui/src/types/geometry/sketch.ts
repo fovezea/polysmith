@@ -56,6 +56,7 @@ export interface SketchDimensionEntry {
   entity_id: string;
   secondary_entity_id: string;
   value: number;
+  expression: string;
 }
 
 export interface SketchLineRelationEntry {

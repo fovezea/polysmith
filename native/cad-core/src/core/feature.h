@@ -270,6 +270,10 @@ struct SketchDimension {
   // For "angle" dimensions, the angle in radians. For other kinds
   // this field carries the natural numeric value (length, radius).
   double value;
+  // Optional formula expression (e.g. "width * 2"). When non-empty,
+  // the resolved `value` is recomputed from this expression during
+  // refresh_sketch_derived_state. Empty string = plain numeric value.
+  std::string expression;
 };
 
 // A point anchored to the midpoint of a line. The anchored point is

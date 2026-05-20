@@ -2072,16 +2072,34 @@ export function ViewportPanel({
     );
   }
 
-  function selectSketchDimensionForEdit(dimensionId: string) {
+  // Track which dimension was last clicked, so a second click on the
+  // same dimension opens the editor (click to select, re-click to edit).
+  const lastClickedDimensionRef = useRef<string | null>(null);
+
+  function handleDimensionClick(dimensionId: string) {
     if (isProjectedCircleDimension(dimensionId)) {
-      suppressNextDimensionEditorOpenRef.current = true;
-      setIsDimensionEditorOpen(false);
       void selectSketchDimensionRef.current(dimensionId);
       return;
     }
-    suppressNextDimensionEditorOpenRef.current = false;
-    setIsDimensionEditorOpen(true);
-    void selectSketchDimensionRef.current(dimensionId);
+
+    // Check BOTH the store (accurate after IPC round-trip) AND the
+    // local ref (accurate for rapid re-clicks before IPC completes).
+    const isAlreadySelected =
+      selectedSketchDimension?.dimensionId === dimensionId ||
+      lastClickedDimensionRef.current === dimensionId;
+
+    if (isAlreadySelected) {
+      // Second click on the already-selected dimension → open editor
+      suppressNextDimensionEditorOpenRef.current = false;
+      setIsDimensionEditorOpen(true);
+    } else {
+      // First click → select it (highlight), no editor
+      suppressNextDimensionEditorOpenRef.current = true;
+      setIsDimensionEditorOpen(false);
+      void selectSketchDimensionRef.current(dimensionId);
+    }
+
+    lastClickedDimensionRef.current = dimensionId;
   }
 
   function dimensionDisplayValue(
@@ -5590,7 +5608,7 @@ export function ViewportPanel({
         (renderer.domElement as HTMLCanvasElement).style.cursor = "";
         pointerDown = null;
         if (!dimensionDrag.isPlacement && !dimensionDrag.hasMoved) {
-          selectSketchDimensionForEdit(dimensionDrag.dimensionId);
+          handleDimensionClick(dimensionDrag.dimensionId);
         }
         return;
       }
@@ -5723,7 +5741,7 @@ export function ViewportPanel({
           }
 
           if (hit?.kind === "sketch_dimension") {
-            selectSketchDimensionForEdit(hit.id);
+            handleDimensionClick(hit.id);
             return;
           }
 
@@ -5759,7 +5777,7 @@ export function ViewportPanel({
           if (hit?.kind === "sketch_dimension") {
             dimensionToolFirstLineRef.current = null;
             setDimensionToolFirstLine(null);
-            selectSketchDimensionForEdit(hit.id);
+            handleDimensionClick(hit.id);
             return;
           }
           if (hit?.kind === "sketch_entity") {
@@ -5788,7 +5806,7 @@ export function ViewportPanel({
                   (dim) => dim.dimension_id === dimensionId,
                 ) ?? false;
               if (dimensionExists) {
-                selectSketchDimensionForEdit(dimensionId);
+                handleDimensionClick(dimensionId);
               } else {
                 void selectSketchEntityRef.current(hit.id, false);
               }
@@ -5829,7 +5847,7 @@ export function ViewportPanel({
                 (dim) => dim.dimension_id === dimensionId,
               ) ?? false;
             if (dimensionExists) {
-              selectSketchDimensionForEdit(dimensionId);
+              handleDimensionClick(dimensionId);
             } else {
               void selectSketchEntityRef.current(hit.id, false);
             }
@@ -6429,9 +6447,23 @@ export function ViewportPanel({
         if (
           hit?.kind !== "sketch_entity" &&
           hit?.kind !== "sketch_point" &&
-          hit?.kind !== "sketch_profile"
+          hit?.kind !== "sketch_profile" &&
+          hit?.kind !== "sketch_dimension"
         ) {
           setContextMenu(null);
+          return;
+        }
+
+        // Right-click on a sketch dimension: show Delete context menu
+        if (hit?.kind === "sketch_dimension") {
+          const rect = renderer.domElement.getBoundingClientRect();
+          setContextMenu({
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top,
+            referenceId: null,
+            faceId: null,
+            dimensionId: hit.id,
+          });
           return;
         }
 
@@ -7125,6 +7157,16 @@ export function ViewportPanel({
     await deleteSketchSelectionRef.current(selection);
   }
 
+  async function handleDeleteDimensionFromContextMenu() {
+    const dimensionId = contextMenu?.dimensionId;
+    if (!dimensionId) {
+      return;
+    }
+    setContextMenu(null);
+    setIsDimensionEditorOpen(false);
+    await deleteSketchDimensionRef.current(dimensionId);
+  }
+
   const lineCount = sketchFeature?.sketch_parameters?.lines.length ?? 0;
   const circleCount = sketchFeature?.sketch_parameters?.circles.length ?? 0;
 
@@ -7134,18 +7176,28 @@ export function ViewportPanel({
       return;
     }
 
-    const rawValue = Number(dimensionDraftValue);
-    if (!Number.isFinite(rawValue) || rawValue <= 0) {
+    const rawValue = dimensionDraftValue.trim();
+    if (!rawValue) {
       setIsDimensionEditorOpen(false);
       return;
     }
 
-    const nextValue = dimensionCoreValue(selectedSketchDimension, rawValue);
-
-    await updateSketchDimensionRef.current(
-      selectedSketchDimension.dimensionId,
-      nextValue,
-    );
+    // If the value parses as a plain number, send it as a number
+    // (backward compatible). If it contains non-numeric characters
+    // (e.g. "width * 2"), send it as a formula expression.
+    const numericValue = Number(rawValue);
+    if (Number.isFinite(numericValue) && numericValue > 0) {
+      await updateSketchDimensionRef.current(
+        selectedSketchDimension.dimensionId,
+        dimensionCoreValue(selectedSketchDimension, numericValue),
+      );
+    } else {
+      // Send as expression string — the core will evaluate it
+      await updateSketchDimensionRef.current(
+        selectedSketchDimension.dimensionId,
+        rawValue,
+      );
+    }
     finishDimensionPlacement();
     dimensionEditOriginalValueRef.current = null;
     setIsDimensionEditorOpen(false);
@@ -7156,15 +7208,21 @@ export function ViewportPanel({
     if (!selectedSketchDimension) {
       return;
     }
-    const rawValue = Number(value);
-    if (!Number.isFinite(rawValue) || rawValue <= 0) {
+    const trimmed = value.trim();
+    if (!trimmed) {
       return;
     }
-    const dimensionId = selectedSketchDimension.dimensionId;
-    void updateSketchDimensionRef.current(
-      dimensionId,
-      dimensionCoreValue(selectedSketchDimension, rawValue),
-    );
+    // Only send numeric values as live preview. Expressions
+    // (parameter names, formulas) are held until Enter — partial
+    // keystrokes like "t", "te" would otherwise flood the core
+    // with "unknown parameter" errors before the name is complete.
+    const numericValue = Number(trimmed);
+    if (Number.isFinite(numericValue) && numericValue > 0) {
+      void updateSketchDimensionRef.current(
+        selectedSketchDimension.dimensionId,
+        dimensionCoreValue(selectedSketchDimension, numericValue),
+      );
+    }
   }
 
   function cancelDimensionEdit() {
@@ -7338,7 +7396,15 @@ export function ViewportPanel({
               transform: "translate(8px, 8px)",
             }}
           >
-            {contextMenu.sketchDeleteSelection ? (
+            {contextMenu.dimensionId ? (
+              <button
+                type="button"
+                className="cad-context-menu-item flex w-full items-center justify-start rounded-xl px-3 py-2 text-sm text-on-surface transition-colors duration-200"
+                onClick={handleDeleteDimensionFromContextMenu}
+              >
+                Delete
+              </button>
+            ) : contextMenu.sketchDeleteSelection ? (
               <button
                 type="button"
                 className="cad-context-menu-item flex w-full items-center justify-start rounded-xl px-3 py-2 text-sm text-on-surface transition-colors duration-200"
@@ -7698,7 +7764,7 @@ export function ViewportPanel({
               ref={dimensionInputRef}
               className="h-6 w-full bg-transparent text-center text-sm font-medium text-on-surface tabular-nums outline-none"
               type="text"
-              inputMode="decimal"
+              inputMode="text"
               value={dimensionDraftValue}
               onChange={(event) => {
                 dimensionInputSelectionLockedRef.current = false;

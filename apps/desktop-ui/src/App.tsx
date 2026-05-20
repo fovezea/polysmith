@@ -252,6 +252,7 @@ function App() {
   const [isLogsOpen, setIsLogsOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
+  const [parametersPanelOpen, setParametersPanelOpen] = useState(false);
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("cad");
   const [slicerStatus, setSlicerStatus] = useState<string | null>(null);
   const [hasOrcaEmbedSession, setHasOrcaEmbedSession] = useState(false);
@@ -2106,7 +2107,14 @@ function App() {
             }
           }}
           onCancelSketchConstraint={clearArmedSketchConstraint}
+<<<<<<< HEAD
           onWorkspaceDropdownOpenChange={handleWorkspaceDropdownOpenChange}
+=======
+          parametersPanelOpen={parametersPanelOpen}
+          onToggleParametersPanel={() => {
+            setParametersPanelOpen((current) => !current);
+          }}
+>>>>>>> dd95784 (feat: parametric parameters & dimension formulas)
         />
 
         <div className="flex min-h-0 min-w-0">
