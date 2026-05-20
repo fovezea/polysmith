@@ -1058,6 +1058,18 @@ export function makeDeleteSketchFilletCommand(filletId: string): CoreCommand {
   };
 }
 
+export function makeDeleteSketchDimensionCommand(
+  dimensionId: string,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "delete_sketch_dimension",
+    payload: {
+      dimension_id: dimensionId,
+    },
+  };
+}
+
 export function makeDeleteSketchSelectionCommand(
   entityIds: readonly string[],
   pointIds: readonly string[],

@@ -194,6 +194,8 @@ void update_sketch_fillet_radius(FeatureEntry& feature,
                                  double radius);
 void delete_sketch_fillet(FeatureEntry& feature,
                           const std::string& fillet_id);
+void delete_sketch_dimension(FeatureEntry& feature,
+                             const std::string& dimension_id);
 
 // ---------------------------------------------------------------
 // Mirror tool — contextual modeling pending preview lifecycle.

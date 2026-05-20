@@ -294,6 +294,7 @@ class DocumentManager {
   DocumentState update_sketch_fillet_radius(const std::string& fillet_id,
                                             double radius);
   DocumentState delete_sketch_fillet(const std::string& fillet_id);
+  DocumentState delete_sketch_dimension(const std::string& dimension_id);
   DocumentState delete_sketch_selection(
       const std::vector<std::string>& entity_ids,
       const std::vector<std::string>& point_ids,
