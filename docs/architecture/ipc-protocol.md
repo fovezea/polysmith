@@ -228,6 +228,19 @@ The current implementation now also includes a focused export spike:
 - the core replies with `document_exported` when the export succeeds; the payload's `format` field reflects the writer that ran (`step` or `stl`)
 - the UI must not reconstruct geometry or write CAD files itself
 
+Embedded OrcaSlicer integration uses this same export boundary. Switching to
+Slicer view asks the native core to export the active document as a temporary
+STL, waits for `document_exported`, then calls Tauri-native commands for the
+external OrcaSlicer process/window lifecycle:
+
+- `prepare_orca_export_path` returns a temporary STL destination owned by the app
+- `embed_orca_window { binaryPath, modelFilePath, bounds }` launches or reuses the configured OrcaSlicer binary under PolySmith control and attempts to attach the native window to the Slicer view bounds
+- `resize_orca_window { bounds }` updates the attached native window to match the DOM placeholder
+- `hide_orca_window` hides/unparents the managed window without killing the slicer process
+
+These Tauri commands are outside the CAD command language. They must not carry
+CAD geometry, feature state, or UI-reconstructed mesh data.
+
 The protocol also covers native document persistence and the Project sketch
 tool:
 

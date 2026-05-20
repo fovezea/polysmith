@@ -422,6 +422,15 @@ Payload:
 
 Returns `document_exported` with `format: "stl"`.
 
+### Embedded Slicer Handoff
+
+The embedded OrcaSlicer view is not part of the AI CAD command language. When
+the UI switches to Slicer view, it exports through the existing
+`export_document_stl` command, waits for `document_exported`, and then hands the
+temporary STL path to Tauri-native OrcaSlicer window-management commands. Agents
+must not invent separate geometry payloads for the slicer or bypass the native
+core export path.
+
 ### Primitive Solid Features
 
 Primitive feature commands are direct modeling shortcuts. For richer CAD

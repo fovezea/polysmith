@@ -3,11 +3,13 @@
 
 mod app_config;
 mod cad_core;
+mod orca_slicer;
 mod protocol;
 
 use std::sync::Mutex;
 
 use cad_core::{start_cad_core_process, CadCoreState};
+use orca_slicer::OrcaSlicerState;
 use serde_json::Value;
 
 #[tauri::command]
@@ -36,19 +38,53 @@ fn save_app_config(config: Value) -> Result<(), String> {
     app_config::save_app_config(config)
 }
 
+#[tauri::command]
+fn prepare_orca_export_path() -> Result<String, String> {
+    orca_slicer::prepare_orca_export_path()
+}
+
+#[tauri::command]
+fn embed_orca_window(
+    window: tauri::WebviewWindow,
+    state: tauri::State<OrcaSlicerState>,
+    request: orca_slicer::OrcaEmbedRequest,
+) -> Result<orca_slicer::OrcaEmbedResult, String> {
+    orca_slicer::embed_orca_window(window, state, request)
+}
+
+#[tauri::command]
+fn resize_orca_window(
+    state: tauri::State<OrcaSlicerState>,
+    bounds: orca_slicer::SlicerViewportBounds,
+) -> Result<orca_slicer::OrcaEmbedResult, String> {
+    orca_slicer::resize_orca_window(state, bounds)
+}
+
+#[tauri::command]
+fn hide_orca_window(
+    state: tauri::State<OrcaSlicerState>,
+) -> Result<orca_slicer::OrcaEmbedResult, String> {
+    orca_slicer::hide_orca_window(state)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(CadCoreState {
             child: Mutex::new(None),
         })
+        .manage(OrcaSlicerState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             start_cad_core,
             send_core_command,
             bootstrap_app_config,
-            save_app_config
+            save_app_config,
+            prepare_orca_export_path,
+            embed_orca_window,
+            resize_orca_window,
+            hide_orca_window
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

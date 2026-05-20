@@ -11,6 +11,10 @@
     "previewBeforeRun": true,
     "maxAgentSteps": 5
   },
+  "orcaSlicer": {
+    "enabled": false,
+    "binaryPath": ""
+  },
   "hotkeys": {
     "global": {
       "undo": { "code": "KeyZ", "label": "Z", "ctrlOrMeta": true },

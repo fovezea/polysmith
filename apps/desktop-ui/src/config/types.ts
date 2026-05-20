@@ -49,6 +49,11 @@ export interface AiConfig {
   maxAgentSteps: number;
 }
 
+export interface OrcaSlicerConfig {
+  enabled: boolean;
+  binaryPath: string;
+}
+
 export type ThemeSelection =
   | "system"
   | "dark"
@@ -64,6 +69,7 @@ export interface AppConfig {
   hotkeys: AppHotkeys;
   viewport: ViewportConfig;
   ai: AiConfig;
+  orcaSlicer: OrcaSlicerConfig;
 }
 
 export interface ThemeConfig {

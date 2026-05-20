@@ -9,5 +9,6 @@ export * from "./aiCommandProtocol";
 export * from "./ipcProtocol";
 export * from "./logger";
 export * from "./ollamaClient";
+export * from "./orcaSlicerClient";
 export * from "./schemas/ipcSchema";
 export * from "./viewportScene";

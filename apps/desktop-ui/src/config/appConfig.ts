@@ -115,6 +115,20 @@ function normalizeAiConfig(input: Partial<AppConfig>["ai"]): AppConfig["ai"] {
   };
 }
 
+function normalizeOrcaSlicerConfig(
+  input: Partial<AppConfig>["orcaSlicer"],
+): AppConfig["orcaSlicer"] {
+  const defaults = defaultAppConfig.orcaSlicer;
+  return {
+    enabled:
+      typeof input?.enabled === "boolean" ? input.enabled : defaults.enabled,
+    binaryPath:
+      typeof input?.binaryPath === "string"
+        ? input.binaryPath
+        : defaults.binaryPath,
+  };
+}
+
 function cloneConfig(config: AppConfig): AppConfig {
   return JSON.parse(JSON.stringify(config)) as AppConfig;
 }
@@ -128,6 +142,7 @@ function mergeAppConfig(input: Partial<AppConfig>): AppConfig {
       ...input.viewport,
     },
     ai: normalizeAiConfig(input.ai),
+    orcaSlicer: normalizeOrcaSlicerConfig(input.orcaSlicer),
     hotkeys: {
       ...defaultAppConfig.hotkeys,
       ...input.hotkeys,

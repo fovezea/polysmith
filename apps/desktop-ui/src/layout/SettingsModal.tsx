@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import {
@@ -10,7 +11,7 @@ import {
 import type { AppConfig, HotkeyBinding } from "@/config";
 import { Dropdown, testOllamaConnection } from "@/lib";
 
-type SettingsSection = "general" | "appearance" | "keybinds" | "ai";
+type SettingsSection = "general" | "appearance" | "keybinds" | "ai" | "orca";
 type LanguageCode = "en" | "es" | "ja" | "zh";
 
 interface SettingsModalProps {
@@ -276,6 +277,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               ["appearance", t("settings.appearance")],
               ["keybinds", t("settings.keybinds")],
               ["ai", t("common.ai")],
+              ["orca", t("settings.embeddedOrcaSlicer")],
             ].map(([id, label]) => (
               <button
                 key={id}
@@ -302,7 +304,9 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                   ? t("settings.general")
                   : section === "keybinds"
                   ? t("settings.keybinds")
-                  : t("common.ai")}
+                  : section === "ai"
+                    ? t("common.ai")
+                    : t("settings.embeddedOrcaSlicer")}
             </h2>
           </header>
 
@@ -410,7 +414,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                   </div>
                 ))}
               </div>
-            ) : (
+            ) : section === "ai" ? (
               <div className="max-w-xl space-y-5">
                 <div className="rounded-md border border-white/10 bg-white/[0.025] px-4 py-4">
                   <label className="flex items-center justify-between gap-4">
@@ -531,6 +535,79 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                     </span>
                   ) : null}
                 </div>
+              </div>
+            ) : (
+              <div className="max-w-xl space-y-5">
+                <div className="rounded-md border border-white/10 bg-white/[0.025] px-4 py-4">
+                  <label className="flex items-center justify-between gap-4">
+                    <span>
+                      <span className="block text-sm font-medium text-on-surface">
+                        {t("settings.enableEmbeddedOrcaSlicer")}
+                      </span>
+                      <span className="mt-1 block text-xs text-on-surface-muted">
+                        {t("settings.enableEmbeddedOrcaSlicerDescription")}
+                      </span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={config.orcaSlicer.enabled}
+                      onChange={(event) => {
+                        updateConfig((current) => ({
+                          ...current,
+                          orcaSlicer: {
+                            ...current.orcaSlicer,
+                            enabled: event.target.checked,
+                          },
+                        }));
+                      }}
+                    />
+                  </label>
+                </div>
+
+                <label className="block">
+                  <span className="cad-kicker">
+                    {t("settings.orcaSlicerBinaryPath")}
+                  </span>
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      className="min-w-0 flex-1 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-on-surface outline-none transition-colors focus:border-primary-edge"
+                      value={config.orcaSlicer.binaryPath}
+                      placeholder={t("settings.orcaSlicerBinaryPlaceholder")}
+                      onChange={(event) => {
+                        updateConfig((current) => ({
+                          ...current,
+                          orcaSlicer: {
+                            ...current.orcaSlicer,
+                            binaryPath: event.target.value,
+                          },
+                        }));
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="cad-ribbon-action"
+                      onClick={async () => {
+                        const selectedPath = await open({
+                          title: t("settings.selectOrcaSlicerBinary"),
+                          multiple: false,
+                          directory: false,
+                        });
+                        if (typeof selectedPath !== "string") {
+                          return;
+                        }
+                        updateConfig((current) => ({
+                          ...current,
+                          orcaSlicer: {
+                            ...current.orcaSlicer,
+                            binaryPath: selectedPath,
+                          },
+                        }));
+                      }}
+                    >
+                      {t("common.browse")}
+                    </button>
+                  </div>
+                </label>
               </div>
             )}
           </div>

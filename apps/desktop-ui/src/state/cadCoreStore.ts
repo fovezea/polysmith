@@ -60,6 +60,30 @@ export function awaitDocumentChange(
   });
 }
 
+export function awaitDocumentExport(
+  predicate: (next: DocumentExportResult) => boolean,
+  timeoutMs = 10000,
+): Promise<DocumentExportResult> {
+  return new Promise((resolve, reject) => {
+    const initial = useCadCoreStore.getState().lastExport;
+    const timer = window.setTimeout(() => {
+      unsubscribe();
+      reject(new Error("awaitDocumentExport: timed out"));
+    }, timeoutMs);
+    const unsubscribe = useCadCoreStore.subscribe((state) => {
+      const exportResult = state.lastExport;
+      if (!exportResult || exportResult === initial) {
+        return;
+      }
+      if (predicate(exportResult)) {
+        window.clearTimeout(timer);
+        unsubscribe();
+        resolve(exportResult);
+      }
+    });
+  });
+}
+
 export const useCadCoreStore = create<CadCoreStoreState>((set) => ({
   status: "idle",
   messages: [],
