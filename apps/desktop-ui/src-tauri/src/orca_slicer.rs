@@ -54,8 +54,10 @@ pub fn configure_linux_windowing_environment() {
         // desktops this asks GTK/Wry and Qt-based OrcaSlicer to use XWayland
         // so both windows have X11 handles that can be embedded.
         std::env::set_var("GDK_BACKEND", "x11");
+        std::env::set_var("GTK_BACKEND", "x11");
         std::env::set_var("WINIT_UNIX_BACKEND", "x11");
         std::env::set_var("QT_QPA_PLATFORM", "xcb");
+        std::env::set_var("SDL_VIDEODRIVER", "x11");
     }
 }
 
@@ -183,7 +185,10 @@ fn configure_orca_environment(command: &mut Command) {
     #[cfg(target_os = "linux")]
     {
         command.env("GDK_BACKEND", "x11");
+        command.env("GTK_BACKEND", "x11");
+        command.env("WINIT_UNIX_BACKEND", "x11");
         command.env("QT_QPA_PLATFORM", "xcb");
+        command.env("SDL_VIDEODRIVER", "x11");
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -411,6 +416,17 @@ mod linux_x11_impl {
             atom_name: *const c_char,
             only_if_exists: c_int,
         ) -> Atom;
+        fn XGetGeometry(
+            display: *mut Display,
+            drawable: Window,
+            root_return: *mut Window,
+            x_return: *mut c_int,
+            y_return: *mut c_int,
+            width_return: *mut c_uint,
+            height_return: *mut c_uint,
+            border_width_return: *mut c_uint,
+            depth_return: *mut c_uint,
+        ) -> c_int;
         fn XGetWindowProperty(
             display: *mut Display,
             window: Window,
@@ -450,9 +466,12 @@ mod linux_x11_impl {
             width: c_uint,
             height: c_uint,
         ) -> c_int;
+        fn XMapWindow(display: *mut Display, window: Window) -> c_int;
         fn XMapRaised(display: *mut Display, window: Window) -> c_int;
+        fn XRaiseWindow(display: *mut Display, window: Window) -> c_int;
         fn XUnmapWindow(display: *mut Display, window: Window) -> c_int;
         fn XFlush(display: *mut Display) -> c_int;
+        fn XSync(display: *mut Display, discard: c_int) -> c_int;
     }
 
     pub fn attach_orca_window(
@@ -467,18 +486,37 @@ mod linux_x11_impl {
             None => wait_for_process_window(display, process_id)?,
         };
         let (x, y, width, height) = scaled_bounds(bounds);
+        let root = unsafe { XDefaultRootWindow(display) };
+        let old_parent = window_parent(display, child)?;
 
         unsafe {
+            XUnmapWindow(display, child);
             strip_window_chrome(display, child);
             XReparentWindow(display, child, parent, x, y);
             XMoveResizeWindow(display, child, x, y, width, height);
+            XMapWindow(display, child);
             XMapRaised(display, child);
+            XRaiseWindow(display, child);
             XFlush(display);
+            XSync(display, 0);
+        }
+        let new_parent = window_parent(display, child)?;
+        if new_parent != parent {
+            return Err(format!(
+                "X11 reparenting did not attach OrcaSlicer. Selected window {child:#x} still has parent {new_parent:#x}; expected PolySmith parent {parent:#x}."
+            ));
+        }
+
+        if old_parent != 0 && old_parent != root && old_parent != parent {
+            unsafe {
+                XUnmapWindow(display, old_parent);
+                XFlush(display);
+            }
         }
 
         Ok(PlatformWindowResult {
             status: "embedded".to_string(),
-            message: "OrcaSlicer window embedded in the Slicer view.".to_string(),
+            message: format!("OrcaSlicer window {child:#x} embedded in the Slicer view."),
             window_handle: Some(child as i64),
             display_handle: Some(display as usize),
         })
@@ -575,33 +613,66 @@ mod linux_x11_impl {
     }
 
     fn wait_for_process_window(display: *mut Display, process_id: u32) -> Result<Window, String> {
-        for _ in 0..80 {
+        let mut best_fallback = None;
+        for attempt in 0..80 {
             let target_pids = process_family(process_id);
-            if let Some(window) = find_process_window(display, &target_pids)? {
-                return Ok(window);
+            if let Some(candidate) = find_process_window(display, &target_pids, attempt >= 16)? {
+                if candidate.reason == WindowMatchReason::ManagedProcess {
+                    return Ok(candidate.window);
+                }
+                best_fallback = Some(candidate.window);
+                if attempt >= 32 {
+                    return Ok(candidate.window);
+                }
             }
             thread::sleep(Duration::from_millis(125));
         }
-        Err("Timed out waiting for OrcaSlicer or its AppImage child process to create an X11 window".to_string())
+        best_fallback.ok_or_else(|| {
+            "Timed out waiting for OrcaSlicer to create an X11 window. No managed process window or Orca-branded X11 fallback window was found.".to_string()
+        })
     }
 
     fn find_process_window(
         display: *mut Display,
         target_pids: &HashSet<u32>,
-    ) -> Result<Option<Window>, String> {
+        allow_orca_identity_fallback: bool,
+    ) -> Result<Option<WindowCandidate>, String> {
         let root = unsafe { XDefaultRootWindow(display) };
-        let pid_atom = intern_atom(display, "_NET_WM_PID")?;
-        find_process_window_under(display, root, pid_atom, target_pids)
+        let atoms = WindowAtoms {
+            pid: intern_atom(display, "_NET_WM_PID")?,
+            wm_state: intern_atom(display, "WM_STATE")?,
+            wm_class: intern_atom(display, "WM_CLASS")?,
+            wm_name: intern_atom(display, "WM_NAME")?,
+            net_wm_name: intern_atom(display, "_NET_WM_NAME")?,
+        };
+        let mut candidates = Vec::new();
+        collect_window_candidates(
+            display,
+            root,
+            &atoms,
+            target_pids,
+            allow_orca_identity_fallback,
+            &mut candidates,
+        )?;
+        Ok(candidates.into_iter().max_by_key(WindowCandidate::score))
     }
 
-    fn find_process_window_under(
+    fn collect_window_candidates(
         display: *mut Display,
         parent: Window,
-        pid_atom: Atom,
+        atoms: &WindowAtoms,
         target_pids: &HashSet<u32>,
-    ) -> Result<Option<Window>, String> {
-        if window_pid(display, parent, pid_atom)?.is_some_and(|pid| target_pids.contains(&pid)) {
-            return Ok(Some(parent));
+        allow_orca_identity_fallback: bool,
+        candidates: &mut Vec<WindowCandidate>,
+    ) -> Result<(), String> {
+        if let Some(candidate) = window_candidate(
+            display,
+            parent,
+            atoms,
+            target_pids,
+            allow_orca_identity_fallback,
+        )? {
+            candidates.push(candidate);
         }
 
         let mut root = 0;
@@ -619,7 +690,7 @@ mod linux_x11_impl {
             )
         };
         if query_ok == 0 {
-            return Ok(None);
+            return Ok(());
         }
 
         let child_slice = if children.is_null() || child_count == 0 {
@@ -628,14 +699,14 @@ mod linux_x11_impl {
             unsafe { std::slice::from_raw_parts(children, child_count as usize) }
         };
         for child in child_slice.iter().copied().rev() {
-            if let Some(found) = find_process_window_under(display, child, pid_atom, target_pids)? {
-                if !children.is_null() {
-                    unsafe {
-                        XFree(children as *mut c_void);
-                    }
-                }
-                return Ok(Some(found));
-            }
+            collect_window_candidates(
+                display,
+                child,
+                atoms,
+                target_pids,
+                allow_orca_identity_fallback,
+                candidates,
+            )?;
         }
 
         if !children.is_null() {
@@ -643,7 +714,211 @@ mod linux_x11_impl {
                 XFree(children as *mut c_void);
             }
         }
-        Ok(None)
+        Ok(())
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum WindowMatchReason {
+        ManagedProcess,
+        OrcaIdentity,
+    }
+
+    struct WindowCandidate {
+        window: Window,
+        area: u64,
+        has_wm_state: bool,
+        reason: WindowMatchReason,
+    }
+
+    impl WindowCandidate {
+        fn score(&self) -> u64 {
+            let reason_bonus = match self.reason {
+                WindowMatchReason::ManagedProcess => 2_000_000_000_000,
+                WindowMatchReason::OrcaIdentity => 1_000_000_000_000,
+            };
+            let state_bonus = if self.has_wm_state {
+                500_000_000_000
+            } else {
+                0
+            };
+            reason_bonus + state_bonus + self.area
+        }
+    }
+
+    struct WindowAtoms {
+        pid: Atom,
+        wm_state: Atom,
+        wm_class: Atom,
+        wm_name: Atom,
+        net_wm_name: Atom,
+    }
+
+    fn window_candidate(
+        display: *mut Display,
+        window: Window,
+        atoms: &WindowAtoms,
+        target_pids: &HashSet<u32>,
+        allow_orca_identity_fallback: bool,
+    ) -> Result<Option<WindowCandidate>, String> {
+        let managed_process_match =
+            window_pid(display, window, atoms.pid)?.is_some_and(|pid| target_pids.contains(&pid));
+        let orca_identity_match =
+            allow_orca_identity_fallback && window_matches_orca_identity(display, window, atoms);
+        if !managed_process_match && !orca_identity_match {
+            return Ok(None);
+        }
+
+        let Some((width, height)) = window_size(display, window) else {
+            return Ok(None);
+        };
+        let area = u64::from(width) * u64::from(height);
+        if area == 0 {
+            return Ok(None);
+        }
+
+        Ok(Some(WindowCandidate {
+            window,
+            area,
+            has_wm_state: window_has_property(display, window, atoms.wm_state),
+            reason: if managed_process_match {
+                WindowMatchReason::ManagedProcess
+            } else {
+                WindowMatchReason::OrcaIdentity
+            },
+        }))
+    }
+
+    fn window_size(display: *mut Display, window: Window) -> Option<(c_uint, c_uint)> {
+        let mut root = 0;
+        let mut x = 0;
+        let mut y = 0;
+        let mut width = 0;
+        let mut height = 0;
+        let mut border_width = 0;
+        let mut depth = 0;
+        let ok = unsafe {
+            XGetGeometry(
+                display,
+                window,
+                &mut root,
+                &mut x,
+                &mut y,
+                &mut width,
+                &mut height,
+                &mut border_width,
+                &mut depth,
+            )
+        };
+        (ok != 0).then_some((width, height))
+    }
+
+    fn window_parent(display: *mut Display, window: Window) -> Result<Window, String> {
+        let mut root = 0;
+        let mut parent = 0;
+        let mut children: *mut Window = ptr::null_mut();
+        let mut child_count = 0;
+        let query_ok = unsafe {
+            XQueryTree(
+                display,
+                window,
+                &mut root,
+                &mut parent,
+                &mut children,
+                &mut child_count,
+            )
+        };
+        if !children.is_null() {
+            unsafe {
+                XFree(children as *mut c_void);
+            }
+        }
+        if query_ok == 0 {
+            return Err(format!("Failed to query X11 parent for window {window:#x}"));
+        }
+        Ok(parent)
+    }
+
+    fn window_has_property(display: *mut Display, window: Window, property_atom: Atom) -> bool {
+        property_bytes(display, window, property_atom)
+            .map(|bytes| !bytes.is_empty())
+            .unwrap_or(false)
+    }
+
+    fn window_matches_orca_identity(
+        display: *mut Display,
+        window: Window,
+        atoms: &WindowAtoms,
+    ) -> bool {
+        [atoms.wm_class, atoms.wm_name, atoms.net_wm_name]
+            .into_iter()
+            .filter_map(|atom| property_text(display, window, atom))
+            .any(|text| {
+                let normalized = text.to_ascii_lowercase();
+                normalized.contains("orca") && normalized.contains("slicer")
+            })
+    }
+
+    fn property_text(display: *mut Display, window: Window, property_atom: Atom) -> Option<String> {
+        let bytes = property_bytes(display, window, property_atom)?;
+        Some(
+            String::from_utf8_lossy(&bytes)
+                .replace('\0', " ")
+                .trim()
+                .to_string(),
+        )
+    }
+
+    fn property_bytes(
+        display: *mut Display,
+        window: Window,
+        property_atom: Atom,
+    ) -> Option<Vec<u8>> {
+        let mut actual_type = 0;
+        let mut actual_format = 0;
+        let mut item_count = 0;
+        let mut bytes_after = 0;
+        let mut property: *mut c_uchar = ptr::null_mut();
+
+        let status = unsafe {
+            XGetWindowProperty(
+                display,
+                window,
+                property_atom,
+                0,
+                4096,
+                0,
+                ANY_PROPERTY_TYPE,
+                &mut actual_type,
+                &mut actual_format,
+                &mut item_count,
+                &mut bytes_after,
+                &mut property,
+            )
+        };
+        if status != 0 || property.is_null() || item_count == 0 {
+            if !property.is_null() {
+                unsafe {
+                    XFree(property as *mut c_void);
+                }
+            }
+            return None;
+        }
+
+        let byte_count = match actual_format {
+            8 => item_count as usize,
+            16 => item_count as usize * 2,
+            32 => item_count as usize * std::mem::size_of::<c_ulong>(),
+            _ => 0,
+        };
+        let bytes = if byte_count == 0 {
+            Vec::new()
+        } else {
+            unsafe { std::slice::from_raw_parts(property, byte_count).to_vec() }
+        };
+        unsafe {
+            XFree(property as *mut c_void);
+        }
+        Some(bytes)
     }
 
     fn process_family(root_pid: u32) -> HashSet<u32> {
