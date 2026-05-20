@@ -477,14 +477,16 @@ export function AppHeader({
             ) : null}
           </div>
 
-          <button
-            type="button"
-            className="cad-ribbon-action"
-            disabled={disabled || !canExportToSlicer}
-            onClick={onExportToSlicer}
-          >
-            {t("workspace.exportToSlicer")}
-          </button>
+          {canExportToSlicer ? (
+            <button
+              type="button"
+              className="cad-ribbon-action"
+              disabled={disabled}
+              onClick={onExportToSlicer}
+            >
+              {t("workspace.exportToSlicer")}
+            </button>
+          ) : null}
         </div>
       ) : null}
     </header>

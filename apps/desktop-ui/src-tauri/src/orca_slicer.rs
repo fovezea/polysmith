@@ -1,5 +1,6 @@
 use std::{
     fs,
+    path::{Path, PathBuf},
     process::{Child, Command},
     sync::Mutex,
     time::{SystemTime, UNIX_EPOCH},
@@ -139,13 +140,15 @@ fn ensure_orca_process(
     binary_path: &str,
     model_file_path: Option<&str>,
 ) -> Result<(u32, Option<i64>), String> {
+    let launch_path = resolve_orca_launch_path(binary_path)?;
+    let launch_path_string = launch_path.to_string_lossy().to_string();
     let mut process = state
         .process
         .lock()
         .map_err(|_| "OrcaSlicer process state lock poisoned".to_string())?;
 
     if let Some(managed) = process.as_mut() {
-        if managed.binary_path == binary_path
+        if managed.binary_path == launch_path_string
             && managed
                 .child
                 .try_wait()
@@ -153,16 +156,16 @@ fn ensure_orca_process(
                 .is_none()
         {
             if let Some(path) = model_file_path {
-                spawn_orca(binary_path, Some(path))?;
+                spawn_orca(&launch_path, Some(path))?;
             }
             return Ok((managed.child.id(), managed.window_handle));
         }
     }
 
-    let child = spawn_orca(binary_path, model_file_path)?;
+    let child = spawn_orca(&launch_path, model_file_path)?;
     let process_id = child.id();
     *process = Some(ManagedOrcaProcess {
-        binary_path: binary_path.to_string(),
+        binary_path: launch_path_string,
         child,
         window_handle: None,
         display_handle: None,
@@ -170,15 +173,65 @@ fn ensure_orca_process(
     Ok((process_id, None))
 }
 
-fn spawn_orca(binary_path: &str, model_file_path: Option<&str>) -> Result<Child, String> {
-    let mut command = Command::new(binary_path);
+fn resolve_orca_launch_path(binary_path: &str) -> Result<PathBuf, String> {
+    let path = PathBuf::from(binary_path);
+    if !path.exists() {
+        return Err(format!("OrcaSlicer path does not exist: {binary_path}"));
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if path.is_dir()
+            && path
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("app"))
+        {
+            return resolve_macos_app_executable(&path);
+        }
+    }
+
+    Ok(path)
+}
+
+#[cfg(target_os = "macos")]
+fn resolve_macos_app_executable(app_path: &Path) -> Result<PathBuf, String> {
+    let macos_dir = app_path.join("Contents").join("MacOS");
+    let app_name = app_path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| format!("Invalid macOS app bundle path: {}", app_path.display()))?;
+    let named_executable = macos_dir.join(app_name);
+    if named_executable.is_file() {
+        return Ok(named_executable);
+    }
+
+    let mut candidates = fs::read_dir(&macos_dir)
+        .map_err(|error| format!("Failed to read {}: {error}", macos_dir.display()))?
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .collect::<Vec<_>>();
+    candidates.sort();
+    candidates.into_iter().next().ok_or_else(|| {
+        format!(
+            "No executable was found inside macOS app bundle: {}",
+            app_path.display()
+        )
+    })
+}
+
+fn spawn_orca(launch_path: &Path, model_file_path: Option<&str>) -> Result<Child, String> {
+    let mut command = Command::new(launch_path);
     if let Some(path) = model_file_path {
         command.arg(path);
     }
     configure_orca_environment(&mut command);
-    command
-        .spawn()
-        .map_err(|error| format!("Failed to launch OrcaSlicer: {error}"))
+    command.spawn().map_err(|error| {
+        format!(
+            "Failed to launch OrcaSlicer at {}: {error}",
+            launch_path.display()
+        )
+    })
 }
 
 fn configure_orca_environment(command: &mut Command) {
@@ -272,7 +325,22 @@ fn platform_attach_orca_window(
     linux_x11_impl::attach_orca_window(window, process_id, cached_window_handle, bounds)
 }
 
-#[cfg(all(not(windows), not(target_os = "linux")))]
+#[cfg(target_os = "macos")]
+fn platform_attach_orca_window(
+    _window: &tauri::WebviewWindow,
+    process_id: u32,
+    _cached_window_handle: Option<i64>,
+    _bounds: &SlicerViewportBounds,
+) -> Result<PlatformWindowResult, String> {
+    Ok(PlatformWindowResult {
+        status: "running".to_string(),
+        message: "OrcaSlicer launched as a separate macOS app.".to_string(),
+        window_handle: Some(i64::from(process_id)),
+        display_handle: None,
+    })
+}
+
+#[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
 fn platform_attach_orca_window(
     _window: &tauri::WebviewWindow,
     _process_id: u32,
@@ -308,7 +376,21 @@ fn platform_resize_orca_window(
     linux_x11_impl::resize_orca_window(window_handle, display_handle, bounds)
 }
 
-#[cfg(all(not(windows), not(target_os = "linux")))]
+#[cfg(target_os = "macos")]
+fn platform_resize_orca_window(
+    window_handle: Option<i64>,
+    _display_handle: Option<usize>,
+    _bounds: &SlicerViewportBounds,
+) -> Result<PlatformWindowResult, String> {
+    Ok(PlatformWindowResult {
+        status: "running".to_string(),
+        message: "OrcaSlicer is running as a separate macOS app.".to_string(),
+        window_handle,
+        display_handle: None,
+    })
+}
+
+#[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
 fn platform_resize_orca_window(
     _window_handle: Option<i64>,
     _display_handle: Option<usize>,
@@ -341,7 +423,20 @@ fn platform_hide_orca_window(
     linux_x11_impl::hide_orca_window(window_handle, display_handle)
 }
 
-#[cfg(all(not(windows), not(target_os = "linux")))]
+#[cfg(target_os = "macos")]
+fn platform_hide_orca_window(
+    window_handle: Option<i64>,
+    _display_handle: Option<usize>,
+) -> Result<PlatformWindowResult, String> {
+    Ok(PlatformWindowResult {
+        status: "running".to_string(),
+        message: "OrcaSlicer is running separately on macOS.".to_string(),
+        window_handle,
+        display_handle: None,
+    })
+}
+
+#[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
 fn platform_hide_orca_window(
     _window_handle: Option<i64>,
     _display_handle: Option<usize>,

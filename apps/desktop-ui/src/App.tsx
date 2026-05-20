@@ -47,6 +47,16 @@ const SHOW_DEBUG_MESSAGE_LOG =
   import.meta.env.VITE_SHOW_DEBUG_MESSAGE_LOG === "true";
 
 type WorkspaceView = "cad" | "slicer";
+const IS_MACOS =
+  typeof navigator !== "undefined" &&
+  navigator.platform.toLowerCase().includes("mac");
+const STANDALONE_SLICER_BOUNDS: SlicerViewportBounds = {
+  x: 0,
+  y: 0,
+  width: 1,
+  height: 1,
+  scaleFactor: 1,
+};
 
 interface ActiveExtrudeAction {
   phase: "pending" | "active";
@@ -1502,6 +1512,24 @@ function App() {
     }
 
     try {
+      if (IS_MACOS) {
+        setSlicerStatus(t("workspace.exportingToSlicer"));
+        const exportPath = await prepareOrcaExportPath();
+        await exportDocumentStl(exportPath);
+        await awaitDocumentExport(
+          (result) => result.format === "stl" && result.file_path === exportPath,
+        );
+
+        const result = await embedOrcaWindow({
+          binaryPath,
+          modelFilePath: exportPath,
+          bounds: STANDALONE_SLICER_BOUNDS,
+        });
+        setSlicerStatus(result.message);
+        addMessage(`slicer export: ${result.message}`);
+        return;
+      }
+
       setWorkspaceView("slicer");
       setSlicerStatus(t("workspace.exportingToSlicer"));
       await waitForNextFrame();
@@ -1762,7 +1790,7 @@ function App() {
       <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]">
         <AppHeader
           workspaceView={workspaceView}
-          canOpenSlicerView={isSlicerConfigured}
+          canOpenSlicerView={isSlicerConfigured && !IS_MACOS}
           canExportToSlicer={canExportToSlicer}
           onSetWorkspaceView={(view) => {
             if (view === "cad") {
