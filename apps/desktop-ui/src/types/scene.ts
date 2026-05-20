@@ -226,6 +226,7 @@ export interface SketchDimensionScene {
   kind:
     | "line_length"
     | "circle_radius"
+    | "polygon_radius"
     | "angle"
     | "line_line_distance"
     | "circle_center_distance"

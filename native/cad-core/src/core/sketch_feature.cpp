@@ -2358,6 +2358,24 @@ void update_sketch_dimension(FeatureEntry& feature,
     return;
   }
 
+  if (dimension.kind == "polygon_radius") {
+    const auto polygon_it = std::find_if(
+        parameters.polygons.begin(),
+        parameters.polygons.end(),
+        [&](const SketchPolygon& polygon) {
+          return polygon.id == dimension.entity_id;
+        });
+
+    if (polygon_it == parameters.polygons.end()) {
+      throw std::runtime_error("Sketch polygon not found for dimension: " + dimension_id);
+    }
+
+    polygon_it->radius = value;
+    dimension.value = value;
+    refresh_sketch_derived_state(feature);
+    return;
+  }
+
   throw std::runtime_error("Unsupported sketch dimension kind: " + dimension.kind);
 }
 

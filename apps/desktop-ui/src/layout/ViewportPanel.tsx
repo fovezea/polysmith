@@ -15,7 +15,7 @@ import {
   matchesHotkey,
   useAppConfig,
 } from "@/config";
-import { ToolbarTooltip } from "@/lib";
+import { Dropdown, ToolbarTooltip } from "@/lib";
 import type { CrosshairMode } from "@/config";
 import { createViewportScene } from "@/lib";
 import type {
@@ -112,8 +112,8 @@ type ActiveSketchGridPlaneFrame = NonNullable<
     DocumentState["feature_history"][number]["sketch_parameters"]
   >["plane_frame"]
 >;
-type DraftDimensionTool = "line" | "rectangle" | "circle";
-type DraftDimensionField = "length" | "width" | "diameter";
+type DraftDimensionTool = "line" | "rectangle" | "circle" | "polygon";
+type DraftDimensionField = "length" | "width" | "diameter" | "radius";
 type DraftDimensionSession = {
   tool: DraftDimensionTool;
   start: [number, number];
@@ -280,7 +280,10 @@ interface ViewportPanelProps {
   // Lifted from App.tsx so the viewport handler can compute the
   // circle geometry differently per mode.
   circleToolMode: "center_radius" | "two_point" | "three_point" | "tangent_two_lines" | "tangent_three_lines";
+  onSetCircleToolMode: (mode: "center_radius" | "two_point" | "three_point" | "tangent_two_lines" | "tangent_three_lines") => void;
+  onSetRectangleToolMode: (mode: "corner_corner" | "center_point" | "three_point") => void;
   polygonToolMode: "circumscribed" | "inscribed" | "edge";
+  onSetPolygonToolMode: (mode: "circumscribed" | "inscribed" | "edge") => void;
   onAddSketchPolygon: (
     sides: number,
     mode: string,
@@ -655,21 +658,22 @@ function getCardinalGridFrame(viewOffset: THREE.Vector3): GridPlaneFrame | null 
 }
 
 function isDraftDimensionTool(tool: SketchTool): tool is DraftDimensionTool {
-  return tool === "line" || tool === "rectangle" || tool === "circle";
+  return tool === "line" || tool === "rectangle" || tool === "circle" || tool === "polygon";
 }
 
 function isDrawableSketchTool(
   tool: SketchTool | null,
-): tool is DraftDimensionTool | "arc" {
+): tool is DraftDimensionTool | "arc" | "polygon" {
   return (
     tool === "line" ||
     tool === "rectangle" ||
     tool === "circle" ||
-    tool === "arc"
+    tool === "arc" ||
+    tool === "polygon"
   );
 }
 
-function sketchToolLabelKey(tool: DraftDimensionTool | "arc"): string {
+function sketchToolLabelKey(tool: DraftDimensionTool | "arc" | "polygon"): string {
   if (tool === "line") {
     return "toolbar.line";
   }
@@ -679,7 +683,10 @@ function sketchToolLabelKey(tool: DraftDimensionTool | "arc"): string {
   if (tool === "circle") {
     return "toolbar.circle";
   }
-  return "toolbar.arc";
+  if (tool === "arc") {
+    return "toolbar.arc";
+  }
+  return "toolbar.polygon";
 }
 
 function formatDraftDimension(value: number): string {
@@ -701,6 +708,7 @@ function draftSessionValues(
         : formatDraftDimension(length),
     width: formatDraftDimension(width),
     diameter: formatDraftDimension(radius * 2),
+    radius: formatDraftDimension(radius),
   };
 }
 
@@ -710,6 +718,9 @@ function draftSessionFields(tool: DraftDimensionTool): DraftDimensionField[] {
   }
   if (tool === "circle") {
     return ["diameter"];
+  }
+  if (tool === "polygon") {
+    return ["radius"];
   }
   return ["length"];
 }
@@ -841,8 +852,11 @@ export function ViewportPanel({
   arcToolMode,
   onSetArcToolMode,
   rectangleToolMode,
+  onSetRectangleToolMode,
   circleToolMode,
+  onSetCircleToolMode,
   polygonToolMode,
+  onSetPolygonToolMode,
   onAddSketchPolygon,
   onAddSketchFillet,
   onSelectSketchEntity,
@@ -907,6 +921,8 @@ export function ViewportPanel({
   // add_* IPC command.
   const [sketchToolConstruction, setSketchToolConstruction] = useState(false);
   const sketchToolConstructionRef = useRef(false);
+  const [polygonSides, setPolygonSides] = useState(6);
+  const polygonSidesRef = useRef(6);
   // Held while the user holds the wireframe-toggle key (Tab) during a
   // pending fillet/chamfer panel session. Reveals every ghost edge
   // so the user can see and click the original sharp edges that
@@ -2267,7 +2283,195 @@ export function ViewportPanel({
     const [sx, sy] = session.start;
     const [ex, ey] = session.current;
 
+    if (session.tool === "rectangle") {
+      const rectMode = rectangleToolModeRef.current;
+      if (rectMode === "three_point") {
+        const rectSecondPoint = rectSecondPointRef.current;
+        if (!rectSecondPoint) {
+          // Click 2 still pending — dashed first-edge hint.
+          const preview = new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints([
+              new THREE.Vector3(
+                ...toWorldPoint(activeSketchPlaneId, [sx, sy], activeSketchPlaneFrame),
+              ),
+              new THREE.Vector3(
+                ...toWorldPoint(activeSketchPlaneId, [ex, ey], activeSketchPlaneFrame),
+              ),
+            ]),
+            new THREE.LineDashedMaterial({
+              color: themeColor("--color-tertiary-plane-edge", "#ffe784"),
+              transparent: true,
+              opacity: 0.65,
+              dashSize: 1,
+              gapSize: 0.6,
+            }),
+          );
+          preview.computeLineDistances();
+          previewLineRef.current = preview;
+          sketchGroup.add(preview);
+          return;
+        }
+        // Click 2 captured: compute 4 corners from (start, second, current).
+        const [p1x, p1y] = [sx, sy];
+        const [p2x, p2y] = rectSecondPoint;
+        const [p3x, p3y] = [ex, ey];
+        const dx = p2x - p1x;
+        const dy = p2y - p1y;
+        const edgeLen = Math.hypot(dx, dy);
+        if (edgeLen >= 1e-9) {
+          const nx = -dy / edgeLen;
+          const ny = dx / edgeLen;
+          const offset = nx * (p3x - p1x) + ny * (p3y - p1y);
+          const c1x = p1x + nx * offset;
+          const c1y = p1y + ny * offset;
+          const c2x = p2x + nx * offset;
+          const c2y = p2y + ny * offset;
+          const corners: Array<[number, number]> = [
+            [p1x, p1y],
+            [p2x, p2y],
+            [c2x, c2y],
+            [c1x, c1y],
+            [p1x, p1y],
+          ];
+          const preview = new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints(
+              corners.map(
+                (corner) =>
+                  new THREE.Vector3(
+                    ...toWorldPoint(activeSketchPlaneId, corner, activeSketchPlaneFrame),
+                  ),
+              ),
+            ),
+            makeDraftLineMaterial(),
+          );
+          if (sketchToolConstructionRef.current) {
+            preview.computeLineDistances();
+          }
+          previewLineRef.current = preview;
+          sketchGroup.add(preview);
+        }
+        return;
+      }
+      // corner_corner / center_point: existing full-rectangle draft.
+      const corners: Array<[number, number]> = [
+        [sx, sy],
+        [ex, sy],
+        [ex, ey],
+        [sx, ey],
+        [sx, sy],
+      ];
+      const preview = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(
+          corners.map(
+            (corner) =>
+              new THREE.Vector3(
+                ...toWorldPoint(activeSketchPlaneId, corner, activeSketchPlaneFrame),
+              ),
+          ),
+        ),
+        makeDraftLineMaterial(),
+      );
+      if (sketchToolConstructionRef.current) {
+        preview.computeLineDistances();
+      }
+      previewLineRef.current = preview;
+      sketchGroup.add(preview);
+      return;
+    }
+
     if (session.tool === "circle") {
+      const circleMode = circleToolModeRef.current;
+      if (circleMode === "two_point") {
+        // Two-point (diameter) circle: center at midpoint, radius = dist/2.
+        const dist = distanceBetweenPoints(session.start, session.current);
+        if (dist <= 0.001) {
+          return;
+        }
+        const cx = (session.start[0] + session.current[0]) / 2;
+        const cy = (session.start[1] + session.current[1]) / 2;
+        const radius = dist / 2;
+        const preview = buildSketchCircleObject(
+          {
+            circleId: "preview-2pt-circle",
+            planeId: activeSketchPlaneId,
+            planeFrame: activeSketchPlaneFrame,
+            center: toWorldPoint(
+              activeSketchPlaneId,
+              [cx, cy],
+              activeSketchPlaneFrame,
+            ),
+            radius,
+            isSelected: false,
+            isConstruction: sketchToolConstructionRef.current,
+            isPreview: false,
+            isProjected: false,
+          },
+          activeSketchPlaneFrame,
+        );
+        previewCircleRef.current = preview;
+        sketchGroup.add(preview);
+        return;
+      }
+      if (circleMode === "three_point") {
+        // Three-point circle: two-phase preview matching handlePointerMove.
+        const circleSecondPoint = circleSecondPointRef.current;
+        if (!circleSecondPoint) {
+          // Click 2 still pending — dashed chord hint.
+          const preview = new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints([
+              new THREE.Vector3(
+                ...toWorldPoint(activeSketchPlaneId, session.start, activeSketchPlaneFrame),
+              ),
+              new THREE.Vector3(
+                ...toWorldPoint(activeSketchPlaneId, session.current, activeSketchPlaneFrame),
+              ),
+            ]),
+            new THREE.LineDashedMaterial({
+              color: themeColor("--color-tertiary-plane-edge", "#ffe784"),
+              transparent: true,
+              opacity: 0.65,
+              dashSize: 1,
+              gapSize: 0.6,
+            }),
+          );
+          preview.computeLineDistances();
+          previewLineRef.current = preview;
+          sketchGroup.add(preview);
+        } else {
+          // Click 2 captured: cursor (session.current) is the third point.
+          const [p1x, p1y] = session.start;
+          const [p2x, p2y] = circleSecondPoint;
+          const [p3x, p3y] = session.current;
+          const d = 2 * (p1x * (p2y - p3y) + p2x * (p3y - p1y) + p3x * (p1y - p2y));
+          if (Math.abs(d) > 1e-9) {
+            const ux =
+              ((p1x*p1x + p1y*p1y)*(p2y - p3y) + (p2x*p2x + p2y*p2y)*(p3y - p1y) + (p3x*p3x + p3y*p3y)*(p1y - p2y)) / d;
+            const uy =
+              ((p1x*p1x + p1y*p1y)*(p3x - p2x) + (p2x*p2x + p2y*p2y)*(p1x - p3x) + (p3x*p3x + p3y*p3y)*(p2x - p1x)) / d;
+            const radius = Math.hypot(p1x - ux, p1y - uy);
+            if (radius >= 1e-3) {
+              const preview = buildSketchCircleObject(
+                {
+                  circleId: "preview-3pt-circle",
+                  planeId: activeSketchPlaneId,
+                  planeFrame: activeSketchPlaneFrame,
+                  center: toWorldPoint(activeSketchPlaneId, [ux, uy], activeSketchPlaneFrame),
+                  radius,
+                  isSelected: false,
+                  isConstruction: sketchToolConstructionRef.current,
+                  isPreview: true,
+                  isProjected: false,
+                },
+                activeSketchPlaneFrame,
+              );
+              previewCircleRef.current = preview;
+              sketchGroup.add(preview);
+            }
+          }
+        }
+        return;
+      }
+      // center_radius: existing draft circle from center.
       const radius = distanceBetweenPoints(session.start, session.current);
       if (radius <= 0.001) {
         return;
@@ -2296,16 +2500,9 @@ export function ViewportPanel({
       return;
     }
 
-    const localPoints: Array<[number, number]> =
-      session.tool === "rectangle"
-        ? [
-            [sx, sy],
-            [ex, sy],
-            [ex, ey],
-            [sx, ey],
-            [sx, sy],
-          ]
-        : [session.start, session.current];
+    // Rectangle and circle tools are handled above with early returns;
+    // only the line tool reaches this fallback.
+    const localPoints: Array<[number, number]> = [session.start, session.current];
     const preview = new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(
         localPoints.map(
@@ -2481,9 +2678,9 @@ export function ViewportPanel({
       );
       return;
     }
-    if ((session.tool as string) === "polygon") {
+    if (session.tool === "polygon") {
       void addSketchPolygonRef.current(
-        6, // default hexagon
+        polygonSidesRef.current,
         polygonToolModeRef.current,
         startX,
         startY,
@@ -3147,6 +3344,7 @@ export function ViewportPanel({
     rectangleToolModeRef.current = rectangleToolMode;
     circleToolModeRef.current = circleToolMode;
     polygonToolModeRef.current = polygonToolMode;
+    polygonSidesRef.current = polygonSides;
     addSketchPolygonRef.current = onAddSketchPolygon;
     addSketchFilletRef.current = onAddSketchFillet;
     selectSketchEntityRef.current = onSelectSketchEntity;
@@ -3177,6 +3375,7 @@ export function ViewportPanel({
     rectangleToolMode,
     circleToolMode,
     polygonToolMode,
+    polygonSides,
     onAddSketchPolygon,
     onAddSketchFillet,
     onSelectSketchEntity,
@@ -4437,24 +4636,8 @@ export function ViewportPanel({
         draftDimensionSessionRef.current = session;
         setDraftDimensionSession(session);
         focusDraftField(session.activeField);
-      } else if (
-        activeSketchPlaneIdRef.current &&
-        activeSketchToolRef.current === "polygon" &&
-        !lineDraftStartRef.current
-      ) {
-        const rawPoint = resolveSketchPlanePoint(
-          event,
-          renderer,
-          camera,
-          activeSketchPlaneIdRef.current,
-          activeSketchPlaneFrameRef.current,
-        );
-        if (rawPoint) {
-          const sketchPoint = resolveSnappedSketchPoint(rawPoint);
-          lineDraftStartRef.current = sketchPoint.local;
-          draftStartedOnPointerDownRef.current = true;
-        }
       }
+
     }
 
     function handlePointerMove(event: PointerEvent) {
@@ -4947,79 +5130,263 @@ export function ViewportPanel({
           return;
         }
         if (activeSketchToolRef.current === "circle") {
-          const radius = distanceBetweenPoints(draftStart, draftPreviewLocal);
-          if (radius > 0.001) {
-            // Pass the active sketch's plane frame so the perimeter is
-            // projected onto the actual sketch plane. Without it the
-            // perimeter falls back to the legacy ref-plane axis
-            // mapping which disagrees with the center's projection
-            // for arbitrary planes (face-based sketches), and the
-            // circle reads as perpendicular to the sketch plane.
-            const preview = buildSketchCircleObject(
-              {
-                circleId: "preview-circle",
-                planeId: activeSketchPlaneId,
-                planeFrame: activeSketchPlaneFrame,
-                center: toWorldPoint(
-                  activeSketchPlaneId,
-                  draftStart,
-                  activeSketchPlaneFrame,
-                ),
-                radius,
-                isSelected: false,
-                isConstruction: sketchToolConstructionRef.current,
-                // The line/circle draft preview (drawn while the
-                // user is dragging out a new circle) is not a
-                // tool-generated preview entity; the renderer's
-                // dashed-translucent path is gated on `isPreview`,
-                // so leaving it false keeps the existing draft
-                // styling intact.
-                isPreview: false,
-                isProjected: false,
-              },
-              activeSketchPlaneFrame,
-            );
-            previewCircleRef.current = preview;
-            sketchGroupRefValue.add(preview);
-            renderCircleDraftDimension(
-              sketchGroupRefValue,
-              draftStart,
-              draftPreviewLocal,
-            );
+          const circleMode = circleToolModeRef.current;
+          if (circleMode === "three_point") {
+            // 3-point circle: two-phase preview.
+            // Click 1 locked (draftStart); click 2 captured by circleSecondPointRef.
+            const circleSecondPoint = circleSecondPointRef.current;
+            const cursor = draftPreviewLocal;
+            if (!circleSecondPoint) {
+              // Click 2 still pending — dashed chord hint from first point.
+              const preview = new THREE.Line(
+                new THREE.BufferGeometry().setFromPoints([
+                  new THREE.Vector3(
+                    ...toWorldPoint(
+                      activeSketchPlaneId,
+                      draftStart,
+                      activeSketchPlaneFrame,
+                    ),
+                  ),
+                  new THREE.Vector3(...draftPreviewWorld),
+                ]),
+                new THREE.LineDashedMaterial({
+                  color: themeColor("--color-tertiary-plane-edge", "#ffe784"),
+                  transparent: true,
+                  opacity: 0.65,
+                  dashSize: 1,
+                  gapSize: 0.6,
+                }),
+              );
+              preview.computeLineDistances();
+              previewLineRef.current = preview;
+              sketchGroupRefValue.add(preview);
+            } else {
+              // Click 2 captured: cursor is the third point. Compute
+              // circumcircle of (draftStart, secondPoint, cursor).
+              const [p1x, p1y] = draftStart;
+              const [p2x, p2y] = circleSecondPoint;
+              const [p3x, p3y] = cursor;
+              const d = 2 * (p1x * (p2y - p3y) + p2x * (p3y - p1y) + p3x * (p1y - p2y));
+              if (Math.abs(d) > 1e-9) {
+                const ux =
+                  ((p1x * p1x + p1y * p1y) * (p2y - p3y) +
+                   (p2x * p2x + p2y * p2y) * (p3y - p1y) +
+                   (p3x * p3x + p3y * p3y) * (p1y - p2y)) / d;
+                const uy =
+                  ((p1x * p1x + p1y * p1y) * (p3x - p2x) +
+                   (p2x * p2x + p2y * p2y) * (p1x - p3x) +
+                   (p3x * p3x + p3y * p3y) * (p2x - p1x)) / d;
+                const radius = Math.hypot(p1x - ux, p1y - uy);
+                if (radius >= 1e-3) {
+                  const preview = buildSketchCircleObject(
+                    {
+                      circleId: "preview-3pt-circle",
+                      planeId: activeSketchPlaneId,
+                      planeFrame: activeSketchPlaneFrame,
+                      center: toWorldPoint(
+                        activeSketchPlaneId,
+                        [ux, uy],
+                        activeSketchPlaneFrame,
+                      ),
+                      radius,
+                      isSelected: false,
+                      isConstruction: sketchToolConstructionRef.current,
+                      isPreview: true,
+                      isProjected: false,
+                    },
+                    activeSketchPlaneFrame,
+                  );
+                  previewCircleRef.current = preview;
+                  sketchGroupRefValue.add(preview);
+                }
+              }
+            }
+          } else if (circleMode === "two_point") {
+            // Two-point circle: center at midpoint of (click, cursor),
+            // radius = half the distance. Same math as handlePointerUp.
+            const p1x = draftStart[0];
+            const p1y = draftStart[1];
+            const p2x = draftPreviewLocal[0];
+            const p2y = draftPreviewLocal[1];
+            const dist = distanceBetweenPoints(draftStart, draftPreviewLocal);
+            if (dist > 0.001) {
+              const cx = (p1x + p2x) / 2;
+              const cy = (p1y + p2y) / 2;
+              const radius = dist / 2;
+              const preview = buildSketchCircleObject(
+                {
+                  circleId: "preview-2pt-circle",
+                  planeId: activeSketchPlaneId,
+                  planeFrame: activeSketchPlaneFrame,
+                  center: toWorldPoint(
+                    activeSketchPlaneId,
+                    [cx, cy],
+                    activeSketchPlaneFrame,
+                  ),
+                  radius,
+                  isSelected: false,
+                  isConstruction: sketchToolConstructionRef.current,
+                  isPreview: false,
+                  isProjected: false,
+                },
+                activeSketchPlaneFrame,
+              );
+              previewCircleRef.current = preview;
+              sketchGroupRefValue.add(preview);
+            }
+          } else {
+            // center_radius: existing draft circle from center.
+            const radius = distanceBetweenPoints(draftStart, draftPreviewLocal);
+            if (radius > 0.001) {
+              // Pass the active sketch's plane frame so the perimeter is
+              // projected onto the actual sketch plane. Without it the
+              // perimeter falls back to the legacy ref-plane axis
+              // mapping which disagrees with the center's projection
+              // for arbitrary planes (face-based sketches), and the
+              // circle reads as perpendicular to the sketch plane.
+              const preview = buildSketchCircleObject(
+                {
+                  circleId: "preview-circle",
+                  planeId: activeSketchPlaneId,
+                  planeFrame: activeSketchPlaneFrame,
+                  center: toWorldPoint(
+                    activeSketchPlaneId,
+                    draftStart,
+                    activeSketchPlaneFrame,
+                  ),
+                  radius,
+                  isSelected: false,
+                  isConstruction: sketchToolConstructionRef.current,
+                  // The line/circle draft preview (drawn while the
+                  // user is dragging out a new circle) is not a
+                  // tool-generated preview entity; the renderer's
+                  // dashed-translucent path is gated on `isPreview`,
+                  // so leaving it false keeps the existing draft
+                  // styling intact.
+                  isPreview: false,
+                  isProjected: false,
+                },
+                activeSketchPlaneFrame,
+              );
+              previewCircleRef.current = preview;
+              sketchGroupRefValue.add(preview);
+              renderCircleDraftDimension(
+                sketchGroupRefValue,
+                draftStart,
+                draftPreviewLocal,
+              );
+            }
           }
         } else if (activeSketchToolRef.current === "rectangle") {
-          // Show the full 4-corner outline as the user drags so they
-          // can see the rectangle they're about to create — the old
-          // single-segment diagonal preview made sizing rectangles
-          // largely guesswork.
-          const [sx, sy] = draftStart;
-          const [ex, ey] = draftPreviewLocal;
-          const corners: Array<[number, number]> = [
-            [sx, sy],
-            [ex, sy],
-            [ex, ey],
-            [sx, ey],
-            [sx, sy],
-          ];
-          const worldCorners = corners.map(
-            (corner) =>
-              new THREE.Vector3(
-                ...toWorldPoint(
-                  activeSketchPlaneId,
-                  corner,
-                  activeSketchPlaneFrame,
+          const rectMode = rectangleToolModeRef.current;
+          if (rectMode === "three_point") {
+            // 3-point rectangle: two-phase preview.
+            const rectSecondPoint = rectSecondPointRef.current;
+            const cursor = draftPreviewLocal;
+            if (!rectSecondPoint) {
+              // Click 2 still pending — dashed first-edge hint.
+              const preview = new THREE.Line(
+                new THREE.BufferGeometry().setFromPoints([
+                  new THREE.Vector3(
+                    ...toWorldPoint(
+                      activeSketchPlaneId,
+                      draftStart,
+                      activeSketchPlaneFrame,
+                    ),
+                  ),
+                  new THREE.Vector3(...draftPreviewWorld),
+                ]),
+                new THREE.LineDashedMaterial({
+                  color: themeColor("--color-tertiary-plane-edge", "#ffe784"),
+                  transparent: true,
+                  opacity: 0.65,
+                  dashSize: 1,
+                  gapSize: 0.6,
+                }),
+              );
+              preview.computeLineDistances();
+              previewLineRef.current = preview;
+              sketchGroupRefValue.add(preview);
+            } else {
+              // Click 2 captured. Compute the 4 corners from
+              // (draftStart, secondPoint, cursor-as-offset).
+              const [p1x, p1y] = draftStart;
+              const [p2x, p2y] = rectSecondPoint;
+              const [p3x, p3y] = cursor;
+              const dx = p2x - p1x;
+              const dy = p2y - p1y;
+              const edgeLen = Math.hypot(dx, dy);
+              if (edgeLen >= 1e-9) {
+                const nx = -dy / edgeLen;
+                const ny = dx / edgeLen;
+                const offset = nx * (p3x - p1x) + ny * (p3y - p1y);
+                const cx = p1x + nx * offset;
+                const cy = p1y + ny * offset;
+                const c2x = p2x + nx * offset;
+                const c2y = p2y + ny * offset;
+                const corners: Array<[number, number]> = [
+                  [p1x, p1y],
+                  [p2x, p2y],
+                  [c2x, c2y],
+                  [cx, cy],
+                  [p1x, p1y],
+                ];
+                const worldCorners = corners.map(
+                  (corner) =>
+                    new THREE.Vector3(
+                      ...toWorldPoint(
+                        activeSketchPlaneId,
+                        corner,
+                        activeSketchPlaneFrame,
+                      ),
+                    ),
+                );
+                const preview = new THREE.Line(
+                  new THREE.BufferGeometry().setFromPoints(worldCorners),
+                  makeDraftLineMaterial(),
+                );
+                if (sketchToolConstructionRef.current) {
+                  preview.computeLineDistances();
+                }
+                previewLineRef.current = preview;
+                sketchGroupRefValue.add(preview);
+              }
+            }
+          } else {
+            // corner_corner / center_point: existing full-rectangle draft.
+            // Show the full 4-corner outline as the user drags so they
+            // can see the rectangle they're about to create — the old
+            // single-segment diagonal preview made sizing rectangles
+            // largely guesswork.
+            const [sx, sy] = draftStart;
+            const [ex, ey] = draftPreviewLocal;
+            const corners: Array<[number, number]> = [
+              [sx, sy],
+              [ex, sy],
+              [ex, ey],
+              [sx, ey],
+              [sx, sy],
+            ];
+            const worldCorners = corners.map(
+              (corner) =>
+                new THREE.Vector3(
+                  ...toWorldPoint(
+                    activeSketchPlaneId,
+                    corner,
+                    activeSketchPlaneFrame,
+                  ),
                 ),
-              ),
-          );
-          const preview = new THREE.Line(
-            new THREE.BufferGeometry().setFromPoints(worldCorners),
-            makeDraftLineMaterial(),
-          );
-          if (sketchToolConstructionRef.current) {
-            preview.computeLineDistances();
+            );
+            const preview = new THREE.Line(
+              new THREE.BufferGeometry().setFromPoints(worldCorners),
+              makeDraftLineMaterial(),
+            );
+            if (sketchToolConstructionRef.current) {
+              preview.computeLineDistances();
+            }
+            previewLineRef.current = preview;
+            sketchGroupRefValue.add(preview);
           }
-          previewLineRef.current = preview;
-          sketchGroupRefValue.add(preview);
         } else {
           const preview = new THREE.Line(
             new THREE.BufferGeometry().setFromPoints([
@@ -5196,28 +5563,7 @@ export function ViewportPanel({
 
       if (draftStartedOnPointerDownRef.current) {
         draftStartedOnPointerDownRef.current = false;
-        if (
-          activeSketchToolRef.current === "polygon" &&
-          activeSketchPlaneId &&
-          lineDraftStartRef.current
-        ) {
-          const rawPoint = resolveSketchPlanePoint(
-            event, renderer, camera,
-            activeSketchPlaneId, activeSketchPlaneFrame,
-          );
-          if (rawPoint) {
-            const sketchPoint = resolveSnappedSketchPoint(rawPoint);
-            const [sx, sy] = lineDraftStartRef.current;
-            const [ex, ey] = sketchPoint.local;
-            lineDraftStartRef.current = null;
-            void addSketchPolygonRef.current(
-              6, polygonToolModeRef.current,
-              sx, sy, ex, ey,
-              sketchToolConstructionRef.current,
-            );
-            return;
-          }
-        }
+
         if (deltaX > 4 || deltaY > 4) {
           const field = draftDimensionSessionRef.current?.activeField;
           if (field) {
@@ -5786,9 +6132,8 @@ export function ViewportPanel({
           lineDraftStartRef.current = null;
           clearDraftDimensionSession();
           suppressDimensionEditorAfterSketchCommit();
-          const sides = 6; // default hexagon
           void addSketchPolygonRef.current(
-            sides,
+            polygonSidesRef.current,
             polygonToolModeRef.current,
             startX,
             startY,
@@ -7042,6 +7387,26 @@ export function ViewportPanel({
                 ? translate(sketchToolLabelKey(activeSketchTool))
                 : translate("toolbar.line")}
             </h2>
+            {activeSketchTool === "circle" && (
+              <p className="text-xs text-on-surface/50 mt-1">
+                {translate(`toolbar.circle${circleToolMode === "center_radius" ? "CenterRadius" : circleToolMode === "two_point" ? "TwoPoint" : circleToolMode === "three_point" ? "ThreePoint" : circleToolMode === "tangent_two_lines" ? "TangentTwoLines" : "TangentThreeLines"}`)}
+              </p>
+            )}
+            {activeSketchTool === "rectangle" && (
+              <p className="text-xs text-on-surface/50 mt-1">
+                {translate(`toolbar.rectangle${rectangleToolMode === "corner_corner" ? "CornerCorner" : rectangleToolMode === "center_point" ? "CenterPoint" : "ThreePoint"}`)}
+              </p>
+            )}
+            {activeSketchTool === "arc" && (
+              <p className="text-xs text-on-surface/50 mt-1">
+                {translate(arcToolMode === "three_point" ? "toolbar.arcThreePoint" : "toolbar.arcCenter")}
+              </p>
+            )}
+            {activeSketchTool === "polygon" && (
+              <p className="text-xs text-on-surface/50 mt-1">
+                {translate(`toolbar.polygon${polygonToolMode === "circumscribed" ? "Circumscribed" : polygonToolMode === "inscribed" ? "Inscribed" : "Edge"}`)}
+              </p>
+            )}
             <div className="mt-5 flex flex-col gap-4">
               {isDrawableSketchTool(activeSketchTool) ? (
                 <label className="flex items-center justify-between gap-4 text-sm text-on-surface">
@@ -7084,6 +7449,96 @@ export function ViewportPanel({
                         {option.label}
                       </button>
                     ))}
+                  </div>
+                </div>
+              ) : null}
+              {activeSketchTool === "circle" ? (
+                <div>
+                  <p className="cad-kicker">{translate("viewport.mode")}</p>
+                  <div className="mt-3">
+                    <Dropdown
+                      value={circleToolMode}
+                      options={[
+                        { value: "center_radius", label: translate("toolbar.circleCenterRadius") },
+                        { value: "two_point", label: translate("toolbar.circleTwoPoint") },
+                        { value: "three_point", label: translate("toolbar.circleThreePoint") },
+                        { value: "tangent_two_lines", label: translate("toolbar.circleTangentTwoLines") },
+                        { value: "tangent_three_lines", label: translate("toolbar.circleTangentThreeLines") },
+                      ]}
+                      label={translate("viewport.mode")}
+                      onChange={(value) => {
+                        onSetCircleToolMode(value as
+                          | "center_radius"
+                          | "two_point"
+                          | "three_point"
+                          | "tangent_two_lines"
+                          | "tangent_three_lines");
+                      }}
+                    />
+                  </div>
+                </div>
+              ) : null}
+              {activeSketchTool === "rectangle" ? (
+                <div>
+                  <p className="cad-kicker">{translate("viewport.mode")}</p>
+                  <div className="mt-3">
+                    <Dropdown
+                      value={rectangleToolMode}
+                      options={[
+                        { value: "corner_corner", label: translate("toolbar.rectangleCornerCorner") },
+                        { value: "center_point", label: translate("toolbar.rectangleCenterPoint") },
+                        { value: "three_point", label: translate("toolbar.rectangleThreePoint") },
+                      ]}
+                      label={translate("viewport.mode")}
+                      onChange={(value) => {
+                        onSetRectangleToolMode(value as
+                          | "corner_corner"
+                          | "center_point"
+                          | "three_point");
+                      }}
+                    />
+                  </div>
+                </div>
+              ) : null}
+              {activeSketchTool === "polygon" ? (
+                <div>
+                  <p className="cad-kicker">{translate("viewport.mode")}</p>
+                  <div className="mt-3">
+                    <Dropdown
+                      value={polygonToolMode}
+                      options={[
+                        { value: "circumscribed", label: translate("toolbar.polygonCircumscribed") },
+                        { value: "inscribed", label: translate("toolbar.polygonInscribed") },
+                        { value: "edge", label: translate("toolbar.polygonEdge") },
+                      ]}
+                      label={translate("viewport.mode")}
+                      onChange={(value) => {
+                        onSetPolygonToolMode(value as
+                          | "circumscribed"
+                          | "inscribed"
+                          | "edge");
+                      }}
+                    />
+                    <div className="mt-3 flex items-center gap-2">
+                      <span className="text-xs text-on-surface/60">Sides:</span>
+                      <input
+                        type="number"
+                        min="3"
+                        max="48"
+                        step="1"
+                        className="h-7 w-16 rounded-md border px-2 text-xs text-center tabular-nums bg-transparent"
+                        style={{
+                          border: "1px solid var(--cad-panel-border)",
+                          color: "inherit",
+                        }}
+                        value={polygonSides}
+                        onChange={(event) => {
+                          const value = Math.max(3, Math.min(48, Number(event.target.value) || 3));
+                          setPolygonSides(value);
+                          polygonSidesRef.current = value;
+                        }}
+                      />
+                    </div>
                   </div>
                 </div>
               ) : null}
@@ -7138,34 +7593,17 @@ export function ViewportPanel({
             <input
               ref={dimensionInputRef}
               className="h-6 w-full bg-transparent text-center text-sm font-medium text-on-surface tabular-nums outline-none"
-              type="number"
-              min="0.01"
-              step="0.01"
+              type="text"
+              inputMode="decimal"
               value={dimensionDraftValue}
               onChange={(event) => {
                 dimensionInputSelectionLockedRef.current = false;
                 handleDimensionDraftChange(event.target.value);
               }}
               onFocus={(event) => {
-                if (!dimensionInputSelectionLockedRef.current) {
-                  return;
+                if (dimensionInputSelectionLockedRef.current) {
+                  event.currentTarget.select();
                 }
-                event.currentTarget.select();
-              }}
-              onPointerDown={(event) => {
-                if (!dimensionInputSelectionLockedRef.current) {
-                  return;
-                }
-                event.preventDefault();
-                event.currentTarget.focus();
-                event.currentTarget.select();
-              }}
-              onPointerUp={(event) => {
-                if (!dimensionInputSelectionLockedRef.current) {
-                  return;
-                }
-                event.preventDefault();
-                event.currentTarget.select();
               }}
               onKeyDown={(event) => {
                 dimensionInputSelectionLockedRef.current = false;
