@@ -208,13 +208,10 @@ interface AppHeaderProps {
   onArmSketchConstraint: (constraint: ConstraintType) => Promise<void>;
   onStartMirrorTool: () => Promise<void>;
   onCancelSketchConstraint: () => void;
-<<<<<<< HEAD
   onWorkspaceDropdownOpenChange?: (isOpen: boolean) => void;
-=======
   // Parameters panel
   parametersPanelOpen: boolean;
   onToggleParametersPanel: () => void;
->>>>>>> dd95784 (feat: parametric parameters & dimension formulas)
 }
 
 export function AppHeader({
@@ -271,12 +268,9 @@ export function AppHeader({
   onArmSketchConstraint,
   onStartMirrorTool,
   onCancelSketchConstraint,
-<<<<<<< HEAD
   onWorkspaceDropdownOpenChange,
-=======
   parametersPanelOpen,
   onToggleParametersPanel,
->>>>>>> dd95784 (feat: parametric parameters & dimension formulas)
 }: AppHeaderProps) {
   const { t } = useTranslation();
   const [activeCadWorkspace, setActiveCadWorkspace] =
