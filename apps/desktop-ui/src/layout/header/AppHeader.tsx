@@ -7,6 +7,7 @@ import { ModifyToolbar } from "./ModifyToolbar";
 import { ConstructToolbar } from "./ConstructToolbar";
 
 const workspaces = ["create", "modify", "construct", "sketch"] as const;
+type WorkspaceView = "cad" | "slicer";
 
 interface MenuDropdownItem {
   label: string;
@@ -120,6 +121,9 @@ function AiSparkIcon() {
 }
 
 interface AppHeaderProps {
+  workspaceView: WorkspaceView;
+  canOpenSlicerView: boolean;
+  onSetWorkspaceView: (view: WorkspaceView) => void;
   status: string;
   disabled: boolean;
   canUndo: boolean;
@@ -187,6 +191,9 @@ interface AppHeaderProps {
 }
 
 export function AppHeader({
+  workspaceView,
+  canOpenSlicerView,
+  onSetWorkspaceView,
   status,
   disabled,
   canUndo,
@@ -237,17 +244,17 @@ export function AppHeader({
   onCancelSketchConstraint,
 }: AppHeaderProps) {
   const { t } = useTranslation();
-  const [activeWorkspace, setActiveWorkspace] =
+  const [activeCadWorkspace, setActiveCadWorkspace] =
     useState<(typeof workspaces)[number]>("create");
   const [openMenu, setOpenMenu] = useState<"box" | "cylinder" | null>(null);
 
   useEffect(() => {
     setOpenMenu(null);
-  }, [activeWorkspace]);
+  }, [activeCadWorkspace]);
 
   useEffect(() => {
     if (activeSketchPlaneId) {
-      setActiveWorkspace("sketch");
+      setActiveCadWorkspace("sketch");
     }
   }, [activeSketchPlaneId]);
 
@@ -255,28 +262,43 @@ export function AppHeader({
     <header className="cad-ribbon relative z-20">
       <div className="flex items-center justify-between gap-5 px-5 py-1">
         <div className="flex items-center gap-6">
-          <div>
-            <p className="font-display text-[1.05rem] font-bold uppercase tracking-[0.08em] text-primary-glow">
-              {t("app.name")}
-            </p>
-          </div>
-          <nav className="flex items-center gap-1 rounded-full p-0.5 cad-subtle-block">
-            {workspaces.map((workspace) => (
-              <button
-                key={workspace}
-                className={
-                  activeWorkspace === workspace
-                    ? "cad-ribbon-tab cad-ribbon-tab-active"
-                    : "cad-ribbon-tab"
-                }
-                onClick={() => {
-                  setActiveWorkspace(workspace);
-                }}
-              >
-                {t(`header.workspace.${workspace}`)}
-              </button>
-            ))}
-          </nav>
+          <MenuDropdown
+            label={
+              workspaceView === "cad"
+                ? t("workspace.cad")
+                : t("workspace.slicer")
+            }
+            items={[
+              {
+                label: t("workspace.cad"),
+                onSelect: () => onSetWorkspaceView("cad"),
+              },
+              {
+                label: t("workspace.slicer"),
+                disabled: !canOpenSlicerView,
+                onSelect: () => onSetWorkspaceView("slicer"),
+              },
+            ]}
+          />
+          {workspaceView === "cad" ? (
+            <nav className="flex items-center gap-1 rounded-full p-0.5 cad-subtle-block">
+              {workspaces.map((workspace) => (
+                <button
+                  key={workspace}
+                  className={
+                    activeCadWorkspace === workspace
+                      ? "cad-ribbon-tab cad-ribbon-tab-active"
+                      : "cad-ribbon-tab"
+                  }
+                  onClick={() => {
+                    setActiveCadWorkspace(workspace);
+                  }}
+                >
+                  {t(`header.workspace.${workspace}`)}
+                </button>
+              ))}
+            </nav>
+          ) : null}
         </div>
 
         <div className="flex items-center gap-2">
@@ -380,12 +402,13 @@ export function AppHeader({
         </div>
       </div>
 
-      <div
-        className="flex items-center justify-between gap-3 px-4 py-1"
-        style={{ borderTop: "1px solid var(--cad-panel-soft-border)" }}
-      >
+      {workspaceView === "cad" ? (
+        <div
+          className="flex items-center justify-between gap-3 px-4 py-1"
+          style={{ borderTop: "1px solid var(--cad-panel-soft-border)" }}
+        >
         <div className="flex min-w-0 items-center gap-3">
-          {activeWorkspace === "create" ? (
+          {activeCadWorkspace === "create" ? (
             <CreateToolbar
               openMenu={openMenu}
               disabled={disabled}
@@ -397,7 +420,7 @@ export function AppHeader({
             />
           ) : null}
 
-          {activeWorkspace === "modify" ? (
+          {activeCadWorkspace === "modify" ? (
             <ModifyToolbar
               disabled={disabled}
               canEdgeOp={canEdgeOp}
@@ -406,7 +429,7 @@ export function AppHeader({
             />
           ) : null}
 
-          {activeWorkspace === "construct" ? (
+          {activeCadWorkspace === "construct" ? (
             <ConstructToolbar
               disabled={disabled}
               canOffsetPlane={canOffsetPlane}
@@ -414,7 +437,7 @@ export function AppHeader({
             />
           ) : null}
 
-          {activeWorkspace === "sketch" ? (
+          {activeCadWorkspace === "sketch" ? (
             <SketchToolbar
               activeSketchPlaneId={activeSketchPlaneId}
               activeSketchTool={activeSketchTool}
@@ -441,7 +464,8 @@ export function AppHeader({
         </div>
 
         <div />
-      </div>
+        </div>
+      ) : null}
     </header>
   );
 }

@@ -10,7 +10,7 @@ export interface SlicerViewportBounds {
 
 export interface OrcaEmbedRequest {
   binaryPath: string;
-  modelFilePath: string;
+  modelFilePath?: string | null;
   bounds: SlicerViewportBounds;
 }
 

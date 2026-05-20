@@ -229,14 +229,24 @@ The current implementation now also includes a focused export spike:
 - the UI must not reconstruct geometry or write CAD files itself
 
 Embedded OrcaSlicer integration uses this same export boundary. Switching to
-Slicer view asks the native core to export the active document as a temporary
-STL, waits for `document_exported`, then calls Tauri-native commands for the
-external OrcaSlicer process/window lifecycle:
+Slicer view only opens/embeds the configured native OrcaSlicer process. It does
+not export the active document. The separate Export to Slicer action is enabled
+only when the viewport snapshot contains at least one body, asks the native core
+to export the active document as a temporary STL, waits for `document_exported`,
+then hands that STL path to the Tauri-native OrcaSlicer lifecycle command:
 
 - `prepare_orca_export_path` returns a temporary STL destination owned by the app
-- `embed_orca_window { binaryPath, modelFilePath, bounds }` launches or reuses the configured OrcaSlicer binary under PolySmith control and attempts to attach the native window to the Slicer view bounds
+- `embed_orca_window { binaryPath, modelFilePath?, bounds }` launches or reuses the configured OrcaSlicer binary under PolySmith control and attempts to attach the native window to the Slicer view bounds. `modelFilePath` is omitted/null when merely opening the Slicer view.
 - `resize_orca_window { bounds }` updates the attached native window to match the DOM placeholder
 - `hide_orca_window` hides/unparents the managed window without killing the slicer process
+
+On Linux, native embedding uses X11 handles. PolySmith requests the X11 backend
+at startup (`GDK_BACKEND=x11`, `WINIT_UNIX_BACKEND=x11`) so the same path works
+on Wayland desktops through XWayland when XWayland is installed/enabled. It then
+finds OrcaSlicer's X11 window by `_NET_WM_PID`, strips Motif window decorations,
+reparents the window, and maps/resizes it into the Slicer placeholder. Native
+Wayland foreign-window reparenting is not available by design; Wayland-session
+support is provided through XWayland.
 
 These Tauri commands are outside the CAD command language. They must not carry
 CAD geometry, feature state, or UI-reconstructed mesh data.

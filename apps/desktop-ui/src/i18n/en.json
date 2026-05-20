@@ -56,12 +56,18 @@
     }
   },
   "workspace": {
+    "cad": "CAD",
     "cadView": "CAD View",
+    "exportingToSlicer": "Exporting STL to OrcaSlicer...",
+    "exportToSlicer": "Export to Slicer",
+    "openingSlicer": "Opening Slicer view...",
     "preparingSlicer": "Preparing Slicer view...",
+    "slicer": "Slicer",
     "slicerBinaryMissing": "Choose an OrcaSlicer binary in Settings before opening Slicer view.",
     "slicerContainerUnavailable": "Slicer viewport is not ready yet.",
     "slicerDisabled": "Embedded OrcaSlicer is disabled in Settings.",
     "slicerEmbedFailed": "Slicer view failed: {{error}}",
+    "slicerNoExportableBody": "There is no solid body to export.",
     "slicerView": "Slicer View",
     "slicerWaiting": "Slicer view is waiting for OrcaSlicer."
   },

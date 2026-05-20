@@ -516,6 +516,14 @@ function App() {
       ),
     [document],
   );
+  const hasExportableBody = (viewport?.bodies.length ?? 0) > 0;
+  const isSlicerConfigured =
+    config.orcaSlicer.enabled &&
+    config.orcaSlicer.binaryPath.trim().length > 0;
+  const canExportToSlicer =
+    workspaceView === "slicer" &&
+    hasExportableBody &&
+    isSlicerConfigured;
   useEffect(() => {
     const documentId = document?.document_id ?? null;
     if (previousDocumentIdRef.current !== documentId) {
@@ -1446,7 +1454,7 @@ function App() {
 
   async function showSlicerView() {
     setWorkspaceView("slicer");
-    setSlicerStatus(t("workspace.preparingSlicer"));
+    setSlicerStatus(t("workspace.openingSlicer"));
 
     if (!config.orcaSlicer.enabled) {
       setSlicerStatus(t("workspace.slicerDisabled"));
@@ -1459,6 +1467,46 @@ function App() {
     }
 
     try {
+      await waitForNextFrame();
+      const bounds = readSlicerViewportBounds();
+      if (!bounds) {
+        setSlicerStatus(t("workspace.slicerContainerUnavailable"));
+        return;
+      }
+
+      const result = await embedOrcaWindow({
+        binaryPath,
+        modelFilePath: null,
+        bounds,
+      });
+      setSlicerStatus(result.message);
+      setHasOrcaEmbedSession(result.status === "embedded");
+      addMessage(`slicer: ${result.message}`);
+    } catch (error) {
+      const message = String(error);
+      setSlicerStatus(t("workspace.slicerEmbedFailed", { error: message }));
+      addMessage(`slicer error: ${message}`);
+    }
+  }
+
+  async function exportToSlicer() {
+    if (!hasExportableBody) {
+      setSlicerStatus(t("workspace.slicerNoExportableBody"));
+      return;
+    }
+    if (!config.orcaSlicer.enabled) {
+      setSlicerStatus(t("workspace.slicerDisabled"));
+      return;
+    }
+    const binaryPath = config.orcaSlicer.binaryPath.trim();
+    if (!binaryPath) {
+      setSlicerStatus(t("workspace.slicerBinaryMissing"));
+      return;
+    }
+
+    try {
+      setWorkspaceView("slicer");
+      setSlicerStatus(t("workspace.exportingToSlicer"));
       await waitForNextFrame();
       const bounds = readSlicerViewportBounds();
       if (!bounds) {
@@ -1479,11 +1527,11 @@ function App() {
       });
       setSlicerStatus(result.message);
       setHasOrcaEmbedSession(result.status === "embedded");
-      addMessage(`slicer: ${result.message}`);
+      addMessage(`slicer export: ${result.message}`);
     } catch (error) {
       const message = String(error);
       setSlicerStatus(t("workspace.slicerEmbedFailed", { error: message }));
-      addMessage(`slicer error: ${message}`);
+      addMessage(`slicer export error: ${message}`);
     }
   }
 
@@ -1694,10 +1742,52 @@ function App() {
     deleteSketchSelectionNow(deleteSelection);
   }
 
+  function renderSlicerWorkspace() {
+    return (
+      <section className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="flex items-center justify-end gap-3 border-b border-white/10 bg-black/10 px-3 py-2">
+          {slicerStatus ? (
+            <span className="truncate text-xs text-on-surface-muted">
+              {slicerStatus}
+            </span>
+          ) : null}
+          <button
+            type="button"
+            className="cad-ribbon-action"
+            disabled={!canExportToSlicer}
+            onClick={() => void exportToSlicer()}
+          >
+            {t("workspace.exportToSlicer")}
+          </button>
+        </div>
+        <div
+          id="slicer-viewport-container"
+          ref={slicerViewportRef}
+          className="flex min-h-0 w-full min-w-0 flex-1 items-center justify-center bg-surface-lowest"
+        >
+          {hasOrcaEmbedSession ? null : (
+            <span className="max-w-xl px-6 text-center text-sm text-on-surface-muted">
+              {slicerStatus ?? t("workspace.slicerWaiting")}
+            </span>
+          )}
+        </div>
+      </section>
+    );
+  }
+
   return (
     <main className="cad-shell h-screen">
       <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]">
         <AppHeader
+          workspaceView={workspaceView}
+          canOpenSlicerView={isSlicerConfigured}
+          onSetWorkspaceView={(view) => {
+            if (view === "cad") {
+              void showCadView();
+              return;
+            }
+            void showSlicerView();
+          }}
           status={status}
           disabled={status !== "connected"}
           canUndo={session?.can_undo ?? false}
@@ -1906,6 +1996,10 @@ function App() {
               }}
             />
           ) : null}
+          {workspaceView === "slicer" ? (
+            renderSlicerWorkspace()
+          ) : (
+            <>
           {isHierarchyCollapsed ? (
             <button
               type="button"
@@ -2023,51 +2117,7 @@ function App() {
             </aside>
           )}
 
-          <section className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-            <div className="flex items-center justify-between gap-3 border-b border-white/10 bg-black/10 px-3 py-2">
-              <div className="flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.025] p-1">
-                <button
-                  type="button"
-                  className={
-                    workspaceView === "cad"
-                      ? "rounded px-3 py-1.5 text-xs font-medium text-on-surface"
-                      : "rounded px-3 py-1.5 text-xs text-on-surface-muted transition-colors hover:bg-white/[0.04] hover:text-on-surface"
-                  }
-                  style={
-                    workspaceView === "cad"
-                      ? { background: "var(--cad-accent-surface)" }
-                      : undefined
-                  }
-                  onClick={() => void showCadView()}
-                >
-                  {t("workspace.cadView")}
-                </button>
-                <button
-                  type="button"
-                  className={
-                    workspaceView === "slicer"
-                      ? "rounded px-3 py-1.5 text-xs font-medium text-on-surface"
-                      : "rounded px-3 py-1.5 text-xs text-on-surface-muted transition-colors hover:bg-white/[0.04] hover:text-on-surface"
-                  }
-                  style={
-                    workspaceView === "slicer"
-                      ? { background: "var(--cad-accent-surface)" }
-                      : undefined
-                  }
-                  onClick={() => void showSlicerView()}
-                >
-                  {t("workspace.slicerView")}
-                </button>
-              </div>
-              {workspaceView === "slicer" && slicerStatus ? (
-                <span className="truncate text-xs text-on-surface-muted">
-                  {slicerStatus}
-                </span>
-              ) : null}
-            </div>
-            <div className="relative min-h-0 min-w-0 flex-1">
-              {workspaceView === "cad" ? (
-                <>
+          <section className="relative min-h-0 min-w-0 flex-1">
             <ViewportPanel
               status={status}
               document={document}
@@ -3172,24 +3222,9 @@ function App() {
                 </section>
               ) : null}
             </div>
-              {SHOW_DEBUG_MESSAGE_LOG ? (
-                <MessageLog messages={messages} />
-              ) : null}
-                </>
-              ) : (
-                <div
-                  id="slicer-viewport-container"
-                  ref={slicerViewportRef}
-                  className="flex h-full min-h-0 w-full min-w-0 items-center justify-center bg-surface-lowest"
-                >
-                  {hasOrcaEmbedSession ? null : (
-                    <span className="max-w-xl px-6 text-center text-sm text-on-surface-muted">
-                      {slicerStatus ?? t("workspace.slicerWaiting")}
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
+            {SHOW_DEBUG_MESSAGE_LOG ? (
+              <MessageLog messages={messages} />
+            ) : null}
           </section>
           {isAiPanelOpen && isAiAssistantAvailable ? (
             <AiAssistantPanel
@@ -3203,9 +3238,12 @@ function App() {
               }}
             />
           ) : null}
+            </>
+          )}
         </div>
 
-        <FeatureTimeline
+        {workspaceView === "cad" ? (
+          <FeatureTimeline
           document={document}
           onSelectFeature={async (featureId) => {
             await runAction(async () => {
@@ -3268,7 +3306,8 @@ function App() {
           onDeleteFeature={(featureId) => {
             confirmAndDeleteFeature(featureId);
           }}
-        />
+          />
+        ) : null}
       </div>
     </main>
   );

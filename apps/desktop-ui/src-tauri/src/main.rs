@@ -69,6 +69,8 @@ fn hide_orca_window(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    orca_slicer::configure_linux_windowing_environment();
+
     tauri::Builder::default()
         .manage(CadCoreState {
             child: Mutex::new(None),
