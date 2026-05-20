@@ -343,6 +343,7 @@ interface ViewportPanelProps {
       profileIds: string[];
     },
   ) => Promise<void>;
+  onDeleteSketchDimension: (dimensionId: string) => Promise<void>;
   onSetSketchTool: (tool: SketchTool) => Promise<void>;
   hiddenFeatureIds?: ReadonlySet<string>;
   hiddenSketchPlaneIds?: ReadonlySet<string>;
@@ -870,6 +871,7 @@ export function ViewportPanel({
   onUpdateSketchDimension,
   onSelectSketchProfile,
   onDeleteSketchSelection,
+  onDeleteSketchDimension,
   onSetSketchTool,
   hiddenFeatureIds,
   hiddenSketchPlaneIds,
@@ -1065,6 +1067,7 @@ export function ViewportPanel({
   const updateSketchDimensionRef = useRef(onUpdateSketchDimension);
   const selectSketchProfileRef = useRef(onSelectSketchProfile);
   const deleteSketchSelectionRef = useRef(onDeleteSketchSelection);
+  const deleteSketchDimensionRef = useRef(onDeleteSketchDimension);
   const selectedSketchDimensionRef = useRef<SketchDimensionScene | null>(null);
   const displayedSketchDimensionsRef = useRef<SketchDimensionScene[]>([]);
   const dimensionLabelDragRef = useRef<DimensionLabelDragState | null>(null);
@@ -1178,6 +1181,17 @@ export function ViewportPanel({
     fromLineCount: number;
     kind: "horizontal" | "vertical";
   } | null>(null);
+  // Pending dimension deletion after a sketch entity commit. Set by
+  // `commitDraftDimensionSession` when the user dragged without typing
+  // (lockedFields is empty for the relevant field). The post-add effect
+  // below reads this and calls `onDeleteSketchDimension` once the new
+  // entity lands, removing the auto-dimension the core created.
+  const pendingDimensionDeletionRef = useRef<{
+    shouldDeleteLine: boolean;
+    shouldDeleteCircle: boolean;
+    shouldDeletePolygon: boolean;
+    shouldDeleteRectangle: boolean;
+  } | null>(null);
   // Snapshot of the sketch feature's lines for the post-add effect to
   // index into. Same pattern as the count ref above.
   const sketchLinesRef = useRef<
@@ -1280,6 +1294,61 @@ export function ViewportPanel({
       ),
     }));
     pendingCircleDimensionPlacementRef.current = null;
+  }, [sketchFeature]);
+  // Post-commit dimension deletion for drag-only shapes that have no
+  // typed value (Fusion 360 behavior). When the user commits a shape
+  // by dragging without typing into a draft dimension field, the core
+  // still creates an auto-dimension — we delete it here.
+  useEffect(() => {
+    const pending = pendingDimensionDeletionRef.current;
+    if (!pending) {
+      return;
+    }
+    const sketch = sketchFeature?.sketch_parameters;
+    if (!sketch) {
+      pendingDimensionDeletionRef.current = null;
+      return;
+    }
+    console.warn("[dim-delete] pending", {
+      tool: pending.shouldDeleteLine ? "line" : pending.shouldDeleteCircle ? "circle" : pending.shouldDeletePolygon ? "polygon" : pending.shouldDeleteRectangle ? "rectangle" : "none",
+      sketchLines: sketch.lines.length,
+      sketchCircles: sketch.circles.length,
+      sketchPolygons: sketch.polygons?.length ?? 0,
+      dimIds: sketch.dimensions.map(d => d.dimension_id),
+    });
+    // Use the last entity instead of fromLineCount to avoid race
+    // conditions when React hasn't re-rendered between rapid commits.
+    if (pending.shouldDeleteLine && sketch.lines.length > 0) {
+      const line = sketch.lines[sketch.lines.length - 1];
+      if (line && !line.is_construction) {
+        void deleteSketchDimensionRef.current(`dim-line-${line.line_id}`);
+      }
+    }
+    if (pending.shouldDeleteCircle && sketch.circles.length > 0) {
+      const circle = sketch.circles[sketch.circles.length - 1];
+      if (circle && !circle.is_construction) {
+        void deleteSketchDimensionRef.current(
+          `dim-circle-${circle.circle_id}`,
+        );
+      }
+    }
+    if (pending.shouldDeletePolygon && (sketch.polygons?.length ?? 0) > 0) {
+      const polygon = sketch.polygons?.[(sketch.polygons?.length ?? 1) - 1];
+      if (polygon && !polygon.is_construction) {
+        void deleteSketchDimensionRef.current(
+          `dim-polygon-${polygon.polygon_id}`,
+        );
+      }
+    }
+    if (pending.shouldDeleteRectangle && sketch.lines.length >= 4) {
+      for (let i = sketch.lines.length - 4; i < sketch.lines.length; i++) {
+        const line = sketch.lines[i];
+        if (line && !line.is_construction) {
+          void deleteSketchDimensionRef.current(`dim-line-${line.line_id}`);
+        }
+      }
+    }
+    pendingDimensionDeletionRef.current = null;
   }, [sketchFeature]);
   const selectedPrimitiveLabel = useMemo(() => {
     const selectedBox = viewport?.boxes.find((box) => box.is_selected);
@@ -1956,6 +2025,31 @@ export function ViewportPanel({
     draftDimensionSessionRef.current = null;
   }
 
+  // Centralized helper: schedule deletion of auto-dimensions after a
+  // shape commit when the user dragged/clicked without typing a value.
+  // Call this BEFORE clearing the draft session so lockedFields are
+  // still available. Pass the tool and optionally a pre-captured
+  // session (for chained-line paths where the session is about to be
+  // replaced).
+  function scheduleDimensionDeletion(
+    tool: DraftDimensionTool,
+    preCapturedSession?: DraftDimensionSession | null,
+  ) {
+    const session = preCapturedSession ?? draftDimensionSessionRef.current;
+    pendingDimensionDeletionRef.current = {
+      shouldDeleteLine:
+        tool === "line" && !session?.lockedFields.length,
+      shouldDeleteCircle:
+        tool === "circle" && !session?.lockedFields.diameter,
+      shouldDeletePolygon:
+        tool === "polygon" && !session?.lockedFields.radius,
+      shouldDeleteRectangle:
+        tool === "rectangle" &&
+        !session?.lockedFields.width &&
+        !session?.lockedFields.length,
+    };
+  }
+
   function suppressDimensionEditorAfterSketchCommit() {
     suppressNextDimensionEditorOpenRef.current = true;
     dimensionInputRef.current?.blur();
@@ -2624,6 +2718,7 @@ export function ViewportPanel({
     clearPreviewArc();
     clearPreviewDimension();
     lineDraftStartRef.current = null;
+    scheduleDimensionDeletion(session.tool, session);
     clearDraftDimensionSession();
     suppressDimensionEditorAfterSketchCommit();
     rendererRef.current?.domElement.focus();
@@ -6007,6 +6102,7 @@ export function ViewportPanel({
             const [secondX, secondY] = rectSecondPointRef.current;
             rectSecondPointRef.current = null;
             lineDraftStartRef.current = null;
+            scheduleDimensionDeletion("rectangle");
             clearDraftDimensionSession();
             suppressDimensionEditorAfterSketchCommit();
             const p1x = startX;
@@ -6040,6 +6136,7 @@ export function ViewportPanel({
             return;
           }
           lineDraftStartRef.current = null;
+          scheduleDimensionDeletion("rectangle");
           clearDraftDimensionSession();
           suppressDimensionEditorAfterSketchCommit();
           const rectStartX =
@@ -6072,6 +6169,7 @@ export function ViewportPanel({
             const [p2x, p2y] = circleSecondPointRef.current;
             circleSecondPointRef.current = null;
             lineDraftStartRef.current = null;
+            scheduleDimensionDeletion("circle");
             clearDraftDimensionSession();
             suppressDimensionEditorAfterSketchCommit();
             const p1x = startX;
@@ -6103,6 +6201,7 @@ export function ViewportPanel({
             center: [startX, startY],
             end: committedEnd,
           };
+          scheduleDimensionDeletion("circle");
           clearDraftDimensionSession();
           suppressDimensionEditorAfterSketchCommit();
           let cx = startX;
@@ -6130,6 +6229,7 @@ export function ViewportPanel({
 
         if (activeSketchToolRef.current === "polygon") {
           lineDraftStartRef.current = null;
+          scheduleDimensionDeletion("polygon");
           clearDraftDimensionSession();
           suppressDimensionEditorAfterSketchCommit();
           void addSketchPolygonRef.current(
@@ -6253,6 +6353,9 @@ export function ViewportPanel({
           input?.blur();
         });
         suppressDimensionEditorAfterSketchCommit();
+        // Capture the old session's lockedFields before creating the
+        // new chained session, so we know whether the user typed.
+        const oldSession = draftDimensionSessionRef.current;
         const nextLineSession = createDraftDimensionSession(
 	          "line",
 	          committedEnd,
@@ -6261,6 +6364,7 @@ export function ViewportPanel({
         draftDimensionSessionRef.current = nextLineSession;
         setDraftDimensionSession(nextLineSession);
         focusDraftField(nextLineSession.activeField);
+        scheduleDimensionDeletion("line", oldSession);
         void addSketchLineRef.current(
 	          startX,
 	          startY,

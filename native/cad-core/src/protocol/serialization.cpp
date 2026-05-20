@@ -289,6 +289,28 @@ sketch_parameters_from_payload(const json& payload) {
       params.fillets.push_back(fillet);
     }
   }
+  // Older saves predate polygons; absence of the key just means none exist.
+  if (payload.contains("polygons") && payload.at("polygons").is_array()) {
+    for (const auto& polygon_payload : payload.at("polygons")) {
+      polysmith::core::SketchPolygon polygon{};
+      polygon.id = read_string(polygon_payload, "polygon_id");
+      polygon.center_x = read_number(polygon_payload, "center_x");
+      polygon.center_y = read_number(polygon_payload, "center_y");
+      polygon.radius = read_number(polygon_payload, "radius");
+      polygon.sides = static_cast<int>(read_number(polygon_payload, "sides"));
+      polygon.mode = read_string(polygon_payload, "mode");
+      polygon.start_x = read_number(polygon_payload, "start_x");
+      polygon.start_y = read_number(polygon_payload, "start_y");
+      polygon.end_x = read_number(polygon_payload, "end_x");
+      polygon.end_y = read_number(polygon_payload, "end_y");
+      if (polygon_payload.contains("is_construction") &&
+          polygon_payload.at("is_construction").is_boolean()) {
+        polygon.is_construction =
+            polygon_payload.at("is_construction").get<bool>();
+      }
+      params.polygons.push_back(polygon);
+    }
+  }
   if (payload.contains("points") && payload.at("points").is_array()) {
     for (const auto& point_payload : payload.at("points")) {
       polysmith::core::SketchPoint point{};
@@ -786,7 +808,27 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                     }
                     return fillets;
                   }()},
-                 {"points",
+                  {"polygons",
+                   [&feature]() {
+                     json polygons = json::array();
+                     for (const auto& polygon : feature.sketch_parameters->polygons) {
+                       polygons.push_back({
+                           {"polygon_id", polygon.id},
+                           {"center_x", polygon.center_x},
+                           {"center_y", polygon.center_y},
+                           {"radius", polygon.radius},
+                           {"sides", polygon.sides},
+                           {"mode", polygon.mode},
+                           {"start_x", polygon.start_x},
+                           {"start_y", polygon.start_y},
+                           {"end_x", polygon.end_x},
+                           {"end_y", polygon.end_y},
+                           {"is_construction", polygon.is_construction},
+                       });
+                     }
+                     return polygons;
+                   }()},
+                  {"points",
                   [&feature]() {
                     json points = json::array();
                     for (const auto& point : feature.sketch_parameters->points) {

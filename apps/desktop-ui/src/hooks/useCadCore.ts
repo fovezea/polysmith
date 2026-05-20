@@ -13,6 +13,7 @@ import {
   makeAddSketchFilletCommand,
   makeUpdateSketchFilletRadiusCommand,
   makeDeleteSketchFilletCommand,
+  makeDeleteSketchDimensionCommand,
   makeDeleteSketchSelectionCommand,
   makeAddSketchCircleCommand,
   makeAddSketchPolygonCommand,
@@ -656,6 +657,10 @@ export function useCadCore() {
     },
     deleteSketchFillet: async (filletId: string) => {
       await sendCoreCommand(makeDeleteSketchFilletCommand(filletId));
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    deleteSketchDimension: async (dimensionId: string) => {
+      await sendCoreCommand(makeDeleteSketchDimensionCommand(dimensionId));
       await sendCoreCommand(makeGetViewportStateCommand());
     },
     deleteSketchSelection: async (

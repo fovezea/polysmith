@@ -429,6 +429,7 @@ function App() {
     addSketchFillet,
     updateSketchFilletRadius,
     deleteSketchFillet,
+    deleteSketchDimension,
     deleteSketchSelection,
     selectSketchPoint,
     selectSketchEntity,
@@ -2635,6 +2636,11 @@ function App() {
               }}
               onDeleteSketchSelection={async (selection) => {
                 confirmAndDeleteSketchSelection(selection);
+              }}
+              onDeleteSketchDimension={async (dimensionId) => {
+                await runAction(async () => {
+                  await deleteSketchDimension(dimensionId);
+                });
               }}
               onSetSketchTool={async (tool) => {
                 await runAction(async () => {

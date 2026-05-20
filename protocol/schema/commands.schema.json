@@ -69,7 +69,8 @@
         "extrude_face",
         "finish_sketch",
         "reenter_sketch",
-        "clear_selection"
+        "clear_selection",
+        "delete_sketch_dimension"
       ]
     },
     "payload": { "type": "object" }

@@ -48,6 +48,7 @@ export interface SketchDimensionEntry {
   kind:
     | "line_length"
     | "circle_radius"
+    | "polygon_radius"
     | "angle"
     | "line_line_distance"
     | "circle_center_distance"
@@ -129,6 +130,21 @@ export interface SketchArcEntry {
   is_construction: boolean;
 }
 
+// Regular polygon stored on the sketch feature. Mirrors C++ `SketchPolygon`.
+export interface SketchPolygonEntry {
+  polygon_id: string;
+  center_x: number;
+  center_y: number;
+  radius: number;
+  sides: number;
+  mode: string;
+  start_x: number;
+  start_y: number;
+  end_x: number;
+  end_y: number;
+  is_construction: boolean;
+}
+
 // Parametric corner fillet on the sketch. Mirrors C++ `SketchFillet`.
 // `corner_x` / `corner_y` are denormalized so the corner point can
 // be re-emitted into the points table even when no other entity
@@ -160,6 +176,7 @@ export interface SketchFeatureParameters {
   lines: SketchLineEntry[];
   circles: SketchCircleEntry[];
   arcs: SketchArcEntry[];
+  polygons: SketchPolygonEntry[];
   fillets: SketchFilletEntry[];
   points: SketchPointEntry[];
   dimensions: SketchDimensionEntry[];

@@ -729,6 +729,14 @@ export interface DeleteSketchFilletCommand {
   };
 }
 
+export interface DeleteSketchDimensionCommand {
+  id: string;
+  type: "delete_sketch_dimension";
+  payload: {
+    dimension_id: string;
+  };
+}
+
 export interface DeleteSketchSelectionCommand {
   id: string;
   type: "delete_sketch_selection";
@@ -1082,6 +1090,7 @@ export type CoreCommand =
   | AddSketchFilletCommand
   | UpdateSketchFilletRadiusCommand
   | DeleteSketchFilletCommand
+  | DeleteSketchDimensionCommand
   | DeleteSketchSelectionCommand
   | SelectSketchPointCommand
   | SelectSketchEntityCommand

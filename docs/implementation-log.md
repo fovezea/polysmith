@@ -2,6 +2,58 @@
 
 This document tracks concrete implementation milestones as they land in the codebase.
 
+## 2026-05-20
+
+### Fusion-Style On-Demand Sketch Dimensions
+
+#### Goal
+Match Fusion 360 behavior: shapes created by mouse-only drag get **no automatic dimension**. Shapes created with a **typed value** (draft dimension input during preview) keep the dimension. Prevents sketch bloat and over-constraining.
+
+#### Approach
+Keep C++ auto-dimension creation, then delete from TypeScript when the user didn't type.
+
+#### C++ Core
+- `sketch_feature.h/cpp`: added `delete_sketch_dimension(FeatureEntry&, const std::string&)` — finds dimension by ID, erases from vector, refreshes derived state. Silently ignores missing dimensions (construction lines don't get auto-dims).
+- `document.h/cpp`: added `DocumentManager::delete_sketch_dimension` wrapper with undo push, redo clear, core call, geometry revision bump.
+- `app.cpp`: registered `delete_sketch_dimension` command handler reading `dimension_id` from payload.
+- `serialization.cpp`: added `polygons` array to sketch parameters serialization and deserialization (was missing, causing `TypeError` on TS side).
+
+#### TypeScript — IPC & Types
+- `protocol/schema/commands.schema.json`: registered `delete_sketch_dimension` command.
+- `types/ipc.ts`: added `DeleteSketchDimensionCommand` interface and `CoreCommand` union entry.
+- `types/geometry/sketch.ts`: added `SketchPolygonEntry` type, `polygons` field to `SketchFeatureParameters`, `"polygon_radius"` to `SketchDimensionEntry.kind` union.
+- `lib/ipcProtocol.ts`: added `makeDeleteSketchDimensionCommand(dimensionId)`.
+- `hooks/useCadCore.ts`: added `deleteSketchDimension` hook.
+
+#### TypeScript — Viewport Logic
+- `App.tsx`: passed `onDeleteSketchDimension` callback to `ViewportPanel`.
+- `ViewportPanel.tsx`:
+  - Added `pendingDimensionDeletionRef`, `deleteSketchDimensionRef`, and `onDeleteSketchDimension` prop.
+  - Created centralized `scheduleDimensionDeletion(tool, preCapturedSession?)` helper — single source of truth for the dimension deletion decision. Checks `lockedFields` on the draft session; uses `diameter` for circle (not `radius`, since the circle draft UI only has a diameter field).
+  - Post-commit `useEffect` watches `sketchFeature` and deletes auto-dimensions for lines, circles, polygons, and rectangles using the **last entity** in the array (avoids stale-baseline race condition).
+  - Set `scheduleDimensionDeletion` in ALL commit paths: `commitDraftDimensionSession`, line chaining snap path, all rectangle/circle/polygon snap variants, and the rectangle corner-corner/center-point snap path that was previously missing.
+  - Added `!is_construction` guards so construction geometry (which has no auto-dim) isn't targeted.
+
+#### Dimension ID Format
+Auto-dimensions use `dim-<prefix>-<entity_id>`: `dim-line-line-1`, `dim-circle-circle-1`, `dim-polygon-polygon-1`.
+
+#### Bugs Encountered and Fixed
+
+1. **`polygons` missing from C++ serialization** — the `polygons` field was in the C++ struct but never serialized to JSON. TS access to `params.polygons.length` threw `TypeError`, crashing the commit function before the IPC was sent. Fixed by adding `polygons` to both `to_payload` and `from_payload` in `serialization.cpp`.
+
+2. **Circle `lockedFields.radius` doesn't exist** — `draftSessionFields("circle")` returns only `["diameter"]`. Checking `!session.lockedFields.radius` was always true (radius is never locked), but the actual relevant field is `diameter`. Fixed by checking only `lockedFields.diameter` for circles.
+
+3. **Null session for click-based commits** — for click-based creation (2-point circle, etc.), `draftDimensionSessionRef.current` can be null. The guard `dSession?.tool === "circle"` failed when `dSession` was null. Fixed by removing the tool check and using `!dSession?.lockedFields.<field>` directly — with null session this evaluates to `!undefined` = `true`.
+
+4. **Line chaining used wrong session** — in the line chaining snap path, `draftDimensionSessionRef.current` was replaced with a fresh session BEFORE reading `lockedFields`. The new session always has `lockedFields: {}`, so deletion never triggered. Fixed by capturing `oldSession` before creating the replacement session and passing it as `preCapturedSession` to `scheduleDimensionDeletion`.
+
+5. **Stale `fromLineCount` race condition** — the baseline entity count was captured from `sketchFeature` during the event handler, which reflects the CURRENT React render. When clicking rapidly (chained lines), React hadn't re-rendered from the previous commit, so `fromLineCount` was stale, targeting the wrong entity. Fixed by using the **last entity** in the array (`array[array.length - 1]`) instead of a baseline count.
+
+6. **Split commit paths** — shape commits can go through `commitDraftDimensionSession` (Enter/submit) OR the snap handler in `handlePointerUp` (click-based). Initially only `commitDraftDimensionSession` was handled, causing clicks to silently bypass deletion. Fixed by calling `scheduleDimensionDeletion` from EVERY commit path. The centralized helper prevents drift between paths.
+
+#### Documentation
+- `docs/architecture/sketch-tool-implementation.md`: comprehensive guide for implementing new sketch tools, covering all files to touch, the two commit paths, dimension deletion integration, and all pitfalls discovered.
+
 ## 2026-05-19
 
 ### Sketcher UI Overhaul — Split Buttons, Rectangle/Circle/Polygon Variants
