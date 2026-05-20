@@ -313,6 +313,7 @@ const documentStateSchema = z.object({
               kind: z.enum([
                 "line_length",
                 "circle_radius",
+                "polygon_radius",
                 "angle",
                 "line_line_distance",
                 "circle_center_distance",
@@ -675,6 +676,7 @@ const viewportStateSchema = z.object({
       kind: z.enum([
         "line_length",
         "circle_radius",
+        "polygon_radius",
         "angle",
         "line_line_distance",
         "circle_center_distance",

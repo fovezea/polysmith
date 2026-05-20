@@ -3184,7 +3184,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
             sketch_dimensions.push_back(ViewportSketchDimensionPrimitive{
                 .dimension_id = dim_it->id,
                 .plane_id = feature.sketch_parameters->plane_id,
-                .kind = "circle_radius",
+                .kind = "polygon_radius",
                 .entity_id = polygon.id,
                 .label = "R " + format_dimension_value(dim_it->value) + " mm",
                 .is_selected = is_selected_dim,

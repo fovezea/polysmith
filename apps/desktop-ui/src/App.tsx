@@ -2215,8 +2215,11 @@ function App() {
               arcToolMode={arcToolMode}
               onSetArcToolMode={setArcToolMode}
               rectangleToolMode={rectangleToolMode}
+              onSetRectangleToolMode={setRectangleToolMode}
               circleToolMode={circleToolMode}
+              onSetCircleToolMode={setCircleToolMode}
               polygonToolMode={polygonToolMode}
+              onSetPolygonToolMode={setPolygonToolMode}
               onAddSketchPolygon={async (
                 sides,
                 mode,
