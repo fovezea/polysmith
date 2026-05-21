@@ -47,6 +47,7 @@
     "save": "Save...",
     "settings": "Settings",
     "startCore": "Start Core",
+    "toggleUnits": "Toggle units ({{units}})",
     "undo": "Undo",
     "workspace": {
       "construct": "Construct",

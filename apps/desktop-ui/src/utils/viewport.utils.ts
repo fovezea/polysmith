@@ -1,3 +1,5 @@
+import { reformatDimensionLabel } from "./units";
+
 import {
   PrimitiveInteractionState,
   PrimitiveVisual,
@@ -1275,7 +1277,14 @@ export function makeConstraintBadgeSprite(text: string, isSelected: boolean) {
   return sprite;
 }
 
-export function buildSketchDimensionObject(dimension: SketchDimensionScene) {
+export function buildSketchDimensionObject(
+  dimension: SketchDimensionScene,
+  displayUnits?: "mm" | "in",
+) {
+  const labelText =
+    displayUnits === "in" && dimension.unitSuffix === "mm"
+      ? reformatDimensionLabel(dimension.label, dimension.kind, "in")
+      : dimension.label;
   const labelPosition = new THREE.Vector3(...dimension.labelPosition);
   const anchorStart = new THREE.Vector3(...dimension.anchorStart);
   const anchorEnd = new THREE.Vector3(...dimension.anchorEnd);
@@ -1424,7 +1433,7 @@ export function buildSketchDimensionObject(dimension: SketchDimensionScene) {
   line.renderOrder = 6;
   line.userData.sketchDimensionId = dimension.dimensionId;
 
-  const label = makeDimensionLabelSprite(dimension.label, dimension.isSelected);
+  const label = makeDimensionLabelSprite(labelText, dimension.isSelected);
   label.position.copy(labelPosition);
   label.renderOrder = 7;
   label.userData.sketchDimensionId = dimension.dimensionId;

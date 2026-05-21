@@ -71,6 +71,11 @@
         "reenter_sketch",
         "clear_selection",
         "delete_sketch_dimension",
+        "add_sketch_angle_dimension",
+        "add_sketch_distance_dimension",
+        "add_sketch_line_length_dimension",
+        "add_sketch_circle_radius_dimension",
+        "add_sketch_polygon_radius_dimension",
         "add_parameter",
         "update_parameter",
         "delete_parameter"

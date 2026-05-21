@@ -68,12 +68,15 @@ export type ThemeSelection =
   | "catppuccin-mocha"
   | (string & {});
 
+export type DisplayUnits = "mm" | "in";
+
 export interface AppConfig {
   theme: ThemeSelection;
   hotkeys: AppHotkeys;
   viewport: ViewportConfig;
   ai: AiConfig;
   orcaSlicer: OrcaSlicerConfig;
+  displayUnits: DisplayUnits;
 }
 
 export interface ThemeConfig {

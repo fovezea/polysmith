@@ -1,5 +1,6 @@
 {
   "theme": "system",
+  "displayUnits": "mm",
   "viewport": {
     "crosshair": "default"
   },

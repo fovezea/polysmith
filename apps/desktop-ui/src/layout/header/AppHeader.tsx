@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ConstraintType, SketchTool, ArmedSketchConstraint } from "@/types";
+import { useAppConfig } from "@/config";
 import { SketchToolbar } from "./SketchToolbar";
 import { CreateToolbar } from "./CreateToolbar";
 import { ModifyToolbar } from "./ModifyToolbar";
@@ -273,6 +274,7 @@ export function AppHeader({
   onToggleParametersPanel,
 }: AppHeaderProps) {
   const { t } = useTranslation();
+  const { config, updateConfig } = useAppConfig();
   const [activeCadWorkspace, setActiveCadWorkspace] =
     useState<(typeof workspaces)[number]>("create");
   const [openMenu, setOpenMenu] = useState<"box" | "cylinder" | null>(null);
@@ -411,6 +413,23 @@ export function AppHeader({
             >
               {errorLogCount > 0 ? errorLogCount : logCount}
             </span>
+          </button>
+          <button
+            type="button"
+            className="cad-ribbon-action h-8 w-8 px-0 py-0 text-[11px] font-semibold uppercase tracking-wider text-on-surface-muted hover:text-on-surface"
+            onClick={() =>
+              updateConfig((prev) => ({
+                ...prev,
+                displayUnits:
+                  prev.displayUnits === "mm" ? "in" : "mm",
+              }))
+            }
+            aria-label={t("settings.toggleUnits")}
+            title={t("settings.toggleUnits", {
+              units: config.displayUnits.toUpperCase(),
+            })}
+          >
+            {config.displayUnits}
           </button>
           <button
             type="button"
