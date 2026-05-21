@@ -819,6 +819,39 @@ void CadCoreApp::handle_command_line(const std::string& line) {
     return;
   }
 
+  if (command.type == "add_sketch_line_length_dimension") {
+    const auto document =
+        document_manager().add_sketch_line_length_dimension(
+            read_string(command.payload, "line_id"));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "add_sketch_circle_radius_dimension") {
+    const auto document =
+        document_manager().add_sketch_circle_radius_dimension(
+            read_string(command.payload, "circle_id"));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "add_sketch_polygon_radius_dimension") {
+    const auto document =
+        document_manager().add_sketch_polygon_radius_dimension(
+            read_string(command.payload, "polygon_id"));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
   if (command.type == "select_sketch_profile") {
     bool additive = false;
     if (command.payload.contains("additive") &&
@@ -1292,9 +1325,15 @@ void CadCoreApp::handle_command_line(const std::string& line) {
   }
 
   if (command.type == "add_parameter") {
+    std::string kind = "length";
+    if (command.payload.contains("kind") &&
+        command.payload.at("kind").is_string()) {
+      kind = command.payload.at("kind").get<std::string>();
+    }
     const auto document = document_manager().add_parameter(
         read_string(command.payload, "name"),
-        read_string(command.payload, "expression"));
+        read_string(command.payload, "expression"),
+        kind);
 
     polysmith::protocol::write_message(
         polysmith::protocol::make_document_state_event(
@@ -1303,9 +1342,15 @@ void CadCoreApp::handle_command_line(const std::string& line) {
   }
 
   if (command.type == "update_parameter") {
+    std::string kind = "length";
+    if (command.payload.contains("kind") &&
+        command.payload.at("kind").is_string()) {
+      kind = command.payload.at("kind").get<std::string>();
+    }
     const auto document = document_manager().update_parameter(
         read_string(command.payload, "name"),
-        read_string(command.payload, "expression"));
+        read_string(command.payload, "expression"),
+        kind);
 
     polysmith::protocol::write_message(
         polysmith::protocol::make_document_state_event(

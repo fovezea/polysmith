@@ -347,7 +347,7 @@ export function AppHeader({
               </button>
               {parametersPanelOpen ? (
                 <div className="cad-toolbar-popover absolute left-0 top-[calc(100%+0.75rem)]">
-                  <ParametersPanel />
+                  <ParametersPanel onClose={onToggleParametersPanel} />
                 </div>
               ) : null}
             </div>

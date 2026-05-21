@@ -206,6 +206,19 @@ void delete_sketch_fillet(FeatureEntry& feature,
 void delete_sketch_dimension(FeatureEntry& feature,
                              const std::string& dimension_id);
 
+// Single-entity dimension creation (for the Dimension tool clicking a
+// lone line, circle, or polygon that has no auto-dimension — e.g.
+// because the fusion-style on-demand system deleted it). Each function
+// validates the target entity exists, checks that the dimension id
+// isn't already in use, and pushes a SketchDimension computed from the
+// entity's current geometry.
+void add_sketch_line_length_dimension(FeatureEntry& feature,
+                                      const std::string& line_id);
+void add_sketch_circle_radius_dimension(FeatureEntry& feature,
+                                        const std::string& circle_id);
+void add_sketch_polygon_radius_dimension(FeatureEntry& feature,
+                                         const std::string& polygon_id);
+
 // ---------------------------------------------------------------
 // Mirror tool — contextual modeling pending preview lifecycle.
 //

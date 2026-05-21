@@ -26,6 +26,9 @@ import {
   makeSetSketchPointLineAnchorCommand,
   makeAddSketchAngleDimensionCommand,
   makeAddSketchDistanceDimensionCommand,
+  makeAddSketchLineLengthDimensionCommand,
+  makeAddSketchCircleRadiusDimensionCommand,
+  makeAddSketchPolygonRadiusDimensionCommand,
   makeAddSketchRectangleCommand,
   makeClearSelectionCommand,
   makeDeleteFeatureCommand,
@@ -574,6 +577,24 @@ export function useCadCore() {
       );
       await sendCoreCommand(makeGetViewportStateCommand());
     },
+    addSketchLineLengthDimension: async (lineId: string) => {
+      await sendCoreCommand(
+        makeAddSketchLineLengthDimensionCommand(lineId),
+      );
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    addSketchCircleRadiusDimension: async (circleId: string) => {
+      await sendCoreCommand(
+        makeAddSketchCircleRadiusDimensionCommand(circleId),
+      );
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    addSketchPolygonRadiusDimension: async (polygonId: string) => {
+      await sendCoreCommand(
+        makeAddSketchPolygonRadiusDimensionCommand(polygonId),
+      );
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
     addSketchRectangle: async (
       startX: number,
       startY: number,
@@ -666,12 +687,12 @@ export function useCadCore() {
       await sendCoreCommand(makeDeleteSketchDimensionCommand(dimensionId));
       await sendCoreCommand(makeGetViewportStateCommand());
     },
-    addParameter: async (name: string, expression: string) => {
-      await sendCoreCommand(makeAddParameterCommand(name, expression));
+    addParameter: async (name: string, expression: string, kind: "length" | "angle" = "length") => {
+      await sendCoreCommand(makeAddParameterCommand(name, expression, kind));
       await sendCoreCommand(makeGetViewportStateCommand());
     },
-    updateParameter: async (name: string, expression: string) => {
-      await sendCoreCommand(makeUpdateParameterCommand(name, expression));
+    updateParameter: async (name: string, expression: string, kind: "length" | "angle" = "length") => {
+      await sendCoreCommand(makeUpdateParameterCommand(name, expression, kind));
       await sendCoreCommand(makeGetViewportStateCommand());
     },
     deleteParameter: async (name: string) => {

@@ -226,6 +226,9 @@ interface ViewportPanelProps {
     firstEntityId: string,
     secondEntityId: string,
   ) => Promise<void>;
+  onAddSketchLineLengthDimension: (lineId: string) => Promise<void>;
+  onAddSketchCircleRadiusDimension: (circleId: string) => Promise<void>;
+  onAddSketchPolygonRadiusDimension: (polygonId: string) => Promise<void>;
   onSetSketchLineConstraint: (
     lineId: string,
     constraint: "none" | "horizontal" | "vertical",
@@ -334,7 +337,7 @@ interface ViewportPanelProps {
   onSelectSketchDimension: (dimensionId: string) => Promise<void>;
   onUpdateSketchDimension: (
     dimensionId: string,
-    value: number,
+    value: number | string,
   ) => Promise<void>;
   onSelectSketchProfile: (profileId: string, additive: boolean) => Promise<void>;
   onDeleteSketchSelection: (
@@ -845,6 +848,9 @@ export function ViewportPanel({
   onSetSketchPointLineAnchor,
   onAddSketchAngleDimension,
   onAddSketchDistanceDimension,
+  onAddSketchLineLengthDimension,
+  onAddSketchCircleRadiusDimension,
+  onAddSketchPolygonRadiusDimension,
   onSetSketchLineConstraint,
   onSetSketchPerpendicularConstraint,
   onSetSketchTangentConstraint,
@@ -1167,6 +1173,15 @@ export function ViewportPanel({
   const setSketchPointLineAnchorRef = useRef(onSetSketchPointLineAnchor);
   const addSketchAngleDimensionRef = useRef(onAddSketchAngleDimension);
   const addSketchDistanceDimensionRef = useRef(onAddSketchDistanceDimension);
+  const addSketchLineLengthDimensionRef = useRef(
+    onAddSketchLineLengthDimension,
+  );
+  const addSketchCircleRadiusDimensionRef = useRef(
+    onAddSketchCircleRadiusDimension,
+  );
+  const addSketchPolygonRadiusDimensionRef = useRef(
+    onAddSketchPolygonRadiusDimension,
+  );
   const setSketchPerpendicularConstraintRef = useRef(
     onSetSketchPerpendicularConstraint,
   );
@@ -3541,7 +3556,18 @@ export function ViewportPanel({
   useEffect(() => {
     addSketchAngleDimensionRef.current = onAddSketchAngleDimension;
     addSketchDistanceDimensionRef.current = onAddSketchDistanceDimension;
-  }, [onAddSketchAngleDimension, onAddSketchDistanceDimension]);
+    addSketchLineLengthDimensionRef.current = onAddSketchLineLengthDimension;
+    addSketchCircleRadiusDimensionRef.current =
+      onAddSketchCircleRadiusDimension;
+    addSketchPolygonRadiusDimensionRef.current =
+      onAddSketchPolygonRadiusDimension;
+  }, [
+    onAddSketchAngleDimension,
+    onAddSketchDistanceDimension,
+    onAddSketchLineLengthDimension,
+    onAddSketchCircleRadiusDimension,
+    onAddSketchPolygonRadiusDimension,
+  ]);
 
   useEffect(() => {
     setSketchPerpendicularConstraintRef.current =
@@ -5824,7 +5850,13 @@ export function ViewportPanel({
               if (dimensionExists) {
                 handleDimensionClick(dimensionId);
               } else {
-                void selectSketchEntityRef.current(hit.id, false);
+                // Circle has no dimension yet — create one.
+                pendingDimensionPlacementRef.current = true;
+                void addSketchCircleRadiusDimensionRef
+                  .current(hit.id)
+                  .catch(() => {
+                    pendingDimensionPlacementRef.current = false;
+                  });
               }
               return;
             }
@@ -5865,7 +5897,13 @@ export function ViewportPanel({
             if (dimensionExists) {
               handleDimensionClick(dimensionId);
             } else {
-              void selectSketchEntityRef.current(hit.id, false);
+              // Line has no dimension yet — create one.
+              pendingDimensionPlacementRef.current = true;
+              void addSketchLineLengthDimensionRef
+                .current(hit.id)
+                .catch(() => {
+                  pendingDimensionPlacementRef.current = false;
+                });
             }
             return;
           }
@@ -7205,7 +7243,17 @@ export function ViewportPanel({
     // (backward compatible). Parse with display-unit conversion.
     // If it contains non-numeric characters (e.g. "width * 2"), send it
     // as a formula expression.
-    const parsed = parseDimensionInput(rawValue, config.displayUnits);
+    // Angles are unitless (same in mm and inch) — skip displayToMm
+    // and let dimensionCoreValue handle the degrees→radians conversion.
+    const isAngle = selectedSketchDimension?.kind === "angle";
+    let parsed: number | null;
+    if (isAngle) {
+      const normalized = rawValue.replace(",", ".");
+      const p = parseFloat(normalized);
+      parsed = isNaN(p) ? null : p;
+    } else {
+      parsed = parseDimensionInput(rawValue, config.displayUnits);
+    }
     if (parsed !== null && parsed > 0) {
       await updateSketchDimensionRef.current(
         selectedSketchDimension.dimensionId,
@@ -7236,7 +7284,16 @@ export function ViewportPanel({
     // (parameter names, formulas) are held until Enter — partial
     // keystrokes like "t", "te" would otherwise flood the core
     // with "unknown parameter" errors before the name is complete.
-    const parsed = parseDimensionInput(trimmed, config.displayUnits);
+    // Angles are unitless — skip displayToMm.
+    const isAngle = selectedSketchDimension?.kind === "angle";
+    let parsed: number | null;
+    if (isAngle) {
+      const normalized = trimmed.replace(",", ".");
+      const p = parseFloat(normalized);
+      parsed = isNaN(p) ? null : p;
+    } else {
+      parsed = parseDimensionInput(trimmed, config.displayUnits);
+    }
     if (parsed !== null && parsed > 0) {
       void updateSketchDimensionRef.current(
         selectedSketchDimension.dimensionId,

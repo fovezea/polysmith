@@ -626,6 +626,30 @@ export interface AddSketchDistanceDimensionCommand {
   };
 }
 
+export interface AddSketchLineLengthDimensionCommand {
+  id: string;
+  type: "add_sketch_line_length_dimension";
+  payload: {
+    line_id: string;
+  };
+}
+
+export interface AddSketchCircleRadiusDimensionCommand {
+  id: string;
+  type: "add_sketch_circle_radius_dimension";
+  payload: {
+    circle_id: string;
+  };
+}
+
+export interface AddSketchPolygonRadiusDimensionCommand {
+  id: string;
+  type: "add_sketch_polygon_radius_dimension";
+  payload: {
+    polygon_id: string;
+  };
+}
+
 export interface SetSketchPointLineAnchorCommand {
   id: string;
   type: "set_sketch_point_line_anchor";
@@ -895,6 +919,7 @@ export interface ParameterEntry {
   name: string;
   expression: string;
   resolved_value: number;
+  kind: "length" | "angle";
   has_error: boolean;
   error_message: string;
 }
@@ -905,6 +930,7 @@ export interface AddParameterCommand {
   payload: {
     name: string;
     expression: string;
+    kind?: "length" | "angle";
   };
 }
 
@@ -914,6 +940,7 @@ export interface UpdateParameterCommand {
   payload: {
     name: string;
     expression: string;
+    kind?: "length" | "angle";
   };
 }
 
@@ -1118,6 +1145,9 @@ export type CoreCommand =
   | SetSketchMidpointAnchorCommand
   | SetSketchPointLineAnchorCommand
   | AddSketchAngleDimensionCommand
+  | AddSketchLineLengthDimensionCommand
+  | AddSketchCircleRadiusDimensionCommand
+  | AddSketchPolygonRadiusDimensionCommand
   | AddSketchRectangleCommand
   | AddSketchCircleCommand
   | AddSketchPolygonCommand
