@@ -1205,13 +1205,14 @@ json to_payload(const polysmith::core::DocumentState& document) {
        [&document]() {
          json params = json::array();
          for (const auto& p : document.parameters) {
-           params.push_back({
-               {"name", p.name},
-               {"expression", p.expression},
-               {"resolved_value", p.resolved_value},
-               {"has_error", p.has_error},
-               {"error_message", p.error_message},
-           });
+            params.push_back({
+                {"name", p.name},
+                {"expression", p.expression},
+                {"resolved_value", p.resolved_value},
+                {"kind", p.kind},
+                {"has_error", p.has_error},
+                {"error_message", p.error_message},
+            });
          }
          return params;
        }()},
@@ -2090,6 +2091,11 @@ polysmith::core::DocumentState document_from_payload(const json& payload) {
       param.name = read_string(param_payload, "name");
       param.expression = read_string(param_payload, "expression");
       param.resolved_value = read_number(param_payload, "resolved_value");
+      // kind default is "length" for backward compat with old saves
+      if (param_payload.contains("kind") &&
+          param_payload.at("kind").is_string()) {
+        param.kind = param_payload.at("kind").get<std::string>();
+      }
       param.has_error = read_bool(param_payload, "has_error");
       if (param_payload.contains("error_message") &&
           param_payload.at("error_message").is_string()) {

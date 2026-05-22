@@ -42,6 +42,17 @@ When implementing a task:
 4. Avoid unrelated refactors
 5. Add comments where intent is not obvious
 
+## Topological Naming Problem (TNP)
+
+**This is the project's mantra.** Never introduce a feature that stores a
+naked OCCT topology index and trusts it across recomputes. Every new
+feature kind that references 3D geometry must re-resolve its references
+against live body shapes on every recompute. When resolution fails,
+degrade gracefully with `dependency_broken` + a warning — never crash or
+produce garbage.
+
+Full strategy: `docs/architecture/topological-naming-problem.md`
+
 ## Testing
 
 - Add tests for non-trivial logic

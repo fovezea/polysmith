@@ -437,6 +437,9 @@ function App() {
     setSketchPointLineAnchor,
     addSketchAngleDimension,
     addSketchDistanceDimension,
+    addSketchLineLengthDimension,
+    addSketchCircleRadiusDimension,
+    addSketchPolygonRadiusDimension,
     addSketchRectangle,
     addSketchCircle,
     addSketchPolygon,
@@ -2497,6 +2500,21 @@ function App() {
               onAddSketchDistanceDimension={async (firstEntityId, secondEntityId) => {
                 await runAction(async () => {
                   await addSketchDistanceDimension(firstEntityId, secondEntityId);
+                });
+              }}
+              onAddSketchLineLengthDimension={async (lineId) => {
+                await runAction(async () => {
+                  await addSketchLineLengthDimension(lineId);
+                });
+              }}
+              onAddSketchCircleRadiusDimension={async (circleId) => {
+                await runAction(async () => {
+                  await addSketchCircleRadiusDimension(circleId);
+                });
+              }}
+              onAddSketchPolygonRadiusDimension={async (polygonId) => {
+                await runAction(async () => {
+                  await addSketchPolygonRadiusDimension(polygonId);
                 });
               }}
               onSetSketchLineConstraint={async (lineId, constraint) => {

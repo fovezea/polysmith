@@ -208,6 +208,15 @@ class DocumentManager {
   DocumentState add_sketch_distance_dimension(
       const std::string& first_entity_id,
       const std::string& second_entity_id);
+  // Single-entity dimension creation through the Dimension tool.
+  // Each method finds the active sketch feature, pushes an undo state,
+  // delegates to the sketch_feature core helper, selects the new
+  // dimension, and bumps the geometry revision.
+  DocumentState add_sketch_line_length_dimension(const std::string& line_id);
+  DocumentState add_sketch_circle_radius_dimension(
+      const std::string& circle_id);
+  DocumentState add_sketch_polygon_radius_dimension(
+      const std::string& polygon_id);
   DocumentState update_sketch_dimension(const std::string& dimension_id,
                                         double value,
                                         std::optional<std::string> expression = std::nullopt);
@@ -321,9 +330,11 @@ class DocumentManager {
   // Parameter CRUD — document-scoped named numeric parameters that can
   // be referenced by name in sketch dimension expressions.
   DocumentState add_parameter(const std::string& name,
-                              const std::string& expression);
+                              const std::string& expression,
+                              const std::string& kind = "length");
   DocumentState update_parameter(const std::string& name,
-                                 const std::string& expression);
+                                 const std::string& expression,
+                                 const std::string& kind = "length");
   DocumentState delete_parameter(const std::string& name);
 
   ExportResult export_document_as_step(const std::string& file_path) const;

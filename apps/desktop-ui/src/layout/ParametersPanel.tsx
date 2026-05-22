@@ -1,19 +1,25 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useCadCoreStore } from "@/state";
 import { useCadCore } from "@/hooks";
+import { useAppConfig } from "@/config";
+import { mmToDisplay, displayToMm } from "@/utils/units";
+import { Dropdown } from "@/lib";
+import type { DropdownOption } from "@/lib";
 import type { ParameterEntry } from "@/types";
 
 interface EditingRow {
   index: number;
   name: string;
   expression: string;
+  kind: "length" | "angle";
   isNew: boolean;
 }
 
-export function ParametersPanel() {
+export function ParametersPanel({ onClose }: { onClose?: () => void }) {
   const { t } = useTranslation();
   const document = useCadCoreStore((s) => s.document);
+  const { config } = useAppConfig();
   const { addParameter, updateParameter, deleteParameter } = useCadCore();
 
   const [editing, setEditing] = useState<EditingRow | null>(null);
@@ -22,35 +28,62 @@ export function ParametersPanel() {
 
   const parameters: ParameterEntry[] = document?.parameters ?? [];
 
+  // Detect a plain numeric expression (no letters, no operators) so we
+  // can convert from the display unit to mm. Formulas like "width * 2"
+  // are sent as-is — the user is responsible for unit consistency there.
+  const PLAIN_NUMBER_RE = /^[0-9.,]+$/;
+
   const commitEdit = useCallback(async () => {
     if (!editing) return;
-    const { index, name, expression, isNew } = editing;
+    const { index, name, expression, kind, isNew } = editing;
 
     if (!name.trim()) {
       setEditing(null);
       return;
     }
 
+    const rawExpression = expression.trim();
+
+    // When creating a new length parameter in inch mode, convert a
+    // plain numeric expression from inches to mm so the stored value
+    // is always in the core's native unit.  Once stored, the expression
+    // lives in mm — subsequent edits in any display mode are already in
+    // mm and should not be re-converted.  Angle parameters are unitless.
+    let finalExpression = rawExpression;
+    if (
+      isNew &&
+      kind === "length" &&
+      config.displayUnits === "in" &&
+      PLAIN_NUMBER_RE.test(rawExpression)
+    ) {
+      const normalized = rawExpression.replace(",", ".");
+      const num = parseFloat(normalized);
+      if (!isNaN(num) && num > 0) {
+        finalExpression = String(displayToMm(num, "in"));
+      }
+    }
+
     try {
       if (isNew) {
-        await addParameter(name.trim(), expression.trim());
+        await addParameter(name.trim(), finalExpression, kind);
       } else {
         const prev = parameters[index];
         if (
           prev &&
           prev.name === name.trim() &&
-          prev.expression === expression.trim()
+          prev.expression === rawExpression &&
+          prev.kind === kind
         ) {
           setEditing(null);
           return;
         }
-        await updateParameter(name.trim(), expression.trim());
+        await updateParameter(name.trim(), finalExpression, kind);
       }
     } catch {
       // Error surfaced through document round-trip (has_error field)
     }
     setEditing(null);
-  }, [editing, parameters, addParameter, updateParameter]);
+  }, [editing, parameters, config.displayUnits, addParameter, updateParameter]);
 
   // Auto-focus the name field only when entering edit mode (editing
   // transitions from null to a non-null value). Tracking via a ref
@@ -68,7 +101,7 @@ export function ParametersPanel() {
   }, [editing]);
 
   const startAdd = () => {
-    setEditing({ index: -1, name: "", expression: "", isNew: true });
+    setEditing({ index: -1, name: "", expression: "", kind: "length", isNew: true });
   };
 
   const startEdit = (index: number) => {
@@ -78,8 +111,26 @@ export function ParametersPanel() {
       index,
       name: p.name,
       expression: p.expression,
+      kind: p.kind,
       isNew: false,
     });
+  };
+
+  const KIND_OPTIONS = useMemo<DropdownOption<"length" | "angle">[]>(
+    () => [
+      { value: "length", label: t("parameters.kindLength") },
+      { value: "angle", label: t("parameters.kindAngle") },
+    ],
+    [t],
+  );
+
+  const displayValue = (param: ParameterEntry): string => {
+    if (param.kind === "angle") {
+      return param.resolved_value.toFixed(2) + "\u00b0";
+    }
+    const display = mmToDisplay(param.resolved_value, config.displayUnits);
+    const prec = config.displayUnits === "in" ? 3 : 2;
+    return display.toFixed(prec) + " " + config.displayUnits;
   };
 
   const handleKeyDown = (
@@ -100,10 +151,18 @@ export function ParametersPanel() {
   };
 
   return (
-    <section className="pointer-events-auto cad-floating-panel w-[420px] px-5 py-5">
-      <p className="cad-kicker">{t("parameters.title")}</p>
+    <>
+      {/* Invisible backdrop: clicking anywhere outside the panel closes it */}
+      {onClose ? (
+        <div
+          className="fixed inset-0 z-40"
+          onPointerDown={onClose}
+        />
+      ) : null}
+      <section className="pointer-events-auto cad-floating-panel relative z-50 w-[420px] px-5 py-5">
+        <p className="cad-kicker">{t("parameters.title")}</p>
 
-      <div className="mt-3 max-h-[320px] overflow-y-auto">
+      <div className="mt-3 max-h-[320px] overflow-visible">
         <table className="w-full text-xs">
           <thead>
             <tr className="text-on-surface-dim text-left">
@@ -112,6 +171,9 @@ export function ParametersPanel() {
               </th>
               <th className="pb-1.5 pr-2 font-medium">
                 {t("parameters.expression")}
+              </th>
+              <th className="pb-1.5 pr-2 font-medium">
+                {t("parameters.kind")}
               </th>
               <th className="pb-1.5 pr-2 font-medium">
                 {t("parameters.value")}
@@ -161,6 +223,16 @@ export function ParametersPanel() {
                           onBlur={commitEdit}
                         />
                       </td>
+                      <td className="py-1.5 pr-2">
+                        <Dropdown
+                          value={editing.kind}
+                          options={KIND_OPTIONS}
+                          label={t("parameters.kind")}
+                          onChange={(kind) =>
+                            setEditing({ ...editing, kind })
+                          }
+                        />
+                      </td>
                     </>
                   ) : (
                     <>
@@ -176,6 +248,14 @@ export function ParametersPanel() {
                       >
                         {param.expression}
                       </td>
+                      <td
+                        className="cursor-pointer py-1.5 pr-2 font-mono"
+                        onClick={() => startEdit(index)}
+                      >
+                        {param.kind === "angle"
+                          ? t("parameters.kindAngle")
+                          : t("parameters.kindLength")}
+                      </td>
                     </>
                   )}
                   <td className="py-1.5 pr-2 font-mono">
@@ -187,7 +267,7 @@ export function ParametersPanel() {
                         {param.error_message || "Error"}
                       </span>
                     ) : (
-                      param.resolved_value.toFixed(2)
+                      displayValue(param)
                     )}
                   </td>
                   <td className="py-1.5">
@@ -231,7 +311,16 @@ export function ParametersPanel() {
                     onBlur={commitEdit}
                   />
                 </td>
-                <td className="py-1.5 pr-2" />
+                <td className="py-1.5 pr-2">
+                  <Dropdown
+                    value={editing.kind}
+                    options={KIND_OPTIONS}
+                    label={t("parameters.kind")}
+                    onChange={(kind) =>
+                      setEditing({ ...editing, kind })
+                    }
+                  />
+                </td>
                 <td />
               </tr>
             ) : null}
@@ -246,6 +335,7 @@ export function ParametersPanel() {
       >
         + {t("parameters.addParameter")}
       </button>
-    </section>
+      </section>
+    </>
   );
 }

@@ -247,15 +247,35 @@ function makeSketchArc(
   };
 }
 
+function parseDimensionLabel(
+  label: string,
+): { rawValue: number; unitSuffix: string } {
+  // Match patterns like:
+  //   "12.35 mm"       → mm numeric
+  //   "D 24.70 mm"     → diameter numeric (still mm)
+  //   "R 12.35 mm"     → radius numeric (still mm)
+  //   "45\u00b0"       → degrees (angle)
+  //   "12.35"          → bare number, no suffix
+  const match = label.match(/([\d.]+)\s*(.*)$/);
+  if (!match) return { rawValue: 0, unitSuffix: "" };
+  return {
+    rawValue: parseFloat(match[1]),
+    unitSuffix: match[2] ? match[2].trim() : "",
+  };
+}
+
 function makeSketchDimension(
   dimension: ViewportSketchDimension,
 ): SketchDimensionScene {
+  const { rawValue, unitSuffix } = parseDimensionLabel(dimension.label);
   return {
     dimensionId: dimension.dimension_id,
     planeId: dimension.plane_id,
     kind: dimension.kind,
     entityId: dimension.entity_id,
     label: dimension.label,
+    rawValue,
+    unitSuffix,
     isSelected: dimension.is_selected,
     anchorStart: [
       dimension.anchor_start.x,

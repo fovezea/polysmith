@@ -2417,6 +2417,13 @@ void reify_dimension_expressions(
         // Keep last good value for invalid dimension values
         continue;
       }
+      // Angle dimensions store radians, but expressions are authored
+      // in degrees (both literal numbers and angle-kind parameter
+      // references). Convert here so the dimension's internal value
+      // stays in radians while the expression stays human-readable.
+      if (dim.kind == "angle") {
+        resolved = resolved * (M_PI / 180.0);
+      }
       dim.value = resolved;
     } catch (const std::exception&) {
       // Silently keep last good value — expression resolution
@@ -3617,6 +3624,115 @@ void add_sketch_polygon(FeatureEntry& feature,
         .value = polygon.radius,
     });
   }
+
+  refresh_sketch_derived_state(feature);
+}
+
+void add_sketch_line_length_dimension(FeatureEntry& feature,
+                                      const std::string& line_id) {
+  if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+    throw std::runtime_error("Only sketch features can accept sketch dimensions");
+  }
+
+  auto& parameters = *feature.sketch_parameters;
+  auto& line = require_line(parameters, line_id);
+
+  if (line.is_construction) {
+    throw std::runtime_error(
+        "Cannot create a driving dimension on a construction line");
+  }
+
+  const std::string dimension_id = "dim-line-" + line.id;
+  const auto dimension_it = std::find_if(
+      parameters.dimensions.begin(),
+      parameters.dimensions.end(),
+      [&](const SketchDimension& dim) { return dim.id == dimension_id; });
+  if (dimension_it != parameters.dimensions.end()) {
+    throw std::runtime_error(
+        "Line length dimension already exists: " + dimension_id);
+  }
+
+  parameters.dimensions.push_back(SketchDimension{
+      .id = dimension_id,
+      .kind = "line_length",
+      .entity_id = line.id,
+      .value = measure_line_length(line),
+  });
+
+  refresh_sketch_derived_state(feature);
+}
+
+void add_sketch_circle_radius_dimension(FeatureEntry& feature,
+                                        const std::string& circle_id) {
+  if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+    throw std::runtime_error("Only sketch features can accept sketch dimensions");
+  }
+
+  auto& parameters = *feature.sketch_parameters;
+  auto& circle = require_circle(parameters, circle_id);
+
+  if (circle.is_construction) {
+    throw std::runtime_error(
+        "Cannot create a driving dimension on a construction circle");
+  }
+
+  const std::string dimension_id = "dim-circle-" + circle.id;
+  const auto dimension_it = std::find_if(
+      parameters.dimensions.begin(),
+      parameters.dimensions.end(),
+      [&](const SketchDimension& dim) { return dim.id == dimension_id; });
+  if (dimension_it != parameters.dimensions.end()) {
+    throw std::runtime_error(
+        "Circle radius dimension already exists: " + dimension_id);
+  }
+
+  parameters.dimensions.push_back(SketchDimension{
+      .id = dimension_id,
+      .kind = "circle_radius",
+      .entity_id = circle.id,
+      .value = circle.radius,
+  });
+
+  refresh_sketch_derived_state(feature);
+}
+
+void add_sketch_polygon_radius_dimension(FeatureEntry& feature,
+                                         const std::string& polygon_id) {
+  if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+    throw std::runtime_error("Only sketch features can accept sketch dimensions");
+  }
+
+  auto& parameters = *feature.sketch_parameters;
+  const auto polygon_it = std::find_if(
+      parameters.polygons.begin(),
+      parameters.polygons.end(),
+      [&](const SketchPolygon& polygon) { return polygon.id == polygon_id; });
+
+  if (polygon_it == parameters.polygons.end()) {
+    throw std::runtime_error("Sketch polygon not found: " + polygon_id);
+  }
+
+  if (polygon_it->is_construction) {
+    throw std::runtime_error(
+        "Cannot create a driving dimension on a construction polygon");
+  }
+
+  const std::string dimension_id = "dim-polygon-" + polygon_it->id;
+  const auto dimension_it = std::find_if(
+      parameters.dimensions.begin(),
+      parameters.dimensions.end(),
+      [&](const SketchDimension& dim) { return dim.id == dimension_id; });
+  if (dimension_it != parameters.dimensions.end()) {
+    throw std::runtime_error(
+        "Polygon radius dimension already exists: " + dimension_id);
+  }
+
+  parameters.dimensions.push_back(SketchDimension{
+      .id = dimension_id,
+      .kind = "polygon_radius",
+      .entity_id = polygon_it->id,
+      .value = polygon_it->radius,
+  });
 
   refresh_sketch_derived_state(feature);
 }

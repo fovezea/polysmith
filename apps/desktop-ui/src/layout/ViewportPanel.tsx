@@ -88,6 +88,7 @@ import {
   applyCubeDragOrbit,
   disposeViewCubeGroup,
 } from "@/utils";
+import { parseDimensionInput, mmToDisplay } from "@/utils/units";
 import type { ViewCubeHit } from "@/utils";
 
 type DynamicGridRef = {
@@ -225,6 +226,9 @@ interface ViewportPanelProps {
     firstEntityId: string,
     secondEntityId: string,
   ) => Promise<void>;
+  onAddSketchLineLengthDimension: (lineId: string) => Promise<void>;
+  onAddSketchCircleRadiusDimension: (circleId: string) => Promise<void>;
+  onAddSketchPolygonRadiusDimension: (polygonId: string) => Promise<void>;
   onSetSketchLineConstraint: (
     lineId: string,
     constraint: "none" | "horizontal" | "vertical",
@@ -333,7 +337,7 @@ interface ViewportPanelProps {
   onSelectSketchDimension: (dimensionId: string) => Promise<void>;
   onUpdateSketchDimension: (
     dimensionId: string,
-    value: number,
+    value: number | string,
   ) => Promise<void>;
   onSelectSketchProfile: (profileId: string, additive: boolean) => Promise<void>;
   onDeleteSketchSelection: (
@@ -844,6 +848,9 @@ export function ViewportPanel({
   onSetSketchPointLineAnchor,
   onAddSketchAngleDimension,
   onAddSketchDistanceDimension,
+  onAddSketchLineLengthDimension,
+  onAddSketchCircleRadiusDimension,
+  onAddSketchPolygonRadiusDimension,
   onSetSketchLineConstraint,
   onSetSketchPerpendicularConstraint,
   onSetSketchTangentConstraint,
@@ -987,6 +994,13 @@ export function ViewportPanel({
   const draftDimensionInputRefs = useRef<
     Partial<Record<DraftDimensionField, HTMLInputElement | null>>
   >({});
+  /** Set while the user is actively typing into a draft field. Prevents
+   *  the display-unit reconversion from overwriting partial input like
+   *  "2." (which would round-trip through mm and lose the decimal). */
+  const draftFieldFocusedRef = useRef<DraftDimensionField | null>(null);
+  /** Raw user-typed input preserved during editing so the round-trip
+   *  through mm doesn't drop the decimal from partial values like "2.". */
+  const draftRawInputRef = useRef<Partial<Record<DraftDimensionField, string>>>({});
   const draftStartedOnPointerDownRef = useRef(false);
   const previousReferencePlaneVisibilityRef = useRef<boolean | null>(null);
   const primitiveVisualsRef = useRef(new Map<string, PrimitiveVisual>());
@@ -1159,6 +1173,15 @@ export function ViewportPanel({
   const setSketchPointLineAnchorRef = useRef(onSetSketchPointLineAnchor);
   const addSketchAngleDimensionRef = useRef(onAddSketchAngleDimension);
   const addSketchDistanceDimensionRef = useRef(onAddSketchDistanceDimension);
+  const addSketchLineLengthDimensionRef = useRef(
+    onAddSketchLineLengthDimension,
+  );
+  const addSketchCircleRadiusDimensionRef = useRef(
+    onAddSketchCircleRadiusDimension,
+  );
+  const addSketchPolygonRadiusDimensionRef = useRef(
+    onAddSketchPolygonRadiusDimension,
+  );
   const setSketchPerpendicularConstraintRef = useRef(
     onSetSketchPerpendicularConstraint,
   );
@@ -2023,6 +2046,8 @@ export function ViewportPanel({
     });
     setDraftDimensionSession(null);
     draftDimensionSessionRef.current = null;
+    draftFieldFocusedRef.current = null;
+    draftRawInputRef.current = {};
   }
 
   // Centralized helper: schedule deletion of auto-dimensions after a
@@ -2132,9 +2157,13 @@ export function ViewportPanel({
     dimension: SketchDimensionScene,
     coreValue: number,
   ) {
-    return String(
-      parseFloat(dimensionDisplayValue(dimension, coreValue).toFixed(2)),
-    );
+    const displayVal = dimensionDisplayValue(dimension, coreValue);
+    // Convert mm to user's display unit for non-angle dimensions
+    const adjusted =
+      dimension.kind !== "angle"
+        ? mmToDisplay(displayVal, config.displayUnits)
+        : displayVal;
+    return String(parseFloat(adjusted.toFixed(2)));
   }
 
   function setCanvasCursor(cursor: string) {
@@ -2669,6 +2698,8 @@ export function ViewportPanel({
       kind: "circle_radius",
       entityId: "preview-circle",
       label: `D ${formatDraftDimension(radius * 2)} mm`,
+      rawValue: radius * 2,
+      unitSuffix: "mm",
       isSelected: false,
       anchorStart: toWorldPoint(
         activeSketchPlaneId,
@@ -3525,7 +3556,18 @@ export function ViewportPanel({
   useEffect(() => {
     addSketchAngleDimensionRef.current = onAddSketchAngleDimension;
     addSketchDistanceDimensionRef.current = onAddSketchDistanceDimension;
-  }, [onAddSketchAngleDimension, onAddSketchDistanceDimension]);
+    addSketchLineLengthDimensionRef.current = onAddSketchLineLengthDimension;
+    addSketchCircleRadiusDimensionRef.current =
+      onAddSketchCircleRadiusDimension;
+    addSketchPolygonRadiusDimensionRef.current =
+      onAddSketchPolygonRadiusDimension;
+  }, [
+    onAddSketchAngleDimension,
+    onAddSketchDistanceDimension,
+    onAddSketchLineLengthDimension,
+    onAddSketchCircleRadiusDimension,
+    onAddSketchPolygonRadiusDimension,
+  ]);
 
   useEffect(() => {
     setSketchPerpendicularConstraintRef.current =
@@ -5808,7 +5850,13 @@ export function ViewportPanel({
               if (dimensionExists) {
                 handleDimensionClick(dimensionId);
               } else {
-                void selectSketchEntityRef.current(hit.id, false);
+                // Circle has no dimension yet — create one.
+                pendingDimensionPlacementRef.current = true;
+                void addSketchCircleRadiusDimensionRef
+                  .current(hit.id)
+                  .catch(() => {
+                    pendingDimensionPlacementRef.current = false;
+                  });
               }
               return;
             }
@@ -5849,7 +5897,13 @@ export function ViewportPanel({
             if (dimensionExists) {
               handleDimensionClick(dimensionId);
             } else {
-              void selectSketchEntityRef.current(hit.id, false);
+              // Line has no dimension yet — create one.
+              pendingDimensionPlacementRef.current = true;
+              void addSketchLineLengthDimensionRef
+                .current(hit.id)
+                .catch(() => {
+                  pendingDimensionPlacementRef.current = false;
+                });
             }
             return;
           }
@@ -6826,7 +6880,10 @@ export function ViewportPanel({
     }
 
     for (const sketchDimension of displayedSketchDimensions) {
-      const sketchDimensionObject = buildSketchDimensionObject(sketchDimension);
+      const sketchDimensionObject = buildSketchDimensionObject(
+        sketchDimension,
+        config.displayUnits,
+      );
       sketchDimensionObjectsRef.current.push(sketchDimensionObject.line);
       sketchDimensionObjectsRef.current.push(sketchDimensionObject.label);
       sketchGroup.add(sketchDimensionObject.line);
@@ -6894,7 +6951,7 @@ export function ViewportPanel({
 
       lastGeometryKeyRef.current = sceneData.geometryKey;
     }
-  }, [activeTheme.id, displayedSketchDimensions, sceneData, showReferencePlanes]);
+  }, [activeTheme.id, config.displayUnits, displayedSketchDimensions, sceneData, showReferencePlanes]);
 
   useEffect(() => {
     lineDraftStartRef.current = null;
@@ -7183,13 +7240,24 @@ export function ViewportPanel({
     }
 
     // If the value parses as a plain number, send it as a number
-    // (backward compatible). If it contains non-numeric characters
-    // (e.g. "width * 2"), send it as a formula expression.
-    const numericValue = Number(rawValue);
-    if (Number.isFinite(numericValue) && numericValue > 0) {
+    // (backward compatible). Parse with display-unit conversion.
+    // If it contains non-numeric characters (e.g. "width * 2"), send it
+    // as a formula expression.
+    // Angles are unitless (same in mm and inch) — skip displayToMm
+    // and let dimensionCoreValue handle the degrees→radians conversion.
+    const isAngle = selectedSketchDimension?.kind === "angle";
+    let parsed: number | null;
+    if (isAngle) {
+      const normalized = rawValue.replace(",", ".");
+      const p = parseFloat(normalized);
+      parsed = isNaN(p) ? null : p;
+    } else {
+      parsed = parseDimensionInput(rawValue, config.displayUnits);
+    }
+    if (parsed !== null && parsed > 0) {
       await updateSketchDimensionRef.current(
         selectedSketchDimension.dimensionId,
-        dimensionCoreValue(selectedSketchDimension, numericValue),
+        dimensionCoreValue(selectedSketchDimension, parsed),
       );
     } else {
       // Send as expression string — the core will evaluate it
@@ -7216,11 +7284,20 @@ export function ViewportPanel({
     // (parameter names, formulas) are held until Enter — partial
     // keystrokes like "t", "te" would otherwise flood the core
     // with "unknown parameter" errors before the name is complete.
-    const numericValue = Number(trimmed);
-    if (Number.isFinite(numericValue) && numericValue > 0) {
+    // Angles are unitless — skip displayToMm.
+    const isAngle = selectedSketchDimension?.kind === "angle";
+    let parsed: number | null;
+    if (isAngle) {
+      const normalized = trimmed.replace(",", ".");
+      const p = parseFloat(normalized);
+      parsed = isNaN(p) ? null : p;
+    } else {
+      parsed = parseDimensionInput(trimmed, config.displayUnits);
+    }
+    if (parsed !== null && parsed > 0) {
       void updateSketchDimensionRef.current(
         selectedSketchDimension.dimensionId,
-        dimensionCoreValue(selectedSketchDimension, numericValue),
+        dimensionCoreValue(selectedSketchDimension, parsed),
       );
     }
   }
@@ -7300,6 +7377,14 @@ export function ViewportPanel({
     };
   }
 
+  function draftDisplayValue(rawValue: string): string {
+    if (config.displayUnits === "mm") return rawValue;
+    const num = Number(rawValue);
+    if (!Number.isFinite(num) || num <= 0) return rawValue;
+    const display = mmToDisplay(num, config.displayUnits);
+    return String(parseFloat(display.toFixed(3)));
+  }
+
   function handleDraftDimensionChange(
     field: DraftDimensionField,
     value: string,
@@ -7308,7 +7393,14 @@ export function ViewportPanel({
     if (!session) {
       return;
     }
-    const next = applyDraftDimensionField(session, field, value);
+    // Preserve raw input during editing so partial values like "2."
+    // don't lose the decimal when the round-trip through mm converts
+    // them back to display.
+    draftRawInputRef.current[field] = value;
+    // Convert display-unit input to mm for internal storage
+    const parsed = parseDimensionInput(value, config.displayUnits);
+    const mmValue = parsed !== null ? String(parsed) : value;
+    const next = applyDraftDimensionField(session, field, mmValue);
     draftDimensionSessionRef.current = next;
     setDraftDimensionSession(next);
   }
@@ -7528,18 +7620,28 @@ export function ViewportPanel({
                       draftDimensionInputRefs.current[field] = input;
                     }}
                     className="h-6 w-full bg-transparent text-center text-sm font-semibold text-on-surface tabular-nums outline-none"
-                    value={draftDimensionSession.values[field]}
+                    value={
+                      draftFieldFocusedRef.current === field &&
+                      draftRawInputRef.current[field] !== undefined
+                        ? draftRawInputRef.current[field]
+                        : draftDisplayValue(draftDimensionSession.values[field])
+                    }
                     inputMode="decimal"
                     onChange={(event) => {
                       handleDraftDimensionChange(field, event.target.value);
                     }}
                     onFocus={() => {
+                      draftFieldFocusedRef.current = field;
                       const next = {
                         ...draftDimensionSession,
                         activeField: field,
                       };
                       draftDimensionSessionRef.current = next;
                       setDraftDimensionSession(next);
+                    }}
+                    onBlur={() => {
+                      draftFieldFocusedRef.current = null;
+                      delete draftRawInputRef.current[field];
                     }}
                     onKeyDown={(event) => {
                       handleDraftDimensionKeyDown(event, field);

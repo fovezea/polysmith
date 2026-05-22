@@ -47,6 +47,7 @@
     "save": "Save...",
     "settings": "Settings",
     "startCore": "Start Core",
+    "toggleUnits": "Toggle units ({{units}})",
     "undo": "Undo",
     "workspace": {
       "construct": "Construct",
@@ -386,6 +387,9 @@
     "title": "Parameters",
     "name": "Name",
     "expression": "Expression",
+    "kind": "Type",
+    "kindLength": "Length",
+    "kindAngle": "Angle",
     "value": "Value",
     "addParameter": "Add Parameter",
     "deleteParameter": "Delete Parameter",

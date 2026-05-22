@@ -890,6 +890,42 @@ export function makeAddSketchDistanceDimensionCommand(
   };
 }
 
+export function makeAddSketchLineLengthDimensionCommand(
+  lineId: string,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "add_sketch_line_length_dimension",
+    payload: {
+      line_id: lineId,
+    },
+  };
+}
+
+export function makeAddSketchCircleRadiusDimensionCommand(
+  circleId: string,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "add_sketch_circle_radius_dimension",
+    payload: {
+      circle_id: circleId,
+    },
+  };
+}
+
+export function makeAddSketchPolygonRadiusDimensionCommand(
+  polygonId: string,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "add_sketch_polygon_radius_dimension",
+    payload: {
+      polygon_id: polygonId,
+    },
+  };
+}
+
 export function makeSetSketchPointLineAnchorCommand(
   pointId: string,
   hostLineId: string,
@@ -1073,22 +1109,24 @@ export function makeDeleteSketchDimensionCommand(
 export function makeAddParameterCommand(
   name: string,
   expression: string,
+  kind: "length" | "angle" = "length",
 ): CoreCommand {
   return {
     id: crypto.randomUUID(),
     type: "add_parameter",
-    payload: { name, expression },
+    payload: { name, expression, kind },
   };
 }
 
 export function makeUpdateParameterCommand(
   name: string,
   expression: string,
+  kind: "length" | "angle" = "length",
 ): CoreCommand {
   return {
     id: crypto.randomUUID(),
     type: "update_parameter",
-    payload: { name, expression },
+    payload: { name, expression, kind },
   };
 }
 

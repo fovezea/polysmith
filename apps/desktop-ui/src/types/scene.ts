@@ -232,7 +232,12 @@ export interface SketchDimensionScene {
     | "circle_center_distance"
     | "circle_line_distance";
   entityId: string;
+  /** Raw label from C++ (e.g. "12.35 mm", "D 24.70 mm", "45\u00b0"). */
   label: string;
+  /** Numeric value parsed from the C++ label (core mm or degrees). */
+  rawValue: number;
+  /** Unit suffix from the C++ label (e.g. " mm", "\u00b0", ""). */
+  unitSuffix: string;
   isSelected: boolean;
   anchorStart: [number, number, number];
   anchorEnd: [number, number, number];
