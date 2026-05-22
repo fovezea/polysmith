@@ -66,13 +66,21 @@ This guide covers adding a new drawable sketch shape (line, rectangle, circle, p
 
 ### Path 1 - `commitDraftDimensionSession` (Enter / form-submit)
 
-Called when the user presses **Enter** in a draft dimension input, or submits the dimension form. The `session` parameter carries `lockedFields` reflecting which fields the user typed into.
+Called when the user presses **Enter** in a draft dimension input, or submits the dimension form. The `session` parameter carries `lockedFields` reflecting which fields the user typed into. **After commit, the line tool switches to `"select"` mode** (matching industry-standard CAD where Enter ends the active command).
 
 ### Path 2 - Snap handler in `handlePointerUp` (click-based commits)
 
-Called on the **second click** of a click-click sequence (or third click for 3-point modes). The `draftDimensionSessionRef.current` carries the locked-fields state at that moment.
+Called on the **second click** of a click-click sequence (or third click for 3-point modes). The `draftDimensionSessionRef.current` carries the locked-fields state at that moment. **Click commits continue chaining** by default (the line's end becomes the next start).
 
 **Every new tool MUST handle BOTH paths.** If you only add code to one path, the tool will work in one interaction mode but silently fail in the other.
+
+### Double-click to break chain
+
+Industry-standard CAD uses double-click at the last endpoint to end the chain while staying in the line tool — the next click starts a fresh independent line. Implemented via:
+
+- `chainBreakRequestedRef` in `handlePointerDown`: tracks click timing (300ms) and position (6px). Two clicks at the same location set the flag.
+- Zero-length guard in pointer-up: if committed start and end are the same point (<0.01 units), the draft is cleared without calling `addSketchLine`.
+- When either mechanism fires, `lineDraftStartRef` is cleared and a fresh draft starts on the next click.
 
 ### Path 2 sub-branches
 
