@@ -1,5 +1,6 @@
 #include "app.h"
 
+#include <cmath>
 #include <exception>
 #include <string>
 
@@ -759,12 +760,50 @@ void CadCoreApp::handle_command_line(const std::string& line) {
           params = doc->parameters;
         }
 
-        auto resolver = [&params](const std::string& name) -> double {
+        // Determine whether the target dimension is an angle kind so we
+        // can type-check parameter references and apply the degrees->radians
+        // conversion once, in a single pass.
+        bool dim_is_angle = false;
+        if (doc.has_value() &&
+            doc->active_sketch_feature_id.has_value()) {
+          const auto& features = doc->feature_history;
+          const std::string dim_id =
+              read_string(command.payload, "dimension_id");
+          const auto feat_it = std::find_if(
+              features.begin(), features.end(),
+              [&](const core::FeatureEntry& f) {
+                return f.id == doc->active_sketch_feature_id.value();
+              });
+          if (feat_it != features.end() &&
+              feat_it->sketch_parameters.has_value()) {
+            const auto& dims = feat_it->sketch_parameters->dimensions;
+            const auto dim_it = std::find_if(
+                dims.begin(), dims.end(),
+                [&](const core::SketchDimension& d) {
+                  return d.id == dim_id;
+                });
+            if (dim_it != dims.end() &&
+                (dim_it->kind == "angle" ||
+                 dim_it->kind == "line_angle")) {
+              dim_is_angle = true;
+            }
+          }
+        }
+
+        auto resolver = [&params,
+                          dim_is_angle](const std::string& name) -> double {
           for (const auto& p : params) {
             if (p.name == name) {
               if (p.has_error) {
                 throw std::runtime_error("Parameter '" + name +
                                          "' has an unresolved expression");
+              }
+              // Angle-type parameter referenced in a non-angle (length)
+              // dimension - the numeric value would be misinterpreted.
+              if (p.kind == "angle" && !dim_is_angle) {
+                throw std::runtime_error(
+                    "Angle parameter '" + name +
+                    "' cannot be used in a length dimension");
               }
               return p.resolved_value;
             }
@@ -774,6 +813,15 @@ void CadCoreApp::handle_command_line(const std::string& line) {
 
         try {
           resolved_value = core::evaluate_formula(expr_str, resolver);
+          // Angle dimensions store radians internally, but expressions
+          // authored by the user are in degrees (matching how plain
+          // numeric angle edits are converted by the UI).  If this
+          // dimension is an angle kind, convert degrees → radians so
+          // the stored value matches what reify_dimension_expressions
+          // produces.
+          if (dim_is_angle) {
+            resolved_value = resolved_value * (M_PI / 180.0);
+          }
         } catch (const std::exception& e) {
           throw std::runtime_error(
               std::string("Dimension expression error: ") + e.what());

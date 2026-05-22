@@ -601,6 +601,97 @@ ViewportSketchDimensionPrimitive make_line_dimension_primitive(
   };
 }
 
+ViewportSketchDimensionPrimitive make_line_angle_dimension_primitive(
+    const SketchLine& line,
+    const SketchDimension& dimension,
+    const SketchFeatureParameters& parameters,
+    bool is_selected) {
+  // Render the line-angle dimension as an angle arc from the horizontal
+  // reference (+X axis) to the line's direction, pivoted at the line's
+  // start point. This makes it visually distinct from a line_length
+  // dimension — the UI renders angle kinds as arcs with arrowheads.
+  const double dx = line.end_x - line.start_x;
+  const double dy = line.end_y - line.start_y;
+  const double length = std::sqrt(dx * dx + dy * dy);
+
+  // Reference ray: horizontal right (+X axis).
+  const double ref_ux = 1.0;
+  const double ref_uy = 0.0;
+
+  // Line direction ray (from start to end).
+  double line_ux = 1.0;
+  double line_uy = 0.0;
+  if (length > 0.0) {
+    line_ux = dx / length;
+    line_uy = dy / length;
+  }
+
+  const double pivot_x = line.start_x;
+  const double pivot_y = line.start_y;
+
+  // Bisector direction (sum of unit vectors).
+  double bx = ref_ux + line_ux;
+  double by = ref_uy + line_uy;
+  double blen = std::sqrt(bx * bx + by * by);
+  if (blen < 1e-6) {
+    bx = -ref_uy;
+    by = ref_ux;
+    blen = 1.0;
+  }
+  const double bisector_ux = bx / blen;
+  const double bisector_uy = by / blen;
+
+  constexpr double kAnchorRadius = 4.0;
+  constexpr double kArcRadius = 6.0;
+  constexpr double kLabelRadius = 9.0;
+
+  const WorldPoint anchor_start = to_world_point(
+      parameters,
+      pivot_x + ref_ux * kAnchorRadius,
+      pivot_y + ref_uy * kAnchorRadius);
+  const WorldPoint anchor_end = to_world_point(
+      parameters,
+      pivot_x + line_ux * kAnchorRadius,
+      pivot_y + line_uy * kAnchorRadius);
+  const WorldPoint dimension_start = to_world_point(
+      parameters,
+      pivot_x + ref_ux * kArcRadius,
+      pivot_y + ref_uy * kArcRadius);
+  const WorldPoint dimension_end = to_world_point(
+      parameters,
+      pivot_x + line_ux * kArcRadius,
+      pivot_y + line_uy * kArcRadius);
+  const WorldPoint label = to_world_point(
+      parameters,
+      pivot_x + bisector_ux * kLabelRadius,
+      pivot_y + bisector_uy * kLabelRadius);
+
+  const double degrees = dimension.value * 180.0 / 3.14159265358979323846;
+  return ViewportSketchDimensionPrimitive{
+      .dimension_id = dimension.id,
+      .plane_id = parameters.plane_id,
+      .kind = "line_angle",
+      .entity_id = line.id,
+      .label = format_dimension_value(degrees) + "\xc2\xb0",
+      .is_selected = is_selected,
+      .anchor_start_x = anchor_start.x,
+      .anchor_start_y = anchor_start.y,
+      .anchor_start_z = anchor_start.z,
+      .anchor_end_x = anchor_end.x,
+      .anchor_end_y = anchor_end.y,
+      .anchor_end_z = anchor_end.z,
+      .dimension_start_x = dimension_start.x,
+      .dimension_start_y = dimension_start.y,
+      .dimension_start_z = dimension_start.z,
+      .dimension_end_x = dimension_end.x,
+      .dimension_end_y = dimension_end.y,
+      .dimension_end_z = dimension_end.z,
+      .label_x = label.x,
+      .label_y = label.y,
+      .label_z = label.z,
+  };
+}
+
 ViewportSketchDimensionPrimitive make_circle_dimension_primitive(
     const SketchCircle& circle,
     const SketchDimension& dimension,
@@ -2846,6 +2937,25 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
                 *dimension_it,
                 *feature.sketch_parameters,
                 is_selected_dimension));
+          }
+
+          const auto angle_dimension_it = std::find_if(
+              feature.sketch_parameters->dimensions.begin(),
+              feature.sketch_parameters->dimensions.end(),
+              [&](const SketchDimension& dimension) {
+                return dimension.kind == "line_angle" &&
+                       dimension.entity_id == line.id;
+              });
+          if (angle_dimension_it != feature.sketch_parameters->dimensions.end()) {
+            const bool is_selected_angle_dim =
+                document->selected_sketch_dimension_id.has_value() &&
+                document->selected_sketch_dimension_id.value() ==
+                    angle_dimension_it->id;
+            sketch_dimensions.push_back(make_line_angle_dimension_primitive(
+                line,
+                *angle_dimension_it,
+                *feature.sketch_parameters,
+                is_selected_angle_dim));
           }
 
           if (line.constraint.has_value() &&

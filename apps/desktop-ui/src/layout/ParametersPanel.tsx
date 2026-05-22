@@ -25,6 +25,11 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
   const [editing, setEditing] = useState<EditingRow | null>(null);
   const nameRef = useRef<HTMLInputElement | null>(null);
   const exprRef = useRef<HTMLInputElement | null>(null);
+  // Stable ref so commitEdit always reads the latest kind even when
+  // a Dropdown onChange fires and the expression field blur races
+  // against the React state update (commitEdit's closure would
+  // otherwise see the stale kind).
+  const kindRef = useRef<"length" | "angle">("length");
 
   const parameters: ParameterEntry[] = document?.parameters ?? [];
 
@@ -33,9 +38,10 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
   // are sent as-is — the user is responsible for unit consistency there.
   const PLAIN_NUMBER_RE = /^[0-9.,]+$/;
 
-  const commitEdit = useCallback(async () => {
+  const commitEdit = useCallback(async (overrideKind?: "length" | "angle") => {
     if (!editing) return;
-    const { index, name, expression, kind, isNew } = editing;
+    const { index, name, expression, isNew } = editing;
+    const kind = overrideKind ?? kindRef.current;
 
     if (!name.trim()) {
       setEditing(null);
@@ -43,6 +49,10 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
     }
 
     const rawExpression = expression.trim();
+    // Don't commit without an expression — silently keep the row open
+    if (!rawExpression) {
+      return;
+    }
 
     // When creating a new length parameter in inch mode, convert a
     // plain numeric expression from inches to mm so the stored value
@@ -79,8 +89,8 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
         }
         await updateParameter(name.trim(), finalExpression, kind);
       }
-    } catch {
-      // Error surfaced through document round-trip (has_error field)
+    } catch (err) {
+      console.error("[ParametersPanel] commitEdit failed:", err);
     }
     setEditing(null);
   }, [editing, parameters, config.displayUnits, addParameter, updateParameter]);
@@ -101,12 +111,14 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
   }, [editing]);
 
   const startAdd = () => {
+    kindRef.current = "length";
     setEditing({ index: -1, name: "", expression: "", kind: "length", isNew: true });
   };
 
   const startEdit = (index: number) => {
     const p = parameters[index];
     if (!p) return;
+    kindRef.current = p.kind;
     setEditing({
       index,
       name: p.name,
@@ -135,19 +147,15 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
 
   const handleKeyDown = (
     e: React.KeyboardEvent<HTMLInputElement>,
-    isExpression: boolean,
   ) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      if (isExpression) {
-        commitEdit();
-      } else {
-        exprRef.current?.focus();
-      }
+      commitEdit();
     }
     if (e.key === "Escape") {
       setEditing(null);
     }
+    // Tab advances natively to the next focusable element.
   };
 
   return (
@@ -205,7 +213,7 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
                           onChange={(e) =>
                             setEditing({ ...editing, name: e.target.value })
                           }
-                          onKeyDown={(e) => handleKeyDown(e, false)}
+                          onKeyDown={(e) => handleKeyDown(e)}
                         />
                       </td>
                       <td className="py-1.5 pr-2">
@@ -219,8 +227,7 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
                               expression: e.target.value,
                             })
                           }
-                          onKeyDown={(e) => handleKeyDown(e, true)}
-                          onBlur={commitEdit}
+                          onKeyDown={(e) => handleKeyDown(e)}
                         />
                       </td>
                       <td className="py-1.5 pr-2">
@@ -228,9 +235,11 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
                           value={editing.kind}
                           options={KIND_OPTIONS}
                           label={t("parameters.kind")}
-                          onChange={(kind) =>
-                            setEditing({ ...editing, kind })
-                          }
+                          onChange={(kind) => {
+                            kindRef.current = kind;
+                            setEditing({ ...editing, kind });
+                            void commitEdit(kind);
+                          }}
                         />
                       </td>
                     </>
@@ -295,7 +304,7 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
                     onChange={(e) =>
                       setEditing({ ...editing, name: e.target.value })
                     }
-                    onKeyDown={(e) => handleKeyDown(e, false)}
+                    onKeyDown={(e) => handleKeyDown(e)}
                   />
                 </td>
                 <td className="py-1.5 pr-2">
@@ -307,8 +316,7 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
                     onChange={(e) =>
                       setEditing({ ...editing, expression: e.target.value })
                     }
-                    onKeyDown={(e) => handleKeyDown(e, true)}
-                    onBlur={commitEdit}
+                    onKeyDown={(e) => handleKeyDown(e)}
                   />
                 </td>
                 <td className="py-1.5 pr-2">
@@ -316,9 +324,11 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
                     value={editing.kind}
                     options={KIND_OPTIONS}
                     label={t("parameters.kind")}
-                    onChange={(kind) =>
-                      setEditing({ ...editing, kind })
-                    }
+                    onChange={(kind) => {
+                      kindRef.current = kind;
+                      setEditing({ ...editing, kind });
+                      void commitEdit(kind);
+                    }}
                   />
                 </td>
                 <td />

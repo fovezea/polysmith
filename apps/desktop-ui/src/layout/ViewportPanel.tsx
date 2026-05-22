@@ -114,7 +114,7 @@ type ActiveSketchGridPlaneFrame = NonNullable<
   >["plane_frame"]
 >;
 type DraftDimensionTool = "line" | "rectangle" | "circle" | "polygon";
-type DraftDimensionField = "length" | "width" | "diameter" | "radius";
+type DraftDimensionField = "length" | "width" | "diameter" | "radius" | "angle";
 type DraftDimensionSession = {
   tool: DraftDimensionTool;
   start: [number, number];
@@ -706,6 +706,15 @@ function draftSessionValues(
   const width = current[0] - start[0];
   const length = current[1] - start[1];
   const radius = distanceBetweenPoints(start, current);
+  // Angle from positive X axis in sketch coordinates. Negated so that
+  // positive angles go CCW on screen (sketch Y points down in viewport).
+  // Display shows absolute value; the sign is inferred from cursor
+  // position when the user types.
+  const lineAngleDeg =
+    -Math.atan2(current[1] - start[1], current[0] - start[0]) *
+    (180 / Math.PI);
+  const lineAngle =
+    tool === "line" ? Math.abs(lineAngleDeg).toFixed(2) : "0";
   return {
     length:
       tool === "line"
@@ -714,6 +723,7 @@ function draftSessionValues(
     width: formatDraftDimension(width),
     diameter: formatDraftDimension(radius * 2),
     radius: formatDraftDimension(radius),
+    angle: lineAngle,
   };
 }
 
@@ -727,6 +737,9 @@ function draftSessionFields(tool: DraftDimensionTool): DraftDimensionField[] {
   if (tool === "polygon") {
     return ["radius"];
   }
+  if (tool === "line") {
+    return ["length", "angle"];
+  }
   return ["length"];
 }
 
@@ -738,7 +751,19 @@ function applyDraftDimensionFieldValue(
 ): DraftDimensionSession {
   const numeric = Number(rawValue);
   const nextValues = { ...session.values, [field]: rawValue };
-  if (!Number.isFinite(numeric) || numeric <= 0) {
+  // Angles may be negative or zero — only reject NaN / Infinity.
+  if (field === "angle") {
+    if (!Number.isFinite(numeric)) {
+      return {
+        ...session,
+        values: nextValues,
+        activeField: field,
+        lockedFields: lockField
+          ? {...session.lockedFields, [field]: true}
+          : session.lockedFields,
+      };
+    }
+  } else if (!Number.isFinite(numeric) || numeric <= 0) {
     return {
       ...session,
       values: nextValues,
@@ -754,7 +779,25 @@ function applyDraftDimensionFieldValue(
   const signX = dx < 0 ? -1 : 1;
   const signY = dy < 0 ? -1 : 1;
   let current = session.current;
-  if (session.tool === "rectangle") {
+  if (field === "angle") {
+    // Angle is in degrees; convert to radians. Negate so positive
+    // angles go CCW on screen (matches draftSessionValues convention).
+    // Preserve the current length (or locked length) and rotate the
+    // endpoint around the start.
+    const radians = -numeric * (Math.PI / 180);
+    const currentLength = Math.hypot(dx, dy) || 1;
+    const lockedLength = session.lockedFields.length
+      ? Number(session.values.length)
+      : NaN;
+    const useLength =
+      Number.isFinite(lockedLength) && lockedLength > 0
+        ? lockedLength
+        : currentLength;
+    current = [
+      session.start[0] + Math.cos(radians) * useLength,
+      session.start[1] + Math.sin(radians) * useLength,
+    ];
+  } else if (session.tool === "rectangle") {
     current = [
       field === "width" ? session.start[0] + signX * numeric : current[0],
       field === "length" ? session.start[1] + signY * numeric : current[1],
@@ -803,7 +846,13 @@ function updateDraftSessionCurrent(
       continue;
     }
     const lockedValue = Number(session.values[field]);
-    if (!Number.isFinite(lockedValue) || lockedValue <= 0) {
+    // Angles can be zero or negative — only reject NaN/Infinity.
+    if (field === "angle") {
+      if (!Number.isFinite(lockedValue)) {
+        next.values[field] = session.values[field];
+        continue;
+      }
+    } else if (!Number.isFinite(lockedValue) || lockedValue <= 0) {
       next.values[field] = session.values[field];
       continue;
     }
@@ -957,6 +1006,7 @@ export function ViewportPanel({
   const dimensionEditorRef = useRef<HTMLFormElement | null>(null);
   const dimensionInputRef = useRef<HTMLInputElement | null>(null);
   const dimensionInputSelectionLockedRef = useRef(false);
+  const dimensionExpressionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.OrthographicCamera | null>(null);
@@ -989,6 +1039,12 @@ export function ViewportPanel({
   const viewCubeDraggingRef = useRef(false);
   const viewCubeDragStartRef = useRef<{ x: number; y: number } | null>(null);
   const lineDraftStartRef = useRef<[number, number] | null>(null);
+  // Track click timing and position for double-click detection during
+  // line drafting. Two clicks <300ms apart at the same location break
+  // the chain and start an independent line on the next click.
+  const lastPointerDownTimeRef = useRef(0);
+  const lastPointerDownPosRef = useRef<{ x: number; y: number } | null>(null);
+  const chainBreakRequestedRef = useRef(false);
   const currentGridSpacingRef = useRef(10);
   const draftDimensionSessionRef = useRef<DraftDimensionSession | null>(null);
   const draftDimensionInputRefs = useRef<
@@ -1214,6 +1270,7 @@ export function ViewportPanel({
     shouldDeleteCircle: boolean;
     shouldDeletePolygon: boolean;
     shouldDeleteRectangle: boolean;
+    shouldDeleteLineAngle: boolean;
   } | null>(null);
   // Snapshot of the sketch feature's lines for the post-add effect to
   // index into. Same pattern as the count ref above.
@@ -1345,6 +1402,14 @@ export function ViewportPanel({
       const line = sketch.lines[sketch.lines.length - 1];
       if (line && !line.is_construction) {
         void deleteSketchDimensionRef.current(`dim-line-${line.line_id}`);
+      }
+    }
+    if (pending.shouldDeleteLineAngle && sketch.lines.length > 0) {
+      const line = sketch.lines[sketch.lines.length - 1];
+      if (line && !line.is_construction) {
+        void deleteSketchDimensionRef.current(
+          `dim-line-angle-${line.line_id}`,
+        );
       }
     }
     if (pending.shouldDeleteCircle && sketch.circles.length > 0) {
@@ -2072,6 +2137,8 @@ export function ViewportPanel({
         tool === "rectangle" &&
         !session?.lockedFields.width &&
         !session?.lockedFields.length,
+      shouldDeleteLineAngle:
+        tool === "line" && !session?.lockedFields.angle,
     };
   }
 
@@ -2131,7 +2198,7 @@ export function ViewportPanel({
     dimension: SketchDimensionScene,
     coreValue: number,
   ) {
-    if (dimension.kind === "angle") {
+    if (dimension.kind === "angle" || dimension.kind === "line_angle") {
       return coreValue * (180 / Math.PI);
     }
     if (dimension.kind === "circle_radius") {
@@ -2144,7 +2211,7 @@ export function ViewportPanel({
     dimension: SketchDimensionScene,
     displayValue: number,
   ) {
-    if (dimension.kind === "angle") {
+    if (dimension.kind === "angle" || dimension.kind === "line_angle") {
       return displayValue * (Math.PI / 180);
     }
     if (dimension.kind === "circle_radius") {
@@ -2159,8 +2226,10 @@ export function ViewportPanel({
   ) {
     const displayVal = dimensionDisplayValue(dimension, coreValue);
     // Convert mm to user's display unit for non-angle dimensions
+    const isAngleKind = dimension.kind === "angle" ||
+      dimension.kind === "line_angle";
     const adjusted =
-      dimension.kind !== "angle"
+      !isAngleKind
         ? mmToDisplay(displayVal, config.displayUnits)
         : displayVal;
     return String(parseFloat(adjusted.toFixed(2)));
@@ -4706,6 +4775,28 @@ export function ViewportPanel({
         return;
       }
 
+      // Double-click detection during line drafting: two clicks <300ms
+      // apart at the same location break the chain so the next click
+      // starts a fresh independent line.
+      const now = performance.now();
+      const prevTime = lastPointerDownTimeRef.current;
+      const prevPos = lastPointerDownPosRef.current;
+      lastPointerDownTimeRef.current = now;
+      lastPointerDownPosRef.current = { x: event.clientX, y: event.clientY };
+      if (
+        prevTime > 0 &&
+        now - prevTime < 300 &&
+        prevPos &&
+        Math.abs(event.clientX - prevPos.x) < 6 &&
+        Math.abs(event.clientY - prevPos.y) < 6 &&
+        lineDraftStartRef.current !== null &&
+        isDraftDimensionTool(activeSketchToolRef.current)
+      ) {
+        chainBreakRequestedRef.current = true;
+      } else {
+        chainBreakRequestedRef.current = false;
+      }
+
       // Cube-area drag start
       if (
         isPointerInCubeArea(
@@ -6105,6 +6196,14 @@ export function ViewportPanel({
 	          isDraftDimensionTool(activeSketchToolRef.current)
 	            ? draftDimensionSessionRef.current.current
 	            : sketchPoint.local;
+	        // Prevent committing a degenerate zero-length line (e.g. when
+	        // double-clicking at the same endpoint to break the chain).
+	        if (Math.abs(committedEnd[0] - startX) < 0.01 &&
+	            Math.abs(committedEnd[1] - startY) < 0.01) {
+	          lineDraftStartRef.current = null;
+	          clearDraftDimensionSession();
+	          return;
+	        }
 	        clearPreviewLine();
 	        clearPreviewCircle();
 	        clearPreviewArc();
@@ -6407,36 +6506,41 @@ export function ViewportPanel({
         }
 
         // The line tool keeps drafting from the just-clicked end so
-        // the user can chain segments. Update the start-side host to
-        // the *new* draft start (= the end of the line we just
-        // committed). Keeping the host in sync avoids attributing the
-        // previous line's start anchor to the next line.
-	        lineDraftStartRef.current = committedEnd;
-        draftStartMidpointHostRef.current = endHostLineId;
-        // Reset the perpendicular host: a fresh draft segment starts
-        // from the just-clicked end. Only set it again if that end
-        // happened to itself snap to an existing line's endpoint.
-        draftStartEndpointHostRef.current =
-          sketchPoint.snapEndpointHostLineId ?? null;
-        // Same chaining for the line-body host: the next draft
-        // segment's start is the end we just committed.
-        draftStartLineBodyHostRef.current = endLineBodyHost;
-        Object.values(draftDimensionInputRefs.current).forEach((input) => {
-          input?.blur();
-        });
-        suppressDimensionEditorAfterSketchCommit();
-        // Capture the old session's lockedFields before creating the
-        // new chained session, so we know whether the user typed.
-        const oldSession = draftDimensionSessionRef.current;
-        const nextLineSession = createDraftDimensionSession(
-	          "line",
-	          committedEnd,
-	          committedEnd,
-	        );
-        draftDimensionSessionRef.current = nextLineSession;
-        setDraftDimensionSession(nextLineSession);
-        focusDraftField(nextLineSession.activeField);
-        scheduleDimensionDeletion("line", oldSession);
+        // the user can chain segments. When chainBreakRequested is set
+        // (double-click detected) instead clear the start so the next
+        // click begins a fresh independent line.
+        if (chainBreakRequestedRef.current) {
+          chainBreakRequestedRef.current = false;
+          lineDraftStartRef.current = null;
+          clearDraftDimensionSession();
+        } else {
+          lineDraftStartRef.current = committedEnd;
+          draftStartMidpointHostRef.current = endHostLineId;
+          // Reset the perpendicular host: a fresh draft segment starts
+          // from the just-clicked end. Only set it again if that end
+          // happened to itself snap to an existing line's endpoint.
+          draftStartEndpointHostRef.current =
+            sketchPoint.snapEndpointHostLineId ?? null;
+          // Same chaining for the line-body host: the next draft
+          // segment's start is the end we just committed.
+          draftStartLineBodyHostRef.current = endLineBodyHost;
+          Object.values(draftDimensionInputRefs.current).forEach((input) => {
+            input?.blur();
+          });
+          suppressDimensionEditorAfterSketchCommit();
+          // Capture the old session's lockedFields before creating the
+          // new chained session, so we know whether the user typed.
+          const oldSession = draftDimensionSessionRef.current;
+          const nextLineSession = createDraftDimensionSession(
+            "line",
+            committedEnd,
+            committedEnd,
+          );
+          draftDimensionSessionRef.current = nextLineSession;
+          setDraftDimensionSession(nextLineSession);
+          focusDraftField(nextLineSession.activeField);
+          scheduleDimensionDeletion("line", oldSession);
+        }
         void addSketchLineRef.current(
 	          startX,
 	          startY,
@@ -7245,7 +7349,8 @@ export function ViewportPanel({
     // as a formula expression.
     // Angles are unitless (same in mm and inch) — skip displayToMm
     // and let dimensionCoreValue handle the degrees→radians conversion.
-    const isAngle = selectedSketchDimension?.kind === "angle";
+    const isAngle = selectedSketchDimension?.kind === "angle" ||
+      selectedSketchDimension?.kind === "line_angle";
     let parsed: number | null;
     if (isAngle) {
       const normalized = rawValue.replace(",", ".");
@@ -7285,7 +7390,8 @@ export function ViewportPanel({
     // keystrokes like "t", "te" would otherwise flood the core
     // with "unknown parameter" errors before the name is complete.
     // Angles are unitless — skip displayToMm.
-    const isAngle = selectedSketchDimension?.kind === "angle";
+    const isAngle = selectedSketchDimension?.kind === "angle" ||
+      selectedSketchDimension?.kind === "line_angle";
     let parsed: number | null;
     if (isAngle) {
       const normalized = trimmed.replace(",", ".");
@@ -7300,9 +7406,28 @@ export function ViewportPanel({
         dimensionCoreValue(selectedSketchDimension, parsed),
       );
     }
+    // Send parameter names / expressions with a 300ms debounce so the
+    // core doesn't flood with partial parameter names ("t", "te", ...).
+    else if (/[a-zA-Z_]/.test(trimmed)) {
+      if (dimensionExpressionTimeoutRef.current !== null) {
+        clearTimeout(dimensionExpressionTimeoutRef.current);
+      }
+      dimensionExpressionTimeoutRef.current = setTimeout(() => {
+        dimensionExpressionTimeoutRef.current = null;
+        void updateSketchDimensionRef.current(
+          selectedSketchDimension.dimensionId,
+          trimmed,
+        ).catch(() => {});
+      }, 300);
+    }
   }
 
   function cancelDimensionEdit() {
+    // Cancel any pending debounced expression send
+    if (dimensionExpressionTimeoutRef.current !== null) {
+      clearTimeout(dimensionExpressionTimeoutRef.current);
+      dimensionExpressionTimeoutRef.current = null;
+    }
     const dimension = selectedSketchDimension;
     const originalValue = dimensionEditOriginalValueRef.current;
     cancelDimensionPlacement();
@@ -7344,7 +7469,14 @@ export function ViewportPanel({
     let offset: [number, number] = [0, -DRAFT_DIMENSION_OFFSET_PX];
 
     if (session.tool === "line") {
-      local = [(sx + ex) / 2, (sy + ey) / 2];
+      if (field === "angle") {
+        // Angle badge near the start point, offset upward from the line.
+        local = [sx, sy];
+        offset = [-DRAFT_DIMENSION_OFFSET_PX, -DRAFT_DIMENSION_OFFSET_PX];
+      } else {
+        // Length badge at the line's midpoint.
+        local = [(sx + ex) / 2, (sy + ey) / 2];
+      }
     } else if (session.tool === "rectangle") {
       if (field === "width") {
         local = [(sx + ex) / 2, sy];
@@ -7399,7 +7531,24 @@ export function ViewportPanel({
     draftRawInputRef.current[field] = value;
     // Convert display-unit input to mm for internal storage
     const parsed = parseDimensionInput(value, config.displayUnits);
-    const mmValue = parsed !== null ? String(parsed) : value;
+    let mmValue: string;
+    if (parsed !== null) {
+      mmValue = String(parsed);
+    } else if (/[a-zA-Z_]/.test(value)) {
+      // Try to resolve as a parameter name for live draft preview.
+      // The draft dimension system is client-side, so we look up the
+      // parameter in the current document state.  Angle parameters
+      // store degrees, length parameters store mm — both match what
+      // applyDraftDimensionFieldValue expects for their respective fields.
+      const param = document?.parameters.find((p) => p.name === value.trim());
+      if (param && !param.has_error && Number.isFinite(param.resolved_value) && param.resolved_value > 0) {
+        mmValue = String(param.resolved_value);
+      } else {
+        mmValue = value;
+      }
+    } else {
+      mmValue = value;
+    }
     const next = applyDraftDimensionField(session, field, mmValue);
     draftDimensionSessionRef.current = next;
     setDraftDimensionSession(next);
@@ -7423,6 +7572,7 @@ export function ViewportPanel({
     if (event.key === "Enter") {
       event.preventDefault();
       void commitDraftDimensionSession(session);
+      void setSketchToolRef.current("select");
       return;
     }
     if (event.key === "Escape") {

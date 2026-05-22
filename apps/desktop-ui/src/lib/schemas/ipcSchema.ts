@@ -315,6 +315,7 @@ const documentStateSchema = z.object({
                 "circle_radius",
                 "polygon_radius",
                 "angle",
+                "line_angle",
                 "line_line_distance",
                 "circle_center_distance",
                 "circle_line_distance",
@@ -398,6 +399,7 @@ const documentStateSchema = z.object({
   parameters: z.array(
     z.object({
       name: z.string(),
+      kind: z.string().default("length"),
       expression: z.string(),
       resolved_value: z.number(),
       has_error: z.boolean(),
@@ -688,6 +690,7 @@ const viewportStateSchema = z.object({
         "circle_radius",
         "polygon_radius",
         "angle",
+        "line_angle",
         "line_line_distance",
         "circle_center_distance",
         "circle_line_distance",

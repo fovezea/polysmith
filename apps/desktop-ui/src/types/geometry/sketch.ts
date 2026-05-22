@@ -50,6 +50,7 @@ export interface SketchDimensionEntry {
     | "circle_radius"
     | "polygon_radius"
     | "angle"
+    | "line_angle"
     | "line_line_distance"
     | "circle_center_distance"
     | "circle_line_distance";
