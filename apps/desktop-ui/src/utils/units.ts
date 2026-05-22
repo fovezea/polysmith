@@ -71,7 +71,7 @@ export function reformatDimensionLabel(
   targetUnits: DisplayUnits,
 ): string {
   // Angles are always degrees — no unit conversion
-  if (kind === "angle") {
+  if (kind === "angle" || kind === "line_angle") {
     return label;
   }
   // Already in mm and target is mm — no change

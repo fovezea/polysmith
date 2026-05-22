@@ -114,7 +114,7 @@ type ActiveSketchGridPlaneFrame = NonNullable<
   >["plane_frame"]
 >;
 type DraftDimensionTool = "line" | "rectangle" | "circle" | "polygon";
-type DraftDimensionField = "length" | "width" | "diameter" | "radius";
+type DraftDimensionField = "length" | "width" | "diameter" | "radius" | "angle";
 type DraftDimensionSession = {
   tool: DraftDimensionTool;
   start: [number, number];
@@ -706,6 +706,15 @@ function draftSessionValues(
   const width = current[0] - start[0];
   const length = current[1] - start[1];
   const radius = distanceBetweenPoints(start, current);
+  // Angle from positive X axis in sketch coordinates. Negated so that
+  // positive angles go CCW on screen (sketch Y points down in viewport).
+  // Display shows absolute value; the sign is inferred from cursor
+  // position when the user types.
+  const lineAngleDeg =
+    -Math.atan2(current[1] - start[1], current[0] - start[0]) *
+    (180 / Math.PI);
+  const lineAngle =
+    tool === "line" ? Math.abs(lineAngleDeg).toFixed(2) : "0";
   return {
     length:
       tool === "line"
@@ -714,6 +723,7 @@ function draftSessionValues(
     width: formatDraftDimension(width),
     diameter: formatDraftDimension(radius * 2),
     radius: formatDraftDimension(radius),
+    angle: lineAngle,
   };
 }
 
@@ -727,6 +737,9 @@ function draftSessionFields(tool: DraftDimensionTool): DraftDimensionField[] {
   if (tool === "polygon") {
     return ["radius"];
   }
+  if (tool === "line") {
+    return ["length", "angle"];
+  }
   return ["length"];
 }
 
@@ -738,7 +751,19 @@ function applyDraftDimensionFieldValue(
 ): DraftDimensionSession {
   const numeric = Number(rawValue);
   const nextValues = { ...session.values, [field]: rawValue };
-  if (!Number.isFinite(numeric) || numeric <= 0) {
+  // Angles may be negative or zero — only reject NaN / Infinity.
+  if (field === "angle") {
+    if (!Number.isFinite(numeric)) {
+      return {
+        ...session,
+        values: nextValues,
+        activeField: field,
+        lockedFields: lockField
+          ? {...session.lockedFields, [field]: true}
+          : session.lockedFields,
+      };
+    }
+  } else if (!Number.isFinite(numeric) || numeric <= 0) {
     return {
       ...session,
       values: nextValues,
@@ -754,7 +779,25 @@ function applyDraftDimensionFieldValue(
   const signX = dx < 0 ? -1 : 1;
   const signY = dy < 0 ? -1 : 1;
   let current = session.current;
-  if (session.tool === "rectangle") {
+  if (field === "angle") {
+    // Angle is in degrees; convert to radians. Negate so positive
+    // angles go CCW on screen (matches draftSessionValues convention).
+    // Preserve the current length (or locked length) and rotate the
+    // endpoint around the start.
+    const radians = -numeric * (Math.PI / 180);
+    const currentLength = Math.hypot(dx, dy) || 1;
+    const lockedLength = session.lockedFields.length
+      ? Number(session.values.length)
+      : NaN;
+    const useLength =
+      Number.isFinite(lockedLength) && lockedLength > 0
+        ? lockedLength
+        : currentLength;
+    current = [
+      session.start[0] + Math.cos(radians) * useLength,
+      session.start[1] + Math.sin(radians) * useLength,
+    ];
+  } else if (session.tool === "rectangle") {
     current = [
       field === "width" ? session.start[0] + signX * numeric : current[0],
       field === "length" ? session.start[1] + signY * numeric : current[1],
@@ -803,7 +846,13 @@ function updateDraftSessionCurrent(
       continue;
     }
     const lockedValue = Number(session.values[field]);
-    if (!Number.isFinite(lockedValue) || lockedValue <= 0) {
+    // Angles can be zero or negative — only reject NaN/Infinity.
+    if (field === "angle") {
+      if (!Number.isFinite(lockedValue)) {
+        next.values[field] = session.values[field];
+        continue;
+      }
+    } else if (!Number.isFinite(lockedValue) || lockedValue <= 0) {
       next.values[field] = session.values[field];
       continue;
     }
@@ -1214,6 +1263,7 @@ export function ViewportPanel({
     shouldDeleteCircle: boolean;
     shouldDeletePolygon: boolean;
     shouldDeleteRectangle: boolean;
+    shouldDeleteLineAngle: boolean;
   } | null>(null);
   // Snapshot of the sketch feature's lines for the post-add effect to
   // index into. Same pattern as the count ref above.
@@ -1345,6 +1395,14 @@ export function ViewportPanel({
       const line = sketch.lines[sketch.lines.length - 1];
       if (line && !line.is_construction) {
         void deleteSketchDimensionRef.current(`dim-line-${line.line_id}`);
+      }
+    }
+    if (pending.shouldDeleteLineAngle && sketch.lines.length > 0) {
+      const line = sketch.lines[sketch.lines.length - 1];
+      if (line && !line.is_construction) {
+        void deleteSketchDimensionRef.current(
+          `dim-line-angle-${line.line_id}`,
+        );
       }
     }
     if (pending.shouldDeleteCircle && sketch.circles.length > 0) {
@@ -2072,6 +2130,8 @@ export function ViewportPanel({
         tool === "rectangle" &&
         !session?.lockedFields.width &&
         !session?.lockedFields.length,
+      shouldDeleteLineAngle:
+        tool === "line" && !session?.lockedFields.angle,
     };
   }
 
@@ -2131,7 +2191,7 @@ export function ViewportPanel({
     dimension: SketchDimensionScene,
     coreValue: number,
   ) {
-    if (dimension.kind === "angle") {
+    if (dimension.kind === "angle" || dimension.kind === "line_angle") {
       return coreValue * (180 / Math.PI);
     }
     if (dimension.kind === "circle_radius") {
@@ -2144,7 +2204,7 @@ export function ViewportPanel({
     dimension: SketchDimensionScene,
     displayValue: number,
   ) {
-    if (dimension.kind === "angle") {
+    if (dimension.kind === "angle" || dimension.kind === "line_angle") {
       return displayValue * (Math.PI / 180);
     }
     if (dimension.kind === "circle_radius") {
@@ -2159,8 +2219,10 @@ export function ViewportPanel({
   ) {
     const displayVal = dimensionDisplayValue(dimension, coreValue);
     // Convert mm to user's display unit for non-angle dimensions
+    const isAngleKind = dimension.kind === "angle" ||
+      dimension.kind === "line_angle";
     const adjusted =
-      dimension.kind !== "angle"
+      !isAngleKind
         ? mmToDisplay(displayVal, config.displayUnits)
         : displayVal;
     return String(parseFloat(adjusted.toFixed(2)));
@@ -7245,7 +7307,8 @@ export function ViewportPanel({
     // as a formula expression.
     // Angles are unitless (same in mm and inch) — skip displayToMm
     // and let dimensionCoreValue handle the degrees→radians conversion.
-    const isAngle = selectedSketchDimension?.kind === "angle";
+    const isAngle = selectedSketchDimension?.kind === "angle" ||
+      selectedSketchDimension?.kind === "line_angle";
     let parsed: number | null;
     if (isAngle) {
       const normalized = rawValue.replace(",", ".");
@@ -7285,7 +7348,8 @@ export function ViewportPanel({
     // keystrokes like "t", "te" would otherwise flood the core
     // with "unknown parameter" errors before the name is complete.
     // Angles are unitless — skip displayToMm.
-    const isAngle = selectedSketchDimension?.kind === "angle";
+    const isAngle = selectedSketchDimension?.kind === "angle" ||
+      selectedSketchDimension?.kind === "line_angle";
     let parsed: number | null;
     if (isAngle) {
       const normalized = trimmed.replace(",", ".");
@@ -7344,7 +7408,14 @@ export function ViewportPanel({
     let offset: [number, number] = [0, -DRAFT_DIMENSION_OFFSET_PX];
 
     if (session.tool === "line") {
-      local = [(sx + ex) / 2, (sy + ey) / 2];
+      if (field === "angle") {
+        // Angle badge near the start point, offset upward from the line.
+        local = [sx, sy];
+        offset = [-DRAFT_DIMENSION_OFFSET_PX, -DRAFT_DIMENSION_OFFSET_PX];
+      } else {
+        // Length badge at the line's midpoint.
+        local = [(sx + ex) / 2, (sy + ey) / 2];
+      }
     } else if (session.tool === "rectangle") {
       if (field === "width") {
         local = [(sx + ex) / 2, sy];

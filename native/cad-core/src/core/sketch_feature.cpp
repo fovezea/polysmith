@@ -2305,6 +2305,44 @@ void update_sketch_dimension(FeatureEntry& feature,
     return;
   }
 
+  if (dimension.kind == "line_angle") {
+    // Line-angle dimension: absolute angle from the positive X axis
+    // (horizontal). Rotate the line about its START point, preserving
+    // the current length.
+    auto& line = require_line(parameters, dimension.entity_id);
+
+    const double dx = line.end_x - line.start_x;
+    const double dy = line.end_y - line.start_y;
+    const double current_length = std::sqrt(dx * dx + dy * dy);
+    if (current_length <= kMinimumSketchDimensionValue) {
+      throw std::runtime_error(
+          "Line-angle dimension requires a line with non-zero length");
+    }
+
+    const double new_end_x = line.start_x + std::cos(value) * current_length;
+    const double new_end_y = line.start_y + std::sin(value) * current_length;
+
+    const double previous_end_x = line.end_x;
+    const double previous_end_y = line.end_y;
+
+    line.end_x = new_end_x;
+    line.end_y = new_end_y;
+
+    snap_line_endpoints_to_coincident_geometry(parameters, line);
+    validate_line(line.start_x, line.start_y, line.end_x, line.end_y);
+
+    // Propagate the moved endpoint through any coincident points.
+    if (!points_match(previous_end_x, previous_end_y, line.end_x, line.end_y)) {
+      propagate_connected_point_move(
+          parameters, line.end_point_id, line.end_x, line.end_y);
+    }
+
+    dimension.value = value;
+    sync_all_line_dimensions(parameters);
+    refresh_sketch_derived_state(feature);
+    return;
+  }
+
   if (dimension.kind == "circle_center_distance") {
     auto& driven_circle = require_circle(parameters, dimension.entity_id);
     const auto& reference_circle =
@@ -2421,7 +2459,7 @@ void reify_dimension_expressions(
       // in degrees (both literal numbers and angle-kind parameter
       // references). Convert here so the dimension's internal value
       // stays in radians while the expression stays human-readable.
-      if (dim.kind == "angle") {
+      if (dim.kind == "angle" || dim.kind == "line_angle") {
         resolved = resolved * (M_PI / 180.0);
       }
       dim.value = resolved;
@@ -2645,6 +2683,15 @@ void add_sketch_line(FeatureEntry& feature,
         .entity_id = line.id,
         .value = measure_line_length(line),
     });
+    // Line-angle dimension: the absolute angle from the positive X axis
+    // (horizontal). Stored in radians.
+    feature.sketch_parameters->dimensions.push_back(SketchDimension{
+        .id = "dim-line-angle-" + line.id,
+        .kind = "line_angle",
+        .entity_id = line.id,
+        .value = std::atan2(line.end_y - line.start_y,
+                            line.end_x - line.start_x),
+    });
   }
   refresh_sketch_derived_state(feature);
 }
@@ -2665,26 +2712,45 @@ void set_sketch_line_construction(FeatureEntry& feature,
   line.is_construction = is_construction;
 
   // Keep the dimension list in sync with the new role: solid lines
-  // get a driving length dimension, construction lines lose theirs
-  // since they're reference-only. Existing user-applied dimensions
-  // on a line are preserved across role changes; we only manage the
-  // automatic "dim-line-<id>" entry created at construction time.
+  // get driving length + angle dimensions, construction lines lose
+  // theirs since they're reference-only. Existing user-applied
+  // dimensions on a line are preserved across role changes; we only
+  // manage the automatic entries created at construction time.
   const std::string auto_dim_id = "dim-line-" + line.id;
+  const std::string auto_angle_dim_id = "dim-line-angle-" + line.id;
   const auto auto_dim_it = std::find_if(
       parameters.dimensions.begin(),
       parameters.dimensions.end(),
       [&](const SketchDimension& dim) { return dim.id == auto_dim_id; });
+  const auto auto_angle_dim_it = std::find_if(
+      parameters.dimensions.begin(),
+      parameters.dimensions.end(),
+      [&](const SketchDimension& dim) { return dim.id == auto_angle_dim_id; });
   if (is_construction) {
     if (auto_dim_it != parameters.dimensions.end()) {
       parameters.dimensions.erase(auto_dim_it);
     }
-  } else if (auto_dim_it == parameters.dimensions.end()) {
-    parameters.dimensions.push_back(SketchDimension{
-        .id = auto_dim_id,
-        .kind = "line_length",
-        .entity_id = line.id,
-        .value = measure_line_length(line),
-    });
+    if (auto_angle_dim_it != parameters.dimensions.end()) {
+      parameters.dimensions.erase(auto_angle_dim_it);
+    }
+  } else {
+    if (auto_dim_it == parameters.dimensions.end()) {
+      parameters.dimensions.push_back(SketchDimension{
+          .id = auto_dim_id,
+          .kind = "line_length",
+          .entity_id = line.id,
+          .value = measure_line_length(line),
+      });
+    }
+    if (auto_angle_dim_it == parameters.dimensions.end()) {
+      parameters.dimensions.push_back(SketchDimension{
+          .id = auto_angle_dim_id,
+          .kind = "line_angle",
+          .entity_id = line.id,
+          .value = std::atan2(line.end_y - line.start_y,
+                              line.end_x - line.start_x),
+      });
+    }
   }
 
   refresh_sketch_derived_state(feature);
