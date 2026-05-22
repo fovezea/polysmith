@@ -1254,10 +1254,16 @@ Dimension kinds emitted by state:
 
 - `line_length`
 - `circle_radius`
-- `angle`
+- `angle` (between two lines, radians internally)
+- `line_angle` (from positive X axis, radians internally)
 - `line_line_distance`
 - `circle_center_distance`
 - `circle_line_distance`
+
+Angle dimensions (`angle`, `line_angle`) store radians in `value` but
+expressions are authored in degrees. The core converts degrees→radians
+during expression evaluation. `line_angle` preserves the sign quadrant
+from the current geometry when re-evaluated.
 
 ### Parametric Parameters
 
@@ -1276,6 +1282,7 @@ Payload:
 {
   name: string;       // e.g. "width" — must be unique, non-empty
   expression: string; // e.g. "50", "width * 2", "(a + b) / 3"
+  kind: "length" | "angle"; // default "length". "angle" stores degrees.
 }
 ```
 
@@ -1290,6 +1297,7 @@ Payload:
 {
   name: string;
   expression: string;
+  kind: "length" | "angle"; // default "length"
 }
 ```
 
@@ -1313,11 +1321,16 @@ Parameters appear in `document_state.parameters[]`:
 {
   name: string;
   expression: string;
-  resolved_value: number;
+  resolved_value: number;    // mm for length, degrees for angle
+  kind: "length" | "angle"; // "length" = mm, "angle" = degrees
   has_error: boolean;
   error_message: string;
 }
 ```
+
+**Kind checking:** Angle-type parameters cannot be used in length
+dimensions — the core resolver checks `p.kind` against the target dimension
+kind and throws a descriptive error when mismatched.
 
 ### Mirror Preview Lifecycle
 
@@ -1975,6 +1988,9 @@ holes" into PolySmith commands.
     expressions.
 16. After changing a parameter, dimension expressions that reference it
     re-evaluate automatically — no need to manually update dimensions.
+17. Set `kind` on parameters: `"length"` for mm values, `"angle"` for
+    degrees. Angle parameters can only be used in angle-type dimensions
+    (`"angle"`, `"line_angle"`).
 
 ## Common ID Lookup Patterns
 
@@ -2001,8 +2017,10 @@ From `document_state`:
 1. Read `parameters[]`.
 2. Search by `name`.
 3. Read `resolved_value` for the current evaluated value.
-4. Check `has_error` — if true, `error_message` explains why evaluation failed.
-5. Parameters reference each other by `name` in their `expression` strings.
+4. Read `kind` (`"length"` for mm, `"angle"` for degrees) to ensure correct
+   usage context (angle params only in angle dimensions).
+5. Check `has_error` — if true, `error_message` explains why evaluation failed.
+6. Parameters reference each other by `name` in their `expression` strings.
 
 ### Find Profiles After Drawing
 

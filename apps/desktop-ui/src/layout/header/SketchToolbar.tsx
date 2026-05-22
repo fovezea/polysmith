@@ -1,9 +1,12 @@
+import { useState, useRef, useCallback } from "react";
 import { ConstraintType, SketchTool, ArmedSketchConstraint } from "@/types";
 import { formatHotkey, useAppConfig } from "@/config";
 import type { AppHotkeys, CrosshairMode } from "@/config";
 import { Dropdown, SplitToolButton } from "@/lib";
 import { ConstraintIcon, SketchToolIcon, RectangleIcon, ArcIcon, CircleIcon, PolygonIcon } from "./ToolBarIcons";
 import { useTranslation } from "react-i18next";
+import { HelpPopover } from "@/layout/HelpPopover";
+import { helpRegistry } from "@/lib/help-index";
 
 interface SketchToolbarProps {
   disabled?: boolean;
@@ -95,6 +98,29 @@ export function SketchToolbar({
   const { config, updateConfig } = useAppConfig();
   const { t } = useTranslation();
   const canCreateSketch = Boolean(selectedReferenceId || selectedFaceId);
+  const [helpToolId, setHelpToolId] = useState<string | null>(null);
+  const [helpAnchor, setHelpAnchor] = useState<HTMLElement | null>(null);
+  const helpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const openHelp = useCallback((toolId: string, el: HTMLElement) => {
+    if (helpTimerRef.current) clearTimeout(helpTimerRef.current);
+    helpTimerRef.current = setTimeout(() => {
+      helpTimerRef.current = null;
+      setHelpToolId(toolId);
+      setHelpAnchor(el);
+    }, 200);
+  }, []);
+
+  const closeHelp = useCallback(() => {
+    if (helpTimerRef.current) {
+      clearTimeout(helpTimerRef.current);
+      helpTimerRef.current = null;
+    }
+    setHelpToolId(null);
+    setHelpAnchor(null);
+  }, []);
+
+  const helpEntry = helpToolId ? helpRegistry[helpToolId] ?? null : null;
   const toolLabel = (tool: (typeof sketchTools)[number]) => {
     const label = t(tool.labelKey);
     if (!tool.hotkey) {
@@ -129,8 +155,14 @@ export function SketchToolbar({
       {sketchTools
         .filter((t) => t.id !== "rectangle" && t.id !== "arc" && t.id !== "circle" && t.id !== "polygon")
         .map((tool) => (
-        <button
+        <span
           key={tool.id}
+          onMouseEnter={(e) => openHelp(tool.id, e.currentTarget)}
+          onMouseLeave={closeHelp}
+          onFocus={(e) => openHelp(tool.id, e.currentTarget)}
+          onBlur={closeHelp}
+        >
+        <button
           className={
             activeSketchPlaneId && activeSketchTool === tool.id
               ? "cad-icon-button cad-icon-tool cad-icon-tool-active h-9 w-9 p-0"
@@ -162,7 +194,14 @@ export function SketchToolbar({
         >
           <SketchToolIcon tool={tool.id} />
         </button>
+        </span>
       ))}
+      <span
+        onMouseEnter={(e) => openHelp("rectangle", e.currentTarget)}
+        onMouseLeave={closeHelp}
+        onFocus={(e) => openHelp("rectangle", e.currentTarget)}
+        onBlur={closeHelp}
+      >
       <SplitToolButton
         options={[
           { value: "corner_corner" as const, label: t("toolbar.rectangleCornerCorner") },
@@ -184,6 +223,13 @@ export function SketchToolbar({
       >
         <RectangleIcon />
       </SplitToolButton>
+      </span>
+      <span
+        onMouseEnter={(e) => openHelp("arc", e.currentTarget)}
+        onMouseLeave={closeHelp}
+        onFocus={(e) => openHelp("arc", e.currentTarget)}
+        onBlur={closeHelp}
+      >
       <SplitToolButton
         options={[
           { value: "three_point" as const, label: t("toolbar.arcThreePoint") },
@@ -204,6 +250,13 @@ export function SketchToolbar({
       >
         <ArcIcon />
       </SplitToolButton>
+      </span>
+      <span
+        onMouseEnter={(e) => openHelp("circle", e.currentTarget)}
+        onMouseLeave={closeHelp}
+        onFocus={(e) => openHelp("circle", e.currentTarget)}
+        onBlur={closeHelp}
+      >
       <SplitToolButton
         options={[
           { value: "center_radius" as const, label: t("toolbar.circleCenterRadius") },
@@ -227,6 +280,13 @@ export function SketchToolbar({
       >
         <CircleIcon />
       </SplitToolButton>
+      </span>
+      <span
+        onMouseEnter={(e) => openHelp("polygon", e.currentTarget)}
+        onMouseLeave={closeHelp}
+        onFocus={(e) => openHelp("polygon", e.currentTarget)}
+        onBlur={closeHelp}
+      >
       <SplitToolButton
         options={[
           { value: "circumscribed" as const, label: t("toolbar.polygonCircumscribed") },
@@ -248,6 +308,7 @@ export function SketchToolbar({
       >
         <PolygonIcon />
       </SplitToolButton>
+      </span>
       <div className="h-8 w-px bg-white/10" />
       <button
         className={
@@ -420,6 +481,11 @@ export function SketchToolbar({
                 })}
         </p>
       ) : null}
+      <HelpPopover
+        entry={helpEntry}
+        anchor={helpAnchor}
+        onClose={closeHelp}
+      />
     </>
   );
 }

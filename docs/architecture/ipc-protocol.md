@@ -335,17 +335,18 @@ Sketch commands follow the same ownership boundary:
 Document-scoped named numeric parameters that can be referenced by name in
 sketch dimension expressions:
 
-- `add_parameter { name, expression }` — creates a new parameter.
+- `add_parameter { name, expression, kind? }` — creates a new parameter.
   `name` must be unique (non-empty `[a-zA-Z_][a-zA-Z0-9_]*`). `expression`
   is a simple arithmetic formula (`50`, `width * 2`, `height / 3 + 10`)
-  evaluated by a recursive-descent parser in the core. The resolved value
-  is stored as `resolved_value` and re-evaluated on every parameter change.
-  Rejects duplicate names.
+  evaluated by a recursive-descent parser in the core. `kind` is
+  `"length"` (mm) or `"angle"` (degrees), defaulting to `"length"`. The
+  resolved value is stored as `resolved_value` and re-evaluated on every
+  parameter change. Rejects duplicate names.
 
-- `update_parameter { name, expression }` — replaces the expression of an
-  existing parameter. Re-evaluates all parameters (those referencing the
-  changed one cascade) and re-resolves dimension expressions across all
-  sketch features.
+- `update_parameter { name, expression, kind? }` — replaces the
+  expression and/or kind of an existing parameter. Re-evaluates all
+  parameters (those referencing the changed one cascade) and re-resolves
+  dimension expressions across all sketch features.
 
 - `delete_parameter { name }` — removes a parameter. Parameters that
   referenced the deleted one will have `has_error = true` and show an
@@ -363,6 +364,11 @@ parameters by name. When a string is supplied, the core evaluates it
 against the current parameter table, resolves the value, and stores the
 expression on the dimension. On any parameter change, dimension
 expressions are re-evaluated to keep sketch geometry in sync.
+
+Kind checking: the expression resolver validates that angle-type parameters
+(`kind = "angle"`) are only used in angle-type dimensions (`"angle"` or
+`"line_angle"`). Using an angle parameter in a length dimension produces
+a descriptive error.
 
 ## Philosophy
 

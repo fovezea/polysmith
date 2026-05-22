@@ -57,6 +57,16 @@ Add a document-scoped parameter table (name → formula expression → resolved 
 
 **TODO: Right-click as "Enter" (configurable).** In industry-standard CAD, right-click often ends the active tool and returns to select mode. PolySmith should allow configuring right-click behavior (end tool / context menu / both) per tool context. Currently right-click only opens the context menu.
 
+### Help System Foundation
+
+**Help documentation per tool.** Created `help/line.md`, `help/circle.md`, `help/rectangle.md`, `help/parameters.md` — comprehensive user-facing documentation covering activation, interaction modes, dimension fields, keyboard shortcuts, parameter expressions, constraints, and internal implementation notes.
+
+**Help index and popover component.** `apps/desktop-ui/src/lib/help-index.ts` exports a `helpRegistry` mapping tool IDs to structured `HelpEntry` objects (title, summary, sections, shortcuts, activation). `apps/desktop-ui/src/layout/HelpPopover.tsx` renders a floating popover with collapsible sections, a keyboard shortcut table with `<kbd>` styling, and minimal markdown-like rendering (**bold**, `code`). The popover auto-positions relative to an anchor element and flips if near viewport edges. Closes on outside click. Wired through a `?` hotkey.
+
+**TODO: Wire HelpPopover into toolbar and status bar.** The component is built but not yet wired. Each toolbar button should show a small tooltip on hover (using `entry.summary` + `entry.activation`) and open the full popover on long-press or `?` key. The status bar should show the current tool name and be clickable to open help. Future workspace contexts (Slicer, CAM, Drawing) will need their own help entries registered in the helpRegistry.
+
+**TODO: Workspace-aware help.** The top-left workspace dropdown ("Slicer" → future: "CAM", "2D Drawing", etc.) switches toolbars and the main viewport. Help entries should be contextualized per workspace so the help system shows relevant content for the active workspace.
+
 **Dimension editor — `inputMode`.** Changed the persistent dimension editor's `inputMode` from `"decimal"` to `"text"` so `*` and letter characters can be typed for formula expressions.
 
 **Dimension interaction model.** Changed from single-click-immediately-edits to a proper CAD convention:
