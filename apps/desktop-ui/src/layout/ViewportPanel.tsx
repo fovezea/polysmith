@@ -1006,6 +1006,7 @@ export function ViewportPanel({
   const dimensionEditorRef = useRef<HTMLFormElement | null>(null);
   const dimensionInputRef = useRef<HTMLInputElement | null>(null);
   const dimensionInputSelectionLockedRef = useRef(false);
+  const dimensionExpressionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.OrthographicCamera | null>(null);
@@ -7364,9 +7365,28 @@ export function ViewportPanel({
         dimensionCoreValue(selectedSketchDimension, parsed),
       );
     }
+    // Send parameter names / expressions with a 300ms debounce so the
+    // core doesn't flood with partial parameter names ("t", "te", ...).
+    else if (/[a-zA-Z_]/.test(trimmed)) {
+      if (dimensionExpressionTimeoutRef.current !== null) {
+        clearTimeout(dimensionExpressionTimeoutRef.current);
+      }
+      dimensionExpressionTimeoutRef.current = setTimeout(() => {
+        dimensionExpressionTimeoutRef.current = null;
+        void updateSketchDimensionRef.current(
+          selectedSketchDimension.dimensionId,
+          trimmed,
+        ).catch(() => {});
+      }, 300);
+    }
   }
 
   function cancelDimensionEdit() {
+    // Cancel any pending debounced expression send
+    if (dimensionExpressionTimeoutRef.current !== null) {
+      clearTimeout(dimensionExpressionTimeoutRef.current);
+      dimensionExpressionTimeoutRef.current = null;
+    }
     const dimension = selectedSketchDimension;
     const originalValue = dimensionEditOriginalValueRef.current;
     cancelDimensionPlacement();
@@ -7470,7 +7490,24 @@ export function ViewportPanel({
     draftRawInputRef.current[field] = value;
     // Convert display-unit input to mm for internal storage
     const parsed = parseDimensionInput(value, config.displayUnits);
-    const mmValue = parsed !== null ? String(parsed) : value;
+    let mmValue: string;
+    if (parsed !== null) {
+      mmValue = String(parsed);
+    } else if (/[a-zA-Z_]/.test(value)) {
+      // Try to resolve as a parameter name for live draft preview.
+      // The draft dimension system is client-side, so we look up the
+      // parameter in the current document state.  Angle parameters
+      // store degrees, length parameters store mm — both match what
+      // applyDraftDimensionFieldValue expects for their respective fields.
+      const param = document?.parameters.find((p) => p.name === value.trim());
+      if (param && !param.has_error && Number.isFinite(param.resolved_value) && param.resolved_value > 0) {
+        mmValue = String(param.resolved_value);
+      } else {
+        mmValue = value;
+      }
+    } else {
+      mmValue = value;
+    }
     const next = applyDraftDimensionField(session, field, mmValue);
     draftDimensionSessionRef.current = next;
     setDraftDimensionSession(next);
@@ -7494,6 +7531,7 @@ export function ViewportPanel({
     if (event.key === "Enter") {
       event.preventDefault();
       void commitDraftDimensionSession(session);
+      void setSketchToolRef.current("select");
       return;
     }
     if (event.key === "Escape") {

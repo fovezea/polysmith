@@ -399,6 +399,7 @@ const documentStateSchema = z.object({
   parameters: z.array(
     z.object({
       name: z.string(),
+      kind: z.string().default("length"),
       expression: z.string(),
       resolved_value: z.number(),
       has_error: z.boolean(),

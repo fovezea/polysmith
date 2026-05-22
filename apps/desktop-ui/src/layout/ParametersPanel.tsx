@@ -49,6 +49,10 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
     }
 
     const rawExpression = expression.trim();
+    // Don't commit without an expression — silently keep the row open
+    if (!rawExpression) {
+      return;
+    }
 
     // When creating a new length parameter in inch mode, convert a
     // plain numeric expression from inches to mm so the stored value
@@ -234,7 +238,6 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
                           onChange={(kind) => {
                             kindRef.current = kind;
                             setEditing({ ...editing, kind });
-                            // Pass kind explicitly — no async closure race.
                             void commitEdit(kind);
                           }}
                         />
@@ -324,6 +327,7 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
                     onChange={(kind) => {
                       kindRef.current = kind;
                       setEditing({ ...editing, kind });
+                      void commitEdit(kind);
                     }}
                   />
                 </td>

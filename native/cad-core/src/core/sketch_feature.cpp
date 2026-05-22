@@ -2318,9 +2318,14 @@ void update_sketch_dimension(FeatureEntry& feature,
       throw std::runtime_error(
           "Line-angle dimension requires a line with non-zero length");
     }
+    // Preserve the sign quadrant: the user enters a magnitude but the
+    // line keeps its current orientation.  Mirrors the angle-between-lines
+    // variant just above.
+    const double current_angle = std::atan2(dy, dx);
+    const double target = (current_angle < 0.0) ? -value : value;
 
-    const double new_end_x = line.start_x + std::cos(value) * current_length;
-    const double new_end_y = line.start_y + std::sin(value) * current_length;
+    const double new_end_x = line.start_x + std::cos(target) * current_length;
+    const double new_end_y = line.start_y + std::sin(target) * current_length;
 
     const double previous_end_x = line.end_x;
     const double previous_end_y = line.end_y;
@@ -2435,13 +2440,23 @@ void reify_dimension_expressions(
       continue;
     }
 
+    const bool dim_is_angle =
+        (dim.kind == "angle" || dim.kind == "line_angle");
+
     // Build a resolver against the current parameter table
-    auto resolver = [&parameters](const std::string& name) -> double {
+    auto resolver = [&parameters,
+                      dim_is_angle](const std::string& name) -> double {
       for (const auto& p : parameters) {
         if (p.name == name) {
           if (p.has_error) {
             throw std::runtime_error("Parameter '" + name +
                                      "' has an unresolved expression");
+          }
+          // Angle-type parameter referenced in a non-angle (length)
+          // dimension — the numeric value would be misinterpreted.
+          if (p.kind == "angle" && !dim_is_angle) {
+            throw std::runtime_error("Angle parameter '" + name +
+                "' cannot be used in a length dimension");
           }
           return p.resolved_value;
         }
@@ -2461,6 +2476,11 @@ void reify_dimension_expressions(
       // stays in radians while the expression stays human-readable.
       if (dim.kind == "angle" || dim.kind == "line_angle") {
         resolved = resolved * (M_PI / 180.0);
+      }
+      // Preserve the orientation quadrant for line_angle dimensions so
+      // a parameter re-eval doesn't flip the line's direction.
+      if (dim.kind == "line_angle" && dim.value < 0.0) {
+        resolved = -resolved;
       }
       dim.value = resolved;
     } catch (const std::exception&) {
