@@ -1039,6 +1039,12 @@ export function ViewportPanel({
   const viewCubeDraggingRef = useRef(false);
   const viewCubeDragStartRef = useRef<{ x: number; y: number } | null>(null);
   const lineDraftStartRef = useRef<[number, number] | null>(null);
+  // Track click timing and position for double-click detection during
+  // line drafting. Two clicks <300ms apart at the same location break
+  // the chain and start an independent line on the next click.
+  const lastPointerDownTimeRef = useRef(0);
+  const lastPointerDownPosRef = useRef<{ x: number; y: number } | null>(null);
+  const chainBreakRequestedRef = useRef(false);
   const currentGridSpacingRef = useRef(10);
   const draftDimensionSessionRef = useRef<DraftDimensionSession | null>(null);
   const draftDimensionInputRefs = useRef<
@@ -4769,6 +4775,28 @@ export function ViewportPanel({
         return;
       }
 
+      // Double-click detection during line drafting: two clicks <300ms
+      // apart at the same location break the chain so the next click
+      // starts a fresh independent line.
+      const now = performance.now();
+      const prevTime = lastPointerDownTimeRef.current;
+      const prevPos = lastPointerDownPosRef.current;
+      lastPointerDownTimeRef.current = now;
+      lastPointerDownPosRef.current = { x: event.clientX, y: event.clientY };
+      if (
+        prevTime > 0 &&
+        now - prevTime < 300 &&
+        prevPos &&
+        Math.abs(event.clientX - prevPos.x) < 6 &&
+        Math.abs(event.clientY - prevPos.y) < 6 &&
+        lineDraftStartRef.current !== null &&
+        isDraftDimensionTool(activeSketchToolRef.current)
+      ) {
+        chainBreakRequestedRef.current = true;
+      } else {
+        chainBreakRequestedRef.current = false;
+      }
+
       // Cube-area drag start
       if (
         isPointerInCubeArea(
@@ -6168,6 +6196,14 @@ export function ViewportPanel({
 	          isDraftDimensionTool(activeSketchToolRef.current)
 	            ? draftDimensionSessionRef.current.current
 	            : sketchPoint.local;
+	        // Prevent committing a degenerate zero-length line (e.g. when
+	        // double-clicking at the same endpoint to break the chain).
+	        if (Math.abs(committedEnd[0] - startX) < 0.01 &&
+	            Math.abs(committedEnd[1] - startY) < 0.01) {
+	          lineDraftStartRef.current = null;
+	          clearDraftDimensionSession();
+	          return;
+	        }
 	        clearPreviewLine();
 	        clearPreviewCircle();
 	        clearPreviewArc();
@@ -6470,36 +6506,41 @@ export function ViewportPanel({
         }
 
         // The line tool keeps drafting from the just-clicked end so
-        // the user can chain segments. Update the start-side host to
-        // the *new* draft start (= the end of the line we just
-        // committed). Keeping the host in sync avoids attributing the
-        // previous line's start anchor to the next line.
-	        lineDraftStartRef.current = committedEnd;
-        draftStartMidpointHostRef.current = endHostLineId;
-        // Reset the perpendicular host: a fresh draft segment starts
-        // from the just-clicked end. Only set it again if that end
-        // happened to itself snap to an existing line's endpoint.
-        draftStartEndpointHostRef.current =
-          sketchPoint.snapEndpointHostLineId ?? null;
-        // Same chaining for the line-body host: the next draft
-        // segment's start is the end we just committed.
-        draftStartLineBodyHostRef.current = endLineBodyHost;
-        Object.values(draftDimensionInputRefs.current).forEach((input) => {
-          input?.blur();
-        });
-        suppressDimensionEditorAfterSketchCommit();
-        // Capture the old session's lockedFields before creating the
-        // new chained session, so we know whether the user typed.
-        const oldSession = draftDimensionSessionRef.current;
-        const nextLineSession = createDraftDimensionSession(
-	          "line",
-	          committedEnd,
-	          committedEnd,
-	        );
-        draftDimensionSessionRef.current = nextLineSession;
-        setDraftDimensionSession(nextLineSession);
-        focusDraftField(nextLineSession.activeField);
-        scheduleDimensionDeletion("line", oldSession);
+        // the user can chain segments. When chainBreakRequested is set
+        // (double-click detected) instead clear the start so the next
+        // click begins a fresh independent line.
+        if (chainBreakRequestedRef.current) {
+          chainBreakRequestedRef.current = false;
+          lineDraftStartRef.current = null;
+          clearDraftDimensionSession();
+        } else {
+          lineDraftStartRef.current = committedEnd;
+          draftStartMidpointHostRef.current = endHostLineId;
+          // Reset the perpendicular host: a fresh draft segment starts
+          // from the just-clicked end. Only set it again if that end
+          // happened to itself snap to an existing line's endpoint.
+          draftStartEndpointHostRef.current =
+            sketchPoint.snapEndpointHostLineId ?? null;
+          // Same chaining for the line-body host: the next draft
+          // segment's start is the end we just committed.
+          draftStartLineBodyHostRef.current = endLineBodyHost;
+          Object.values(draftDimensionInputRefs.current).forEach((input) => {
+            input?.blur();
+          });
+          suppressDimensionEditorAfterSketchCommit();
+          // Capture the old session's lockedFields before creating the
+          // new chained session, so we know whether the user typed.
+          const oldSession = draftDimensionSessionRef.current;
+          const nextLineSession = createDraftDimensionSession(
+            "line",
+            committedEnd,
+            committedEnd,
+          );
+          draftDimensionSessionRef.current = nextLineSession;
+          setDraftDimensionSession(nextLineSession);
+          focusDraftField(nextLineSession.activeField);
+          scheduleDimensionDeletion("line", oldSession);
+        }
         void addSketchLineRef.current(
 	          startX,
 	          startY,
