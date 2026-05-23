@@ -902,14 +902,30 @@ export function makeAddSketchLineLengthDimensionCommand(
   };
 }
 
+export function makeAddSketchPointDistanceDimensionCommand(
+  pointAId: string,
+  pointBId: string,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "add_sketch_point_distance_dimension",
+    payload: {
+      point_a_id: pointAId,
+      point_b_id: pointBId,
+    },
+  };
+}
+
 export function makeAddSketchCircleRadiusDimensionCommand(
   circleId: string,
+  displayAs?: string,
 ): CoreCommand {
   return {
     id: crypto.randomUUID(),
     type: "add_sketch_circle_radius_dimension",
     payload: {
       circle_id: circleId,
+      ...(displayAs !== undefined ? { display_as: displayAs } : {}),
     },
   };
 }
@@ -1102,6 +1118,20 @@ export function makeDeleteSketchDimensionCommand(
     type: "delete_sketch_dimension",
     payload: {
       dimension_id: dimensionId,
+    },
+  };
+}
+
+export function makeUpdateSketchDimensionDisplayCommand(
+  dimensionId: string,
+  displayAs: string,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_sketch_dimension_display",
+    payload: {
+      dimension_id: dimensionId,
+      display_as: displayAs,
     },
   };
 }

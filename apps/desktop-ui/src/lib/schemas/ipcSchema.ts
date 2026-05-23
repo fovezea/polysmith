@@ -319,12 +319,15 @@ const documentStateSchema = z.object({
                 "line_line_distance",
                 "circle_center_distance",
                 "circle_line_distance",
+                "point_distance",
               ]),
               entity_id: z.string(),
               // Empty string for unary dims; second line id for angle.
               secondary_entity_id: z.string().default(""),
               value: z.number(),
               expression: z.string().default(""),
+              driven: z.boolean().default(false),
+              display_as: z.string().default(""),
             }),
           ),
           line_relations: z.array(
@@ -694,6 +697,7 @@ const viewportStateSchema = z.object({
         "line_line_distance",
         "circle_center_distance",
         "circle_line_distance",
+        "point_distance",
       ]),
       entity_id: z.string(),
       label: z.string(),

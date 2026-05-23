@@ -214,9 +214,13 @@ class DocumentManager {
   // dimension, and bumps the geometry revision.
   DocumentState add_sketch_line_length_dimension(const std::string& line_id);
   DocumentState add_sketch_circle_radius_dimension(
-      const std::string& circle_id);
+      const std::string& circle_id,
+      std::optional<std::string> display_as = std::nullopt);
   DocumentState add_sketch_polygon_radius_dimension(
       const std::string& polygon_id);
+  DocumentState add_sketch_point_distance_dimension(
+      const std::string& point_a_id,
+      const std::string& point_b_id);
   DocumentState update_sketch_dimension(const std::string& dimension_id,
                                         double value,
                                         std::optional<std::string> expression = std::nullopt);
@@ -307,6 +311,8 @@ class DocumentManager {
                                             double radius);
   DocumentState delete_sketch_fillet(const std::string& fillet_id);
   DocumentState delete_sketch_dimension(const std::string& dimension_id);
+  DocumentState update_sketch_dimension_display(const std::string& dimension_id,
+                                                const std::string& display_as);
   DocumentState delete_sketch_selection(
       const std::vector<std::string>& entity_ids,
       const std::vector<std::string>& point_ids,

@@ -404,3 +404,60 @@ When adding a new entity, grep `ipcSchema.ts` for the union literally and walk e
 ### Pre-existing Test Failure (Not Introduced By This Work)
 
 `cad_core_sketch_profile_test :: test_fixed_endpoint_stays_put_when_redimensioning` was failing on `main` before any fillet work landed (verified by `git stash` + rebuild). The test references the point id `point-line-1-end` which the current `add_sketch_rectangle` code path no longer emits — likely a casualty of an earlier refactor of how rectangle endpoints share point ids with the unified line counter. The fillet PR's new tests still pass; they were verified by temporarily reordering them ahead of the broken test in `main()`. Worth chasing as a separate cleanup.
+
+## 2026-05-23
+
+### Dimension Tool — Driven Dimensions & Radius/Diameter Toggle
+
+#### Goal
+Eliminate the global radius/diameter display hack (where `dimensionToolMode` multiplied/divided all circle dimensions by 2). Make radius vs diameter a per-dimension property, add the driven/reference dimension concept, and fix constrained-line angle dimensions to be driven instead of suppressed.
+
+#### Driven Dimensions
+
+**C++ Core:**
+- `feature.h`: `SketchDimension` gained `bool driven = false` and `std::string display_as` fields.
+- `sketch_feature.cpp`: `update_sketch_dimension` returns early for driven dimensions (silent no-op — they don't drive geometry).
+- `sketch_feature.cpp`: new `sync_driven_dimensions()` runs during `refresh_sketch_derived_state`, re-measuring driven dimension values from current geometry for all 8 dimension kinds (`line_length`, `circle_radius`, `polygon_radius`, `angle`, `line_angle`, `line_line_distance`, `circle_center_distance`, `circle_line_distance`).
+- `serialization.cpp`: `driven` and `display_as` serialized/deserialized with backward-compat defaults (`false` / `""`).
+
+**line_angle Fix:**
+- Previously: `line_angle` auto-dimensions were *skipped* for axis-constrained lines (horizontal/vertical) — a workaround to avoid driving a fixed constraint.
+- Now: `line_angle` dimensions are *always* created for non-construction lines. Axis-constrained lines get `driven = true` so the angle is displayed but cannot be edited. The constraint still governs; the dimension just reflects it.
+- Changed in both `add_sketch_line` and `set_sketch_line_construction`.
+
+#### Per-Dimension Radius/Diameter Toggle
+
+**The Problem:** Previously, `dimensionToolMode` was a global switch that multiplied/divided *all* circle dimensions. Switching modes changed every circle dimension on screen. This was a display hack, not a real feature.
+
+**C++ Core:**
+- `add_sketch_circle_radius_dimension` now accepts optional `display_as` parameter (`""` = diameter, `"radius"` = raw radius). Defaults to `""` for backward compat.
+- `document.cpp`: new `update_sketch_dimension_display(dimension_id, display_as)` mutation with undo/redo support. Guards to `circle_radius` kind only.
+- `app.cpp`: new `update_sketch_dimension_display` IPC command handler reads `dimension_id` + `display_as` from payload.
+
+**TypeScript:**
+- `types/geometry/sketch.ts`: `SketchDimensionEntry` gained optional `driven?: boolean` and `display_as?: string`.
+- `lib/schemas/ipcSchema.ts`: both fields added to Zod schema with `.default(false)` / `.default("")`.
+- `lib/ipcProtocol.ts`: `makeAddSketchCircleRadiusDimensionCommand` accepts optional `displayAs`; new `makeUpdateSketchDimensionDisplayCommand(dimensionId, displayAs)`.
+- `hooks/useCadCore.ts`: `addSketchCircleRadiusDimension` accepts optional `displayAs`; new `updateSketchDimensionDisplay` hook. Both imported.
+
+**UI — ViewportPanel:**
+- `resolveDimensionDisplayAs(dimensionId)` looks up per-dimension `display_as` from the document state. Falls back to `""` (diameter) for missing/absent fields.
+- `dimensionDisplayValue` / `dimensionCoreValue` now use per-dimension `display_as` instead of the global `dimensionToolMode`.
+- Circle dimension creation passes the current tool mode as initial `display_as`: `"radius"` mode creates with `display_as = "radius"`, everything else defaults to diameter.
+- Right-click context menu on circle dimensions: shows "Show Radius" or "Show Diameter" toggle button (reads current `display_as` from document state, calls `updateSketchDimensionDisplay`).
+
+**Protocol:**
+- `commands.schema.json`: `update_sketch_dimension_display` added to command enum.
+
+#### Design Notes
+- `display_as` is a pure presentation hint. It never affects geometry — only how the value is shown and parsed in the dimension editor.
+- Circle dimensions default to diameter display (`display_as = ""`). Right-click → context menu → "Show Radius" / "Show Diameter" toggles the preference per-dimension.
+- The `dimensionToolMode` dropdown was removed. The dimension tool auto-detects the appropriate dimension kind from the clicked geometry.
+- Driven dimensions are re-evaluated every `refresh_sketch_derived_state` call, keeping their displayed values current without any driving side effects.
+
+#### Known Issues & Follow-up
+- **Raycasting order affects click reliability.** Sketch points are intersected before sketch entities. Clicks near shared line endpoints can resolve to a point instead of the line body. Improving the select/snap tool's point resolution and hover differentiation is a prerequisite for fully reliable dimension tool auto-detection.
+- **Escape timing is brittle.** Relies on `pendingDimensionIdRef` being set pre-IPC and not cleared by React effects. A proper state machine for the dimension tool lifecycle would eliminate remaining edge cases.
+- **Point-to-point distance is driven-only** (reference-only, cannot be edited to drive geometry).
+- **Polygon deletion error** (`Sketch line not found: polygon-1`) — pre-existing bug in the sketch deletion handler, unrelated to the dimension tool.
+- **i18n: translation files are incomplete.** Only `en.json` has full coverage. `es.json`, `ja.json`, `zh.json` only cover settings/header keys. Toolbar, viewport panels, sketch tool labels, and help tooltips fall back to English. Header is pinned to English via `{ lng: "en" }` in `AppHeader`. Language dropdown labels are hardcoded in English so users can always navigate back.

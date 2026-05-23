@@ -33,6 +33,7 @@ void enforce_point_line_anchors(SketchFeatureParameters& parameters);
 // start, the circle center, or the radius all keep the relation
 // satisfied without explicit re-driving.
 void enforce_tangent_line_circle_relations(SketchFeatureParameters& parameters);
+void sync_driven_dimensions(SketchFeatureParameters& parameters);
 
 std::string make_parameters_summary(const SketchFeatureParameters& parameters) {
   std::ostringstream stream;
@@ -1075,6 +1076,114 @@ void sync_all_line_dimensions(SketchFeatureParameters& parameters) {
   }
 }
 
+void sync_driven_dimensions(SketchFeatureParameters& parameters) {
+  for (auto& dimension : parameters.dimensions) {
+    if (!dimension.driven) {
+      continue;
+    }
+    if (dimension.kind == "line_length") {
+      const auto& line = require_line(parameters, dimension.entity_id);
+      dimension.value = measure_line_length(line);
+    } else if (dimension.kind == "circle_radius") {
+      const auto& circle = require_circle(parameters, dimension.entity_id);
+      dimension.value = circle.radius;
+    } else if (dimension.kind == "polygon_radius") {
+      const auto polygon_it = std::find_if(
+          parameters.polygons.begin(),
+          parameters.polygons.end(),
+          [&](const SketchPolygon& polygon) {
+            return polygon.id == dimension.entity_id;
+          });
+      if (polygon_it != parameters.polygons.end()) {
+        dimension.value = polygon_it->radius;
+      }
+    } else if (dimension.kind == "line_angle") {
+      const auto& line = require_line(parameters, dimension.entity_id);
+      const double dx = line.end_x - line.start_x;
+      const double dy = line.end_y - line.start_y;
+      dimension.value = std::atan2(dy, dx);
+    } else if (dimension.kind == "angle") {
+      const auto& line_a = require_line(parameters, dimension.entity_id);
+      const auto& line_b =
+          require_line(parameters, dimension.secondary_entity_id);
+      // Find shared endpoint and compute signed angle.
+      const std::array<std::pair<double, double>, 2> a_ends = {{
+          {line_a.start_x, line_a.start_y},
+          {line_a.end_x, line_a.end_y},
+      }};
+      const std::array<std::pair<double, double>, 2> b_ends = {{
+          {line_b.start_x, line_b.start_y},
+          {line_b.end_x, line_b.end_y},
+      }};
+      int a_pivot = -1;
+      int b_pivot = -1;
+      for (int i = 0; i < 2 && a_pivot < 0; ++i) {
+        for (int j = 0; j < 2; ++j) {
+          if (std::abs(a_ends[i].first - b_ends[j].first) <=
+                  kCoincidentTolerance &&
+              std::abs(a_ends[i].second - b_ends[j].second) <=
+                  kCoincidentTolerance) {
+            a_pivot = i;
+            b_pivot = j;
+            break;
+          }
+        }
+      }
+      if (a_pivot >= 0) {
+        const double px = a_ends[a_pivot].first;
+        const double py = a_ends[a_pivot].second;
+        const double a_dx = a_ends[1 - a_pivot].first - px;
+        const double a_dy = a_ends[1 - a_pivot].second - py;
+        const double b_dx = b_ends[1 - b_pivot].first - px;
+        const double b_dy = b_ends[1 - b_pivot].second - py;
+        // Recompute the signed angle from A to B.
+        dimension.value =
+            std::atan2(a_dx * b_dy - a_dy * b_dx,
+                       a_dx * b_dx + a_dy * b_dy);
+      }
+    } else if (dimension.kind == "line_line_distance") {
+      const auto& driven_line =
+          require_line(parameters, dimension.entity_id);
+      const auto& reference_line =
+          require_line(parameters, dimension.secondary_entity_id);
+      dimension.value =
+          std::abs(signed_line_line_distance(driven_line, reference_line));
+    } else if (dimension.kind == "circle_center_distance") {
+      const auto& driven_circle =
+          require_circle(parameters, dimension.entity_id);
+      const auto& reference_circle =
+          require_circle(parameters, dimension.secondary_entity_id);
+      dimension.value =
+          distance_between_circles(driven_circle, reference_circle);
+    } else if (dimension.kind == "circle_line_distance") {
+      const auto& circle = require_circle(parameters, dimension.entity_id);
+      const auto& line =
+          require_line(parameters, dimension.secondary_entity_id);
+      dimension.value =
+          std::abs(signed_circle_line_distance(circle, line));
+    } else if (dimension.kind == "point_distance") {
+      const auto point_a_it = std::find_if(
+          parameters.points.begin(),
+          parameters.points.end(),
+          [&](const SketchPoint& p) {
+            return p.id == dimension.entity_id;
+          });
+      const auto point_b_it = std::find_if(
+          parameters.points.begin(),
+          parameters.points.end(),
+          [&](const SketchPoint& p) {
+            return p.id == dimension.secondary_entity_id;
+          });
+      if (point_a_it != parameters.points.end() &&
+          point_b_it != parameters.points.end()) {
+        const double dx = point_b_it->x - point_a_it->x;
+        const double dy = point_b_it->y - point_a_it->y;
+        dimension.value = std::sqrt(dx * dx + dy * dy);
+      }
+    }
+  }
+}
+
 void remove_line_relations_for_line(SketchFeatureParameters& parameters,
                                     const std::string& kind,
                                     const std::string& line_id) {
@@ -1545,6 +1654,10 @@ void refresh_sketch_derived_state(FeatureEntry& feature) {
   // (which pulls cached coords off lines and arcs into the points
   // vector — we want it to see the fillet-corrected values).
   enforce_sketch_fillets(*feature.sketch_parameters);
+
+  // Driven (reference-only) dimensions: re-measure from current geometry
+  // so their displayed values stay correct without driving anything.
+  sync_driven_dimensions(*feature.sketch_parameters);
 
   const std::vector<SketchPoint> previous_points = feature.sketch_parameters->points;
   rebuild_sketch_points(*feature.sketch_parameters);
@@ -2137,6 +2250,12 @@ void update_sketch_dimension(FeatureEntry& feature,
   auto& parameters = feature.sketch_parameters.value();
   auto& dimension = require_dimension(parameters, dimension_id);
 
+  // Driven (reference-only) dimensions show the measured value but do
+  // not drive geometry. Silently ignore edit attempts.
+  if (dimension.driven) {
+    return;
+  }
+
   // Store expression if provided — cleared when expression is nullopt
   // (plain numeric update).
   dimension.expression = expression.value_or("");
@@ -2704,13 +2823,20 @@ void add_sketch_line(FeatureEntry& feature,
         .value = measure_line_length(line),
     });
     // Line-angle dimension: the absolute angle from the positive X axis
-    // (horizontal). Stored in radians.
+    // (horizontal). Stored in radians. Axis-constrained lines (rectangle
+    // sides, Shift-locked lines) get a *driven* (reference-only) angle
+    // dimension so the angle is still displayed but cannot be edited.
+    const bool constrained_axis =
+        line.constraint.has_value() &&
+        (line.constraint.value() == "horizontal" ||
+         line.constraint.value() == "vertical");
     feature.sketch_parameters->dimensions.push_back(SketchDimension{
         .id = "dim-line-angle-" + line.id,
         .kind = "line_angle",
         .entity_id = line.id,
         .value = std::atan2(line.end_y - line.start_y,
                             line.end_x - line.start_x),
+        .driven = constrained_axis,
     });
   }
   refresh_sketch_derived_state(feature);
@@ -2763,12 +2889,17 @@ void set_sketch_line_construction(FeatureEntry& feature,
       });
     }
     if (auto_angle_dim_it == parameters.dimensions.end()) {
+      const bool constrained_axis =
+          line.constraint.has_value() &&
+          (line.constraint.value() == "horizontal" ||
+           line.constraint.value() == "vertical");
       parameters.dimensions.push_back(SketchDimension{
           .id = auto_angle_dim_id,
           .kind = "line_angle",
           .entity_id = line.id,
           .value = std::atan2(line.end_y - line.start_y,
                               line.end_x - line.start_x),
+          .driven = constrained_axis,
       });
     }
   }
@@ -3714,6 +3845,67 @@ void add_sketch_polygon(FeatureEntry& feature,
   refresh_sketch_derived_state(feature);
 }
 
+void add_sketch_point_distance_dimension(FeatureEntry& feature,
+                                         const std::string& point_a_id,
+                                         const std::string& point_b_id) {
+  if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+    throw std::runtime_error("Only sketch features can accept sketch dimensions");
+  }
+
+  auto& parameters = *feature.sketch_parameters;
+
+  const auto point_a_it = std::find_if(
+      parameters.points.begin(),
+      parameters.points.end(),
+      [&](const SketchPoint& p) { return p.id == point_a_id; });
+  const auto point_b_it = std::find_if(
+      parameters.points.begin(),
+      parameters.points.end(),
+      [&](const SketchPoint& p) { return p.id == point_b_id; });
+
+  if (point_a_it == parameters.points.end()) {
+    throw std::runtime_error("Sketch point not found: " + point_a_id);
+  }
+  if (point_b_it == parameters.points.end()) {
+    throw std::runtime_error("Sketch point not found: " + point_b_id);
+  }
+
+  const double dx = point_b_it->x - point_a_it->x;
+  const double dy = point_b_it->y - point_a_it->y;
+  const double distance = std::sqrt(dx * dx + dy * dy);
+
+  if (distance <= kMinimumSketchDimensionValue) {
+    throw std::runtime_error("Point distance dimension must be greater than zero");
+  }
+
+  const std::string dimension_id =
+      "dim-point-distance-" + point_a_id + "-" + point_b_id;
+  const auto dimension_it = std::find_if(
+      parameters.dimensions.begin(),
+      parameters.dimensions.end(),
+      [&](const SketchDimension& dim) { return dim.id == dimension_id; });
+  if (dimension_it != parameters.dimensions.end()) {
+    // Already exists, just update the value for the current geometry.
+    dimension_it->value = distance;
+    return;
+  }
+
+  parameters.dimensions.push_back(SketchDimension{
+      .id = dimension_id,
+      .kind = "point_distance",
+      .entity_id = point_a_id,
+      .secondary_entity_id = point_b_id,
+      .value = distance,
+      // point_distance is always driven (reference-only) for now.
+      // The value is re-computed from the two point coordinates during
+      // sync_driven_dimensions. Making it driving requires complex
+      // point-movement propagation and is a follow-up.
+      .driven = true,
+  });
+
+  refresh_sketch_derived_state(feature);
+}
+
 void add_sketch_line_length_dimension(FeatureEntry& feature,
                                       const std::string& line_id) {
   if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
@@ -3749,7 +3941,8 @@ void add_sketch_line_length_dimension(FeatureEntry& feature,
 }
 
 void add_sketch_circle_radius_dimension(FeatureEntry& feature,
-                                        const std::string& circle_id) {
+                                        const std::string& circle_id,
+                                        std::optional<std::string> display_as) {
   if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
     throw std::runtime_error("Only sketch features can accept sketch dimensions");
   }
@@ -3777,6 +3970,7 @@ void add_sketch_circle_radius_dimension(FeatureEntry& feature,
       .kind = "circle_radius",
       .entity_id = circle.id,
       .value = circle.radius,
+      .display_as = display_as.value_or(""),
   });
 
   refresh_sketch_derived_state(feature);

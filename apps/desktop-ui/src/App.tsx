@@ -172,6 +172,7 @@ function App() {
   const [polygonToolMode, setPolygonToolMode] = useState<
     "circumscribed" | "inscribed" | "edge"
   >("inscribed");
+
   // Sketch fillet panel session. Mirrors `ActiveEdgeOpAction` (the
   // 3D fillet/chamfer flow) shape-for-shape: it opens the moment
   // the user activates the Fillet tool (`pending` phase, no
@@ -448,6 +449,8 @@ function App() {
     updateSketchFilletRadius,
     deleteSketchFillet,
     deleteSketchDimension,
+    addSketchPointDistanceDimension,
+    updateSketchDimensionDisplay,
     deleteSketchSelection,
     selectSketchPoint,
     selectSketchEntity,
@@ -1939,6 +1942,7 @@ function App() {
           onSetCircleToolMode={setCircleToolMode}
           polygonToolMode={polygonToolMode}
           onSetPolygonToolMode={setPolygonToolMode}
+
           onStart={async () => {
             await runAction(start);
           }}
@@ -2808,6 +2812,28 @@ function App() {
               onDeleteSketchDimension={async (dimensionId) => {
                 await runAction(async () => {
                   await deleteSketchDimension(dimensionId);
+                });
+              }}
+              onAddSketchPointDistanceDimension={async (
+                pointAId,
+                pointBId,
+              ) => {
+                await runAction(async () => {
+                  await addSketchPointDistanceDimension(
+                    pointAId,
+                    pointBId,
+                  );
+                });
+              }}
+              onUpdateSketchDimensionDisplay={async (
+                dimensionId,
+                displayAs,
+              ) => {
+                await runAction(async () => {
+                  await updateSketchDimensionDisplay(
+                    dimensionId,
+                    displayAs,
+                  );
                 });
               }}
               onSetSketchTool={async (tool) => {

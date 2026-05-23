@@ -879,9 +879,26 @@ void CadCoreApp::handle_command_line(const std::string& line) {
   }
 
   if (command.type == "add_sketch_circle_radius_dimension") {
+    std::optional<std::string> display_as;
+    if (command.payload.contains("display_as") &&
+        command.payload.at("display_as").is_string()) {
+      display_as = command.payload.at("display_as").get<std::string>();
+    }
     const auto document =
         document_manager().add_sketch_circle_radius_dimension(
-            read_string(command.payload, "circle_id"));
+            read_string(command.payload, "circle_id"), display_as);
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "add_sketch_point_distance_dimension") {
+    const auto document =
+        document_manager().add_sketch_point_distance_dimension(
+            read_string(command.payload, "point_a_id"),
+            read_string(command.payload, "point_b_id"));
 
     polysmith::protocol::write_message(
         polysmith::protocol::make_document_state_event(
@@ -1208,6 +1225,17 @@ void CadCoreApp::handle_command_line(const std::string& line) {
   if (command.type == "delete_sketch_dimension") {
     const auto document = document_manager().delete_sketch_dimension(
         read_string(command.payload, "dimension_id"));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "update_sketch_dimension_display") {
+    const auto document = document_manager().update_sketch_dimension_display(
+        read_string(command.payload, "dimension_id"),
+        read_string(command.payload, "display_as"));
 
     polysmith::protocol::write_message(
         polysmith::protocol::make_document_state_event(

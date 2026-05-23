@@ -342,6 +342,16 @@ sketch_parameters_from_payload(const json& payload) {
         dimension.expression =
             dim_payload.at("expression").get<std::string>();
       }
+      // Driven field — absent in older saves, default to false (driving)
+      if (dim_payload.contains("driven") && dim_payload.at("driven").is_boolean()) {
+        dimension.driven = dim_payload.at("driven").get<bool>();
+      }
+      // Display_as field — absent in older saves, default to "" (diameter)
+      if (dim_payload.contains("display_as") &&
+          dim_payload.at("display_as").is_string()) {
+        dimension.display_as =
+            dim_payload.at("display_as").get<std::string>();
+      }
       params.dimensions.push_back(dimension);
     }
   }
@@ -861,6 +871,8 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                            dimension.secondary_entity_id},
                           {"value", dimension.value},
                           {"expression", dimension.expression},
+                          {"driven", dimension.driven},
+                          {"display_as", dimension.display_as},
                       });
                     }
                     return dimensions;

@@ -193,7 +193,8 @@ export interface ViewportSketchDimension {
     | "line_angle"
     | "line_line_distance"
     | "circle_center_distance"
-    | "circle_line_distance";
+    | "circle_line_distance"
+    | "point_distance";
   entity_id: string;
   label: string;
   is_selected: boolean;
