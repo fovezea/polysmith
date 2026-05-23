@@ -460,3 +460,4 @@ Eliminate the global radius/diameter display hack (where `dimensionToolMode` mul
 - **Escape timing is brittle.** Relies on `pendingDimensionIdRef` being set pre-IPC and not cleared by React effects. A proper state machine for the dimension tool lifecycle would eliminate remaining edge cases.
 - **Point-to-point distance is driven-only** (reference-only, cannot be edited to drive geometry).
 - **Polygon deletion error** (`Sketch line not found: polygon-1`) — pre-existing bug in the sketch deletion handler, unrelated to the dimension tool.
+- **i18n: translation files are incomplete.** Only `en.json` has full coverage. `es.json`, `ja.json`, `zh.json` only cover settings/header keys. Toolbar, viewport panels, sketch tool labels, and help tooltips fall back to English. Header is pinned to English via `{ lng: "en" }` in `AppHeader`. Language dropdown labels are hardcoded in English so users can always navigate back.
