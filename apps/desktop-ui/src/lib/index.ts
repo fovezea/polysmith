@@ -14,3 +14,4 @@ export * from "./orcaSlicerClient";
 export * from "./recentProjects";
 export * from "./schemas/ipcSchema";
 export * from "./viewportScene";
+export * from "./windowLifecycle";
