@@ -1318,7 +1318,7 @@ export function buildSketchDimensionObject(
     addSegment(tip, base.clone().sub(side));
   };
 
-  if (dimension.kind === "angle") {
+  if (dimension.kind === "angle" || dimension.kind === "line_angle") {
     const startRay = dimensionStart.clone().sub(anchorStart);
     const endRay = dimensionEnd.clone().sub(anchorEnd);
     if (startRay.lengthSq() > 1e-8 && endRay.lengthSq() > 1e-8) {

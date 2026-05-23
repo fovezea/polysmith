@@ -305,8 +305,9 @@ function makeSketchDimension(
   };
 }
 
-function rectangleDuplicateDimensionEntityIds(lines: SketchLineScene[]) {
-  const hiddenEntityIds = new Set<string>();
+function rectangleDimensionEntityIds(lines: SketchLineScene[]) {
+  const duplicateLengthEntityIds = new Set<string>();
+  const rectangleEntityIds = new Set<string>();
   const tolerance = 0.001;
   const pointKey = (point: [number, number, number]) =>
     point.map((value) => Math.round(value / tolerance)).join(":");
@@ -382,6 +383,10 @@ function rectangleDuplicateDimensionEntityIds(lines: SketchLineScene[]) {
             continue;
           }
 
+          for (const line of candidate) {
+            rectangleEntityIds.add(line.lineId);
+          }
+
           for (const [lineA, lineB] of pairs) {
             const centerA = midpoint(lineA);
             const centerB = midpoint(lineB);
@@ -391,14 +396,14 @@ function rectangleDuplicateDimensionEntityIds(lines: SketchLineScene[]) {
                 centerA[0] < centerB[0])
                 ? lineA
                 : lineB;
-            hiddenEntityIds.add(hideLine.lineId);
+            duplicateLengthEntityIds.add(hideLine.lineId);
           }
         }
       }
     }
   }
 
-  return hiddenEntityIds;
+  return { duplicateLengthEntityIds, rectangleEntityIds };
 }
 
 function makeSketchConstraint(
@@ -822,15 +827,21 @@ export function createViewportScene(
       isSelected: point.is_selected,
     }));
   const hiddenRectangleDimensionEntityIds =
-    rectangleDuplicateDimensionEntityIds(sketchLines);
+    rectangleDimensionEntityIds(sketchLines);
   const sketchDimensions = viewport.sketch_dimensions
     .filter((dimension) => isSketchPlaneVisible(dimension.plane_id))
     .filter((dimension) => !projectedEntityIds.has(dimension.entity_id))
     .map(makeSketchDimension);
   const visibleSketchDimensions = sketchDimensions.filter(
     (dimension) =>
-      dimension.kind !== "line_length" ||
-      !hiddenRectangleDimensionEntityIds.has(dimension.entityId),
+      (dimension.kind !== "line_length" ||
+        !hiddenRectangleDimensionEntityIds.duplicateLengthEntityIds.has(
+          dimension.entityId,
+        )) &&
+      (dimension.kind !== "line_angle" ||
+        !hiddenRectangleDimensionEntityIds.rectangleEntityIds.has(
+          dimension.entityId,
+        )),
   );
   const sketchConstraints = viewport.sketch_constraints
     .filter((constraint) => isSketchPlaneVisible(constraint.plane_id))

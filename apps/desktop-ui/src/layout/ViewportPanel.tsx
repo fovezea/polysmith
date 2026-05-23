@@ -1659,7 +1659,7 @@ export function ViewportPanel({
       const originalLabel = new THREE.Vector3(...dimension.labelPosition);
       const nextLabel = new THREE.Vector3(...labelPosition);
       let offset = nextLabel.sub(originalLabel);
-      if (dimension.kind === "angle") {
+      if (dimension.kind === "angle" || dimension.kind === "line_angle") {
         const frame = angleDimensionFrame(dimension);
         if (frame) {
           const dimensionRadius = Math.max(
@@ -1705,7 +1705,7 @@ export function ViewportPanel({
           };
         }
       }
-      if (dimension.kind !== "angle") {
+      if (dimension.kind !== "angle" && dimension.kind !== "line_angle") {
         if (dimension.kind === "circle_radius") {
           const center = new THREE.Vector3(...dimension.dimensionStart)
             .add(new THREE.Vector3(...dimension.dimensionEnd))
@@ -2245,7 +2245,7 @@ export function ViewportPanel({
   }
 
   function getDimensionPlacementAxis(dimension: SketchDimensionScene) {
-    if (dimension.kind === "angle") {
+    if (dimension.kind === "angle" || dimension.kind === "line_angle") {
       return angleDimensionFrame(dimension)?.bisector ?? null;
     }
 
@@ -2387,7 +2387,7 @@ export function ViewportPanel({
       return;
     }
     const anglePosition =
-      dimension.kind === "angle"
+      dimension.kind === "angle" || dimension.kind === "line_angle"
         ? angleDimensionArcControlNearPoint(dimension, sketchPoint.world)
         : null;
     const nextPosition =
@@ -4128,7 +4128,10 @@ export function ViewportPanel({
         const labelOffsetPixels = 5;
         if (dimensionStart && dimensionEnd && sprite.material) {
           const material = sprite.material as THREE.SpriteMaterial;
-          if (sprite.userData.dimensionKind === "angle") {
+          if (
+            sprite.userData.dimensionKind === "angle" ||
+            sprite.userData.dimensionKind === "line_angle"
+          ) {
             material.rotation = 0;
             return null;
           }
@@ -4970,7 +4973,10 @@ export function ViewportPanel({
         const draggedDimension = displayedSketchDimensionsRef.current.find(
           (dimension) => dimension.dimensionId === dimensionDrag.dimensionId,
         );
-        if (draggedDimension?.kind === "angle") {
+        if (
+          draggedDimension?.kind === "angle" ||
+          draggedDimension?.kind === "line_angle"
+        ) {
           const nextPosition = angleDimensionArcControlNearPoint(
             draggedDimension,
             sketchPoint.world,

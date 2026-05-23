@@ -2926,6 +2926,18 @@ void add_sketch_rectangle(FeatureEntry& feature,
   const std::string bottom_id = "line-" + std::to_string(bottom_index);
   const std::string left_id = "line-" + std::to_string(left_index);
 
+  parameters.dimensions.erase(
+      std::remove_if(parameters.dimensions.begin(),
+                     parameters.dimensions.end(),
+                     [&](const SketchDimension& dimension) {
+                       return dimension.kind == "line_angle" &&
+                              (dimension.entity_id == top_id ||
+                               dimension.entity_id == right_id ||
+                               dimension.entity_id == bottom_id ||
+                               dimension.entity_id == left_id);
+                     }),
+      parameters.dimensions.end());
+
   parameters.line_relations.push_back(SketchLineRelation{
       .id = "rel-equal-length-" + top_id,
       .kind = "equal_length",
