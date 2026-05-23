@@ -993,6 +993,43 @@ ViewportSketchDimensionPrimitive make_line_line_distance_dimension_primitive(
   };
 }
 
+ViewportSketchDimensionPrimitive make_point_distance_dimension_primitive(
+    const SketchPoint& point_a,
+    const SketchPoint& point_b,
+    const SketchDimension& dimension,
+    const SketchFeatureParameters& parameters,
+    bool is_selected) {
+  const WorldPoint start = to_world_point(parameters, point_a.x, point_a.y);
+  const WorldPoint end = to_world_point(parameters, point_b.x, point_b.y);
+  const WorldPoint label = to_world_point(
+      parameters,
+      (point_a.x + point_b.x) / 2.0,
+      (point_a.y + point_b.y) / 2.0);
+  return ViewportSketchDimensionPrimitive{
+      .dimension_id = dimension.id,
+      .plane_id = parameters.plane_id,
+      .kind = "point_distance",
+      .entity_id = point_a.id,
+      .label = format_dimension_value(dimension.value) + " mm",
+      .is_selected = is_selected,
+      .anchor_start_x = start.x,
+      .anchor_start_y = start.y,
+      .anchor_start_z = start.z,
+      .anchor_end_x = end.x,
+      .anchor_end_y = end.y,
+      .anchor_end_z = end.z,
+      .dimension_start_x = start.x,
+      .dimension_start_y = start.y,
+      .dimension_start_z = start.z,
+      .dimension_end_x = end.x,
+      .dimension_end_y = end.y,
+      .dimension_end_z = end.z,
+      .label_x = label.x,
+      .label_y = label.y,
+      .label_z = label.z,
+  };
+}
+
 ViewportSketchConstraintPrimitive make_line_constraint_primitive(
     const SketchLine& line,
     const std::string& plane_id,
@@ -3202,6 +3239,30 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
                 make_circle_line_distance_dimension_primitive(
                     *circle_it,
                     *line_it,
+                    dimension,
+                    *feature.sketch_parameters,
+                    is_selected_dimension));
+          } else if (dimension.kind == "point_distance") {
+            const auto point_a_it = std::find_if(
+                feature.sketch_parameters->points.begin(),
+                feature.sketch_parameters->points.end(),
+                [&](const SketchPoint& p) {
+                  return p.id == dimension.entity_id;
+                });
+            const auto point_b_it = std::find_if(
+                feature.sketch_parameters->points.begin(),
+                feature.sketch_parameters->points.end(),
+                [&](const SketchPoint& p) {
+                  return p.id == dimension.secondary_entity_id;
+                });
+            if (point_a_it == feature.sketch_parameters->points.end() ||
+                point_b_it == feature.sketch_parameters->points.end()) {
+              continue;
+            }
+            sketch_dimensions.push_back(
+                make_point_distance_dimension_primitive(
+                    *point_a_it,
+                    *point_b_it,
                     dimension,
                     *feature.sketch_parameters,
                     is_selected_dimension));

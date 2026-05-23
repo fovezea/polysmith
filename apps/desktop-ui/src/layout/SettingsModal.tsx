@@ -147,11 +147,13 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
       ? i18n.resolvedLanguage
       : "en"
   ) as LanguageCode;
+  // Language labels are always in English so non-English speakers who
+  // accidentally switch away can still navigate back to a known option.
   const languageOptions: Array<{ value: LanguageCode; label: string }> = [
-    { value: "en", label: t("languages.english") },
-    { value: "es", label: t("languages.spanish") },
-    { value: "ja", label: t("languages.japanese") },
-    { value: "zh", label: t("languages.chinese") },
+    { value: "en", label: "English" },
+    { value: "es", label: "Español" },
+    { value: "ja", label: "日本語" },
+    { value: "zh", label: "中文" },
   ];
 
   const hotkeyRows: HotkeyRow[] = [

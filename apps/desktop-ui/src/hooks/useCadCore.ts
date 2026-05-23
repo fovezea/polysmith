@@ -14,6 +14,7 @@ import {
   makeUpdateSketchFilletRadiusCommand,
   makeDeleteSketchFilletCommand,
   makeDeleteSketchDimensionCommand,
+  makeUpdateSketchDimensionDisplayCommand,
   makeAddParameterCommand,
   makeUpdateParameterCommand,
   makeDeleteParameterCommand,
@@ -28,6 +29,7 @@ import {
   makeAddSketchDistanceDimensionCommand,
   makeAddSketchLineLengthDimensionCommand,
   makeAddSketchCircleRadiusDimensionCommand,
+  makeAddSketchPointDistanceDimensionCommand,
   makeAddSketchPolygonRadiusDimensionCommand,
   makeAddSketchRectangleCommand,
   makeClearSelectionCommand,
@@ -568,6 +570,15 @@ export function useCadCore() {
       );
       await sendCoreCommand(makeGetViewportStateCommand());
     },
+    addSketchPointDistanceDimension: async (
+      pointAId: string,
+      pointBId: string,
+    ) => {
+      await sendCoreCommand(
+        makeAddSketchPointDistanceDimensionCommand(pointAId, pointBId),
+      );
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
     addSketchDistanceDimension: async (
       firstEntityId: string,
       secondEntityId: string,
@@ -583,9 +594,12 @@ export function useCadCore() {
       );
       await sendCoreCommand(makeGetViewportStateCommand());
     },
-    addSketchCircleRadiusDimension: async (circleId: string) => {
+    addSketchCircleRadiusDimension: async (
+      circleId: string,
+      displayAs?: string,
+    ) => {
       await sendCoreCommand(
-        makeAddSketchCircleRadiusDimensionCommand(circleId),
+        makeAddSketchCircleRadiusDimensionCommand(circleId, displayAs),
       );
       await sendCoreCommand(makeGetViewportStateCommand());
     },
@@ -685,6 +699,15 @@ export function useCadCore() {
     },
     deleteSketchDimension: async (dimensionId: string) => {
       await sendCoreCommand(makeDeleteSketchDimensionCommand(dimensionId));
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateSketchDimensionDisplay: async (
+      dimensionId: string,
+      displayAs: string,
+    ) => {
+      await sendCoreCommand(
+        makeUpdateSketchDimensionDisplayCommand(dimensionId, displayAs),
+      );
       await sendCoreCommand(makeGetViewportStateCommand());
     },
     addParameter: async (name: string, expression: string, kind: "length" | "angle" = "length") => {

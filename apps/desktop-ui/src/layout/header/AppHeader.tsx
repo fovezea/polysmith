@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ConstraintType, SketchTool, ArmedSketchConstraint } from "@/types";
 import { useAppConfig } from "@/config";
@@ -273,7 +273,16 @@ export function AppHeader({
   parametersPanelOpen,
   onToggleParametersPanel,
 }: AppHeaderProps) {
-  const { t } = useTranslation();
+  const { t: _t, i18n } = useTranslation();
+  // Keep the main navigation bar in English regardless of the locale
+  // setting, so non-native speakers can always read the menu items.
+  const t = useCallback(
+    (key: string, options?: Record<string, unknown>) =>
+      key.startsWith("header.")
+        ? _t(key, { ...options, lng: "en" })
+        : _t(key, options),
+    [_t],
+  );
   const { config, updateConfig } = useAppConfig();
   const [activeCadWorkspace, setActiveCadWorkspace] =
     useState<(typeof workspaces)[number]>("create");
@@ -343,7 +352,7 @@ export function AppHeader({
                 }
                 onClick={onToggleParametersPanel}
               >
-                f(x)
+                <span className="normal-case">f(x)</span>
               </button>
               {parametersPanelOpen ? (
                 <div className="absolute left-0 top-[calc(100%+0.75rem)]">

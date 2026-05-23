@@ -401,6 +401,14 @@ interface ViewportPanelProps {
     },
   ) => Promise<void>;
   onDeleteSketchDimension: (dimensionId: string) => Promise<void>;
+  onAddSketchPointDistanceDimension: (
+    pointAId: string,
+    pointBId: string,
+  ) => Promise<void>;
+  onUpdateSketchDimensionDisplay: (
+    dimensionId: string,
+    displayAs: string,
+  ) => Promise<void>;
   onSetSketchTool: (tool: SketchTool) => Promise<void>;
   hiddenFeatureIds?: ReadonlySet<string>;
   hiddenSketchPlaneIds?: ReadonlySet<string>;
@@ -981,6 +989,8 @@ export function ViewportPanel({
   onSelectSketchProfile,
   onDeleteSketchSelection,
   onDeleteSketchDimension,
+  onAddSketchPointDistanceDimension,
+  onUpdateSketchDimensionDisplay,
   onSetSketchTool,
   hiddenFeatureIds,
   hiddenSketchPlaneIds,
@@ -1010,6 +1020,12 @@ export function ViewportPanel({
   const [dimensionToolFirstLine, setDimensionToolFirstLine] = useState<
     string | null
   >(null);
+  // First point picked in point_distance dimension mode.
+  const dimensionToolFirstPointRef = useRef<{
+    id: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const [constraintPreview, setConstraintPreview] = useState<{
     kind:
       | "midpoint"
@@ -1199,10 +1215,19 @@ export function ViewportPanel({
   const selectSketchProfileRef = useRef(onSelectSketchProfile);
   const deleteSketchSelectionRef = useRef(onDeleteSketchSelection);
   const deleteSketchDimensionRef = useRef(onDeleteSketchDimension);
+  const addSketchPointDistanceDimensionRef = useRef(
+    onAddSketchPointDistanceDimension,
+  );
+  const updateSketchDimensionDisplayRef = useRef(
+    onUpdateSketchDimensionDisplay,
+  );
   const selectedSketchDimensionRef = useRef<SketchDimensionScene | null>(null);
   const displayedSketchDimensionsRef = useRef<SketchDimensionScene[]>([]);
   const dimensionLabelDragRef = useRef<DimensionLabelDragState | null>(null);
   const pendingDimensionPlacementRef = useRef(false);
+  // The dimension ID that was just created (before the IPC round-trip).
+  // Used to delete it on Escape even before the response arrives.
+  const pendingDimensionIdRef = useRef<string | null>(null);
   const dimensionPlacementOriginalPositionRef = useRef<
     [number, number, number] | null
   >(null);
@@ -2391,6 +2416,94 @@ export function ViewportPanel({
     setIsDimensionEditorOpen(false);
   }
 
+  // Look up a dimension's display_as preference from the document state.
+  // Falls back to "" (diameter display) when the dimension isn't found
+  // or the field is absent (backward compat with older documents).
+  function resolveDimensionDisplayAs(dimensionId: string): string {
+    const sketch = sketchLinesRef.current;
+    if (!sketch) return "";
+    const dim = sketch.dimensions.find(
+      (d) => d.dimension_id === dimensionId,
+    );
+    return dim?.display_as ?? "";
+  }
+
+  // --- Dimension tool action helpers (shared by entity + sketch-point paths) ---
+
+  function dimCreateCircle(entityId: string, displayAs: string) {
+    const dimensionId = `dim-circle-${entityId}`;
+    pendingDimensionIdRef.current = dimensionId;
+    pendingDimensionPlacementRef.current = true;
+    void addSketchCircleRadiusDimensionRef
+      .current(entityId, displayAs)
+      .catch(() => {
+        pendingDimensionIdRef.current = null;
+        pendingDimensionPlacementRef.current = false;
+      });
+  }
+
+  function dimSelectCircle(entityId: string) {
+    const dimensionId = `dim-circle-${entityId}`;
+    pendingDimensionIdRef.current = dimensionId;
+    handleDimensionClick(dimensionId);
+    // Stage for possible two-entity follow-up pick
+    dimensionToolFirstLineRef.current = entityId;
+    setDimensionToolFirstLine(entityId);
+  }
+
+  function dimCreateLine(entityId: string) {
+    const dimensionId = `dim-line-${entityId}`;
+    pendingDimensionIdRef.current = dimensionId;
+    pendingDimensionPlacementRef.current = true;
+    void addSketchLineLengthDimensionRef
+      .current(entityId)
+      .catch(() => {
+        pendingDimensionIdRef.current = null;
+        pendingDimensionPlacementRef.current = false;
+      });
+  }
+
+  function dimSelectLine(entityId: string) {
+    const dimensionId = `dim-line-${entityId}`;
+    pendingDimensionIdRef.current = dimensionId;
+    handleDimensionClick(dimensionId);
+    // Stage for possible two-entity follow-up pick
+    dimensionToolFirstLineRef.current = entityId;
+    setDimensionToolFirstLine(entityId);
+  }
+
+  function dimCreateAngleOrDistance(
+    firstEntityId: string,
+    secondEntityId: string,
+  ) {
+    if (
+      firstEntityId.startsWith("line-") &&
+      sketchLinesShareEndpoint(firstEntityId, secondEntityId)
+    ) {
+      pendingDimensionPlacementRef.current = true;
+      void addSketchAngleDimensionRef
+        .current(firstEntityId, secondEntityId)
+        .catch(() => { pendingDimensionPlacementRef.current = false; });
+    } else {
+      pendingDimensionPlacementRef.current = true;
+      void addSketchDistanceDimensionRef
+        .current(firstEntityId, secondEntityId)
+        .catch(() => { pendingDimensionPlacementRef.current = false; });
+    }
+  }
+
+  function dimCreatePointDistance(pointAId: string, pointBId: string) {
+    pendingDimensionIdRef.current =
+      `dim-point-distance-${pointAId}-${pointBId}`;
+    pendingDimensionPlacementRef.current = true;
+    void addSketchPointDistanceDimensionRef
+      .current(pointAId, pointBId)
+      .catch(() => {
+        pendingDimensionIdRef.current = null;
+        pendingDimensionPlacementRef.current = false;
+      });
+  }
+
   function isProjectedCircleDimension(dimensionId: string) {
     const sketch = sketchFeature?.sketch_parameters;
     if (!sketch) {
@@ -2445,7 +2558,10 @@ export function ViewportPanel({
       return coreValue * (180 / Math.PI);
     }
     if (dimension.kind === "circle_radius") {
-      return coreValue * 2;
+      // Per-dimension display_as controls radius vs diameter display.
+      // "" (default) = diameter, "radius" = show raw radius.
+      const displayAs = resolveDimensionDisplayAs(dimension.dimensionId);
+      return displayAs === "radius" ? coreValue : coreValue * 2;
     }
     return coreValue;
   }
@@ -2458,7 +2574,9 @@ export function ViewportPanel({
       return displayValue * (Math.PI / 180);
     }
     if (dimension.kind === "circle_radius") {
-      return displayValue / 2;
+      // Per-dimension display_as controls radius vs diameter conversion.
+      const displayAs = resolveDimensionDisplayAs(dimension.dimensionId);
+      return displayAs === "radius" ? displayValue : displayValue / 2;
     }
     return displayValue;
   }
@@ -3808,6 +3926,10 @@ export function ViewportPanel({
     pickSketchPointRef.current = onPickSketchPoint;
     selectSketchDimensionRef.current = onSelectSketchDimension;
     updateSketchDimensionRef.current = onUpdateSketchDimension;
+    addSketchPointDistanceDimensionRef.current =
+      onAddSketchPointDistanceDimension;
+    updateSketchDimensionDisplayRef.current =
+      onUpdateSketchDimensionDisplay;
     selectSketchProfileRef.current = onSelectSketchProfile;
     deleteSketchSelectionRef.current = onDeleteSketchSelection;
     setSketchToolRef.current = onSetSketchTool;
@@ -6164,91 +6286,148 @@ export function ViewportPanel({
           if (hit?.kind === "sketch_dimension") {
             dimensionToolFirstLineRef.current = null;
             setDimensionToolFirstLine(null);
+            dimensionToolFirstPointRef.current = null;
             handleDimensionClick(hit.id);
             return;
+          }
+          // Point_distance mode: on the *second* click of a two-pick
+          // sequence, restore the staged entity so the existing handler
+          // below processes angle / parallel-distance.  First clicks
+          // fall through untouched so the existing handler creates the
+          // unary dimension (line length / circle radius) and stages the
+          // entity for a possible follow-up pick.
+          if (
+            hit?.kind === "sketch_entity" || hit?.kind === "sketch_point"
+          ) {
+            let entityId: string | null = null;
+            if (hit.kind === "sketch_entity") {
+              entityId = hit.id;
+            } else if (hit.kind === "sketch_point") {
+              const match = hit.id.match(/^point-(line-\d+)/);
+              if (match) entityId = match[1];
+            }
+            if (!entityId) {
+              // Point didn't resolve to a known entity — for
+              // circle-center points, try the circle pattern.
+              if (hit?.kind === "sketch_point") {
+                const circleMatch = hit.id.match(/^point-(circle-\d+)/);
+                if (circleMatch) entityId = circleMatch[1];
+              }
+              if (!entityId) return;
+            }
+            const firstEntityId = dimensionToolFirstLineRef.current;
+            if (firstEntityId) {
+              if (firstEntityId === entityId) {
+                dimensionToolFirstLineRef.current = null;
+                setDimensionToolFirstLine(null);
+                return;
+              }
+              dimensionToolFirstLineRef.current = firstEntityId;
+              setDimensionToolFirstLine(firstEntityId);
+              // Fall through to sketch_entity handler.
+            }
+            // First click with no staged entity: fall through to the
+            // existing handler which creates the unary dimension and
+            // stages the entity.
           }
           if (hit?.kind === "sketch_entity") {
             if (hit.isProjected) {
               return;
             }
-            if (hit.entityKind === "circle") {
-              const firstEntityId = dimensionToolFirstLineRef.current;
-              if (firstEntityId && firstEntityId !== hit.id) {
-                dimensionToolFirstLineRef.current = null;
-                setDimensionToolFirstLine(null);
-                pendingDimensionPlacementRef.current = true;
-                void addSketchDistanceDimensionRef
-                  .current(firstEntityId, hit.id)
-                  .catch(() => {
-                    pendingDimensionPlacementRef.current = false;
-                  });
-                return;
-              }
-              dimensionToolFirstLineRef.current = null;
-              setDimensionToolFirstLine(hit.id);
-              dimensionToolFirstLineRef.current = hit.id;
-              const dimensionId = `dim-circle-${hit.id}`;
-              const dimensionExists =
-                sketchLinesRef.current?.dimensions.some(
-                  (dim) => dim.dimension_id === dimensionId,
-                ) ?? false;
-              if (dimensionExists) {
-                handleDimensionClick(dimensionId);
-              } else {
-                // Circle has no dimension yet — create one.
-                pendingDimensionPlacementRef.current = true;
-                void addSketchCircleRadiusDimensionRef
-                  .current(hit.id)
-                  .catch(() => {
-                    pendingDimensionPlacementRef.current = false;
-                  });
-              }
-              return;
-            }
-            const firstLineId = dimensionToolFirstLineRef.current;
-            if (firstLineId && firstLineId !== hit.id) {
+            const firstEntityId = dimensionToolFirstLineRef.current;
+            if (firstEntityId && firstEntityId !== hit.id) {
               dimensionToolFirstLineRef.current = null;
               setDimensionToolFirstLine(null);
-              if (
-                firstLineId.startsWith("line-") &&
-                sketchLinesShareEndpoint(firstLineId, hit.id)
-              ) {
-                pendingDimensionPlacementRef.current = true;
-                void addSketchAngleDimensionRef
-                  .current(firstLineId, hit.id)
-                  .catch(() => {
-                    pendingDimensionPlacementRef.current = false;
-                  });
+              dimCreateAngleOrDistance(firstEntityId, hit.id);
+              return;
+            }
+            // First click on this entity (or re-click on the staged one).
+            // Create or select the unary dimension, stage for two-entity flow.
+            if (hit.entityKind === "circle") {
+              const exists =
+                sketchLinesRef.current?.dimensions.some(
+                  (d) => d.dimension_id === `dim-circle-${hit.id}`,
+                ) ?? false;
+              if (exists) {
+                dimSelectCircle(hit.id);
               } else {
-                pendingDimensionPlacementRef.current = true;
-                void addSketchDistanceDimensionRef
-                  .current(firstLineId, hit.id)
-                  .catch(() => {
-                    pendingDimensionPlacementRef.current = false;
-                  });
+                dimCreateCircle(hit.id, "");
               }
               return;
             }
-            // Plain first-line click opens the length dim but keeps
-            // that line staged so the next different line can create
-            // an angle dimension without a modifier.
-            dimensionToolFirstLineRef.current = hit.id;
-            setDimensionToolFirstLine(hit.id);
-            const dimensionId = `dim-line-${hit.id}`;
-            const dimensionExists =
+            // Line
+            const exists =
               sketchLinesRef.current?.dimensions.some(
-                (dim) => dim.dimension_id === dimensionId,
+                (d) => d.dimension_id === `dim-line-${hit.id}`,
               ) ?? false;
-            if (dimensionExists) {
-              handleDimensionClick(dimensionId);
+            if (exists) {
+              dimSelectLine(hit.id);
             } else {
-              // Line has no dimension yet — create one.
-              pendingDimensionPlacementRef.current = true;
-              void addSketchLineLengthDimensionRef
-                .current(hit.id)
-                .catch(() => {
-                  pendingDimensionPlacementRef.current = false;
-                });
+              dimCreateLine(hit.id);
+            }
+            return;
+          }
+          // Sketch-point hit: route to point-to-point distance or entity
+          // dimension based on whether a first point is already staged.
+          // Without this, clicking near a shared chained-line endpoint
+          // hits the point sphere before the line, and the dimension
+          // tool silently ignores it.
+          if (hit?.kind === "sketch_point") {
+            const firstPoint = dimensionToolFirstPointRef.current;
+            if (firstPoint && firstPoint.id !== hit.id) {
+              // Two-point flow: create point_distance dimension.
+              dimensionToolFirstLineRef.current = null;
+              setDimensionToolFirstLine(null);
+              dimensionToolFirstPointRef.current = null;
+              dimCreatePointDistance(firstPoint.id, hit.id);
+              return;
+            }
+            // First point pick — stage it, then resolve to an entity
+            // so the next click on an entity body works.
+            dimensionToolFirstPointRef.current = {
+              id: hit.id, x: 0, y: 0,
+            };
+            // Resolve point → entity for the unary-dimension path
+            let resolvedId: string | null = null;
+            let resolvedKind: "line" | "circle" | null = null;
+            const lm = hit.id.match(/^point-(line-\d+)/);
+            if (lm) { resolvedId = lm[1]; resolvedKind = "line"; }
+            const cm = hit.id.match(/^point-(circle-\d+)/);
+            if (cm) { resolvedId = cm[1]; resolvedKind = "circle"; }
+            if (!resolvedId) {
+              dimensionToolFirstLineRef.current = null;
+              setDimensionToolFirstLine(null);
+              return;
+            }
+            // Defer to entity-level handlers using the resolved entity ID.
+            const firstEntityId = dimensionToolFirstLineRef.current;
+            if (firstEntityId && firstEntityId !== resolvedId) {
+              dimensionToolFirstLineRef.current = null;
+              setDimensionToolFirstLine(null);
+              dimCreateAngleOrDistance(firstEntityId, resolvedId);
+              return;
+            }
+            if (resolvedKind === "circle") {
+              const exists =
+                sketchLinesRef.current?.dimensions.some(
+                  (d) => d.dimension_id === `dim-circle-${resolvedId}`,
+                ) ?? false;
+              if (exists) {
+                dimSelectCircle(resolvedId);
+              } else {
+                dimCreateCircle(resolvedId, "");
+              }
+              return;
+            }
+            // Line
+            const exists =
+              sketchLinesRef.current?.dimensions.some(
+                (d) => d.dimension_id === `dim-line-${resolvedId}`,
+              ) ?? false;
+            if (exists) {
+              dimSelectLine(resolvedId);
+            } else {
+              dimCreateLine(resolvedId);
             }
             return;
           }
@@ -7336,6 +7515,7 @@ export function ViewportPanel({
     // switch so it can't leak across tools or sketches.
     dimensionToolFirstLineRef.current = null;
     setDimensionToolFirstLine(null);
+    dimensionToolFirstPointRef.current = null;
   }, [activeSketchPlaneId, activeSketchTool]);
 
   useEffect(() => {
@@ -7357,8 +7537,38 @@ export function ViewportPanel({
         dimensionLabelDragRef.current?.isPlacement
       ) {
         event.preventDefault();
-        cancelDimensionPlacement();
+        const dimId = dimensionLabelDragRef.current.dimensionId;
+        dimensionLabelDragRef.current = null;
+        dimensionPlacementOriginalPositionRef.current = null;
+        if (controlsRef.current) controlsRef.current.enabled = true;
+        setCanvasCursor("");
+        void deleteSketchDimensionRef.current(dimId);
         return;
+      }
+      // Escape in the dimension tool: delete the just-placed
+      // dimension.  We check refs (not closure-captured state) so
+      // the handler works even when selectedSketchDimension hasn't
+      // updated yet.  pendingDimensionIdRef is set before every IPC
+      // dimension-create call; if that's null we fall back to
+      // checking the label drag state.
+      if (
+        event.code === "Escape" &&
+        activeSketchToolRef.current === "dimension"
+      ) {
+        const drag = dimensionLabelDragRef.current;
+        const targetId = pendingDimensionIdRef.current ??
+          (drag?.isPlacement ? drag.dimensionId : null);
+        if (targetId) {
+          event.preventDefault();
+          pendingDimensionIdRef.current = null;
+          pendingDimensionPlacementRef.current = false;
+          dimensionLabelDragRef.current = null;
+          dimensionPlacementOriginalPositionRef.current = null;
+          if (controlsRef.current) controlsRef.current.enabled = true;
+          setCanvasCursor("");
+          void deleteSketchDimensionRef.current(targetId);
+          return;
+        }
       }
       const target = event.target;
       if (
@@ -7587,6 +7797,22 @@ export function ViewportPanel({
     setContextMenu(null);
     setIsDimensionEditorOpen(false);
     await deleteSketchDimensionRef.current(dimensionId);
+  }
+
+  async function handleToggleDimensionDisplayFromContextMenu() {
+    const dimensionId = contextMenu?.dimensionId;
+    if (!dimensionId) return;
+    const sketch = sketchLinesRef.current;
+    if (!sketch) return;
+    const dim = sketch.dimensions.find(
+      (d) => d.dimension_id === dimensionId,
+    );
+    if (!dim || dim.kind !== "circle_radius") return;
+
+    // Toggle: "" (diameter) → "radius" → "" (diameter)
+    const newDisplayAs = dim.display_as === "radius" ? "" : "radius";
+    setContextMenu(null);
+    await updateSketchDimensionDisplayRef.current(dimensionId, newDisplayAs);
   }
 
   const lineCount = sketchFeature?.sketch_parameters?.lines.length ?? 0;
@@ -8010,13 +8236,37 @@ export function ViewportPanel({
             }}
           >
             {contextMenu.dimensionId ? (
-              <button
-                type="button"
-                className="cad-context-menu-item flex w-full items-center justify-start rounded-xl px-3 py-2 text-sm text-on-surface transition-colors duration-200"
-                onClick={handleDeleteDimensionFromContextMenu}
-              >
-                Delete
-              </button>
+              <>
+                {(() => {
+                  // Only show toggle for circle_radius dimensions
+                  const sketch = sketchLinesRef.current;
+                  if (!sketch) return null;
+                  const dim = sketch.dimensions.find(
+                    (d) => d.dimension_id === contextMenu.dimensionId,
+                  );
+                  if (!dim || dim.kind !== "circle_radius") return null;
+                  const label =
+                    dim.display_as === "radius"
+                      ? "Show Diameter"
+                      : "Show Radius";
+                  return (
+                    <button
+                      type="button"
+                      className="cad-context-menu-item flex w-full items-center justify-start rounded-xl px-3 py-2 text-sm text-on-surface transition-colors duration-200"
+                      onClick={handleToggleDimensionDisplayFromContextMenu}
+                    >
+                      {label}
+                    </button>
+                  );
+                })()}
+                <button
+                  type="button"
+                  className="cad-context-menu-item flex w-full items-center justify-start rounded-xl px-3 py-2 text-sm text-on-surface transition-colors duration-200"
+                  onClick={handleDeleteDimensionFromContextMenu}
+                >
+                  Delete
+                </button>
+              </>
             ) : contextMenu.sketchDeleteSelection ? (
               <button
                 type="button"

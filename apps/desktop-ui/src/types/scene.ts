@@ -231,7 +231,8 @@ export interface SketchDimensionScene {
     | "line_angle"
     | "line_line_distance"
     | "circle_center_distance"
-    | "circle_line_distance";
+    | "circle_line_distance"
+    | "point_distance";
   entityId: string;
   /** Raw label from C++ (e.g. "12.35 mm", "D 24.70 mm", "45\u00b0"). */
   label: string;

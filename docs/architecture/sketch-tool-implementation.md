@@ -186,3 +186,162 @@ Auto-dimension IDs follow the pattern `dim-<prefix>-<entity_id>`:
 **Problem:** When adding polygon support, the `polygons` field was added to the C++ struct but forgotten in `serialization.cpp`. The TS side accessed `params.polygons.length` which threw `TypeError` because `polygons` was `undefined`.
 
 **Solution:** Always update BOTH the serialization (`to_payload`) and deserialization (`from_payload`) in `serialization.cpp` when adding a new field. The TS side should use optional chaining (`params?.polygons?.length ?? 0`).
+
+---
+
+## Manual Sketch Dimension Tool Completion (Planned)
+
+> This section documents a planned feature extracted from
+> `implementation/NEXT_IMPLEMENTATION_PLAN.md` (Priority 1 — Item B).
+
+### Goal
+
+The Dimension tool already exists in the sketch toolbar (icon, hotkey `D`,
+floating info panel, two-click flows for angle/distance between entities,
+dimension label dragging). What's missing is the ability to **create a
+dimension on a single entity that doesn't already have one**.
+
+When the user clicks a line or circle whose auto-dimension was deleted (by
+the fusion-style on-demand system), the tool currently just selects the
+entity. It needs to **create** the missing dimension instead.
+
+### Current State
+
+**Already shipped:**
+- ✅ Dimension tool entry in `SketchToolbar.tsx`
+- ✅ `DimensionIcon` in `ToolBarIcons.tsx`
+- ✅ Hotkey handler → `setSketchTool("dimension")`
+- ✅ Floating info panel ("Click a line or circle...")
+- ✅ `"dimension"` in `SketchTool` union type
+- ✅ `active_sketch_tool: "dimension"` accepted by C++ core
+- ✅ Two-click flow for angle (`addSketchAngleDimension`)
+- ✅ Two-click flow for distance (`addSketchDistanceDimension`)
+- ✅ Two-click flow for circle-pair distance
+- ✅ `dimensionToolFirstLineRef` / `dimensionToolFirstLine` state for staging first pick
+- ✅ `pendingDimensionPlacementRef` pattern for auto-opening the dimension editor
+- ✅ Dimension label dragging on pointer down
+
+**What's missing (the gap this plan fills):**
+
+When the Dimension tool clicks a **single** entity:
+- **Line click**: checks if `dim-line-{id}` exists. If not, just selects
+  the entity → should instead **create** a `line_length` dimension
+- **Circle click**: checks if `dim-circle-{id}` exists. If not, just
+  selects the entity → should instead **create** a `circle_radius`
+  dimension
+- **Polygon click**: no handling at all → should create a
+  `polygon_radius` dimension
+
+### IPC Commands Needed
+
+Three new IPC commands need to be added end-to-end:
+
+| Command | Type | Payload |
+|---|---|---|
+| `add_sketch_line_length_dimension` | IPC | `{ line_id: string }` |
+| `add_sketch_circle_radius_dimension` | IPC | `{ circle_id: string }` |
+| `add_sketch_polygon_radius_dimension` | IPC | `{ polygon_id: string }` |
+
+**Schema gap to fix:** `add_sketch_angle_dimension` and
+`add_sketch_distance_dimension` exist in C++ + TS but are missing from
+`protocol/schema/commands.schema.json` — the schema fix is included.
+
+### C++ Implementation
+
+Each single-entity dimension command follows the same pattern:
+
+1. Validate the entity exists and is not construction
+2. Compute current length / radius
+3. Check for duplicate dimension on this entity (skip if exists)
+4. Create `SketchDimension{ id: "dim-<prefix>-" + entity_id, kind: "<kind>", entity_id: entity_id, value: current_value }`
+5. Append to `parameters.dimensions`
+
+Dimension ID format: `dim-line-{id}`, `dim-circle-{id}`, `dim-polygon-{id}`.
+Kind values: `line_length`, `circle_radius`, `polygon_radius`.
+
+Files touched:
+- `protocol/schema/commands.schema.json` — add 5 commands to the enum
+- `native/cad-core/src/core/document.h` — declare 3 new methods
+- `native/cad-core/src/core/document.cpp` — implement (find active sketch, call core, push undo, refresh)
+- `native/cad-core/src/core/sketch_feature.h` — declare core helpers
+- `native/cad-core/src/core/sketch_feature.cpp` — implement helpers (reuse auto-dimension creation logic)
+- `native/cad-core/src/app.cpp` — register 5 command handlers
+
+### TypeScript Changes
+
+- `apps/desktop-ui/src/types/ipc.ts` — add 3 command interfaces + include all 5 in `CadCoreCommand` union
+- `apps/desktop-ui/src/lib/ipcProtocol.ts` — add 3 command builders
+- `apps/desktop-ui/src/hooks/useCadCore.ts` — add 3 hooks + refs
+
+### ViewportPanel.tsx Wiring
+
+**Line click (current → change):**
+
+```ts
+// Current: just selects the entity
+void selectSketchEntityRef.current(hit.id, false);
+
+// Change: create missing dimension and open editor
+pendingDimensionPlacementRef.current = true;
+void addSketchLineLengthDimensionRef.current(hit.id)
+  .catch(() => { pendingDimensionPlacementRef.current = false; });
+```
+
+**Circle click:** Same pattern using `addSketchCircleRadiusDimensionRef`.
+
+**Polygon click (new — not handled at all currently):**
+```ts
+if (hit.entityKind === "polygon") {
+  const dimensionId = `dim-polygon-${hit.id}`;
+  const dimensionExists = /* check */
+  if (dimensionExists) {
+    handleDimensionClick(dimensionId);
+  } else {
+    pendingDimensionPlacementRef.current = true;
+    void addSketchPolygonRadiusDimensionRef.current(hit.id)
+      .catch(() => { pendingDimensionPlacementRef.current = false; });
+  }
+  return;
+}
+```
+
+### Transaction Flow (Line Click Example)
+
+```
+User clicks a line in Dimension tool
+  → pendingDimensionPlacementRef = true
+  → IPC: add_sketch_line_length_dimension(line_id)
+    → C++: validate line, check dup, compute length, push SketchDimension
+    → C++: refresh_sketch_derived_state + bump_geometry_revision
+    → C++: return document_state (with new dimension)
+  → TS: receive document_state with new dimension
+    → pendingDimensionPlacementRef fires useEffect
+    → beginDimensionPlacement(selectedSketchDimension)
+    → dimension editor opens with the line length value
+  → User types a new value → Enter
+    → IPC: update_sketch_dimension(dim_id, new_value)
+    → Line resizes (constraint behavior)
+```
+
+### Rendering
+
+No viewport rendering changes needed — the viewport already renders all
+`SketchDimension` entries via `ViewportSketchDimensionPrimitive`. Newly
+created dimensions appear immediately.
+
+### Files Changed (Full List)
+
+| File | Change |
+|---|---|
+| `protocol/schema/commands.schema.json` | Add 5 commands to the enum |
+| `native/cad-core/src/core/document.h` | Declare 3 new dimension creation methods |
+| `native/cad-core/src/core/document.cpp` | Implement the 3 new methods |
+| `native/cad-core/src/core/sketch_feature.h` | Declare core helpers |
+| `native/cad-core/src/core/sketch_feature.cpp` | Implement helpers, extract auto-dimension creation |
+| `native/cad-core/src/app.cpp` | Register 5 command handlers |
+| `apps/desktop-ui/src/types/ipc.ts` | Add 3 command interfaces + add all 5 to union |
+| `apps/desktop-ui/src/lib/ipcProtocol.ts` | Add 3 command builders |
+| `apps/desktop-ui/src/hooks/useCadCore.ts` | Add 3 hooks + refs |
+| `apps/desktop-ui/src/layout/ViewportPanel.tsx` | Replace `selectSketchEntity` with dimension creation + add polygon support |
+| `docs/architecture/ai-cad-command-language.md` | Document new dimension commands |
+| `docs/architecture/ipc-protocol.md` | Document new dimension commands |
