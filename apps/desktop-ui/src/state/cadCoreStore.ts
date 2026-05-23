@@ -24,6 +24,7 @@ interface CadCoreStoreState {
   lastExport: DocumentExportResult | null;
   lastEvent: CoreMessage | null;
   setStatus: (status: CadCoreStoreState["status"]) => void;
+  handleCoreStopped: () => void;
   addMessage: (message: string) => void;
   addLogEntry: (entry: LogEntry) => void;
   clearLogs: () => void;
@@ -119,6 +120,15 @@ export const useCadCoreStore = create<CadCoreStoreState>((set) => ({
   lastExport: null,
   lastEvent: null,
   setStatus: (status) => set({ status }),
+  handleCoreStopped: () =>
+    set({
+      status: "stopped",
+      document: null,
+      session: null,
+      viewport: null,
+      lastExport: null,
+      lastEvent: null,
+    }),
   addMessage: (message) =>
     set((state) => ({ messages: [...state.messages, message] })),
   addLogEntry: (entry) =>

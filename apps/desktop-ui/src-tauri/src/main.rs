@@ -22,8 +22,12 @@ fn start_cad_core(
 }
 
 #[tauri::command]
-fn send_core_command(state: tauri::State<CadCoreState>, command: String) -> Result<(), String> {
-    cad_core::send_core_command(state, command)
+fn send_core_command(
+    app: tauri::AppHandle,
+    state: tauri::State<CadCoreState>,
+    command: String,
+) -> Result<(), String> {
+    cad_core::send_core_command(app, state, command)
 }
 
 #[tauri::command]

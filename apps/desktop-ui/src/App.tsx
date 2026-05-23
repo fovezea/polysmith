@@ -644,14 +644,12 @@ function App() {
     }
   }, [activeSketchTool, activeSketchPlaneId, sketchFilletAction]);
 
-  // Auto-startup: launch the native core as soon as the UI mounts and,
-  // once the core is connected, create an empty document so the user
-  // lands on a working canvas instead of an "offline" splash. Both
-  // calls are gated by status so a failed start (status === "error")
-  // doesn't loop, and the document creation only fires on the
-  // idle -> connected transition.
+  // Auto-startup and crash recovery: launch the native core as soon as
+  // the UI mounts, and relaunch it after an unexpected process exit.
+  // `handleCoreStopped` clears the stale document snapshot, so a
+  // successfully restarted core lands on a fresh untitled document.
   useEffect(() => {
-    if (status === "idle") {
+    if (status === "idle" || status === "stopped") {
       void start();
       return;
     }
@@ -659,6 +657,18 @@ function App() {
       void createDocument();
     }
   }, [status, document, start, createDocument]);
+
+  useEffect(() => {
+    if (status !== "stopped") {
+      return;
+    }
+    setCurrentProjectPath(null);
+    setSavedDocumentBaseline(null);
+    setPendingUnsavedAction(null);
+    setHiddenFeatureIds(new Set<string>());
+    setHiddenCategories(new Set<CategoryId>());
+    originVisibilityManuallyChangedRef.current = false;
+  }, [status]);
 
   useEffect(() => {
     let canceled = false;
