@@ -34,6 +34,44 @@ bool is_origin_plane_reference(const std::string& reference_id) {
          reference_id == "ref-plane-xz";
 }
 
+int action_count(const DocumentState& document) {
+  int count = 0;
+  for (const auto& feature : document.feature_history) {
+    if (feature.kind != "root_part") {
+      ++count;
+    }
+  }
+  return count;
+}
+
+bool includes_feature_at_cursor(const DocumentState& document,
+                                const std::string& feature_id) {
+  int remaining_actions =
+      document.timeline_cursor.value_or(action_count(document));
+  for (const auto& feature : document.feature_history) {
+    if (feature.id != feature_id) {
+      if (feature.kind != "root_part" && remaining_actions > 0) {
+        --remaining_actions;
+      }
+      continue;
+    }
+    return feature.kind == "root_part" || remaining_actions > 0;
+  }
+  return false;
+}
+
+void normalize_timeline_cursor(DocumentState& document) {
+  if (!document.timeline_cursor.has_value()) {
+    return;
+  }
+  const int max_actions = action_count(document);
+  if (document.timeline_cursor.value() >= max_actions) {
+    document.timeline_cursor = std::nullopt;
+  } else if (document.timeline_cursor.value() < 0) {
+    document.timeline_cursor = 0;
+  }
+}
+
 // True for any plane the user can pick from the viewport's reference
 // hierarchy: the three origin planes plus every construction plane
 // currently in `document.feature_history`. Face picks go through
@@ -272,6 +310,63 @@ std::optional<ExtrudeFeatureParameters> make_extrude_parameters_for_profile(
   return std::nullopt;
 }
 
+bool profile_id_mentions_entity(const std::string& profile_id,
+                                const std::string& entity_id) {
+  const std::string needle = "-" + entity_id;
+  size_t position = profile_id.find(needle);
+  while (position != std::string::npos) {
+    const size_t after = position + needle.size();
+    if (after == profile_id.size() || profile_id[after] == '-') {
+      return true;
+    }
+    position = profile_id.find(needle, position + 1);
+  }
+  return false;
+}
+
+const SketchProfileRegion* find_profile_by_id(
+    const std::vector<SketchProfileRegion>& profiles,
+    const std::string& profile_id) {
+  const auto profile_it = std::find_if(
+      profiles.begin(),
+      profiles.end(),
+      [&](const SketchProfileRegion& profile) { return profile.id == profile_id; });
+  return profile_it == profiles.end() ? nullptr : &(*profile_it);
+}
+
+const SketchProfileRegion* find_equivalent_profile(
+    const std::vector<SketchProfileRegion>& profiles,
+    const std::string& source_profile_id) {
+  if (const SketchProfileRegion* exact =
+          find_profile_by_id(profiles, source_profile_id)) {
+    return exact;
+  }
+
+  std::vector<const SketchProfileRegion*> candidates;
+  for (const auto& profile : profiles) {
+    if (profile.kind == "circle" && profile.source_circle_id.has_value() &&
+        source_profile_id.find("profile-circle-" +
+                               profile.source_circle_id.value()) == 0) {
+      candidates.push_back(&profile);
+      continue;
+    }
+
+    if (profile.kind == "polygon" && !profile.line_ids.empty()) {
+      const bool same_entities = std::all_of(
+          profile.line_ids.begin(),
+          profile.line_ids.end(),
+          [&](const std::string& entity_id) {
+            return profile_id_mentions_entity(source_profile_id, entity_id);
+          });
+      if (same_entities) {
+        candidates.push_back(&profile);
+      }
+    }
+  }
+
+  return candidates.size() == 1 ? candidates.front() : nullptr;
+}
+
 void refresh_linked_extrudes(DocumentState& document,
                              const FeatureEntry& sketch_feature) {
   if (!sketch_feature.sketch_parameters.has_value()) {
@@ -299,18 +394,14 @@ void refresh_linked_extrudes(DocumentState& document,
             : feature.extrude_parameters->profile_ids;
     std::vector<SketchProfileRegion> source_profiles;
     for (const auto& profile_id : source_profile_ids) {
-      const auto profile_it = std::find_if(
-          sketch.profiles.begin(),
-          sketch.profiles.end(),
-          [&](const SketchProfileRegion& profile) {
-            return profile.id == profile_id;
-          });
-      if (profile_it == sketch.profiles.end()) {
+      const SketchProfileRegion* profile =
+          find_equivalent_profile(sketch.profiles, profile_id);
+      if (profile == nullptr) {
         mark_source_profile_warning(feature);
         source_profiles.clear();
         break;
       }
-      source_profiles.push_back(*profile_it);
+      source_profiles.push_back(*profile);
     }
     if (source_profiles.empty()) {
       continue;
@@ -449,6 +540,7 @@ void DocumentManager::push_undo_state() {
 void DocumentManager::bump_geometry_revision() {
   require_document();
   refresh_history_dependencies(*document_);
+  normalize_timeline_cursor(*document_);
   // Increment the revision via a local before assigning back so the
   // literal `document_->revision += 1;` doesn't appear here — that
   // way mass-renaming call sites won't accidentally rewrite this
@@ -495,6 +587,7 @@ DocumentState DocumentManager::create_document() {
       .selected_sketch_dimension_id = std::nullopt,
       .selected_sketch_profile_id = std::nullopt,
       .selected_sketch_profile_ids = {},
+      .timeline_cursor = std::nullopt,
       .feature_history = {make_root_feature()},
       .selection_filter = SelectionFilter{},
   };
@@ -787,6 +880,53 @@ DocumentState DocumentManager::redo() {
   undo_stack_.push_back(document_.value());
   document_ = redo_stack_.back();
   redo_stack_.pop_back();
+  return document_.value();
+}
+
+DocumentState DocumentManager::set_timeline_cursor(int included_action_count) {
+  require_document();
+
+  const int max_actions = action_count(document_.value());
+  const int clamped =
+      std::max(0, std::min(included_action_count, max_actions));
+
+  if (clamped >= max_actions) {
+    document_->timeline_cursor = std::nullopt;
+  } else {
+    document_->timeline_cursor = clamped;
+  }
+
+  if (document_->selected_feature_id.has_value() &&
+      !includes_feature_at_cursor(document_.value(),
+                                  document_->selected_feature_id.value())) {
+    document_->selected_feature_id = std::nullopt;
+  }
+  if (document_->selected_reference_id.has_value() &&
+      !is_origin_plane_reference(document_->selected_reference_id.value()) &&
+      !includes_feature_at_cursor(document_.value(),
+                                  document_->selected_reference_id.value())) {
+    document_->selected_reference_id = std::nullopt;
+  }
+  if (document_->active_sketch_feature_id.has_value() &&
+      !includes_feature_at_cursor(document_.value(),
+                                  document_->active_sketch_feature_id.value())) {
+    document_->active_sketch_feature_id = std::nullopt;
+    document_->active_sketch_plane_id = std::nullopt;
+    document_->active_sketch_face_id = std::nullopt;
+    document_->active_sketch_tool = std::nullopt;
+  }
+  document_->selected_face_id = std::nullopt;
+  document_->selected_edge_ids.clear();
+  document_->selected_vertex_ids.clear();
+  document_->selected_sketch_point_id = std::nullopt;
+  document_->selected_sketch_entity_id = std::nullopt;
+  document_->selected_sketch_dimension_id = std::nullopt;
+  document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
+  document_->selected_sketch_profile_ids.clear();
+
+  document_->revision += 1;
   return document_.value();
 }
 

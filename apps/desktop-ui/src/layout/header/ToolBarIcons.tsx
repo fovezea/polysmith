@@ -92,8 +92,7 @@ export const PolygonIcon = () => (
     strokeLinejoin="round"
     aria-hidden="true"
   >
-    <path d="M12 3l7 5-3.5 6 7 0-3.5-6" />
-    <path d="M12 3L5 8l-3.5 6h7L12 20l3.5-6" />
+    <path d="M12 5.5 18.5 10.2 16 18.5H8L5.5 10.2Z" />
   </svg>
 );
 

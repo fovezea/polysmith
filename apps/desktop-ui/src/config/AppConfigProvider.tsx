@@ -30,6 +30,16 @@ interface AppConfigContextValue {
 
 const AppConfigContext = createContext<AppConfigContextValue | null>(null);
 
+function compareThemeOptions(
+  left: Pick<ThemeConfig, "id" | "name">,
+  right: Pick<ThemeConfig, "id" | "name">,
+) {
+  return (
+    left.name.localeCompare(right.name, undefined, { sensitivity: "base" }) ||
+    left.id.localeCompare(right.id)
+  );
+}
+
 export function AppConfigProvider({ children }: { children: ReactNode }) {
   const [config, setConfigState] = useState<AppConfig>(() => loadAppConfig());
   const [themes, setThemes] =
@@ -96,10 +106,12 @@ export function AppConfigProvider({ children }: { children: ReactNode }) {
       activeTheme,
       availableThemes: [
         defaultAvailableThemes[0],
-        ...Object.values(themes).map((theme) => ({
-          id: theme.id,
-          name: theme.name,
-        })),
+        ...Object.values(themes)
+          .map((theme) => ({
+            id: theme.id,
+            name: theme.name,
+          }))
+          .sort(compareThemeOptions),
       ],
       configPath,
       themesPath,

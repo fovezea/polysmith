@@ -4,6 +4,7 @@
 mod app_config;
 mod cad_core;
 mod orca_slicer;
+mod project_metadata;
 mod protocol;
 
 use std::sync::Mutex;
@@ -21,8 +22,12 @@ fn start_cad_core(
 }
 
 #[tauri::command]
-fn send_core_command(state: tauri::State<CadCoreState>, command: String) -> Result<(), String> {
-    cad_core::send_core_command(state, command)
+fn send_core_command(
+    app: tauri::AppHandle,
+    state: tauri::State<CadCoreState>,
+    command: String,
+) -> Result<(), String> {
+    cad_core::send_core_command(app, state, command)
 }
 
 #[tauri::command]
@@ -36,6 +41,39 @@ fn bootstrap_app_config(
 #[tauri::command]
 fn save_app_config(config: Value) -> Result<(), String> {
     app_config::save_app_config(config)
+}
+
+#[tauri::command]
+fn load_recent_projects() -> Result<Value, String> {
+    project_metadata::load_recent_projects()
+}
+
+#[tauri::command]
+fn save_recent_projects(document: Value) -> Result<(), String> {
+    project_metadata::save_recent_projects(document)
+}
+
+#[tauri::command]
+fn read_project_thumbnail(file_path: String) -> Result<Option<String>, String> {
+    project_metadata::read_project_thumbnail(file_path)
+}
+
+#[tauri::command]
+fn write_project_thumbnail(
+    file_path: String,
+    thumbnail_data_url: Option<String>,
+) -> Result<(), String> {
+    project_metadata::write_project_thumbnail(file_path, thumbnail_data_url)
+}
+
+#[tauri::command]
+fn delete_project_file(file_path: String) -> Result<(), String> {
+    project_metadata::delete_project_file(file_path)
+}
+
+#[tauri::command]
+fn project_file_exists(file_path: String) -> Result<bool, String> {
+    project_metadata::project_file_exists(file_path)
 }
 
 #[tauri::command]
@@ -91,6 +129,12 @@ pub fn run() {
             send_core_command,
             bootstrap_app_config,
             save_app_config,
+            load_recent_projects,
+            save_recent_projects,
+            read_project_thumbnail,
+            write_project_thumbnail,
+            delete_project_file,
+            project_file_exists,
             prepare_orca_export_path,
             embed_orca_window,
             resize_orca_window,

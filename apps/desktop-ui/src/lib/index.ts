@@ -1,4 +1,5 @@
 export * from "./cadCoreClient";
+export * from "./components/Checkbox";
 export * from "./components/Dropdown";
 export * from "./components/SplitToolButton";
 export * from "./components/ToolbarTooltip";
@@ -10,5 +11,6 @@ export * from "./ipcProtocol";
 export * from "./logger";
 export * from "./ollamaClient";
 export * from "./orcaSlicerClient";
+export * from "./recentProjects";
 export * from "./schemas/ipcSchema";
 export * from "./viewportScene";

@@ -271,6 +271,18 @@ export function makeRedoCommand(): CoreCommand {
   };
 }
 
+export function makeSetTimelineCursorCommand(
+  includedActionCount: number,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "set_timeline_cursor",
+    payload: {
+      included_action_count: includedActionCount,
+    },
+  };
+}
+
 export function makeSelectFeatureCommand(featureId: string): CoreCommand {
   return {
     id: crypto.randomUUID(),

@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "PolySmith"
+    "name": "Polysmith"
   },
   "common": {
     "action": "Action",
@@ -191,7 +191,6 @@
     "appearance": "Appearance",
     "cancelReset": "Cancel",
     "confirmReset": "Confirm Reset",
-    "connectionFailed": "Connection failed: {{error}}",
     "embeddedOrcaSlicer": "Embedded OrcaSlicer",
     "enableAiAssistant": "Enable AI assistant",
     "enableAiAssistantDescription": "Connects to a local Ollama server and previews validated CAD commands before execution.",
@@ -204,8 +203,15 @@
     "hotkeyUseAllowedKey": "Use a letter, number, symbol, function key, or navigation key.",
     "keybinds": "Keybinds",
     "language": "Language",
+    "loadingModels": "Loading models...",
+    "loadModels": "Load Models",
     "maxAgentSteps": "Max Agent Steps",
     "model": "Model",
+    "modelLoadFailed": "Failed to load models: {{error}}",
+    "modelNotListed": "{{model}} (not listed)",
+    "modelsLoaded": "Loaded {{count}} model{{plural}}.",
+    "noModelsFound": "Connected, but no local models were listed.",
+    "noModelsLoaded": "Load models first",
     "ollamaUrl": "Ollama URL",
     "orcaSlicerBinaryPath": "OrcaSlicer binary path",
     "orcaSlicerBinaryPlaceholder": "Select the OrcaSlicer executable",
@@ -219,8 +225,7 @@
     "resetAllQuestion": "Reset all settings?",
     "setHotkey": "Set {{label}} hotkey",
     "selectOrcaSlicerBinary": "Select OrcaSlicer Binary",
-    "testConnection": "Test Connection",
-    "testingConnection": "Testing connection...",
+    "slicer": "Slicer",
     "theme": "Theme",
     "title": "Settings"
   },
@@ -263,6 +268,7 @@
     "featureSelected": "Feature selected",
     "features": "Features",
     "hierarchy": "Hierarchy",
+    "hierarchyProjects": "Hierarchy/Projects",
     "noActiveDocument": "No active document.",
     "noBodies": "No bodies yet",
     "noConstructionGeometry": "No construction geometry",
@@ -281,6 +287,47 @@
     "sketches": "Sketches",
     "units": "Units"
   },
+  "documentStatus": {
+    "saved": "Saved",
+    "unsaved": "Unsaved",
+    "untitled": "Untitled"
+  },
+  "projects": {
+    "create": "Create",
+    "delete": "Delete",
+    "deleteFolder": "Delete {{name}}",
+    "deleteFolderBody": "The folder will be removed. Projects and folders inside it will move up one level.",
+    "deleteFolderTitle": "Delete {{name}}?",
+    "deleteFileToo": "Also delete the file from disk",
+    "deleteProject": "Delete {{name}}",
+    "deleteProjectBody": "This removes the project from the Projects list. The file stays where it is unless you choose to delete it too.",
+    "deleteProjectTitle": "Remove {{name}}?",
+    "dropHere": "Drop projects here",
+    "empty": "Saved projects will appear here after you save them.",
+    "folderName": "Folder name",
+    "home": "Home",
+    "move": "Move",
+    "moveHere": "Move here",
+    "moveProjectTitle": "Move {{name}}",
+    "new": "New",
+    "newFolder": "New folder",
+    "newProject": "Project",
+    "noFolders": "No folders in this location.",
+    "openMissingFile": "{{name}} could not be opened because the file was moved or deleted. It was removed from Projects.",
+    "path": "Project folder path",
+    "remove": "Remove",
+    "renameFolderTitle": "Rename folder",
+    "renameProjectTitle": "Rename project",
+    "root": "Projects",
+    "title": "Projects"
+  },
+  "unsavedDialog": {
+    "body": "Save your changes before continuing, or continue without saving them.",
+    "continueWithoutSaving": "Discard",
+    "quitWithoutSaving": "Quit",
+    "saveFirst": "Save",
+    "title": "Save changes to {{name}}?"
+  },
   "session": {
     "documents": "Documents",
     "noSnapshot": "No session snapshot loaded.",
@@ -290,6 +337,7 @@
   },
   "timeline": {
     "activeSketchDeleteBlocked": "Finish the active sketch before deleting it",
+    "cursor": "History cursor",
     "suppressed": "suppressed"
   },
   "aiAssistant": {

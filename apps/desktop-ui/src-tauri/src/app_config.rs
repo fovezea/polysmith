@@ -27,7 +27,7 @@ pub struct ConfigBootstrap {
     pub themes: Vec<Value>,
 }
 
-fn config_dir() -> Result<PathBuf, String> {
+pub fn config_dir() -> Result<PathBuf, String> {
     #[cfg(target_os = "windows")]
     {
         let app_data = env::var_os("APPDATA").ok_or_else(|| "APPDATA is not set".to_string())?;

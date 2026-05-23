@@ -49,6 +49,7 @@ const documentStateSchema = z.object({
   selected_sketch_dimension_id: z.string().nullable(),
   selected_sketch_profile_id: z.string().nullable(),
   selected_sketch_profile_ids: z.array(z.string()).default([]),
+  timeline_cursor: z.number().int().nullable().default(null),
   feature_history: z.array(
     z.object({
       feature_id: z.string(),

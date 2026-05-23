@@ -54,6 +54,7 @@ import {
   makeSelectSketchDimensionCommand,
   makeSelectSketchEntityCommand,
   makeSelectSketchPointCommand,
+  makeSetTimelineCursorCommand,
   makeRenameFeatureCommand,
   makeSetFeatureSuppressedCommand,
   makeSelectFeatureCommand,
@@ -112,6 +113,7 @@ export function useCadCore() {
   const addMessage = useCadCoreStore((state) => state.addMessage);
   const addLogEntry = useCadCoreStore((state) => state.addLogEntry);
   const handleCoreMessage = useCadCoreStore((state) => state.handleCoreMessage);
+  const handleCoreStopped = useCadCoreStore((state) => state.handleCoreStopped);
   const setStatus = useCadCoreStore((state) => state.setStatus);
 
   useEffect(() => {
@@ -159,7 +161,7 @@ export function useCadCore() {
         writeLogToConsole(entry);
         addLogEntry(entry);
         addMessage(`exit: ${message}`);
-        setStatus("stopped");
+        handleCoreStopped();
       });
 
       for (const unlisten of [
@@ -184,16 +186,28 @@ export function useCadCore() {
         unlisten();
       }
     };
-  }, [addLogEntry, addMessage, handleCoreMessage, setStatus]);
+  }, [addLogEntry, addMessage, handleCoreMessage, handleCoreStopped, setStatus]);
 
   return {
     start: async () => {
       setStatus("starting");
-      const result = await startCadCore();
-      const entry = makeUiLogEntry("info", "desktop_ui", `start: ${result}`);
-      writeLogToConsole(entry);
-      addLogEntry(entry);
-      addMessage(`start: ${result}`);
+      try {
+        const result = await startCadCore();
+        const entry = makeUiLogEntry("info", "desktop_ui", `start: ${result}`);
+        writeLogToConsole(entry);
+        addLogEntry(entry);
+        addMessage(`start: ${result}`);
+      } catch (error) {
+        const entry = makeUiLogEntry(
+          "error",
+          "desktop_ui",
+          `start failed: ${String(error)}`,
+        );
+        writeLogToConsole(entry);
+        addLogEntry(entry);
+        addMessage(entry.message);
+        setStatus("error");
+      }
     },
     ping: async () => {
       await sendCoreCommand(makePingCommand());
@@ -312,6 +326,10 @@ export function useCadCore() {
     redo: async () => {
       await sendCoreCommand(makeRedoCommand());
       await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    setTimelineCursor: async (includedActionCount: number) => {
+      await sendCoreCommand(makeSetTimelineCursorCommand(includedActionCount));
       await sendCoreCommand(makeGetViewportStateCommand());
     },
     selectFeature: async (featureId: string) => {

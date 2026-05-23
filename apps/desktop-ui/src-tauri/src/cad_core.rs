@@ -1,7 +1,10 @@
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 
 use tauri::{path::BaseDirectory, AppHandle, Emitter, Manager};
 
@@ -19,6 +22,7 @@ pub struct CadCoreProcess {
     #[allow(dead_code)]
     pub child: Child,
     pub stdin: ChildStdin,
+    pub exit_reported: Arc<AtomicBool>,
 }
 
 pub fn cad_core_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -62,8 +66,20 @@ pub fn start_cad_core_process(
 ) -> Result<String, String> {
     let mut guard = state.child.lock().map_err(|e| e.to_string())?;
 
-    if guard.is_some() {
-        return Ok("cad_core already running".to_string());
+    if let Some(process) = guard.as_mut() {
+        match process.child.try_wait() {
+            Ok(Some(status)) => {
+                eprintln!("cad_core exited before restart with status: {status}");
+                *guard = None;
+            }
+            Ok(None) => {
+                return Ok("cad_core already running".to_string());
+            }
+            Err(error) => {
+                eprintln!("failed to inspect cad_core process state: {error}");
+                *guard = None;
+            }
+        }
     }
 
     let core_path = cad_core_path(&app)?;
@@ -91,32 +107,62 @@ pub fn start_cad_core_process(
         .take()
         .ok_or_else(|| "failed to capture cad_core stderr".to_string())?;
 
-    spawn_stdout_thread(app.clone(), stdout);
+    let exit_reported = Arc::new(AtomicBool::new(false));
+
+    spawn_stdout_thread(app.clone(), stdout, Arc::clone(&exit_reported));
     spawn_stderr_thread(app.clone(), stderr);
 
-    *guard = Some(CadCoreProcess { child, stdin });
+    *guard = Some(CadCoreProcess {
+        child,
+        stdin,
+        exit_reported,
+    });
 
     Ok("started".to_string())
 }
 
-pub fn send_core_command(state: tauri::State<CadCoreState>, command: String) -> Result<(), String> {
+pub fn send_core_command(
+    app: AppHandle,
+    state: tauri::State<CadCoreState>,
+    command: String,
+) -> Result<(), String> {
     let mut guard = state.child.lock().map_err(|e| e.to_string())?;
-    let process = guard
-        .as_mut()
-        .ok_or_else(|| "cad_core is not running".to_string())?;
-
-    writeln!(process.stdin, "{command}")
-        .map_err(|e| format!("failed to write command to cad_core: {e}"))?;
-
-    process
-        .stdin
-        .flush()
-        .map_err(|e| format!("failed to flush cad_core stdin: {e}"))?;
+    let result = {
+        let process = guard
+            .as_mut()
+            .ok_or_else(|| "cad_core is not running".to_string())?;
+        writeln!(process.stdin, "{command}")
+            .map_err(|error| format!("failed to write command to cad_core: {error}"))
+            .and_then(|_| {
+                process
+                    .stdin
+                    .flush()
+                    .map_err(|error| format!("failed to flush cad_core stdin: {error}"))
+            })
+    };
+    if let Err(error) = &result {
+        let should_emit = guard
+            .as_ref()
+            .map(|process| !process.exit_reported.swap(true, Ordering::SeqCst))
+            .unwrap_or(true);
+        *guard = None;
+        if should_emit {
+            let _ = app.emit(
+                "cad-core-exited",
+                format!("cad_core command pipe closed: {error}"),
+            );
+        }
+    }
+    result?;
 
     Ok(())
 }
 
-fn spawn_stdout_thread(app: AppHandle, stdout: impl std::io::Read + Send + 'static) {
+fn spawn_stdout_thread(
+    app: AppHandle,
+    stdout: impl std::io::Read + Send + 'static,
+    exit_reported: Arc<AtomicBool>,
+) {
     std::thread::spawn(move || {
         let reader = BufReader::new(stdout);
 
@@ -137,7 +183,19 @@ fn spawn_stdout_thread(app: AppHandle, stdout: impl std::io::Read + Send + 'stat
             }
         }
 
-        let _ = app.emit("cad-core-exited", "cad_core stdout closed");
+        if !exit_reported.swap(true, Ordering::SeqCst) {
+            let state = app.state::<CadCoreState>();
+            if let Ok(mut guard) = state.child.lock() {
+                let is_current_process = guard
+                    .as_ref()
+                    .map(|process| Arc::ptr_eq(&process.exit_reported, &exit_reported))
+                    .unwrap_or(false);
+                if is_current_process {
+                    *guard = None;
+                }
+            }
+            let _ = app.emit("cad-core-exited", "cad_core stdout closed");
+        }
     });
 }
 

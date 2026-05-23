@@ -47,6 +47,10 @@ struct DocumentState {
   std::optional<std::string> selected_sketch_dimension_id;
   std::optional<std::string> selected_sketch_profile_id;
   std::vector<std::string> selected_sketch_profile_ids;
+  // Parametric timeline cursor. nullopt means the cursor is at the end
+  // of history; otherwise the value is the number of non-root actions
+  // included in the viewport rollback preview.
+  std::optional<int> timeline_cursor;
   std::vector<FeatureEntry> feature_history;
   std::vector<ParameterEntry> parameters;
   SelectionFilter selection_filter;
@@ -91,6 +95,7 @@ class DocumentManager {
   DocumentState delete_feature(const std::string& feature_id);
   DocumentState undo();
   DocumentState redo();
+  DocumentState set_timeline_cursor(int included_action_count);
   DocumentState select_feature(const std::string& feature_id);
   DocumentState select_reference(const std::string& reference_id);
   DocumentState select_face(const std::string& face_id);

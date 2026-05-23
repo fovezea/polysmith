@@ -1798,6 +1798,65 @@ void tessellate_shape_to_arrays(const TopoDS_Shape& shape,
   }
 }
 
+bool has_feature_id(const DocumentState& document, const std::string& id) {
+  return std::any_of(document.feature_history.begin(),
+                     document.feature_history.end(),
+                     [&](const FeatureEntry& feature) {
+                       return feature.id == id;
+                     });
+}
+
+DocumentState document_at_timeline_cursor(const DocumentState& source) {
+  if (!source.timeline_cursor.has_value()) {
+    return source;
+  }
+
+  DocumentState snapshot = source;
+  snapshot.feature_history.clear();
+
+  int remaining_actions = std::max(0, source.timeline_cursor.value());
+  for (const auto& feature : source.feature_history) {
+    if (feature.kind == "root_part") {
+      snapshot.feature_history.push_back(feature);
+      continue;
+    }
+    if (remaining_actions <= 0) {
+      continue;
+    }
+    snapshot.feature_history.push_back(feature);
+    --remaining_actions;
+  }
+
+  if (snapshot.selected_feature_id.has_value() &&
+      !has_feature_id(snapshot, snapshot.selected_feature_id.value())) {
+    snapshot.selected_feature_id = std::nullopt;
+  }
+  if (snapshot.selected_reference_id.has_value() &&
+      snapshot.selected_reference_id->rfind("ref-plane-", 0) != 0 &&
+      !has_feature_id(snapshot, snapshot.selected_reference_id.value())) {
+    snapshot.selected_reference_id = std::nullopt;
+  }
+  if (snapshot.active_sketch_feature_id.has_value() &&
+      !has_feature_id(snapshot, snapshot.active_sketch_feature_id.value())) {
+    snapshot.active_sketch_feature_id = std::nullopt;
+    snapshot.active_sketch_plane_id = std::nullopt;
+    snapshot.active_sketch_face_id = std::nullopt;
+    snapshot.active_sketch_tool = std::nullopt;
+    snapshot.selected_sketch_point_id = std::nullopt;
+    snapshot.selected_sketch_entity_id = std::nullopt;
+    snapshot.selected_sketch_dimension_id = std::nullopt;
+    snapshot.selected_sketch_profile_id = std::nullopt;
+    snapshot.selected_sketch_point_ids.clear();
+    snapshot.selected_sketch_entity_ids.clear();
+    snapshot.selected_sketch_profile_ids.clear();
+  }
+  snapshot.selected_face_id = std::nullopt;
+  snapshot.selected_edge_ids.clear();
+  snapshot.selected_vertex_ids.clear();
+
+  return snapshot;
+}
+
 }  // namespace
 
 ViewportState build_viewport_state(const std::optional<DocumentState>& document) {
@@ -1840,6 +1899,10 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
     };
   }
 
+  const DocumentState viewport_document =
+      document_at_timeline_cursor(document.value());
+  const DocumentState* view = &viewport_document;
+
   std::vector<ViewportBoxPrimitive> boxes;
   std::vector<ViewportCylinderPrimitive> cylinders;
   std::vector<ViewportPolygonExtrudePrimitive> polygon_extrudes;
@@ -1872,7 +1935,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
   // emission below to avoid double-rendering. Failures in OCCT booleans
   // produce empty meshes — see body_compiler.cpp — so legacy fallback
   // still renders something.
-  CompiledBodies compiled_bodies = compile_bodies(document.value());
+  CompiledBodies compiled_bodies = compile_bodies(*view);
   for (const auto& body_mesh : compiled_bodies.meshes) {
     ViewportMeshPrimitive mesh{};
     mesh.id = body_mesh.body_id;
@@ -1880,8 +1943,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
     mesh.normals = body_mesh.normals;
     mesh.indices = body_mesh.indices;
     mesh.is_selected =
-        document->selected_feature_id.has_value() &&
-        document->selected_feature_id.value() == body_mesh.body_id;
+        view->selected_feature_id.has_value() &&
+        view->selected_feature_id.value() == body_mesh.body_id;
     meshes.push_back(std::move(mesh));
   }
   const std::set<std::string>& consumed = compiled_bodies.consumed_feature_ids;
@@ -1893,9 +1956,9 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
   // booleaned body itself already renders the post-cut shape via
   // `meshes`. We only emit the preview while the feature is the
   // currently-selected one to avoid clutter on saved documents.
-  if (document->selected_feature_id.has_value()) {
-    for (const auto& feature : document->feature_history) {
-      if (feature.id != document->selected_feature_id.value()) {
+  if (view->selected_feature_id.has_value()) {
+    for (const auto& feature : view->feature_history) {
+      if (feature.id != view->selected_feature_id.value()) {
         continue;
       }
       if (feature.kind != "extrude" ||
@@ -1932,7 +1995,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
   // itself so the picker is always populated.
   for (const auto& body : compiled_bodies.bodies) {
     std::string label = body.id;
-    for (const auto& feature : document->feature_history) {
+    for (const auto& feature : view->feature_history) {
       if (feature.id == body.id && !feature.name.empty()) {
         label = feature.name;
         break;
@@ -1950,16 +2013,16 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
         body.pick_shape.IsNull() ? body.shape : body.pick_shape;
     enumerate_body_edges(edge_pick_shape,
                          body.id,
-                         document->selected_edge_ids,
+                         view->selected_edge_ids,
                          edges);
     enumerate_body_vertices(body.shape,
                             body.id,
-                            document->selected_vertex_ids,
+                            view->selected_vertex_ids,
                             vertices);
     // Look up the body's owning feature kind so the face's owner_kind
     // stays useful to consumers (the UI uses it to label faces).
     std::string body_kind;
-    for (const auto& feature : document->feature_history) {
+    for (const auto& feature : view->feature_history) {
       if (feature.id == body.id) {
         body_kind = feature.kind;
         break;
@@ -1974,12 +2037,12 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
       enumerate_body_faces(body.shape,
                            body.id,
                            body_kind,
-                           document->selected_face_id,
+                           view->selected_face_id,
                            solid_faces);
     }
   }
 
-  for (const auto& feature : document->feature_history) {
+  for (const auto& feature : view->feature_history) {
     // Suppressed features are excluded from every viewport-visible
     // emission path: legacy primitives, sketch overlays, body-derived
     // faces (already excluded via body_compiler skipping them). The UI
@@ -1988,8 +2051,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
       continue;
     }
     const bool is_selected =
-        document->selected_feature_id.has_value() &&
-        document->selected_feature_id.value() == feature.id;
+        view->selected_feature_id.has_value() &&
+        view->selected_feature_id.value() == feature.id;
     const bool feature_consumed_by_boolean =
         consumed.find(feature.id) != consumed.end();
 
@@ -2037,8 +2100,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
           parameters.width,
           parameters.depth,
           0.0,
-          document->selected_face_id.has_value() &&
-              document->selected_face_id.value() == feature.id + ":face:top"));
+          view->selected_face_id.has_value() &&
+              view->selected_face_id.value() == feature.id + ":face:top"));
       solid_faces.push_back(make_solid_face(
           feature.id,
           feature.kind,
@@ -2066,8 +2129,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
           parameters.width,
           parameters.depth,
           0.0,
-          document->selected_face_id.has_value() &&
-              document->selected_face_id.value() == feature.id + ":face:bottom"));
+          view->selected_face_id.has_value() &&
+              view->selected_face_id.value() == feature.id + ":face:bottom"));
       solid_faces.push_back(make_solid_face(
           feature.id,
           feature.kind,
@@ -2095,8 +2158,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
           parameters.width,
           parameters.height,
           0.0,
-          document->selected_face_id.has_value() &&
-              document->selected_face_id.value() == feature.id + ":face:front"));
+          view->selected_face_id.has_value() &&
+              view->selected_face_id.value() == feature.id + ":face:front"));
       solid_faces.push_back(make_solid_face(
           feature.id,
           feature.kind,
@@ -2124,8 +2187,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
           parameters.width,
           parameters.height,
           0.0,
-          document->selected_face_id.has_value() &&
-              document->selected_face_id.value() == feature.id + ":face:back"));
+          view->selected_face_id.has_value() &&
+              view->selected_face_id.value() == feature.id + ":face:back"));
       solid_faces.push_back(make_solid_face(
           feature.id,
           feature.kind,
@@ -2153,8 +2216,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
           parameters.height,
           parameters.depth,
           0.0,
-          document->selected_face_id.has_value() &&
-              document->selected_face_id.value() == feature.id + ":face:right"));
+          view->selected_face_id.has_value() &&
+              view->selected_face_id.value() == feature.id + ":face:right"));
       solid_faces.push_back(make_solid_face(
           feature.id,
           feature.kind,
@@ -2182,8 +2245,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
           parameters.height,
           parameters.depth,
           0.0,
-          document->selected_face_id.has_value() &&
-              document->selected_face_id.value() == feature.id + ":face:left"));
+          view->selected_face_id.has_value() &&
+              view->selected_face_id.value() == feature.id + ":face:left"));
 
       current_x_offset += parameters.width + kBoxSpacing;
       scene_width = std::max(scene_width, current_x_offset - kBoxSpacing);
@@ -2241,8 +2304,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
           diameter,
           diameter,
           parameters.radius,
-          document->selected_face_id.has_value() &&
-              document->selected_face_id.value() == feature.id + ":face:top"));
+          view->selected_face_id.has_value() &&
+              view->selected_face_id.value() == feature.id + ":face:top"));
       solid_faces.push_back(make_solid_face(
           feature.id,
           feature.kind,
@@ -2270,8 +2333,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
           diameter,
           diameter,
           parameters.radius,
-          document->selected_face_id.has_value() &&
-              document->selected_face_id.value() == feature.id + ":face:bottom"));
+          view->selected_face_id.has_value() &&
+              view->selected_face_id.value() == feature.id + ":face:bottom"));
 
       current_x_offset += diameter + kBoxSpacing;
       scene_width = std::max(scene_width, current_x_offset - kBoxSpacing);
@@ -2376,8 +2439,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
               face_width,
               face_height,
               0.0,
-              document->selected_face_id.has_value() &&
-                  document->selected_face_id.value() == feature.id + ":face:base"));
+              view->selected_face_id.has_value() &&
+                  view->selected_face_id.value() == feature.id + ":face:base"));
         } else if (parameters.plane_id == "ref-plane-xy") {
           boxes.push_back(ViewportBoxPrimitive{
               .id = feature.id,
@@ -2478,8 +2541,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
             face_width,
             face_height,
             0.0,
-            document->selected_face_id.has_value() &&
-                document->selected_face_id.value() == feature.id + ":face:top"));
+            view->selected_face_id.has_value() &&
+                view->selected_face_id.value() == feature.id + ":face:top"));
 
         if (parameters.plane_frame.has_value()) {
           const auto& frame = parameters.plane_frame.value();
@@ -2531,8 +2594,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
               parameters.height,
               parameters.depth,
               0.0,
-              document->selected_face_id.has_value() &&
-                  document->selected_face_id.value() == feature.id + ":face:left"));
+              view->selected_face_id.has_value() &&
+                  view->selected_face_id.value() == feature.id + ":face:left"));
 
           solid_faces.push_back(make_solid_face(
               feature.id,
@@ -2556,8 +2619,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
               parameters.height,
               parameters.depth,
               0.0,
-              document->selected_face_id.has_value() &&
-                  document->selected_face_id.value() == feature.id + ":face:right"));
+              view->selected_face_id.has_value() &&
+                  view->selected_face_id.value() == feature.id + ":face:right"));
 
           solid_faces.push_back(make_solid_face(
               feature.id,
@@ -2581,8 +2644,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
               parameters.width,
               parameters.depth,
               0.0,
-              document->selected_face_id.has_value() &&
-                  document->selected_face_id.value() == feature.id + ":face:front"));
+              view->selected_face_id.has_value() &&
+                  view->selected_face_id.value() == feature.id + ":face:front"));
 
           solid_faces.push_back(make_solid_face(
               feature.id,
@@ -2606,8 +2669,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
               parameters.width,
               parameters.depth,
               0.0,
-              document->selected_face_id.has_value() &&
-                  document->selected_face_id.value() == feature.id + ":face:back"));
+              view->selected_face_id.has_value() &&
+                  view->selected_face_id.value() == feature.id + ":face:back"));
         }
       } else if (parameters.profile_kind == "polygon") {
         polygon_extrudes.push_back(ViewportPolygonExtrudePrimitive{
@@ -2714,8 +2777,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
               face_width,
               face_height,
               0.0,
-              document->selected_face_id.has_value() &&
-                  document->selected_face_id.value() == feature.id + ":face:base"));
+              view->selected_face_id.has_value() &&
+                  view->selected_face_id.value() == feature.id + ":face:base"));
         } else if (parameters.plane_id == "ref-plane-yz") {
           face_center_x = parameters.depth;
           face_center_y = (min_y + max_y) / 2.0;
@@ -2764,8 +2827,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
             face_width,
             face_height,
             0.0,
-            document->selected_face_id.has_value() &&
-                document->selected_face_id.value() == feature.id + ":face:top"));
+            view->selected_face_id.has_value() &&
+                view->selected_face_id.value() == feature.id + ":face:top"));
 
         if (parameters.plane_frame.has_value() &&
             parameters.profile_points.size() >= 3) {
@@ -2825,8 +2888,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
                 edge_length,
                 parameters.depth,
                 0.0,
-                document->selected_face_id.has_value() &&
-                    document->selected_face_id.value() ==
+                view->selected_face_id.has_value() &&
+                    view->selected_face_id.value() ==
                         feature.id + ":face:side-" + std::to_string(index)));
           }
         }
@@ -2886,8 +2949,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
             parameters.radius * 2.0,
             parameters.radius * 2.0,
             parameters.radius,
-            document->selected_face_id.has_value() &&
-                document->selected_face_id.value() == feature.id + ":face:top"));
+            view->selected_face_id.has_value() &&
+                view->selected_face_id.value() == feature.id + ":face:top"));
       }
       continue;
     }
@@ -2920,26 +2983,26 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
       }
 
       const auto is_sketch_entity_selected = [&](const std::string& id) {
-        if (!document->selected_sketch_entity_ids.empty()) {
-          return std::find(document->selected_sketch_entity_ids.begin(),
-                           document->selected_sketch_entity_ids.end(),
-                           id) != document->selected_sketch_entity_ids.end();
+        if (!view->selected_sketch_entity_ids.empty()) {
+          return std::find(view->selected_sketch_entity_ids.begin(),
+                           view->selected_sketch_entity_ids.end(),
+                           id) != view->selected_sketch_entity_ids.end();
         }
-        return document->selected_sketch_entity_id.has_value() &&
-               document->selected_sketch_entity_id.value() == id;
+        return view->selected_sketch_entity_id.has_value() &&
+               view->selected_sketch_entity_id.value() == id;
       };
       const auto is_sketch_point_selected = [&](const std::string& id) {
-        if (!document->selected_sketch_point_ids.empty()) {
-          return std::find(document->selected_sketch_point_ids.begin(),
-                           document->selected_sketch_point_ids.end(),
-                           id) != document->selected_sketch_point_ids.end();
+        if (!view->selected_sketch_point_ids.empty()) {
+          return std::find(view->selected_sketch_point_ids.begin(),
+                           view->selected_sketch_point_ids.end(),
+                           id) != view->selected_sketch_point_ids.end();
         }
-        return document->selected_sketch_point_id.has_value() &&
-               document->selected_sketch_point_id.value() == id;
+        return view->selected_sketch_point_id.has_value() &&
+               view->selected_sketch_point_id.value() == id;
       };
       std::unordered_set<std::string> relation_constraint_line_ids;
-      if (document->active_sketch_feature_id.has_value() &&
-          document->active_sketch_feature_id.value() == feature.id) {
+      if (view->active_sketch_feature_id.has_value() &&
+          view->active_sketch_feature_id.value() == feature.id) {
         for (const auto& relation : feature.sketch_parameters->line_relations) {
           if (relation.kind == "equal_length" ||
               relation.kind == "perpendicular" ||
@@ -2960,8 +3023,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
             make_sketch_line_primitive(line,
                                        *feature.sketch_parameters,
                                        is_selected_sketch_entity));
-        if (document->active_sketch_feature_id.has_value() &&
-            document->active_sketch_feature_id.value() == feature.id) {
+        if (view->active_sketch_feature_id.has_value() &&
+            view->active_sketch_feature_id.value() == feature.id) {
           const auto dimension_it = std::find_if(
               feature.sketch_parameters->dimensions.begin(),
               feature.sketch_parameters->dimensions.end(),
@@ -2971,8 +3034,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
               });
           if (dimension_it != feature.sketch_parameters->dimensions.end()) {
             const bool is_selected_dimension =
-                document->selected_sketch_dimension_id.has_value() &&
-                document->selected_sketch_dimension_id.value() == dimension_it->id;
+                view->selected_sketch_dimension_id.has_value() &&
+                view->selected_sketch_dimension_id.value() == dimension_it->id;
             sketch_dimensions.push_back(make_line_dimension_primitive(
                 line,
                 *dimension_it,
@@ -2989,8 +3052,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
               });
           if (angle_dimension_it != feature.sketch_parameters->dimensions.end()) {
             const bool is_selected_angle_dim =
-                document->selected_sketch_dimension_id.has_value() &&
-                document->selected_sketch_dimension_id.value() ==
+                view->selected_sketch_dimension_id.has_value() &&
+                view->selected_sketch_dimension_id.value() ==
                     angle_dimension_it->id;
             sketch_dimensions.push_back(make_line_angle_dimension_primitive(
                 line,
@@ -3012,8 +3075,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
         }
       }
 
-      if (document->active_sketch_feature_id.has_value() &&
-          document->active_sketch_feature_id.value() == feature.id) {
+      if (view->active_sketch_feature_id.has_value() &&
+          view->active_sketch_feature_id.value() == feature.id) {
         for (const auto& relation : feature.sketch_parameters->line_relations) {
           if (relation.kind != "equal_length" &&
               relation.kind != "perpendicular" &&
@@ -3183,8 +3246,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
             continue;
           }
           const bool is_selected_dimension =
-              document->selected_sketch_dimension_id.has_value() &&
-              document->selected_sketch_dimension_id.value() == dimension.id;
+              view->selected_sketch_dimension_id.has_value() &&
+              view->selected_sketch_dimension_id.value() == dimension.id;
           sketch_dimensions.push_back(make_angle_dimension_primitive(
               *line_a_it,
               *line_b_it,
@@ -3196,8 +3259,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
         for (const auto& dimension :
              feature.sketch_parameters->dimensions) {
           const bool is_selected_dimension =
-              document->selected_sketch_dimension_id.has_value() &&
-              document->selected_sketch_dimension_id.value() == dimension.id;
+              view->selected_sketch_dimension_id.has_value() &&
+              view->selected_sketch_dimension_id.value() == dimension.id;
           if (dimension.kind == "circle_center_distance") {
             const auto driven_circle_it = std::find_if(
                 feature.sketch_parameters->circles.begin(),
@@ -3314,8 +3377,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
             circle,
             *feature.sketch_parameters,
             is_selected_sketch_entity));
-        if (document->active_sketch_feature_id.has_value() &&
-            document->active_sketch_feature_id.value() == feature.id) {
+        if (view->active_sketch_feature_id.has_value() &&
+            view->active_sketch_feature_id.value() == feature.id) {
           const auto dimension_it = std::find_if(
               feature.sketch_parameters->dimensions.begin(),
               feature.sketch_parameters->dimensions.end(),
@@ -3325,8 +3388,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
               });
           if (dimension_it != feature.sketch_parameters->dimensions.end()) {
             const bool is_selected_dimension =
-                document->selected_sketch_dimension_id.has_value() &&
-                document->selected_sketch_dimension_id.value() == dimension_it->id;
+                view->selected_sketch_dimension_id.has_value() &&
+                view->selected_sketch_dimension_id.value() == dimension_it->id;
             sketch_dimensions.push_back(make_circle_dimension_primitive(
                 circle,
                 *dimension_it,
@@ -3342,8 +3405,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
         sketch_polygons.push_back(make_sketch_polygon_primitive(
             polygon, *feature.sketch_parameters, is_selected_polygon));
         // Emit polygon radius dimension
-        if (document->active_sketch_feature_id.has_value() &&
-            document->active_sketch_feature_id.value() == feature.id) {
+        if (view->active_sketch_feature_id.has_value() &&
+            view->active_sketch_feature_id.value() == feature.id) {
           const auto dim_it = std::find_if(
               feature.sketch_parameters->dimensions.begin(),
               feature.sketch_parameters->dimensions.end(),
@@ -3352,8 +3415,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
               });
           if (dim_it != feature.sketch_parameters->dimensions.end()) {
             const bool is_selected_dim =
-                document->selected_sketch_dimension_id.has_value() &&
-                document->selected_sketch_dimension_id.value() == dim_it->id;
+                view->selected_sketch_dimension_id.has_value() &&
+                view->selected_sketch_dimension_id.value() == dim_it->id;
             const WorldPoint pc = to_world_point(*feature.sketch_parameters, polygon.center_x, polygon.center_y);
             const WorldPoint pd = to_world_point(*feature.sketch_parameters, polygon.center_x + polygon.radius, polygon.center_y);
             sketch_dimensions.push_back(ViewportSketchDimensionPrimitive{
@@ -3373,8 +3436,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
         }
       }
 
-      if (document->active_sketch_feature_id.has_value() &&
-          document->active_sketch_feature_id.value() == feature.id) {
+      if (view->active_sketch_feature_id.has_value() &&
+          view->active_sketch_feature_id.value() == feature.id) {
         for (const auto& point : feature.sketch_parameters->points) {
           const bool is_selected_point =
               is_sketch_point_selected(point.id);
@@ -3389,19 +3452,19 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
 
       for (const auto& rectangle : profiles.polygons) {
         const bool is_selected_profile =
-            std::find(document->selected_sketch_profile_ids.begin(),
-                      document->selected_sketch_profile_ids.end(),
-                      rectangle.id) != document->selected_sketch_profile_ids.end();
+            std::find(view->selected_sketch_profile_ids.begin(),
+                      view->selected_sketch_profile_ids.end(),
+                      rectangle.id) != view->selected_sketch_profile_ids.end();
         sketch_profiles.push_back(
             make_rectangle_profile_primitive(rectangle, is_selected_profile));
       }
 
       for (const auto& circle_profile : profiles.circles) {
         const bool is_selected_profile =
-            std::find(document->selected_sketch_profile_ids.begin(),
-                      document->selected_sketch_profile_ids.end(),
+            std::find(view->selected_sketch_profile_ids.begin(),
+                      view->selected_sketch_profile_ids.end(),
                       circle_profile.id) !=
-            document->selected_sketch_profile_ids.end();
+            view->selected_sketch_profile_ids.end();
         sketch_profiles.push_back(
             make_circle_profile_primitive(circle_profile, is_selected_profile));
       }
@@ -3426,10 +3489,10 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
       .center_z = reference_extent / 2.0,
       .width = reference_extent,
       .height = reference_extent,
-      .is_selected = document->selected_reference_id.has_value() &&
-                     document->selected_reference_id.value() == "ref-plane-xy",
-      .is_active_sketch_plane = document->active_sketch_plane_id.has_value() &&
-                                document->active_sketch_plane_id.value() ==
+      .is_selected = view->selected_reference_id.has_value() &&
+                     view->selected_reference_id.value() == "ref-plane-xy",
+      .is_active_sketch_plane = view->active_sketch_plane_id.has_value() &&
+                                view->active_sketch_plane_id.value() ==
                                     "ref-plane-xy",
   });
   reference_planes.push_back(ViewportReferencePlane{
@@ -3441,10 +3504,10 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
       .center_z = reference_extent / 2.0,
       .width = reference_extent,
       .height = reference_extent,
-      .is_selected = document->selected_reference_id.has_value() &&
-                     document->selected_reference_id.value() == "ref-plane-yz",
-      .is_active_sketch_plane = document->active_sketch_plane_id.has_value() &&
-                                document->active_sketch_plane_id.value() ==
+      .is_selected = view->selected_reference_id.has_value() &&
+                     view->selected_reference_id.value() == "ref-plane-yz",
+      .is_active_sketch_plane = view->active_sketch_plane_id.has_value() &&
+                                view->active_sketch_plane_id.value() ==
                                     "ref-plane-yz",
   });
   reference_planes.push_back(ViewportReferencePlane{
@@ -3456,10 +3519,10 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
       .center_z = 0.0,
       .width = reference_extent,
       .height = reference_extent,
-      .is_selected = document->selected_reference_id.has_value() &&
-                     document->selected_reference_id.value() == "ref-plane-xz",
-      .is_active_sketch_plane = document->active_sketch_plane_id.has_value() &&
-                                document->active_sketch_plane_id.value() ==
+      .is_selected = view->selected_reference_id.has_value() &&
+                     view->selected_reference_id.value() == "ref-plane-xz",
+      .is_active_sketch_plane = view->active_sketch_plane_id.has_value() &&
+                                view->active_sketch_plane_id.value() ==
                                     "ref-plane-xz",
   });
 
@@ -3504,7 +3567,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
   // working unchanged. Construction planes ship the cached world-space
   // `plane_frame`; the renderer uses it instead of the legacy
   // orientation rotation.
-  for (const auto& feature : document->feature_history) {
+  for (const auto& feature : view->feature_history) {
     if (feature.suppressed) {
       continue;
     }
@@ -3523,11 +3586,11 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
         .width = kReferencePlaneSize,
         .height = kReferencePlaneSize,
         .is_selected =
-            document->selected_reference_id.has_value() &&
-            document->selected_reference_id.value() == feature.id,
+            view->selected_reference_id.has_value() &&
+            view->selected_reference_id.value() == feature.id,
         .is_active_sketch_plane =
-            document->active_sketch_plane_id.has_value() &&
-            document->active_sketch_plane_id.value() == feature.id,
+            view->active_sketch_plane_id.has_value() &&
+            view->active_sketch_plane_id.value() == feature.id,
         .plane_frame = params.plane_frame,
     });
   }

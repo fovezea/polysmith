@@ -1,10 +1,34 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
-import { awaitDocumentChange, awaitDocumentExport, useCadCoreStore } from "./state";
+import {
+  awaitDocumentChange,
+  awaitDocumentExport,
+  awaitDocumentSaved,
+  useCadCoreStore,
+} from "./state";
 import { useCadCore } from "./hooks";
-import { findDependents, matchesHotkey, useAppConfig } from "./lib";
+import {
+  createProjectFolder,
+  deleteProjectFolder,
+  deleteProjectFile,
+  findDependents,
+  loadRecentProjects,
+  matchesHotkey,
+  moveProjectToFolder,
+  projectFileExists,
+  projectNameFromPath,
+  readProjectThumbnail,
+  removeProjectFromRecentProjects,
+  renameProjectFolder,
+  renameRecentProject,
+  saveRecentProjects,
+  upsertRecentProject,
+  useAppConfig,
+  writeProjectThumbnail,
+} from "./lib";
 import {
   embedOrcaWindow,
   hideOrcaWindow,
@@ -30,10 +54,13 @@ import {
   SettingsModal,
   SelectionFilterPanel,
   ViewportPanel,
+  ProjectsPanel,
 } from "./layout";
 import type { CategoryId } from "./layout";
 import { ArmedSketchConstraint } from "./types";
 import type { ExtrudeMode } from "./types";
+import type { DocumentState } from "./types/ipc";
+import type { RecentProject, RecentProjectsDocument } from "./lib";
 
 const DEFAULT_EXTRUDE_DEPTH = 20;
 const DEFAULT_FILLET_RADIUS = 1;
@@ -50,6 +77,23 @@ const SHOW_DEBUG_MESSAGE_LOG =
   import.meta.env.VITE_SHOW_DEBUG_MESSAGE_LOG === "true";
 
 type WorkspaceView = "cad" | "slicer";
+type SidebarTab = "hierarchy" | "projects";
+type PendingUnsavedAction =
+  | { kind: "quit" }
+  | { kind: "new" }
+  | { kind: "newProject"; parentFolderId: string | null }
+  | { kind: "load"; filePath: string };
+interface SavedDocumentBaseline {
+  documentId: string;
+  revision: number;
+}
+const EMPTY_RECENT_PROJECTS_DOCUMENT: RecentProjectsDocument = {
+  version: 3,
+  rootFolderIds: [],
+  rootProjectPaths: [],
+  folders: [],
+  projects: [],
+};
 const IS_MACOS =
   typeof navigator !== "undefined" &&
   navigator.platform.toLowerCase().includes("mac");
@@ -60,6 +104,30 @@ const STANDALONE_SLICER_BOUNDS: SlicerViewportBounds = {
   height: 1,
   scaleFactor: 1,
 };
+const BODY_KINDS = new Set(["box", "cylinder", "polygon_extrude", "extrude"]);
+
+function documentHasSolidBody(documentState: DocumentState | null) {
+  return (documentState?.feature_history ?? []).some(
+    (feature) =>
+      BODY_KINDS.has(feature.kind) &&
+      feature.suppressed !== true &&
+      feature.status !== "warning" &&
+      feature.dependency_broken !== true,
+  );
+}
+
+function defaultHiddenSketchIdsForLoadedDocument(documentState: DocumentState) {
+  const next = new Set<string>();
+  if (!documentHasSolidBody(documentState)) {
+    return next;
+  }
+  for (const feature of documentState.feature_history) {
+    if (feature.kind === "sketch") {
+      next.add(feature.feature_id);
+    }
+  }
+  return next;
+}
 
 interface ActiveExtrudeAction {
   phase: "pending" | "active";
@@ -229,14 +297,34 @@ function App() {
   // here. `null` means the panel is closed. Triggered by a
   // double-click in the timeline (see `onEditFeature` below).
   const [editingFeatureId, setEditingFeatureId] = useState<string | null>(null);
+  const restoreTimelineCursorAfterEditRef = useRef(false);
+  const [timelineEditVisibleFeatureIds, setTimelineEditVisibleFeatureIds] =
+    useState<Set<string>>(() => new Set<string>());
   const [hiddenFeatureIds, setHiddenFeatureIds] = useState<Set<string>>(
     () => new Set<string>(),
   );
   const [hiddenCategories, setHiddenCategories] = useState<Set<CategoryId>>(
     () => new Set<CategoryId>(),
   );
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>("hierarchy");
+  const [recentProjectsDocument, setRecentProjectsDocument] =
+    useState<RecentProjectsDocument>(EMPTY_RECENT_PROJECTS_DOCUMENT);
+  const recentProjectsDocumentRef = useRef<RecentProjectsDocument>(
+    EMPTY_RECENT_PROJECTS_DOCUMENT,
+  );
+  recentProjectsDocumentRef.current = recentProjectsDocument;
+  const [currentProjectPath, setCurrentProjectPath] = useState<string | null>(
+    null,
+  );
+  const [savedDocumentBaseline, setSavedDocumentBaseline] =
+    useState<SavedDocumentBaseline | null>(null);
+  const [pendingUnsavedAction, setPendingUnsavedAction] =
+    useState<PendingUnsavedAction | null>(null);
   const originVisibilityManuallyChangedRef = useRef(false);
   const previousDocumentIdRef = useRef<string | null>(null);
+  const snapshotCaptureRef = useRef<(() => string | null) | null>(null);
+  const allowAppCloseRef = useRef(false);
+  const isDocumentDirtyRef = useRef(false);
   // Hierarchy sidebar layout. Collapsed: shown as a thin vertical bar
   // labelled "Hierarchy" on the left edge. Width is user-resizable
   // via a drag handle on the sidebar's right edge.
@@ -302,6 +390,26 @@ function App() {
     document?.feature_history.find(
       (entry) => entry.feature_id === document?.active_sketch_feature_id,
     ) ?? null;
+  const hasDocumentContent = useMemo(() => {
+    if (!document) {
+      return false;
+    }
+    return (
+      document.feature_history.some(
+        (feature) => feature.kind !== "root_part",
+      ) || document.parameters.length > 0
+    );
+  }, [document]);
+  const isDocumentDirty =
+    document !== null &&
+    (hasDocumentContent || currentProjectPath !== null) &&
+    (savedDocumentBaseline?.documentId !== document.document_id ||
+      savedDocumentBaseline.revision !== document.revision);
+  isDocumentDirtyRef.current = isDocumentDirty;
+  const currentDocumentName = currentProjectPath
+    ? projectNameFromPath(currentProjectPath)
+    : document?.name || t("documentStatus.untitled");
+  const windowDocumentTitle = `${currentDocumentName}${isDocumentDirty ? "*" : ""} - Polysmith`;
   const pendingMirror =
     activeSketchFeature?.sketch_parameters?.pending_mirror ?? null;
   const isMirrorToolOpen = pendingMirror !== null;
@@ -398,6 +506,7 @@ function App() {
     deleteFeature,
     undo,
     redo,
+    setTimelineCursor,
     selectFeature,
     selectReference,
     selectFace,
@@ -463,8 +572,38 @@ function App() {
     updateSelectionFilter,
   } = useCadCore();
 
+  function clearTimelineEditVisibility() {
+    setTimelineEditVisibleFeatureIds((current) =>
+      current.size === 0 ? current : new Set<string>(),
+    );
+  }
+
+  function beginTimelineEditSession(featureId: string, featureKind: string) {
+    restoreTimelineCursorAfterEditRef.current = document?.timeline_cursor === null;
+    if (featureKind === "sketch") {
+      setTimelineEditVisibleFeatureIds(new Set([featureId]));
+      return;
+    }
+    clearTimelineEditVisibility();
+  }
+
+  async function restoreTimelineCursorAfterEdit() {
+    clearTimelineEditVisibility();
+    if (!restoreTimelineCursorAfterEditRef.current) {
+      return;
+    }
+    restoreTimelineCursorAfterEditRef.current = false;
+    const latestDocument = useCadCoreStore.getState().document ?? document;
+    const actionCount =
+      latestDocument?.feature_history.filter(
+        (feature) => feature.kind !== "root_part",
+      ).length ?? 0;
+    await setTimelineCursor(actionCount);
+  }
+
   useEffect(() => {
     if (!activeSketchPlaneId) {
+      clearTimelineEditVisibility();
       setArmedSketchConstraint(null);
       // Mirror tool is sketch-scoped: if the user finishes the
       // sketch (or the active sketch otherwise becomes null) we
@@ -508,14 +647,12 @@ function App() {
     }
   }, [activeSketchTool, activeSketchPlaneId, sketchFilletAction]);
 
-  // Auto-startup: launch the native core as soon as the UI mounts and,
-  // once the core is connected, create an empty document so the user
-  // lands on a working canvas instead of an "offline" splash. Both
-  // calls are gated by status so a failed start (status === "error")
-  // doesn't loop, and the document creation only fires on the
-  // idle -> connected transition.
+  // Auto-startup and crash recovery: launch the native core as soon as
+  // the UI mounts, and relaunch it after an unexpected process exit.
+  // `handleCoreStopped` clears the stale document snapshot, so a
+  // successfully restarted core lands on a fresh untitled document.
   useEffect(() => {
-    if (status === "idle") {
+    if (status === "idle" || status === "stopped") {
       void start();
       return;
     }
@@ -524,21 +661,90 @@ function App() {
     }
   }, [status, document, start, createDocument]);
 
+  useEffect(() => {
+    if (status !== "stopped") {
+      return;
+    }
+    setCurrentProjectPath(null);
+    setSavedDocumentBaseline(null);
+    setPendingUnsavedAction(null);
+    setHiddenFeatureIds(new Set<string>());
+    setHiddenCategories(new Set<CategoryId>());
+    originVisibilityManuallyChangedRef.current = false;
+  }, [status]);
+
+  useEffect(() => {
+    let canceled = false;
+    void loadRecentProjects()
+      .then((projectsDocument) => {
+        if (!canceled) {
+          recentProjectsDocumentRef.current = projectsDocument;
+          setRecentProjectsDocument(projectsDocument);
+        }
+      })
+      .catch((error) => {
+        addMessage(`recent projects load error: ${String(error)}`);
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [addMessage]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let disposed = false;
+    void getCurrentWindow()
+      .onCloseRequested((event) => {
+        if (allowAppCloseRef.current || !isDocumentDirtyRef.current) {
+          return;
+        }
+        event.preventDefault();
+        setPendingUnsavedAction({ kind: "quit" });
+      })
+      .then((nextUnlisten) => {
+        if (disposed) {
+          nextUnlisten();
+          return;
+        }
+        unlisten = nextUnlisten;
+      });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    void getCurrentWindow()
+      .setTitle(windowDocumentTitle)
+      .catch((error) => {
+        addMessage(`window title error: ${String(error)}`);
+      });
+  }, [windowDocumentTitle, addMessage]);
+
+  useEffect(() => {
+    function handleBeforeUnload(event: BeforeUnloadEvent) {
+      if (!isDocumentDirty) {
+        return;
+      }
+      event.preventDefault();
+      event.returnValue = "";
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [isDocumentDirty]);
+
   // UI-only visibility: combine per-feature hides with category hides into
   // sets the viewport can use to filter primitives, sketch entities, and
-  // reference geometry. Sketch entities are filtered by plane id since the
-  // viewport snapshot does not carry the owning sketch feature id on each
-  // sketch primitive.
-  const BODY_KINDS = new Set(["box", "cylinder", "polygon_extrude", "extrude"]);
+  // reference geometry. Timeline sketch edits can temporarily force their
+  // sketch visible without changing the user's saved visibility choices.
+  // Sketch entities are filtered by plane id since the viewport snapshot
+  // does not carry the owning sketch feature id on each sketch primitive.
   const hasSolidBody = useMemo(
-    () =>
-      (document?.feature_history ?? []).some(
-        (feature) =>
-          BODY_KINDS.has(feature.kind) &&
-          feature.suppressed !== true &&
-          feature.status !== "warning" &&
-          feature.dependency_broken !== true,
-      ),
+    () => documentHasSolidBody(document),
     [document],
   );
   const hasExportableBody = (viewport?.bodies.length ?? 0) > 0;
@@ -606,8 +812,11 @@ function App() {
         set.add(feature.feature_id);
       }
     }
+    for (const featureId of timelineEditVisibleFeatureIds) {
+      set.delete(featureId);
+    }
     return set;
-  }, [document, hiddenFeatureIds, hiddenCategories]);
+  }, [document, hiddenFeatureIds, hiddenCategories, timelineEditVisibleFeatureIds]);
 
   const hiddenSketchPlaneIds = useMemo(() => {
     const result = new Set<string>();
@@ -1130,6 +1339,19 @@ function App() {
       }
 
       if (
+        event.code === "KeyS" &&
+        (IS_MACOS ? event.metaKey : event.ctrlKey) &&
+        !event.altKey &&
+        !event.shiftKey
+      ) {
+        event.preventDefault();
+        void runAction(async () => {
+          await saveCurrentDocument();
+        });
+        return;
+      }
+
+      if (
         event.code === "Escape" &&
         !activeSketchPlaneId &&
         !extrudeAction &&
@@ -1239,6 +1461,8 @@ function App() {
     config.hotkeys.global,
     config.hotkeys.toolbar,
     config.hotkeys.sketchToolbar.createSketch,
+    document,
+    currentProjectPath,
   ]);
 
   function clearArmedSketchConstraint() {
@@ -1424,6 +1648,248 @@ function App() {
       return null;
     }
     return result;
+  }
+
+  async function recordRecentProject(
+    filePath: string,
+    thumbnailDataUrl: string | null,
+    parentFolderId?: string | null,
+  ) {
+    const baseDocument = recentProjectsDocumentRef.current;
+    const existing = baseDocument.projects.find(
+      (project) => project.path === filePath,
+    );
+    const nextProjectsDocument = upsertRecentProject(baseDocument, {
+      path: filePath,
+      name: existing?.name,
+      thumbnailDataUrl: thumbnailDataUrl ?? existing?.thumbnailDataUrl ?? null,
+      parentFolderId,
+    });
+    recentProjectsDocumentRef.current = nextProjectsDocument;
+    setRecentProjectsDocument(nextProjectsDocument);
+    await saveRecentProjects(nextProjectsDocument);
+  }
+
+  async function updateRecentProjectsDocument(
+    nextProjectsDocument: RecentProjectsDocument,
+  ) {
+    recentProjectsDocumentRef.current = nextProjectsDocument;
+    setRecentProjectsDocument(nextProjectsDocument);
+    await saveRecentProjects(nextProjectsDocument);
+  }
+
+  async function createRecentProjectFolder(
+    name: string,
+    parentFolderId: string | null,
+  ) {
+    const baseDocument = recentProjectsDocumentRef.current;
+    await updateRecentProjectsDocument(
+      createProjectFolder(baseDocument, name, parentFolderId),
+    );
+  }
+
+  async function moveRecentProject(projectPath: string, folderId: string | null) {
+    const baseDocument = recentProjectsDocumentRef.current;
+    await updateRecentProjectsDocument(
+      moveProjectToFolder(baseDocument, projectPath, folderId),
+    );
+  }
+
+  async function renameRecentProjectEntry(project: RecentProject, name: string) {
+    const baseDocument = recentProjectsDocumentRef.current;
+    await updateRecentProjectsDocument(
+      renameRecentProject(baseDocument, project.path, name),
+    );
+  }
+
+  async function deleteRecentProject(
+    project: RecentProject,
+    shouldDeleteFile: boolean,
+  ) {
+    if (shouldDeleteFile) {
+      await deleteProjectFile(project.path);
+      if (project.path === currentProjectPath) {
+        setCurrentProjectPath(null);
+        setSavedDocumentBaseline(null);
+      }
+    }
+    const baseDocument = recentProjectsDocumentRef.current;
+    await updateRecentProjectsDocument(
+      removeProjectFromRecentProjects(baseDocument, project.path),
+    );
+  }
+
+  async function deleteRecentProjectFolder(folderId: string) {
+    const baseDocument = recentProjectsDocumentRef.current;
+    await updateRecentProjectsDocument(
+      deleteProjectFolder(baseDocument, folderId),
+    );
+  }
+
+  async function renameRecentProjectFolder(folderId: string, name: string) {
+    const baseDocument = recentProjectsDocumentRef.current;
+    await updateRecentProjectsDocument(
+      renameProjectFolder(baseDocument, folderId, name),
+    );
+  }
+
+  async function requestOpenRecentProject(project: RecentProject) {
+    if (project.path === currentProjectPath) {
+      return;
+    }
+    let exists = false;
+    try {
+      exists = await projectFileExists(project.path);
+    } catch (error) {
+      addMessage(`project file check error: ${String(error)}`);
+      return;
+    }
+    if (!exists) {
+      addMessage(t("projects.openMissingFile", { name: project.name }));
+      await deleteRecentProject(project, false);
+      return;
+    }
+    requestUnsavedGate({
+      kind: "load",
+      filePath: project.path,
+    });
+  }
+
+  function captureProjectThumbnail() {
+    return snapshotCaptureRef.current?.() ?? null;
+  }
+
+  async function saveCurrentDocument(parentFolderId?: string | null) {
+    if (!document) {
+      return false;
+    }
+    const filePath = currentProjectPath ?? (await pickSaveDocumentPath());
+    if (!filePath) {
+      return false;
+    }
+
+    const savedPromise = awaitDocumentSaved((savedPath) => savedPath === filePath);
+    try {
+      await saveDocument(filePath);
+      await savedPromise;
+    } catch (error) {
+      void savedPromise.catch(() => {});
+      throw error;
+    }
+    const thumbnailDataUrl = captureProjectThumbnail();
+    await writeProjectThumbnail(filePath, thumbnailDataUrl);
+    const savedDocument = useCadCoreStore.getState().document ?? document;
+    setCurrentProjectPath(filePath);
+    setSavedDocumentBaseline({
+      documentId: savedDocument.document_id,
+      revision: savedDocument.revision,
+    });
+    try {
+      await recordRecentProject(filePath, thumbnailDataUrl, parentFolderId);
+    } catch (error) {
+      addMessage(`recent projects save error: ${String(error)}`);
+    }
+    addMessage(`saved: ${filePath}`);
+    return true;
+  }
+
+  async function performCreateDocument() {
+    const documentPromise = awaitDocumentChange(
+      (next, previous) => next.document_id !== previous?.document_id,
+    );
+    await createDocument();
+    const nextDocument = await documentPromise;
+    setCurrentProjectPath(null);
+    setSavedDocumentBaseline(null);
+    setHiddenFeatureIds(new Set<string>());
+    setHiddenCategories(new Set<CategoryId>());
+    originVisibilityManuallyChangedRef.current = false;
+    addMessage(`created: ${nextDocument.name}`);
+  }
+
+  async function performCreateAndSaveProject(parentFolderId: string | null) {
+    await performCreateDocument();
+    await saveCurrentDocument(parentFolderId);
+  }
+
+  async function performLoadDocument(filePath: string) {
+    const documentPromise = awaitDocumentChange(() => true);
+    await loadDocument(filePath);
+    const loadedDocument = await documentPromise;
+    setCurrentProjectPath(filePath);
+    setSavedDocumentBaseline({
+      documentId: loadedDocument.document_id,
+      revision: loadedDocument.revision,
+    });
+    setSidebarTab("hierarchy");
+    const loadedDocumentHasSolidBody = documentHasSolidBody(loadedDocument);
+    setHiddenFeatureIds(defaultHiddenSketchIdsForLoadedDocument(loadedDocument));
+    setHiddenCategories(
+      loadedDocumentHasSolidBody
+        ? new Set<CategoryId>(["origin"])
+        : new Set<CategoryId>(),
+    );
+    originVisibilityManuallyChangedRef.current = false;
+    const thumbnailDataUrl = await readProjectThumbnail(filePath);
+    try {
+      await recordRecentProject(filePath, thumbnailDataUrl);
+    } catch (error) {
+      addMessage(`recent projects save error: ${String(error)}`);
+    }
+    addMessage(`loaded: ${filePath}`);
+  }
+
+  async function executePendingAction(action: PendingUnsavedAction) {
+    if (action.kind === "quit") {
+      allowAppCloseRef.current = true;
+      await getCurrentWindow().destroy();
+      return;
+    }
+    if (action.kind === "new") {
+      await runAction(performCreateDocument);
+      return;
+    }
+    if (action.kind === "newProject") {
+      await runAction(async () => {
+        await performCreateAndSaveProject(action.parentFolderId);
+      });
+      return;
+    }
+    await runAction(async () => {
+      await performLoadDocument(action.filePath);
+    });
+  }
+
+  function requestUnsavedGate(action: PendingUnsavedAction) {
+    if (isDocumentDirty) {
+      setPendingUnsavedAction(action);
+      return;
+    }
+    void executePendingAction(action);
+  }
+
+  async function saveThenContinuePendingAction() {
+    if (!pendingUnsavedAction) {
+      return;
+    }
+    const action = pendingUnsavedAction;
+    await runAction(async () => {
+      const didSave = await saveCurrentDocument();
+      if (!didSave) {
+        return;
+      }
+      setPendingUnsavedAction(null);
+      await executePendingAction(action);
+    });
+  }
+
+  function discardThenContinuePendingAction() {
+    if (!pendingUnsavedAction) {
+      return;
+    }
+    const action = pendingUnsavedAction;
+    setPendingUnsavedAction(null);
+    void executePendingAction(action);
   }
 
   async function runAction(action: () => Promise<void>) {
@@ -1961,7 +2427,7 @@ function App() {
             });
           }}
           onCreateDocument={async () => {
-            await runAction(createDocument);
+            requestUnsavedGate({ kind: "new" });
           }}
           onExportDocument={async () => {
             const filePath = await pickExportPath();
@@ -1986,14 +2452,8 @@ function App() {
             });
           }}
           onSaveDocument={async () => {
-            const filePath = await pickSaveDocumentPath();
-            if (!filePath) {
-              return;
-            }
-
             await runAction(async () => {
-              await saveDocument(filePath);
-              addMessage(`saved: ${filePath}`);
+              await saveCurrentDocument();
             });
           }}
           onLoadDocument={async () => {
@@ -2002,10 +2462,7 @@ function App() {
               return;
             }
 
-            await runAction(async () => {
-              await loadDocument(filePath);
-              addMessage(`loaded: ${filePath}`);
-            });
+            requestUnsavedGate({ kind: "load", filePath });
           }}
           onUndo={async () => {
             await runAction(undo);
@@ -2064,6 +2521,7 @@ function App() {
             await runAction(async () => {
               clearArmedSketchConstraint();
               await finishSketch();
+              await restoreTimelineCursorAfterEdit();
             });
           }}
           onSetSketchTool={async (tool) => {
@@ -2159,7 +2617,7 @@ function App() {
               title={t("document.expandHierarchy")}
             >
               <span className="cad-sidebar-collapsed-label">
-                {t("document.hierarchy")}
+                {t("document.hierarchyProjects")}
               </span>
             </button>
           ) : (
@@ -2169,7 +2627,34 @@ function App() {
             >
               <div className="flex h-full min-h-0 flex-col">
                 <div className="flex items-center justify-between gap-2 px-3 pt-2">
-                  <span className="cad-kicker">{t("document.hierarchy")}</span>
+                  <div className="cad-sidebar-tabs" role="tablist">
+                    <button
+                      type="button"
+                      className={
+                        sidebarTab === "hierarchy"
+                          ? "cad-sidebar-tab cad-sidebar-tab-active"
+                          : "cad-sidebar-tab"
+                      }
+                      onClick={() => setSidebarTab("hierarchy")}
+                      role="tab"
+                      aria-selected={sidebarTab === "hierarchy"}
+                    >
+                      {t("document.hierarchy")}
+                    </button>
+                    <button
+                      type="button"
+                      className={
+                        sidebarTab === "projects"
+                          ? "cad-sidebar-tab cad-sidebar-tab-active"
+                          : "cad-sidebar-tab"
+                      }
+                      onClick={() => setSidebarTab("projects")}
+                      role="tab"
+                      aria-selected={sidebarTab === "projects"}
+                    >
+                      {t("projects.title")}
+                    </button>
+                  </div>
                   <button
                     type="button"
                     className="cad-sidebar-collapse-button"
@@ -2180,64 +2665,112 @@ function App() {
                     ◀
                   </button>
                 </div>
-                <DocumentHierarchyPanel
-                  document={document}
-                  hiddenFeatureIds={hiddenFeatureIds}
-                  hiddenCategories={hiddenCategories}
-                  onToggleFeatureVisibility={(featureId) => {
-                    setHiddenFeatureIds((current) => {
-                      const next = new Set(current);
-                      if (next.has(featureId)) {
-                        next.delete(featureId);
-                      } else {
-                        next.add(featureId);
+                {sidebarTab === "hierarchy" ? (
+                  <DocumentHierarchyPanel
+                    document={document}
+                    hiddenFeatureIds={hiddenFeatureIds}
+                    hiddenCategories={hiddenCategories}
+                    onToggleFeatureVisibility={(featureId) => {
+                      setHiddenFeatureIds((current) => {
+                        const next = new Set(current);
+                        if (next.has(featureId)) {
+                          next.delete(featureId);
+                        } else {
+                          next.add(featureId);
+                        }
+                        return next;
+                      });
+                    }}
+                    onToggleCategoryVisibility={(category) => {
+                      if (category === "origin") {
+                        originVisibilityManuallyChangedRef.current = true;
                       }
-                      return next;
-                    });
-                  }}
-                  onToggleCategoryVisibility={(category) => {
-                    if (category === "origin") {
-                      originVisibilityManuallyChangedRef.current = true;
-                    }
-                    setHiddenCategories((current) => {
-                      const next = new Set(current);
-                      if (next.has(category)) {
-                        next.delete(category);
-                      } else {
-                        next.add(category);
-                      }
-                      return next;
-                    });
-                  }}
-                  onSelectFeature={async (featureId) => {
-                    await runAction(async () => {
-                      await selectFeature(featureId);
-                    });
-                  }}
-                  onSelectReference={async (referenceId) => {
-                    await runAction(async () => {
-                      await selectReference(referenceId);
-                    });
-                  }}
-                  onReenterSketch={async (featureId) => {
-                    await runAction(async () => {
-                      await reenterSketch(featureId);
-                    });
-                  }}
-                  onRenameFeature={async (featureId, name) => {
-                    await runAction(async () => {
-                      await renameFeature(featureId, name);
-                    });
-                  }}
-                  onDeleteFeature={async (featureId) => {
-                    confirmAndDeleteFeature(featureId);
-                  }}
-                  onSetFeatureSuppressed={async (featureId, suppressed) => {
-                    await runAction(async () => {
-                      await setFeatureSuppressed(featureId, suppressed);
-                    });
-                  }}
-                />
+                      setHiddenCategories((current) => {
+                        const next = new Set(current);
+                        if (next.has(category)) {
+                          next.delete(category);
+                        } else {
+                          next.add(category);
+                        }
+                        return next;
+                      });
+                    }}
+                    onSelectFeature={async (featureId) => {
+                      await runAction(async () => {
+                        await selectFeature(featureId);
+                      });
+                    }}
+                    onSelectReference={async (referenceId) => {
+                      await runAction(async () => {
+                        await selectReference(referenceId);
+                      });
+                    }}
+                    onReenterSketch={async (featureId) => {
+                      await runAction(async () => {
+                        await reenterSketch(featureId);
+                      });
+                    }}
+                    onRenameFeature={async (featureId, name) => {
+                      await runAction(async () => {
+                        await renameFeature(featureId, name);
+                      });
+                    }}
+                    onDeleteFeature={async (featureId) => {
+                      confirmAndDeleteFeature(featureId);
+                    }}
+                    onSetFeatureSuppressed={async (featureId, suppressed) => {
+                      await runAction(async () => {
+                        await setFeatureSuppressed(featureId, suppressed);
+                      });
+                    }}
+                  />
+                ) : (
+                  <ProjectsPanel
+                    document={recentProjectsDocument}
+                    activeProjectPath={currentProjectPath}
+                    onOpenProject={(project) => {
+                      void runAction(async () => {
+                        await requestOpenRecentProject(project);
+                      });
+                    }}
+                    onCreateFolder={(name, parentFolderId) => {
+                      void runAction(async () => {
+                        await createRecentProjectFolder(name, parentFolderId);
+                      });
+                    }}
+                    onMoveProject={(projectPath, folderId) => {
+                      void runAction(async () => {
+                        await moveRecentProject(projectPath, folderId);
+                      });
+                    }}
+                    onDeleteProject={(project, shouldDeleteFile) => {
+                      void runAction(async () => {
+                        await deleteRecentProject(project, shouldDeleteFile);
+                      });
+                    }}
+                    onDeleteFolder={(folderId) => {
+                      void runAction(async () => {
+                        await deleteRecentProjectFolder(folderId);
+                      });
+                    }}
+                    onRenameProject={(project, name) => {
+                      void runAction(async () => {
+                        await renameRecentProjectEntry(project, name);
+                      });
+                    }}
+                    onRenameFolder={(folderId, name) => {
+                      void runAction(async () => {
+                        await renameRecentProjectFolder(folderId, name);
+                      });
+                    }}
+                    onCreateProject={(parentFolderId) => {
+                      requestUnsavedGate({
+                        kind: "newProject",
+                        parentFolderId,
+                      });
+                    }}
+                  />
+                )}
               </div>
               <div
                 className="cad-sidebar-resizer"
@@ -2272,6 +2805,9 @@ function App() {
               status={status}
               document={document}
               viewport={viewport}
+              onSnapshotCaptureReady={(capture) => {
+                snapshotCaptureRef.current = capture;
+              }}
               onSelectPrimitive={async (primitiveId) => {
                 await runAction(async () => {
                   await selectFeature(primitiveId);
@@ -2844,6 +3380,13 @@ function App() {
                   );
                 });
               }}
+              onFinishSketch={async () => {
+                await runAction(async () => {
+                  clearArmedSketchConstraint();
+                  await finishSketch();
+                  await restoreTimelineCursorAfterEdit();
+                });
+              }}
               onSetSketchTool={async (tool) => {
                 await runAction(async () => {
                   clearArmedSketchConstraint();
@@ -3011,6 +3554,7 @@ function App() {
                               await clearSelection();
                             });
                           }
+                          await restoreTimelineCursorAfterEdit();
                         }}
                         onCancel={async () => {
                           // Edit flow (snapshot present): restore the
@@ -3041,6 +3585,7 @@ function App() {
                             });
                           }
                           setExtrudeAction(null);
+                          await restoreTimelineCursorAfterEdit();
                         }}
                       />
                     );
@@ -3086,6 +3631,7 @@ function App() {
                                 );
                               });
                               setEditingFeatureId(null);
+                              await restoreTimelineCursorAfterEdit();
                             }}
                           />
                         </div>
@@ -3114,6 +3660,7 @@ function App() {
                                 );
                               });
                               setEditingFeatureId(null);
+                              await restoreTimelineCursorAfterEdit();
                             }}
                           />
                         </div>
@@ -3445,6 +3992,11 @@ function App() {
               await selectFeature(featureId);
             });
           }}
+          onSetTimelineCursor={(includedActionCount) => {
+            void runAction(async () => {
+              await setTimelineCursor(includedActionCount);
+            });
+          }}
           onEditFeature={(featureId) => {
             // Dispatch by feature kind: box/cylinder open the inline
             // parameter form; sketch re-enters the sketch so the user
@@ -3460,10 +4012,12 @@ function App() {
               return;
             }
             if (feature.kind === "box" || feature.kind === "cylinder") {
+              beginTimelineEditSession(featureId, feature.kind);
               setEditingFeatureId(featureId);
               return;
             }
             if (feature.kind === "sketch") {
+              beginTimelineEditSession(featureId, feature.kind);
               void runAction(async () => {
                 await reenterSketch(featureId);
               });
@@ -3477,6 +4031,7 @@ function App() {
               const otherBodies = (viewport?.bodies ?? []).filter(
                 (body) => body.id !== featureId,
               );
+              beginTimelineEditSession(featureId, feature.kind);
               setExtrudeAction({
                 phase: "active",
                 featureId,
@@ -3504,6 +4059,50 @@ function App() {
           />
         ) : null}
       </div>
+      {pendingUnsavedAction ? (
+        <div className="cad-modal-backdrop" role="presentation">
+          <section
+            className="cad-unsaved-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cad-unsaved-dialog-title"
+          >
+            <div>
+              <h2 id="cad-unsaved-dialog-title" className="text-base font-semibold text-on-surface">
+                {t("unsavedDialog.title", { name: currentDocumentName })}
+              </h2>
+              <p className="mt-2 text-sm text-on-surface-muted">
+                {t("unsavedDialog.body")}
+              </p>
+            </div>
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                className="cad-ribbon-action"
+                onClick={() => setPendingUnsavedAction(null)}
+              >
+                {t("common.cancel")}
+              </button>
+              <button
+                type="button"
+                className="cad-ribbon-action"
+                onClick={discardThenContinuePendingAction}
+              >
+                {pendingUnsavedAction.kind === "quit"
+                  ? t("unsavedDialog.quitWithoutSaving")
+                  : t("unsavedDialog.continueWithoutSaving")}
+              </button>
+              <button
+                type="button"
+                className="cad-ribbon-action cad-ribbon-action-primary"
+                onClick={() => void saveThenContinuePendingAction()}
+              >
+                {t("unsavedDialog.saveFirst")}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }
