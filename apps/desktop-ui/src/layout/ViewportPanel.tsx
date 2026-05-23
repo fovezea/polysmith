@@ -2065,6 +2065,19 @@ export function ViewportPanel({
   useEffect(() => {
     setDimensionSuggestionIndex(0);
   }, [dimensionDraftValue, selectedSketchDimension?.dimensionId]);
+  /** Stable DOF map ref — updated on every viewport change, read by
+   *  paintSketchEntityMaterials so hover never sees an empty map. */
+  const dofMapRef = useRef<Map<string, "full" | "over">>(new Map());
+  useEffect(() => {
+    const map = new Map<string, "full" | "over">();
+    for (const ds of (viewport?.dof_statuses ?? [])) {
+      if (ds.status === "full" || ds.status === "over") {
+        map.set(ds.entity_id, ds.status);
+      }
+    }
+    dofMapRef.current = map;
+  }, [viewport?.dof_statuses]);
+
   /** DOF status for the currently selected sketch entity, if any. */
   const selectedEntityDof = useMemo(() => {
     const id = document?.selected_sketch_entity_id;
@@ -3861,13 +3874,9 @@ export function ViewportPanel({
 
   const hoveredSketchEntityIdRef = useRef<string | null>(null);
   function paintSketchEntityMaterials() {
-    // Build a lookup of DOF statuses from the viewport state.
-    const dofMap = new Map<string, "full" | "over">();
-    for (const ds of (viewport?.dof_statuses ?? [])) {
-      if (ds.status === "full" || ds.status === "over") {
-        dofMap.set(ds.entity_id, ds.status);
-      }
-    }
+    // Use the stable ref (updated from useMemo on viewport change)
+    // so hover never sees an empty DOF map when viewport is stale.
+    const dofMap = dofMapRef.current;
     for (const object of sketchEntityObjectsRef.current) {
       const id = object.userData.sketchEntityId as string | undefined;
       const isSelected = object.userData.isSelected === true;
@@ -9027,18 +9036,6 @@ export function ViewportPanel({
                                       ? translate("toolbar.perpendicular")
                                       : translate("toolbar.parallel"),
                               })
-                          : translate("constraints.lineConstraint", {
-                              kind: armedSketchConstraint.kind,
-                            })
-                          : translate("constraints.lineFirst", {
-                              label:
-                                armedSketchConstraint.kind === "equal_length"
-                                  ? translate("toolbar.equalLength")
-                                  : armedSketchConstraint.kind ===
-                                      "perpendicular"
-                                    ? translate("toolbar.perpendicular")
-                                    : translate("toolbar.parallel"),
-                            })
                           : translate("constraints.lineConstraint", {
                               kind: armedSketchConstraint.kind,
                             })
