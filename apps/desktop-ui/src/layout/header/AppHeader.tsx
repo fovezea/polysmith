@@ -338,15 +338,15 @@ export function AppHeader({
                 type="button"
                 className={
                   parametersPanelOpen
-                    ? "cad-ribbon-tab cad-ribbon-tab-active"
-                    : "cad-ribbon-tab"
+                    ? "cad-ribbon-action cad-ribbon-action-primary"
+                    : "cad-ribbon-action"
                 }
                 onClick={onToggleParametersPanel}
               >
                 f(x)
               </button>
               {parametersPanelOpen ? (
-                <div className="cad-toolbar-popover absolute left-0 top-[calc(100%+0.75rem)]">
+                <div className="absolute left-0 top-[calc(100%+0.75rem)]">
                   <ParametersPanel onClose={onToggleParametersPanel} />
                 </div>
               ) : null}

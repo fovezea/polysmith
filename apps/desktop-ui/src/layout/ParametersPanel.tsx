@@ -33,6 +33,24 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
 
   const parameters: ParameterEntry[] = document?.parameters ?? [];
 
+  useEffect(() => {
+    if (!onClose) {
+      return undefined;
+    }
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [onClose]);
+
   // Detect a plain numeric expression (no letters, no operators) so we
   // can convert from the display unit to mm. Formulas like "width * 2"
   // are sent as-is — the user is responsible for unit consistency there.
@@ -158,6 +176,25 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
     // Tab advances natively to the next focusable element.
   };
 
+  const renderEditActions = () => (
+    <div className="flex items-center justify-end gap-2">
+      <button
+        type="button"
+        className="cad-ribbon-action h-8 rounded-lg px-3 py-1 text-xs"
+        onClick={() => void commitEdit()}
+      >
+        {t("parameters.save")}
+      </button>
+      <button
+        type="button"
+        className="h-8 rounded-lg px-3 py-1 text-xs text-on-surface-muted hover:bg-surface-bright hover:text-on-surface"
+        onClick={() => setEditing(null)}
+      >
+        {t("parameters.cancel")}
+      </button>
+    </div>
+  );
+
   return (
     <>
       {/* Invisible backdrop: clicking anywhere outside the panel closes it */}
@@ -167,26 +204,38 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
           onPointerDown={onClose}
         />
       ) : null}
-      <section className="pointer-events-auto cad-floating-panel relative z-50 w-[420px] px-5 py-5">
-        <p className="cad-kicker">{t("parameters.title")}</p>
+      <section
+        className="pointer-events-auto cad-floating-panel relative z-50 w-[560px] px-5 py-5"
+        style={{ background: "var(--cad-panel-bg)" }}
+      >
+        <div className="flex items-center justify-between gap-4">
+          <p className="cad-kicker">{t("parameters.title")}</p>
+          <button
+            type="button"
+            className="cad-ribbon-action h-8 rounded-lg px-3 py-1 text-xs"
+            onClick={startAdd}
+          >
+            + {t("parameters.addParameter")}
+          </button>
+        </div>
 
-      <div className="mt-3 max-h-[320px] overflow-visible">
-        <table className="w-full text-xs">
+      <div className="mt-4 max-h-[360px] overflow-visible rounded-xl p-1.5 ring-1 ring-inset ring-surface-high/40">
+        <table className="w-full border-separate border-spacing-y-0.5 text-xs">
           <thead>
             <tr className="text-on-surface-dim text-left">
-              <th className="pb-1.5 pr-2 font-medium">
+              <th className="px-2 pb-2 font-medium">
                 {t("parameters.name")}
               </th>
-              <th className="pb-1.5 pr-2 font-medium">
+              <th className="px-2 pb-2 font-medium">
                 {t("parameters.expression")}
               </th>
-              <th className="pb-1.5 pr-2 font-medium">
+              <th className="px-2 pb-2 font-medium">
                 {t("parameters.kind")}
               </th>
-              <th className="pb-1.5 pr-2 font-medium">
+              <th className="px-2 pb-2 font-medium">
                 {t("parameters.value")}
               </th>
-              <th className="w-6 pb-1.5" />
+              <th className="w-28 px-2 pb-2" />
             </tr>
           </thead>
           <tbody>
@@ -199,16 +248,16 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
               return (
                 <tr
                   key={param.name}
-                  className={`group border-t border-white/5 ${
+                  className={`group rounded-lg ${
                     param.has_error ? "text-danger" : "text-on-surface"
                   }`}
                 >
                   {isEditing ? (
                     <>
-                      <td className="py-1.5 pr-2">
+                      <td className="rounded-l-lg px-2 py-2">
                         <input
                           ref={nameRef}
-                          className="cad-text-input w-full text-xs"
+                          className="h-8 w-full rounded-lg border border-surface-high/70 bg-surface-container px-2 text-xs outline-none focus:border-primary-soft"
                           value={editing.name}
                           onChange={(e) =>
                             setEditing({ ...editing, name: e.target.value })
@@ -216,10 +265,10 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
                           onKeyDown={(e) => handleKeyDown(e)}
                         />
                       </td>
-                      <td className="py-1.5 pr-2">
+                      <td className="px-2 py-2">
                         <input
                           ref={exprRef}
-                          className="cad-text-input w-full text-xs"
+                          className="h-8 w-full rounded-lg border border-surface-high/70 bg-surface-container px-2 text-xs outline-none focus:border-primary-soft"
                           value={editing.expression}
                           onChange={(e) =>
                             setEditing({
@@ -230,7 +279,7 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
                           onKeyDown={(e) => handleKeyDown(e)}
                         />
                       </td>
-                      <td className="py-1.5 pr-2">
+                      <td className="px-2 py-2">
                         <Dropdown
                           value={editing.kind}
                           options={KIND_OPTIONS}
@@ -238,7 +287,6 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
                           onChange={(kind) => {
                             kindRef.current = kind;
                             setEditing({ ...editing, kind });
-                            void commitEdit(kind);
                           }}
                         />
                       </td>
@@ -246,19 +294,19 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
                   ) : (
                     <>
                       <td
-                        className="cursor-pointer py-1.5 pr-2 font-mono"
+                        className="cursor-pointer rounded-l-lg px-2 py-2 font-mono hover:bg-surface-container"
                         onClick={() => startEdit(index)}
                       >
                         {param.name}
                       </td>
                       <td
-                        className="cursor-pointer py-1.5 pr-2 font-mono"
+                        className="cursor-pointer px-2 py-2 font-mono hover:bg-surface-container"
                         onClick={() => startEdit(index)}
                       >
                         {param.expression}
                       </td>
                       <td
-                        className="cursor-pointer py-1.5 pr-2 font-mono"
+                        className="cursor-pointer px-2 py-2 font-mono hover:bg-surface-container"
                         onClick={() => startEdit(index)}
                       >
                         {param.kind === "angle"
@@ -267,7 +315,7 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
                       </td>
                     </>
                   )}
-                  <td className="py-1.5 pr-2 font-mono">
+                  <td className="px-2 py-2 font-mono">
                     {param.has_error ? (
                       <span
                         className="text-danger"
@@ -279,26 +327,30 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
                       displayValue(param)
                     )}
                   </td>
-                  <td className="py-1.5">
-                    <button
-                      type="button"
-                      className="invisible ml-auto block text-on-surface-dim hover:text-danger group-hover:visible"
-                      title={t("parameters.deleteParameter")}
-                      onClick={() => void deleteParameter(param.name)}
-                    >
-                      ×
-                    </button>
+                  <td className="rounded-r-lg px-2 py-2">
+                    {isEditing ? (
+                      renderEditActions()
+                    ) : (
+                      <button
+                        type="button"
+                        className="invisible ml-auto block rounded-lg px-2 py-1 text-on-surface-dim hover:bg-surface-container hover:text-danger group-hover:visible"
+                        title={t("parameters.deleteParameter")}
+                        onClick={() => void deleteParameter(param.name)}
+                      >
+                        ×
+                      </button>
+                    )}
                   </td>
                 </tr>
               );
             })}
 
             {editing?.isNew ? (
-              <tr className="border-t border-white/10">
-                <td className="py-1.5 pr-2">
+              <tr>
+                <td className="rounded-l-lg px-2 py-2">
                   <input
                     ref={nameRef}
-                    className="cad-text-input w-full text-xs"
+                    className="h-8 w-full rounded-lg border border-surface-high/70 bg-surface-container px-2 text-xs outline-none focus:border-primary-soft"
                     placeholder={t("parameters.name")}
                     value={editing.name}
                     onChange={(e) =>
@@ -307,10 +359,10 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
                     onKeyDown={(e) => handleKeyDown(e)}
                   />
                 </td>
-                <td className="py-1.5 pr-2">
+                <td className="px-2 py-2">
                   <input
                     ref={exprRef}
-                    className="cad-text-input w-full text-xs"
+                    className="h-8 w-full rounded-lg border border-surface-high/70 bg-surface-container px-2 text-xs outline-none focus:border-primary-soft"
                     placeholder="e.g. 50 or width * 2"
                     value={editing.expression}
                     onChange={(e) =>
@@ -319,7 +371,7 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
                     onKeyDown={(e) => handleKeyDown(e)}
                   />
                 </td>
-                <td className="py-1.5 pr-2">
+                <td className="px-2 py-2">
                   <Dropdown
                     value={editing.kind}
                     options={KIND_OPTIONS}
@@ -327,24 +379,18 @@ export function ParametersPanel({ onClose }: { onClose?: () => void }) {
                     onChange={(kind) => {
                       kindRef.current = kind;
                       setEditing({ ...editing, kind });
-                      void commitEdit(kind);
                     }}
                   />
                 </td>
-                <td />
+                <td className="px-2 py-2" />
+                <td className="rounded-r-lg px-2 py-2">
+                  {renderEditActions()}
+                </td>
               </tr>
             ) : null}
           </tbody>
         </table>
       </div>
-
-      <button
-        type="button"
-        className="cad-ribbon-action mt-3 w-full py-1.5 text-xs"
-        onClick={startAdd}
-      >
-        + {t("parameters.addParameter")}
-      </button>
       </section>
     </>
   );

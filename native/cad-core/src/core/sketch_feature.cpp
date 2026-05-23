@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <tuple>
 #include <unordered_map>
+#include <vector>
 
 #include "core/formula_eval.h"
 #include "core/sketch_profile.h"
@@ -2435,7 +2436,14 @@ void reify_dimension_expressions(
     return;
   }
 
-  for (auto& dim : feature.sketch_parameters->dimensions) {
+  struct PendingDimensionUpdate {
+    std::string id;
+    std::string expression;
+    double value;
+  };
+  std::vector<PendingDimensionUpdate> pending_updates;
+
+  for (const auto& dim : feature.sketch_parameters->dimensions) {
     if (dim.expression.empty()) {
       continue;
     }
@@ -2476,16 +2484,35 @@ void reify_dimension_expressions(
       // stays in radians while the expression stays human-readable.
       if (dim.kind == "angle" || dim.kind == "line_angle") {
         resolved = resolved * (M_PI / 180.0);
+      } else if (dim.kind == "circle_radius") {
+        resolved = resolved / 2.0;
       }
       // Preserve the orientation quadrant for line_angle dimensions so
       // a parameter re-eval doesn't flip the line's direction.
       if (dim.kind == "line_angle" && dim.value < 0.0) {
         resolved = -resolved;
       }
-      dim.value = resolved;
+      pending_updates.push_back(PendingDimensionUpdate{
+          .id = dim.id,
+          .expression = dim.expression,
+          .value = resolved,
+      });
     } catch (const std::exception&) {
       // Silently keep last good value — expression resolution
       // failures shouldn't nuke the dimension's working value.
+    }
+  }
+
+  for (const auto& update : pending_updates) {
+    try {
+      update_sketch_dimension(feature,
+                              update.id,
+                              update.value,
+                              update.expression);
+    } catch (const std::exception&) {
+      // Keep the last valid geometry when a stored expression can no
+      // longer be driven, e.g. because a referenced parameter was
+      // deleted or the target entity was removed.
     }
   }
 }

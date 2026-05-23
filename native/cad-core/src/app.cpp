@@ -764,6 +764,7 @@ void CadCoreApp::handle_command_line(const std::string& line) {
         // can type-check parameter references and apply the degrees->radians
         // conversion once, in a single pass.
         bool dim_is_angle = false;
+        bool dim_is_circle_radius = false;
         if (doc.has_value() &&
             doc->active_sketch_feature_id.has_value()) {
           const auto& features = doc->feature_history;
@@ -786,6 +787,9 @@ void CadCoreApp::handle_command_line(const std::string& line) {
                 (dim_it->kind == "angle" ||
                  dim_it->kind == "line_angle")) {
               dim_is_angle = true;
+            }
+            if (dim_it != dims.end() && dim_it->kind == "circle_radius") {
+              dim_is_circle_radius = true;
             }
           }
         }
@@ -821,6 +825,8 @@ void CadCoreApp::handle_command_line(const std::string& line) {
           // produces.
           if (dim_is_angle) {
             resolved_value = resolved_value * (M_PI / 180.0);
+          } else if (dim_is_circle_radius) {
+            resolved_value = resolved_value / 2.0;
           }
         } catch (const std::exception& e) {
           throw std::runtime_error(

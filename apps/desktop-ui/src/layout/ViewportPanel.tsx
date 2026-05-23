@@ -123,6 +123,59 @@ type DraftDimensionSession = {
   activeField: DraftDimensionField;
   lockedFields: Partial<Record<DraftDimensionField, boolean>>;
 };
+type ParameterSuggestion = {
+  name: string;
+  expression: string;
+  kind: "length" | "angle";
+  value: number;
+};
+
+function parameterTokenAtCursor(value: string, cursor: number) {
+  const before = value.slice(0, cursor);
+  const after = value.slice(cursor);
+  const startMatch = before.match(/[A-Za-z_][A-Za-z0-9_]*$/);
+  if (!startMatch) {
+    return null;
+  }
+  const endMatch = after.match(/^[A-Za-z0-9_]*/);
+  const start = cursor - startMatch[0].length;
+  const end = cursor + (endMatch?.[0].length ?? 0);
+  return { query: value.slice(start, cursor), start, end };
+}
+
+function fuzzyParameterScore(query: string, candidate: string) {
+  const normalizedQuery = query.toLowerCase();
+  const normalizedCandidate = candidate.toLowerCase();
+  if (!normalizedQuery) {
+    return 1;
+  }
+  if (normalizedCandidate === normalizedQuery) {
+    return 1000;
+  }
+  if (normalizedCandidate.startsWith(normalizedQuery)) {
+    return 800 - (normalizedCandidate.length - normalizedQuery.length);
+  }
+  if (normalizedCandidate.includes(normalizedQuery)) {
+    return 600 - normalizedCandidate.indexOf(normalizedQuery);
+  }
+
+  let score = 0;
+  let candidateIndex = 0;
+  let previousMatch = -1;
+  for (const char of normalizedQuery) {
+    const found = normalizedCandidate.indexOf(char, candidateIndex);
+    if (found < 0) {
+      return 0;
+    }
+    score += previousMatch >= 0 && found === previousMatch + 1 ? 12 : 4;
+    if (found === 0 || /[_\-\s]/.test(candidate[found - 1] ?? "")) {
+      score += 8;
+    }
+    previousMatch = found;
+    candidateIndex = found + 1;
+  }
+  return score - normalizedCandidate.length * 0.1;
+}
 
 function GridMiniIcon() {
   return (
@@ -990,6 +1043,11 @@ export function ViewportPanel({
   // `paintEdgeMaterials` which reads this ref.
   const revealGhostEdgesRef = useRef(false);
   const [dimensionDraftValue, setDimensionDraftValue] = useState("");
+  const [dimensionSuggestionIndex, setDimensionSuggestionIndex] = useState(0);
+  const [draftSuggestionState, setDraftSuggestionState] = useState<{
+    field: DraftDimensionField;
+    index: number;
+  } | null>(null);
   const [isDimensionEditorOpen, setIsDimensionEditorOpen] = useState(false);
   const [dimensionLabelPositions, setDimensionLabelPositions] = useState<
     Record<string, [number, number, number]>
@@ -1057,6 +1115,9 @@ export function ViewportPanel({
   /** Raw user-typed input preserved during editing so the round-trip
    *  through mm doesn't drop the decimal from partial values like "2.". */
   const draftRawInputRef = useRef<Partial<Record<DraftDimensionField, string>>>({});
+  const draftParameterExpressionRef = useRef<
+    Partial<Record<DraftDimensionField, string>>
+  >({});
   const draftStartedOnPointerDownRef = useRef(false);
   const previousReferencePlaneVisibilityRef = useRef<boolean | null>(null);
   const primitiveVisualsRef = useRef(new Map<string, PrimitiveVisual>());
@@ -1148,6 +1209,7 @@ export function ViewportPanel({
   const dimensionEditOriginalValueRef = useRef<{
     dimensionId: string;
     value: number;
+    expression: string;
   } | null>(null);
   const lastPointerEventRef = useRef<PointerEvent | null>(null);
   const isDimensionEditorOpenRef = useRef(false);
@@ -1271,6 +1333,13 @@ export function ViewportPanel({
     shouldDeletePolygon: boolean;
     shouldDeleteRectangle: boolean;
     shouldDeleteLineAngle: boolean;
+  } | null>(null);
+  const pendingDraftDimensionExpressionsRef = useRef<{
+    tool: DraftDimensionTool;
+    fromLineCount: number;
+    fromCircleCount: number;
+    fromPolygonCount: number;
+    expressions: Partial<Record<DraftDimensionField, string>>;
   } | null>(null);
   // Snapshot of the sketch feature's lines for the post-add effect to
   // index into. Same pattern as the count ref above.
@@ -1437,6 +1506,85 @@ export function ViewportPanel({
       }
     }
     pendingDimensionDeletionRef.current = null;
+  }, [sketchFeature]);
+  useEffect(() => {
+    const pending = pendingDraftDimensionExpressionsRef.current;
+    const sketch = sketchFeature?.sketch_parameters;
+    if (!pending || !sketch) {
+      return;
+    }
+
+    const updateDimensionExpression = (dimensionId: string, expression?: string) => {
+      if (!expression) {
+        return;
+      }
+      void updateSketchDimensionRef.current(dimensionId, expression).catch(() => {});
+    };
+
+    if (pending.tool === "line") {
+      if (sketch.lines.length <= pending.fromLineCount) {
+        return;
+      }
+      const line =
+        sketch.lines[pending.fromLineCount] ??
+        sketch.lines[sketch.lines.length - 1];
+      if (line) {
+        updateDimensionExpression(
+          `dim-line-${line.line_id}`,
+          pending.expressions.length,
+        );
+        updateDimensionExpression(
+          `dim-line-angle-${line.line_id}`,
+          pending.expressions.angle,
+        );
+      }
+    } else if (pending.tool === "rectangle") {
+      if (sketch.lines.length < pending.fromLineCount + 4) {
+        return;
+      }
+      const topLine = sketch.lines[pending.fromLineCount];
+      const rightLine = sketch.lines[pending.fromLineCount + 1];
+      if (topLine) {
+        updateDimensionExpression(
+          `dim-line-${topLine.line_id}`,
+          pending.expressions.width,
+        );
+      }
+      if (rightLine) {
+        updateDimensionExpression(
+          `dim-line-${rightLine.line_id}`,
+          pending.expressions.length,
+        );
+      }
+    } else if (pending.tool === "circle") {
+      if (sketch.circles.length <= pending.fromCircleCount) {
+        return;
+      }
+      const circle =
+        sketch.circles[pending.fromCircleCount] ??
+        sketch.circles[sketch.circles.length - 1];
+      if (circle) {
+        updateDimensionExpression(
+          `dim-circle-${circle.circle_id}`,
+          pending.expressions.diameter,
+        );
+      }
+    } else if (pending.tool === "polygon") {
+      const polygons = sketch.polygons ?? [];
+      if (polygons.length <= pending.fromPolygonCount) {
+        return;
+      }
+      const polygon =
+        polygons[pending.fromPolygonCount] ?? polygons[polygons.length - 1];
+      if (polygon) {
+        updateDimensionExpression(
+          `dim-polygon-${polygon.polygon_id}`,
+          pending.expressions.radius,
+        );
+      }
+    }
+
+    pendingDraftDimensionExpressionsRef.current = null;
   }, [sketchFeature]);
   const selectedPrimitiveLabel = useMemo(() => {
     const selectedBox = viewport?.boxes.find((box) => box.is_selected);
@@ -1806,6 +1954,79 @@ export function ViewportPanel({
         : null,
     [document?.selected_sketch_dimension_id, sketchFeature],
   );
+  const selectedSketchDimensionExpression = useMemo(
+    () =>
+      document?.selected_sketch_dimension_id && sketchFeature?.sketch_parameters
+        ? (sketchFeature.sketch_parameters.dimensions.find(
+            (dimension) =>
+              dimension.dimension_id === document.selected_sketch_dimension_id,
+          )?.expression ?? "")
+        : "",
+    [document?.selected_sketch_dimension_id, sketchFeature],
+  );
+  const getParameterSuggestions = (
+    value: string,
+    cursor: number,
+    isAngleDimension: boolean,
+  ): ParameterSuggestion[] => {
+    if (!document?.parameters.length) {
+      return [];
+    }
+    const token = parameterTokenAtCursor(value, cursor);
+    if (!token) {
+      return [];
+    }
+    const normalizedQuery = token.query.toLowerCase();
+    if (
+      document.parameters.some(
+        (parameter) =>
+          !parameter.has_error &&
+          parameter.name.toLowerCase() === normalizedQuery,
+      )
+    ) {
+      return [];
+    }
+    return document.parameters
+      .filter((parameter) => !parameter.has_error)
+      .filter((parameter) =>
+        isAngleDimension ? parameter.kind === "angle" : parameter.kind !== "angle",
+      )
+      .map((parameter) => ({
+        parameter,
+        score: fuzzyParameterScore(token.query, parameter.name),
+      }))
+      .filter((entry) => entry.score > 0)
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 6)
+      .map(({ parameter }) => ({
+        name: parameter.name,
+        expression: parameter.expression,
+        kind: parameter.kind,
+        value: parameter.resolved_value,
+      }));
+  };
+  const dimensionParameterSuggestions = useMemo<ParameterSuggestion[]>(() => {
+    if (!selectedSketchDimension) {
+      return [];
+    }
+    const cursor =
+      dimensionInputRef.current?.selectionStart ?? dimensionDraftValue.length;
+    const isAngleDimension =
+      selectedSketchDimension.kind === "angle" ||
+      selectedSketchDimension.kind === "line_angle";
+    return getParameterSuggestions(
+      dimensionDraftValue,
+      cursor,
+      isAngleDimension,
+    );
+  }, [
+    dimensionDraftValue,
+    document?.parameters,
+    selectedSketchDimension,
+  ]);
+  useEffect(() => {
+    setDimensionSuggestionIndex(0);
+  }, [dimensionDraftValue, selectedSketchDimension?.dimensionId]);
   const sketchSnapCandidates = useMemo(() => {
     if (!sketchFeature?.sketch_parameters) {
       return [];
@@ -2113,6 +2334,8 @@ export function ViewportPanel({
     draftDimensionSessionRef.current = null;
     draftFieldFocusedRef.current = null;
     draftRawInputRef.current = {};
+    draftParameterExpressionRef.current = {};
+    setDraftSuggestionState(null);
   }
 
   // Centralized helper: schedule deletion of auto-dimensions after a
@@ -2140,6 +2363,26 @@ export function ViewportPanel({
       shouldDeleteLineAngle:
         tool === "line" && !session?.lockedFields.angle,
     };
+  }
+
+  function scheduleDraftDimensionExpressionUpdate(tool: DraftDimensionTool) {
+    const entries = Object.entries(draftParameterExpressionRef.current).filter(
+      ([, expression]) => expression.trim().length > 0,
+    );
+    if (entries.length === 0) {
+      pendingDraftDimensionExpressionsRef.current = null;
+      return;
+    }
+    pendingDraftDimensionExpressionsRef.current = {
+      tool,
+      fromLineCount: sketchLineCountRef.current,
+      fromCircleCount: sketchFeature?.sketch_parameters?.circles.length ?? 0,
+      fromPolygonCount: sketchFeature?.sketch_parameters?.polygons?.length ?? 0,
+      expressions: Object.fromEntries(entries) as Partial<
+        Record<DraftDimensionField, string>
+      >,
+    };
+    draftParameterExpressionRef.current = {};
   }
 
   function suppressDimensionEditorAfterSketchCommit() {
@@ -2837,6 +3080,7 @@ export function ViewportPanel({
     clearPreviewDimension();
     lineDraftStartRef.current = null;
     scheduleDimensionDeletion(session.tool, session);
+    scheduleDraftDimensionExpressionUpdate(session.tool);
     clearDraftDimensionSession();
     suppressDimensionEditorAfterSketchCommit();
     rendererRef.current?.domElement.focus();
@@ -3800,6 +4044,7 @@ export function ViewportPanel({
       dimensionEditOriginalValueRef.current = {
         dimensionId: selectedSketchDimension.dimensionId,
         value: selectedSketchDimensionValue,
+        expression: selectedSketchDimensionExpression,
       };
     }
     if (window.document.activeElement === dimensionInputRef.current) {
@@ -3812,13 +4057,16 @@ export function ViewportPanel({
     // string is the canonical way to drop trailing zeros without
     // building a regex.
     setDimensionDraftValue(
-      formattedDimensionDisplayValue(
-        selectedSketchDimension,
-        selectedSketchDimensionValue,
-      ),
+      selectedSketchDimensionExpression.trim().length > 0
+        ? selectedSketchDimensionExpression
+        : formattedDimensionDisplayValue(
+            selectedSketchDimension,
+            selectedSketchDimensionValue,
+          ),
     );
   }, [
     selectedSketchDimensionValue,
+    selectedSketchDimensionExpression,
     document?.selected_sketch_dimension_id,
     selectedSketchDimension,
     selectedSketchDimension?.dimensionId,
@@ -6280,6 +6528,7 @@ export function ViewportPanel({
             rectSecondPointRef.current = null;
             lineDraftStartRef.current = null;
             scheduleDimensionDeletion("rectangle");
+            scheduleDraftDimensionExpressionUpdate("rectangle");
             clearDraftDimensionSession();
             suppressDimensionEditorAfterSketchCommit();
             const p1x = startX;
@@ -6314,6 +6563,7 @@ export function ViewportPanel({
           }
           lineDraftStartRef.current = null;
           scheduleDimensionDeletion("rectangle");
+          scheduleDraftDimensionExpressionUpdate("rectangle");
           clearDraftDimensionSession();
           suppressDimensionEditorAfterSketchCommit();
           const rectStartX =
@@ -6347,6 +6597,7 @@ export function ViewportPanel({
             circleSecondPointRef.current = null;
             lineDraftStartRef.current = null;
             scheduleDimensionDeletion("circle");
+            scheduleDraftDimensionExpressionUpdate("circle");
             clearDraftDimensionSession();
             suppressDimensionEditorAfterSketchCommit();
             const p1x = startX;
@@ -6379,6 +6630,7 @@ export function ViewportPanel({
             end: committedEnd,
           };
           scheduleDimensionDeletion("circle");
+          scheduleDraftDimensionExpressionUpdate("circle");
           clearDraftDimensionSession();
           suppressDimensionEditorAfterSketchCommit();
           let cx = startX;
@@ -6407,6 +6659,7 @@ export function ViewportPanel({
         if (activeSketchToolRef.current === "polygon") {
           lineDraftStartRef.current = null;
           scheduleDimensionDeletion("polygon");
+          scheduleDraftDimensionExpressionUpdate("polygon");
           clearDraftDimensionSession();
           suppressDimensionEditorAfterSketchCommit();
           void addSketchPolygonRef.current(
@@ -6518,6 +6771,7 @@ export function ViewportPanel({
         if (chainBreakRequestedRef.current) {
           chainBreakRequestedRef.current = false;
           lineDraftStartRef.current = null;
+          scheduleDraftDimensionExpressionUpdate("line");
           clearDraftDimensionSession();
         } else {
           lineDraftStartRef.current = committedEnd;
@@ -6537,6 +6791,7 @@ export function ViewportPanel({
           // Capture the old session's lockedFields before creating the
           // new chained session, so we know whether the user typed.
           const oldSession = draftDimensionSessionRef.current;
+          scheduleDraftDimensionExpressionUpdate("line");
           const nextLineSession = createDraftDimensionSession(
             "line",
             committedEnd,
@@ -7428,6 +7683,25 @@ export function ViewportPanel({
     }
   }
 
+  function insertDimensionParameterSuggestion(name: string) {
+    const input = dimensionInputRef.current;
+    const cursor = input?.selectionStart ?? dimensionDraftValue.length;
+    const token = parameterTokenAtCursor(dimensionDraftValue, cursor);
+    const start = token?.start ?? cursor;
+    const end = token?.end ?? cursor;
+    const nextValue =
+      dimensionDraftValue.slice(0, start) +
+      name +
+      dimensionDraftValue.slice(end);
+    setDimensionDraftValue(nextValue);
+    handleDimensionDraftChange(nextValue);
+    window.requestAnimationFrame(() => {
+      const nextCursor = start + name.length;
+      input?.focus();
+      input?.setSelectionRange(nextCursor, nextCursor);
+    });
+  }
+
   function cancelDimensionEdit() {
     // Cancel any pending debounced expression send
     if (dimensionExpressionTimeoutRef.current !== null) {
@@ -7440,7 +7714,9 @@ export function ViewportPanel({
     if (dimension && originalValue?.dimensionId === dimension.dimensionId) {
       void updateSketchDimensionRef.current(
         dimension.dimensionId,
-        originalValue.value,
+        originalValue.expression.trim().length > 0
+          ? originalValue.expression
+          : originalValue.value,
       );
       setDimensionLabelPositions((current) => {
         if (!(dimension.dimensionId in current)) {
@@ -7451,11 +7727,15 @@ export function ViewportPanel({
         return next;
       });
       setDimensionDraftValue(
-        formattedDimensionDisplayValue(dimension, originalValue.value),
+        originalValue.expression.trim().length > 0
+          ? originalValue.expression
+          : formattedDimensionDisplayValue(dimension, originalValue.value),
       );
     } else if (dimension && selectedSketchDimensionValue !== null) {
       setDimensionDraftValue(
-        formattedDimensionDisplayValue(dimension, selectedSketchDimensionValue),
+        selectedSketchDimensionExpression.trim().length > 0
+          ? selectedSketchDimensionExpression
+          : formattedDimensionDisplayValue(dimension, selectedSketchDimensionValue),
       );
     } else {
       setDimensionDraftValue("");
@@ -7540,7 +7820,9 @@ export function ViewportPanel({
     let mmValue: string;
     if (parsed !== null) {
       mmValue = String(parsed);
+      delete draftParameterExpressionRef.current[field];
     } else if (/[a-zA-Z_]/.test(value)) {
+      draftParameterExpressionRef.current[field] = value.trim();
       // Try to resolve as a parameter name for live draft preview.
       // The draft dimension system is client-side, so we look up the
       // parameter in the current document state.  Angle parameters
@@ -7553,11 +7835,59 @@ export function ViewportPanel({
         mmValue = value;
       }
     } else {
+      delete draftParameterExpressionRef.current[field];
       mmValue = value;
     }
     const next = applyDraftDimensionField(session, field, mmValue);
     draftDimensionSessionRef.current = next;
     setDraftDimensionSession(next);
+    setDraftSuggestionState({ field, index: 0 });
+  }
+
+  function getDraftFieldInputValue(
+    session: DraftDimensionSession,
+    field: DraftDimensionField,
+  ) {
+    if (
+      draftFieldFocusedRef.current === field &&
+      draftRawInputRef.current[field] !== undefined
+    ) {
+      return draftRawInputRef.current[field] ?? "";
+    }
+    const expression = draftParameterExpressionRef.current[field];
+    if (expression && expression.trim().length > 0) {
+      return expression;
+    }
+    return draftDisplayValue(session.values[field]);
+  }
+
+  function getDraftParameterSuggestions(
+    field: DraftDimensionField,
+    value: string,
+  ) {
+    const input = draftDimensionInputRefs.current[field];
+    const cursor = input?.selectionStart ?? value.length;
+    return getParameterSuggestions(value, cursor, field === "angle");
+  }
+
+  function insertDraftParameterSuggestion(
+    field: DraftDimensionField,
+    name: string,
+  ) {
+    const input = draftDimensionInputRefs.current[field];
+    const currentValue = input?.value ?? draftRawInputRef.current[field] ?? "";
+    const cursor = input?.selectionStart ?? currentValue.length;
+    const token = parameterTokenAtCursor(currentValue, cursor);
+    const start = token?.start ?? cursor;
+    const end = token?.end ?? cursor;
+    const nextValue =
+      currentValue.slice(0, start) + name + currentValue.slice(end);
+    handleDraftDimensionChange(field, nextValue);
+    window.requestAnimationFrame(() => {
+      const nextCursor = start + name.length;
+      input?.focus();
+      input?.setSelectionRange(nextCursor, nextCursor);
+    });
   }
 
   function focusDraftField(field: DraftDimensionField) {
@@ -7573,6 +7903,41 @@ export function ViewportPanel({
   ) {
     const session = draftDimensionSessionRef.current;
     if (!session) {
+      return;
+    }
+    const suggestions = getDraftParameterSuggestions(
+      field,
+      event.currentTarget.value,
+    );
+    if (
+      suggestions.length > 0 &&
+      (event.key === "ArrowDown" || event.key === "ArrowUp")
+    ) {
+      event.preventDefault();
+      setDraftSuggestionState((current) => {
+        const currentIndex =
+          current?.field === field ? current.index : 0;
+        const delta = event.key === "ArrowDown" ? 1 : -1;
+        return {
+          field,
+          index:
+            (currentIndex + delta + suggestions.length) %
+            suggestions.length,
+        };
+      });
+      return;
+    }
+    if (
+      suggestions.length > 0 &&
+      (event.key === "Tab" || event.key === "Enter")
+    ) {
+      event.preventDefault();
+      const suggestionIndex =
+        draftSuggestionState?.field === field
+          ? draftSuggestionState.index
+          : 0;
+      const suggestion = suggestions[suggestionIndex] ?? suggestions[0];
+      insertDraftParameterSuggestion(field, suggestion.name);
       return;
     }
     if (event.key === "Enter") {
@@ -7753,10 +8118,22 @@ export function ViewportPanel({
               if (!position) {
                 return null;
               }
+              const inputValue = getDraftFieldInputValue(
+                draftDimensionSession,
+                field,
+              );
+              const suggestions = getDraftParameterSuggestions(
+                field,
+                inputValue,
+              );
+              const suggestionIndex =
+                draftSuggestionState?.field === field
+                  ? draftSuggestionState.index
+                  : 0;
               return (
                 <form
                   key={field}
-                  className="pointer-events-auto absolute z-30 flex w-[92px] items-center rounded-md border px-2 py-1 backdrop-blur-md"
+                  className="pointer-events-auto absolute z-30 flex w-[120px] items-center rounded-md border px-2 py-1 backdrop-blur-md"
                   style={{
                     left: position.x,
                     top: position.y,
@@ -7776,13 +8153,8 @@ export function ViewportPanel({
                       draftDimensionInputRefs.current[field] = input;
                     }}
                     className="h-6 w-full bg-transparent text-center text-sm font-semibold text-on-surface tabular-nums outline-none"
-                    value={
-                      draftFieldFocusedRef.current === field &&
-                      draftRawInputRef.current[field] !== undefined
-                        ? draftRawInputRef.current[field]
-                        : draftDisplayValue(draftDimensionSession.values[field])
-                    }
-                    inputMode="decimal"
+                    value={inputValue}
+                    inputMode="text"
                     onChange={(event) => {
                       handleDraftDimensionChange(field, event.target.value);
                     }}
@@ -7794,15 +8166,46 @@ export function ViewportPanel({
                       };
                       draftDimensionSessionRef.current = next;
                       setDraftDimensionSession(next);
+                      setDraftSuggestionState({ field, index: 0 });
                     }}
                     onBlur={() => {
                       draftFieldFocusedRef.current = null;
-                      delete draftRawInputRef.current[field];
+                      if (!draftParameterExpressionRef.current[field]) {
+                        delete draftRawInputRef.current[field];
+                      }
                     }}
                     onKeyDown={(event) => {
                       handleDraftDimensionKeyDown(event, field);
                     }}
                   />
+                  {suggestions.length > 0 ? (
+                    <div
+                      className="absolute left-0 top-[calc(100%+0.35rem)] w-[220px] overflow-hidden rounded-lg border border-surface-high bg-surface-container py-1 text-left shadow-xl"
+                      onMouseDown={(event) => event.preventDefault()}
+                    >
+                      {suggestions.map((suggestion, index) => (
+                        <button
+                          key={suggestion.name}
+                          type="button"
+                          className={`flex w-full items-center justify-between gap-3 px-3 py-1.5 text-xs ${
+                            index === suggestionIndex
+                              ? "bg-surface-bright text-on-surface"
+                              : "text-on-surface-muted hover:bg-surface-high hover:text-on-surface"
+                          }`}
+                          onClick={() =>
+                            insertDraftParameterSuggestion(field, suggestion.name)
+                          }
+                        >
+                          <span className="min-w-0 truncate font-mono">
+                            {suggestion.name}
+                          </span>
+                          <span className="shrink-0 text-[10px] uppercase tracking-[0.12em] text-on-surface-dim">
+                            {suggestion.kind}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </form>
               );
             })
@@ -8004,7 +8407,7 @@ export function ViewportPanel({
         isDimensionEditorOpen ? (
           <form
             ref={dimensionEditorRef}
-            className="pointer-events-auto absolute z-20 flex w-[88px] items-center rounded-md border px-2 py-1 backdrop-blur-md"
+            className="pointer-events-auto absolute z-20 flex w-[172px] items-center gap-1 rounded-md border px-2 py-1 backdrop-blur-md"
             style={{
               left: 0,
               top: 0,
@@ -8020,7 +8423,7 @@ export function ViewportPanel({
           >
             <input
               ref={dimensionInputRef}
-              className="h-6 w-full bg-transparent text-center text-sm font-medium text-on-surface tabular-nums outline-none"
+              className="h-6 min-w-0 flex-1 bg-transparent text-center text-sm font-medium text-on-surface tabular-nums outline-none"
               type="text"
               inputMode="text"
               value={dimensionDraftValue}
@@ -8035,12 +8438,72 @@ export function ViewportPanel({
               }}
               onKeyDown={(event) => {
                 dimensionInputSelectionLockedRef.current = false;
+                if (
+                  dimensionParameterSuggestions.length > 0 &&
+                  (event.key === "ArrowDown" || event.key === "ArrowUp")
+                ) {
+                  event.preventDefault();
+                  setDimensionSuggestionIndex((current) => {
+                    const delta = event.key === "ArrowDown" ? 1 : -1;
+                    return (
+                      current +
+                      delta +
+                      dimensionParameterSuggestions.length
+                    ) % dimensionParameterSuggestions.length;
+                  });
+                  return;
+                }
+                if (
+                  dimensionParameterSuggestions.length > 0 &&
+                  (event.key === "Tab" || event.key === "Enter")
+                ) {
+                  event.preventDefault();
+                  const suggestion =
+                    dimensionParameterSuggestions[dimensionSuggestionIndex] ??
+                    dimensionParameterSuggestions[0];
+                  insertDimensionParameterSuggestion(suggestion.name);
+                  return;
+                }
                 if (event.key === "Escape") {
                   event.preventDefault();
                   cancelDimensionEdit();
                 }
               }}
             />
+            <button
+              type="submit"
+              className="rounded px-2 py-0.5 text-[11px] font-medium text-primary-glow hover:bg-surface-bright"
+            >
+              {translate("parameters.save")}
+            </button>
+            {dimensionParameterSuggestions.length > 0 ? (
+              <div
+                className="absolute left-0 top-[calc(100%+0.35rem)] w-[220px] overflow-hidden rounded-lg border border-surface-high bg-surface-container py-1 text-left shadow-xl"
+                onMouseDown={(event) => event.preventDefault()}
+              >
+                {dimensionParameterSuggestions.map((suggestion, index) => (
+                  <button
+                    key={suggestion.name}
+                    type="button"
+                    className={`flex w-full items-center justify-between gap-3 px-3 py-1.5 text-xs ${
+                      index === dimensionSuggestionIndex
+                        ? "bg-surface-bright text-on-surface"
+                        : "text-on-surface-muted hover:bg-surface-high hover:text-on-surface"
+                    }`}
+                    onClick={() =>
+                      insertDimensionParameterSuggestion(suggestion.name)
+                    }
+                  >
+                    <span className="min-w-0 truncate font-mono">
+                      {suggestion.name}
+                    </span>
+                    <span className="shrink-0 text-[10px] uppercase tracking-[0.12em] text-on-surface-dim">
+                      {suggestion.kind}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </form>
         ) : null}
         {!hasActiveDocument ? (
