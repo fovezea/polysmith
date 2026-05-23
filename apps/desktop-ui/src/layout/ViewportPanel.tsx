@@ -2517,6 +2517,27 @@ export function ViewportPanel({
     setDimensionToolFirstLine(entityId);
   }
 
+  function dimCreatePolygon(entityId: string) {
+    const dimensionId = `dim-polygon-${entityId}`;
+    pendingDimensionIdRef.current = dimensionId;
+    pendingDimensionPlacementRef.current = true;
+    void addSketchPolygonRadiusDimensionRef
+      .current(entityId)
+      .catch(() => {
+        pendingDimensionIdRef.current = null;
+        pendingDimensionPlacementRef.current = false;
+      });
+  }
+
+  function dimSelectPolygon(entityId: string) {
+    const dimensionId = `dim-polygon-${entityId}`;
+    pendingDimensionIdRef.current = dimensionId;
+    handleDimensionClick(dimensionId);
+    // Stage for possible two-entity follow-up pick
+    dimensionToolFirstLineRef.current = entityId;
+    setDimensionToolFirstLine(entityId);
+  }
+
   function dimCreateAngleOrDistance(
     firstEntityId: string,
     secondEntityId: string,
@@ -6530,6 +6551,19 @@ export function ViewportPanel({
               }
               return;
             }
+            // Polygon
+            if (hit.entityKind === "polygon") {
+              const exists =
+                sketchLinesRef.current?.dimensions.some(
+                  (d) => d.dimension_id === `dim-polygon-${hit.id}`,
+                ) ?? false;
+              if (exists) {
+                dimSelectPolygon(hit.id);
+              } else {
+                dimCreatePolygon(hit.id);
+              }
+              return;
+            }
             // Line
             const exists =
               sketchLinesRef.current?.dimensions.some(
@@ -6564,11 +6598,13 @@ export function ViewportPanel({
             };
             // Resolve point → entity for the unary-dimension path
             let resolvedId: string | null = null;
-            let resolvedKind: "line" | "circle" | null = null;
+            let resolvedKind: "line" | "circle" | "polygon" | null = null;
             const lm = hit.id.match(/^point-(line-\d+)/);
             if (lm) { resolvedId = lm[1]; resolvedKind = "line"; }
             const cm = hit.id.match(/^point-(circle-\d+)/);
             if (cm) { resolvedId = cm[1]; resolvedKind = "circle"; }
+            const pm = hit.id.match(/^point-(polygon-\d+)/);
+            if (pm) { resolvedId = pm[1]; resolvedKind = "polygon"; }
             if (!resolvedId) {
               dimensionToolFirstLineRef.current = null;
               setDimensionToolFirstLine(null);
@@ -6591,6 +6627,18 @@ export function ViewportPanel({
                 dimSelectCircle(resolvedId);
               } else {
                 dimCreateCircle(resolvedId, "");
+              }
+              return;
+            }
+            if (resolvedKind === "polygon") {
+              const exists =
+                sketchLinesRef.current?.dimensions.some(
+                  (d) => d.dimension_id === `dim-polygon-${resolvedId}`,
+                ) ?? false;
+              if (exists) {
+                dimSelectPolygon(resolvedId);
+              } else {
+                dimCreatePolygon(resolvedId);
               }
               return;
             }

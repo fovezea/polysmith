@@ -520,3 +520,108 @@ Build a unified sketch interaction system where constraints, snapping, and selec
 - **Constraint badge highlight**: sprite doesn't visually change on selection (status bar only).
 - **Driven dimension proposal**: should offer driven dim when entity already fully constrained.
 - **DOF color legend**: help menu entry needed (blue=full, red=over, yellow=under).
+- **Line dimension tool redesign**: full specification in the 2026-05-24 section below. Three work items remain: post-creation endpoint drag (select tool), intent-based drag-direction detection (dimension tool), and perpendicular snap for dimension tool disambiguation.
+
+## 2026-05-24
+
+### Line Dimension Tool — Specification
+
+> This is a behavioral specification for the line dimension tool, captured
+> as the target design. It describes the full workflow: preview-phase
+> dimension editing, post-creation drag, and intent-based dimension
+> detection. Not yet implemented — the snap engine and DOF system are
+> prerequisite foundations that are now finished.
+
+#### Goal
+The line dimension tool must handle the full lifecycle of a line's
+dimensions: constrained dimensions entered during preview, post-creation
+dimension addition via drag, and intent-based dimension type detection
+based on the user's drag direction relative to the line.
+
+#### Preview-Phase Dimension Editing (Line Creation)
+
+During line creation, the preview shows 2 floating input fields: **length**
+and **angle**. The user can Tab between them.
+
+| User action | Result |
+|---|---|
+| Modify length → press Enter | Length becomes a **constrained** dimension on the line |
+| Modify angle → press Enter | Angle becomes a **constrained** dimension on the line |
+| Modify both → press Enter | Both become constrained dimensions |
+| Do not modify either → click final point | Line is drawn. **No dimension or angle constraint** is created. Values are lost (driven, not visible). |
+| Modify a value → drag the endpoint (mouse) | The manually-entered value is overridden by the drag. Reverts to unconstrained. |
+
+**Key rule:** only explicitly entered values become constraints. A value
+that appears pre-populated in the input but is never edited does NOT
+create a constraint — it is a driven value that is invisible after commit.
+
+#### Post-Creation Dimension Workflow
+
+If no dimension was created during preview, the user can add one later
+through the Dimension tool (`D`):
+
+1. Activate Dimension tool (`D`)
+2. Click on the line body → the tool offers a **single-entity line
+   length dimension** (the `add_sketch_line_length_dimension` flow)
+3. The dimension editor opens with the current length
+4. User types a value → Enter → dimension becomes constrained
+
+**Current bug:** clicking the line body immediately commits to a
+single-entity dimension and closes the option to pick a second point.
+This prevents the user from creating a point-to-point distance dimension
+between the line's two endpoints (a diagonal dimension when the line
+is not axis-aligned).
+
+#### Intent-Based Dimension Detection
+
+When the user activates the Dimension tool and starts a drag on or near
+a line, the tool should detect intent based on drag direction relative
+to the line's geometry:
+
+| Drag direction relative to line | Dimension type created |
+|---|---|
+| Perpendicular to the line (within ±15°) | **Line length dimension** — single entity, `dim-line-{id}` |
+| Parallel to the line (within ±15°) from one endpoint | **Endpoint-to-endpoint distance** (diagonal if non-axis-aligned) — two-point, `dim-point-distance-{a}-{b}` |
+| Diagonal / ambiguous (between the two zones) | Default to **line length dimension** |
+
+**Cube diagonal scenario as example:** When the user has a cube wireframe
+and clicks diagonal opposite points, the result should be:
+
+- If the drag moves perpendicular to the line → line length dimension
+- If the drag moves parallel along the line's direction → diagonal
+  distance dimension (distance between the two endpoints)
+- The tool must NOT immediately snap to one interpretation — it waits
+  for sufficient mouse movement to disambiguate
+
+#### Line Drag After Creation
+
+Lines created without a dimension constraint should be **draggable after
+creation** to adjust their length/position. This belongs to the **select
+tool** functionality (not the line tool or dimension tool):
+
+1. Select tool active → hover over a line endpoint
+2. Click and drag the endpoint → line resizes in real time
+3. On release → the new geometry is committed (same IPC path as
+   `update_sketch_line`)
+4. If the line has existing constrained dimensions, they are **updated
+   to driven** (since the direct drag overrides the constraint)
+5. If the line has no constrained dimensions, it remains unconstrained
+   after the drag
+
+#### Polygon Dimension Treatment
+
+Complex shapes (polygons, rectangles) should be treated as collections of
+individual lines for dimensioning purposes. Each constituent line of a
+polygon or rectangle should be individually dimensionable through the same
+line dimension workflow. Deleting one line from a polygon results in
+dimensions on remaining lines staying valid; any polygon-radius dimension
+that referenced the polygon as a whole is treated as `dependency_broken`.
+
+#### Prerequisites
+
+- Snap engine finished ✅ (2026-05-23)
+- DOF counting + coloring ✅ (2026-05-23)
+- Single-entity dimension creation IPC ✅ (2026-05-24)
+- Post-creation endpoint drag (select tool) — **not yet implemented**
+- Intent-based drag-direction detection — **not yet implemented**
+- Perpendicular snap for dimension tool — **not yet implemented** (see Known Issues)
