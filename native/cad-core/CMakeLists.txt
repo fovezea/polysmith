@@ -21,6 +21,7 @@ add_executable(cad_core
   src/core/box_feature.cpp
   src/core/construction_plane_feature.cpp
   src/core/cylinder_feature.cpp
+  src/core/dof_counter.cpp
   src/core/document.cpp
   src/core/edge_geometry.cpp
   src/core/export.cpp
@@ -28,10 +29,12 @@ add_executable(cad_core
   src/core/face_geometry.cpp
   src/core/feature_shape.cpp
   src/core/formula_eval.cpp
+  src/core/inference_engine.cpp
   src/core/logger.cpp
   src/core/refresh_dependents.cpp
   src/core/sketch_feature.cpp
   src/core/sketch_profile.cpp
+  src/core/snap_engine.cpp
   src/core/viewport.cpp
   src/protocol/ipc.cpp
   src/protocol/serialization.cpp
@@ -48,8 +51,10 @@ target_link_libraries(cad_core PRIVATE ${OpenCASCADE_LIBRARIES})
 
 add_executable(cad_core_sketch_profile_test
   src/core/formula_eval.cpp
+  src/core/inference_engine.cpp
   src/core/sketch_feature.cpp
   src/core/sketch_profile.cpp
+  src/core/snap_engine.cpp
   tests/sketch_profile_test.cpp
 )
 

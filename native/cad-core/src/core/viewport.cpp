@@ -35,6 +35,7 @@
 #include <gp_Vec.hxx>
 
 #include "core/body_compiler.h"
+#include "core/dof_counter.h"
 #include "core/feature_shape.h"
 #include "core/sketch_profile.h"
 
@@ -1816,6 +1817,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
         .sketch_dimensions = {},
         .sketch_constraints = {},
         .sketch_profiles = {},
+        .dof_statuses = {},
         .meshes = {},
         .cut_previews = {},
         .bodies = {},
@@ -1831,9 +1833,10 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
                 .center_z = 0.0,
                 .width = 0.0,
                 .height = 0.0,
-                .depth = 0.0,
-                .max_dimension = 0.0,
+            .depth = 0.0,
+            .max_dimension = 0.0,
             },
+        .selection_filter = SelectionFilter{},
     };
   }
 
@@ -1856,6 +1859,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
   std::vector<ViewportBodySummary> bodies;
   std::vector<ViewportEdgePrimitive> edges;
   std::vector<ViewportVertexPrimitive> vertices;
+  std::vector<EntityDofResult> dof_statuses;
   double current_x_offset = 0.0;
   double scene_width = 0.0;
   double max_height = 0.0;
@@ -3584,6 +3588,17 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
                                  scene_depth_with_references}),
   };
 
+  // Populate DOF statuses for the active sketch.
+  if (document->active_sketch_feature_id.has_value()) {
+    for (const auto& feat : document->feature_history) {
+      if (feat.id == document->active_sketch_feature_id.value() &&
+          feat.sketch_parameters.has_value()) {
+        dof_statuses = count_sketch_dof(feat.sketch_parameters.value());
+        break;
+      }
+    }
+  }
+
   return ViewportState{
       .has_active_document = true,
       .boxes = boxes,
@@ -3600,6 +3615,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
       .sketch_dimensions = sketch_dimensions,
       .sketch_constraints = sketch_constraints,
       .sketch_profiles = sketch_profiles,
+      .dof_statuses = dof_statuses,
       .meshes = meshes,
       .cut_previews = cut_previews,
       .bodies = bodies,
@@ -3609,6 +3625,9 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
       .scene_height = scene_height_with_references,
       .scene_depth = scene_depth_with_references,
       .scene_bounds = scene_bounds,
+      .selection_filter = document.has_value()
+          ? document->selection_filter
+          : SelectionFilter{},
   };
 }
 

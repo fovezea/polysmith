@@ -80,7 +80,8 @@
         "add_sketch_polygon_radius_dimension",
         "add_parameter",
         "update_parameter",
-        "delete_parameter"
+        "delete_parameter",
+        "update_selection_filter"
       ]
     },
     "payload": { "type": "object" }

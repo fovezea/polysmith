@@ -28,6 +28,7 @@ import {
   LogsWindow,
   MessageLog,
   SettingsModal,
+  SelectionFilterPanel,
   ViewportPanel,
 } from "./layout";
 import type { CategoryId } from "./layout";
@@ -254,6 +255,7 @@ function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
   const [parametersPanelOpen, setParametersPanelOpen] = useState(false);
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("cad");
   const [slicerStatus, setSlicerStatus] = useState<string | null>(null);
   const [hasOrcaEmbedSession, setHasOrcaEmbedSession] = useState(false);
@@ -458,6 +460,7 @@ function App() {
     finishSketch,
     reenterSketch,
     clearSelection,
+    updateSelectionFilter,
   } = useCadCore();
 
   useEffect(() => {
@@ -1909,7 +1912,7 @@ function App() {
   return (
     <main className="cad-shell h-screen">
       <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]">
-        <AppHeader
+          <AppHeader
           workspaceView={workspaceView}
           canOpenSlicerView={
             isSlicerConfigured &&
@@ -2119,6 +2122,11 @@ function App() {
           onToggleParametersPanel={() => {
             setParametersPanelOpen((current) => !current);
           }}
+          filterPanelOpen={filterPanelOpen}
+          onToggleFilterPanel={() => {
+            setFilterPanelOpen((current) => !current);
+          }}
+          onUpdateSelectionFilter={updateSelectionFilter}
         />
 
         <div className="flex min-h-0 min-w-0">

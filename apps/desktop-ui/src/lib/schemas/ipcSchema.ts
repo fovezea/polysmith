@@ -851,6 +851,33 @@ const viewportStateSchema = z.object({
     }),
     max_dimension: z.number(),
   }),
+  dof_statuses: z.array(
+    z.object({
+      entity_id: z.string(),
+      entity_kind: z.string(),
+      total_dof: z.number(),
+      consumed_dof: z.number(),
+      status: z.enum(["under", "full", "over"]),
+    }),
+  ),
+  selection_filter: z.object({
+    select_curves: z.boolean(),
+    select_points: z.boolean(),
+    select_construction: z.boolean(),
+    select_constraints: z.boolean(),
+    snap_endpoint: z.boolean(),
+    snap_midpoint: z.boolean(),
+    snap_center: z.boolean(),
+    snap_intersection: z.boolean(),
+    snap_nearest: z.boolean(),
+    snap_quadrant: z.boolean(),
+    snap_perpendicular: z.boolean(),
+    snap_parallel: z.boolean(),
+    snap_tangent: z.boolean(),
+    snap_grid: z.boolean(),
+    magnetic_pull: z.boolean(),
+    tolerance_px: z.number(),
+  }),
 });
 
 const helloEventSchema = z.object({

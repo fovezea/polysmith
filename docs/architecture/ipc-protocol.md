@@ -370,6 +370,46 @@ Kind checking: the expression resolver validates that angle-type parameters
 `"line_angle"`). Using an angle parameter in a length dimension produces
 a descriptive error.
 
+### Selection Filter
+
+The `update_selection_filter` command allows the UI to control which
+geometric element types are visible, selectable, and snappable. The
+payload is a flat object of optional boolean fields:
+
+```
+{
+  type: "update_selection_filter",
+  payload: {
+    select_curves: true,
+    select_points: true,
+    select_construction: false,
+    select_constraints: true,
+    snap_endpoint: true,
+    snap_midpoint: true,
+    snap_center: true,
+    snap_intersection: true,
+    snap_nearest: true,
+    snap_quadrant: false,
+    snap_perpendicular: false,
+    snap_parallel: false,
+    snap_tangent: true,
+    snap_grid: true,
+    magnetic_pull: true,
+    tolerance_px: 10
+  }
+}
+```
+
+All fields are optional — omitted fields retain their current value. The
+filter is stored on `DocumentState.selection_filter` (serialized in
+`.polysmith` files, backward-compat absent → defaults) and echoed in
+`viewport_state.selection_filter` so the renderer can gate snap /
+selection behavior without an extra IPC round-trip.
+
+The UI reads the filter from localStorage for instant snap gating
+(synchronous, no IPC latency), but also sends the full payload via IPC
+so the core stays consistent.
+
 ## Philosophy
 
 The IPC protocol is the contract of the system.

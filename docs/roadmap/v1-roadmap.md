@@ -149,6 +149,17 @@ Small individually but they shape day-to-day usability:
 8. **Manual sketch dimension tool completion.** Single-entity dimension
    creation for lines, circles, and polygons whose auto-dimensions were
    deleted by the fusion-style on-demand system.
+9. ✅ **Unified sketch interaction system.** Selection filter checkbox
+   panel with localStorage persistence. Snap gating (endpoint, midpoint,
+   center, nearest, tangent, grid, perpendicular-foot) controlled by
+   checkboxes. DOF counting and entity coloring (blue = fully
+   constrained, red = over-constrained, yellow = under-constrained).
+   Constraint badge click + Delete to remove constraints. Inference
+   engine auto-creates coincident/concentric constraints. Remaining:
+   perpendicular snap, driven dimension proposal, constraint badge
+   highlight, DOF color legend.
+   See `docs/implementation-log.md` (2026-05-23/24) and
+   `wiki/polysmith.wiki/Unified-Sketch-Interaction-Strategy.md`.
 
 Each row above maps cleanly onto the existing contextual modeling action pattern
 (select inputs → invoke action → floating panel → live preview →

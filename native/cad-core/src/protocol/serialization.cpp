@@ -2,6 +2,8 @@
 
 #include <stdexcept>
 
+#include "core/dof_counter.h"
+
 namespace polysmith::protocol {
 
 namespace {
@@ -363,6 +365,30 @@ sketch_parameters_from_payload(const json& payload) {
       relation.first_line_id = read_string(relation_payload, "first_line_id");
       relation.second_line_id = read_string(relation_payload, "second_line_id");
       params.line_relations.push_back(relation);
+    }
+  }
+  // Older saves predate the general constraints array — silently default
+  // to none.
+  if (payload.contains("constraints") && payload.at("constraints").is_array()) {
+    for (const auto& constraint_payload : payload.at("constraints")) {
+      polysmith::core::SketchConstraint constraint{};
+      constraint.constraint_id = read_string(constraint_payload, "constraint_id");
+      constraint.kind = read_string(constraint_payload, "kind");
+      if (constraint_payload.contains("target_ids") &&
+          constraint_payload.at("target_ids").is_array()) {
+        for (const auto& tid : constraint_payload.at("target_ids")) {
+          constraint.target_ids.push_back(tid.get<std::string>());
+        }
+      }
+      if (constraint_payload.contains("value") &&
+          constraint_payload.at("value").is_number()) {
+        constraint.value = constraint_payload.at("value").get<double>();
+      }
+      if (constraint_payload.contains("driven") &&
+          constraint_payload.at("driven").is_boolean()) {
+        constraint.driven = constraint_payload.at("driven").get<bool>();
+      }
+      params.constraints.push_back(constraint);
     }
   }
   // Older saves predate midpoint anchors — silently default to none.
@@ -890,8 +916,27 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                         });
                     }
                     return relations;
-                  }()},
-                 {"midpoint_anchors",
+                   }()},
+                  {"constraints",
+                   [&feature]() {
+                     json constraint_list = json::array();
+                     for (const auto& constraint :
+                          feature.sketch_parameters->constraints) {
+                       json target_ids = json::array();
+                       for (const auto& tid : constraint.target_ids) {
+                         target_ids.push_back(tid);
+                       }
+                       constraint_list.push_back({
+                           {"constraint_id", constraint.constraint_id},
+                           {"kind", constraint.kind},
+                           {"target_ids", target_ids},
+                           {"value", constraint.value},
+                           {"driven", constraint.driven},
+                         });
+                     }
+                     return constraint_list;
+                   }()},
+                  {"midpoint_anchors",
                   [&feature]() {
                     json anchors = json::array();
                     for (const auto& anchor :
@@ -1226,9 +1271,31 @@ json to_payload(const polysmith::core::DocumentState& document) {
                 {"error_message", p.error_message},
             });
          }
-         return params;
-       }()},
-  };
+        return params;
+        }()},
+       {"selection_filter",
+        [&document]() {
+          const auto& sf = document.selection_filter;
+          return json{
+              {"select_curves", sf.select_curves},
+              {"select_points", sf.select_points},
+              {"select_construction", sf.select_construction},
+              {"select_constraints", sf.select_constraints},
+              {"snap_endpoint", sf.snap_endpoint},
+              {"snap_midpoint", sf.snap_midpoint},
+              {"snap_center", sf.snap_center},
+              {"snap_intersection", sf.snap_intersection},
+              {"snap_nearest", sf.snap_nearest},
+              {"snap_quadrant", sf.snap_quadrant},
+              {"snap_perpendicular", sf.snap_perpendicular},
+              {"snap_parallel", sf.snap_parallel},
+              {"snap_tangent", sf.snap_tangent},
+              {"snap_grid", sf.snap_grid},
+              {"magnetic_pull", sf.magnetic_pull},
+              {"tolerance_px", sf.tolerance_px},
+          };
+        }()},
+   };
 }
 
 json to_payload(const polysmith::core::SessionState& session) {
@@ -1886,8 +1953,49 @@ json to_payload(const polysmith::core::ViewportState& viewport) {
                 {"y", viewport.scene_bounds.height},
                 {"z", viewport.scene_bounds.depth},
             }},
-           {"max_dimension", viewport.scene_bounds.max_dimension},
-       }},
+            {"max_dimension", viewport.scene_bounds.max_dimension},
+        }},
+       {"selection_filter",
+        [&viewport]() {
+          const auto& sf = viewport.selection_filter;
+          return json{
+              {"select_curves", sf.select_curves},
+              {"select_points", sf.select_points},
+              {"select_construction", sf.select_construction},
+              {"select_constraints", sf.select_constraints},
+              {"snap_endpoint", sf.snap_endpoint},
+              {"snap_midpoint", sf.snap_midpoint},
+              {"snap_center", sf.snap_center},
+              {"snap_intersection", sf.snap_intersection},
+              {"snap_nearest", sf.snap_nearest},
+              {"snap_quadrant", sf.snap_quadrant},
+              {"snap_perpendicular", sf.snap_perpendicular},
+              {"snap_parallel", sf.snap_parallel},
+              {"snap_tangent", sf.snap_tangent},
+              {"snap_grid", sf.snap_grid},
+              {"magnetic_pull", sf.magnetic_pull},
+              {"tolerance_px", sf.tolerance_px},
+          };
+        }()},
+       {"dof_statuses",
+        [&viewport]() {
+          json statuses = json::array();
+          for (const auto& e : viewport.dof_statuses) {
+            std::string status_str = "under";
+            if (e.status == polysmith::core::DofStatus::FullyConstrained)
+              status_str = "full";
+            else if (e.status == polysmith::core::DofStatus::OverConstrained)
+              status_str = "over";
+            statuses.push_back({
+                {"entity_id", e.entity_id},
+                {"entity_kind", e.entity_kind},
+                {"total_dof", e.total_dof},
+                {"consumed_dof", e.consumed_dof},
+                {"status", status_str},
+            });
+          }
+          return statuses;
+        }()},
   };
 }
 
@@ -2116,6 +2224,45 @@ polysmith::core::DocumentState document_from_payload(const json& payload) {
       }
       document.parameters.push_back(param);
     }
+  }
+
+  // Read selection filter (v1 default if absent in old payloads)
+  if (payload.contains("selection_filter") &&
+      payload.at("selection_filter").is_object()) {
+    const auto& sf = payload.at("selection_filter");
+    auto& filter = document.selection_filter;
+    if (sf.contains("select_curves") && sf.at("select_curves").is_boolean())
+      filter.select_curves = sf.at("select_curves").get<bool>();
+    if (sf.contains("select_points") && sf.at("select_points").is_boolean())
+      filter.select_points = sf.at("select_points").get<bool>();
+    if (sf.contains("select_construction") && sf.at("select_construction").is_boolean())
+      filter.select_construction = sf.at("select_construction").get<bool>();
+    if (sf.contains("select_constraints") && sf.at("select_constraints").is_boolean())
+      filter.select_constraints = sf.at("select_constraints").get<bool>();
+    if (sf.contains("snap_endpoint") && sf.at("snap_endpoint").is_boolean())
+      filter.snap_endpoint = sf.at("snap_endpoint").get<bool>();
+    if (sf.contains("snap_midpoint") && sf.at("snap_midpoint").is_boolean())
+      filter.snap_midpoint = sf.at("snap_midpoint").get<bool>();
+    if (sf.contains("snap_center") && sf.at("snap_center").is_boolean())
+      filter.snap_center = sf.at("snap_center").get<bool>();
+    if (sf.contains("snap_intersection") && sf.at("snap_intersection").is_boolean())
+      filter.snap_intersection = sf.at("snap_intersection").get<bool>();
+    if (sf.contains("snap_nearest") && sf.at("snap_nearest").is_boolean())
+      filter.snap_nearest = sf.at("snap_nearest").get<bool>();
+    if (sf.contains("snap_quadrant") && sf.at("snap_quadrant").is_boolean())
+      filter.snap_quadrant = sf.at("snap_quadrant").get<bool>();
+    if (sf.contains("snap_perpendicular") && sf.at("snap_perpendicular").is_boolean())
+      filter.snap_perpendicular = sf.at("snap_perpendicular").get<bool>();
+    if (sf.contains("snap_parallel") && sf.at("snap_parallel").is_boolean())
+      filter.snap_parallel = sf.at("snap_parallel").get<bool>();
+    if (sf.contains("snap_tangent") && sf.at("snap_tangent").is_boolean())
+      filter.snap_tangent = sf.at("snap_tangent").get<bool>();
+    if (sf.contains("snap_grid") && sf.at("snap_grid").is_boolean())
+      filter.snap_grid = sf.at("snap_grid").get<bool>();
+    if (sf.contains("magnetic_pull") && sf.at("magnetic_pull").is_boolean())
+      filter.magnetic_pull = sf.at("magnetic_pull").get<bool>();
+    if (sf.contains("tolerance_px") && sf.at("tolerance_px").is_number())
+      filter.tolerance_px = sf.at("tolerance_px").get<int>();
   }
 
   return document;

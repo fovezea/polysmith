@@ -18,6 +18,7 @@ import {
   makeAddParameterCommand,
   makeUpdateParameterCommand,
   makeDeleteParameterCommand,
+  makeUpdateSelectionFilterCommand,
   makeDeleteSketchSelectionCommand,
   makeAddSketchCircleCommand,
   makeAddSketchPolygonCommand,
@@ -716,6 +717,27 @@ export function useCadCore() {
     },
     updateParameter: async (name: string, expression: string, kind: "length" | "angle" = "length") => {
       await sendCoreCommand(makeUpdateParameterCommand(name, expression, kind));
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateSelectionFilter: async (filter: {
+      select_curves?: boolean;
+      select_points?: boolean;
+      select_construction?: boolean;
+      select_constraints?: boolean;
+      snap_endpoint?: boolean;
+      snap_midpoint?: boolean;
+      snap_center?: boolean;
+      snap_intersection?: boolean;
+      snap_nearest?: boolean;
+      snap_quadrant?: boolean;
+      snap_perpendicular?: boolean;
+      snap_parallel?: boolean;
+      snap_tangent?: boolean;
+      snap_grid?: boolean;
+      magnetic_pull?: boolean;
+      tolerance_px?: number;
+    }) => {
+      await sendCoreCommand(makeUpdateSelectionFilterCommand(filter));
       await sendCoreCommand(makeGetViewportStateCommand());
     },
     deleteParameter: async (name: string) => {

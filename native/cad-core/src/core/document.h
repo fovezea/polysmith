@@ -49,6 +49,7 @@ struct DocumentState {
   std::vector<std::string> selected_sketch_profile_ids;
   std::vector<FeatureEntry> feature_history;
   std::vector<ParameterEntry> parameters;
+  SelectionFilter selection_filter;
 };
 
 struct SessionState {
@@ -342,6 +343,12 @@ class DocumentManager {
                                  const std::string& expression,
                                  const std::string& kind = "length");
   DocumentState delete_parameter(const std::string& name);
+
+  // Update the per-session selection filter. The filter controls which
+  // geometric element types are visible, selectable, snappable, and
+  // constrainable. Stored on DocumentState for persistence in saved
+  // files, but in v1 it's also settable per-session from the UI.
+  DocumentState update_selection_filter(const SelectionFilter& filter);
 
   ExportResult export_document_as_step(const std::string& file_path) const;
   ExportResult export_document_as_stl(const std::string& file_path) const;
