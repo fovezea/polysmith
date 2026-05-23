@@ -18,6 +18,7 @@ interface DropdownProps<TValue extends string> {
   onChange: (value: TValue) => void;
   className?: string;
   buttonClassName?: string;
+  disabled?: boolean;
 }
 
 export function Dropdown<TValue extends string>({
@@ -27,11 +28,18 @@ export function Dropdown<TValue extends string>({
   onChange,
   className = "",
   buttonClassName = "",
+  disabled = false,
 }: DropdownProps<TValue>) {
   const [isOpen, setIsOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const menuId = useId();
   const selectedOption = options.find((option) => option.value === value);
+
+  useEffect(() => {
+    if (disabled) {
+      setIsOpen(false);
+    }
+  }, [disabled]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -63,12 +71,16 @@ export function Dropdown<TValue extends string>({
       <button
         type="button"
         className={`cad-dropdown-trigger ${buttonClassName}`}
+        disabled={disabled}
         aria-label={label}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
         aria-controls={menuId}
         onClick={() => setIsOpen((current) => !current)}
         onKeyDown={(event) => {
+          if (disabled) {
+            return;
+          }
           if (event.key === "ArrowDown" || event.key === "Enter") {
             event.preventDefault();
             setIsOpen(true);

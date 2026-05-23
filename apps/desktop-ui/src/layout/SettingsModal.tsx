@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
@@ -9,7 +9,7 @@ import {
   useAppConfig,
 } from "@/config";
 import type { AppConfig, HotkeyBinding, OrcaIntegrationMode } from "@/config";
-import { Dropdown, testOllamaConnection } from "@/lib";
+import { Checkbox, Dropdown, listOllamaModels } from "@/lib";
 
 type SettingsSection = "general" | "appearance" | "keybinds" | "ai" | "orca";
 type LanguageCode = "en" | "es" | "ja" | "zh";
@@ -24,6 +24,11 @@ interface HotkeyRow {
   label: string;
   binding: HotkeyBinding;
 }
+
+type AiModelLoadStatus =
+  | { kind: "loading"; message: string }
+  | { kind: "success"; message: string }
+  | { kind: "error"; message: string };
 
 const RESERVED_HOTKEYS = new Set([
   "mod+KeyC",
@@ -124,6 +129,41 @@ function getDefaultHotkey(row: HotkeyRow): HotkeyBinding {
   return groupDefaults[row.key as keyof typeof groupDefaults] as HotkeyBinding;
 }
 
+function StatusCheckIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-4 w-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m5 12 4 4 10-10" />
+    </svg>
+  );
+}
+
+function StatusXIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-4 w-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M6 6l12 12" />
+      <path d="M18 6 6 18" />
+    </svg>
+  );
+}
+
 export function SettingsModal({ onClose }: SettingsModalProps) {
   const { i18n, t } = useTranslation();
   const {
@@ -138,10 +178,10 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   const [activeHotkeyId, setActiveHotkeyId] = useState<string | null>(null);
   const [hotkeyError, setHotkeyError] = useState<string | null>(null);
   const [isConfirmingResetAll, setIsConfirmingResetAll] = useState(false);
-  const [aiConnectionStatus, setAiConnectionStatus] = useState<string | null>(
-    null,
-  );
-  const [isTestingAiConnection, setIsTestingAiConnection] = useState(false);
+  const [aiModelLoadStatus, setAiModelLoadStatus] =
+    useState<AiModelLoadStatus | null>(null);
+  const [aiModelNames, setAiModelNames] = useState<string[]>([]);
+  const [isLoadingAiModels, setIsLoadingAiModels] = useState(false);
   const language = (
     ["en", "es", "ja", "zh"].includes(i18n.resolvedLanguage ?? "")
       ? i18n.resolvedLanguage
@@ -155,6 +195,29 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     { value: "ja", label: "日本語" },
     { value: "zh", label: "中文" },
   ];
+  const aiModelOptions = useMemo(() => {
+    const options = aiModelNames.map((modelName) => ({
+      value: modelName,
+      label: modelName,
+    }));
+    const configuredModel = config.ai.model.trim();
+    if (
+      configuredModel &&
+      !options.some((option) => option.value === configuredModel)
+    ) {
+      options.unshift({
+        value: configuredModel,
+        label: t("settings.modelNotListed", { model: configuredModel }),
+      });
+    }
+    if (options.length === 0) {
+      options.push({
+        value: "",
+        label: t("settings.noModelsLoaded"),
+      });
+    }
+    return options;
+  }, [aiModelNames, config.ai.model, t]);
 
   const hotkeyRows: HotkeyRow[] = [
     {
@@ -266,6 +329,45 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     setActiveHotkeyId(null);
   }
 
+  async function loadAiModels() {
+    setIsLoadingAiModels(true);
+    setAiModelLoadStatus({
+      kind: "loading",
+      message: t("settings.loadingModels"),
+    });
+    try {
+      const models = await listOllamaModels(config.ai.baseUrl);
+      setAiModelNames(models);
+      if (models.length > 0 && !models.includes(config.ai.model.trim())) {
+        updateConfig((current) => ({
+          ...current,
+          ai: {
+            ...current.ai,
+            model: models[0],
+          },
+        }));
+      }
+      setAiModelLoadStatus({
+        kind: "success",
+        message:
+          models.length > 0
+            ? t("settings.modelsLoaded", {
+                count: models.length,
+                plural: models.length === 1 ? "" : "s",
+              })
+            : t("settings.noModelsFound"),
+      });
+    } catch (error) {
+      setAiModelNames([]);
+      setAiModelLoadStatus({
+        kind: "error",
+        message: t("settings.modelLoadFailed", { error: String(error) }),
+      });
+    } finally {
+      setIsLoadingAiModels(false);
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-6 py-8 backdrop-blur-sm">
       <section className="cad-floating-panel grid h-[min(680px,calc(100vh-64px))] min-h-0 w-[min(920px,calc(100vw-48px))] grid-cols-[220px_minmax(0,1fr)] overflow-hidden p-0">
@@ -279,7 +381,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               ["appearance", t("settings.appearance")],
               ["keybinds", t("settings.keybinds")],
               ["ai", t("common.ai")],
-              ["orca", t("settings.embeddedOrcaSlicer")],
+              ["orca", t("settings.slicer")],
             ].map(([id, label]) => (
               <button
                 key={id}
@@ -308,7 +410,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                   ? t("settings.keybinds")
                   : section === "ai"
                     ? t("common.ai")
-                    : t("settings.embeddedOrcaSlicer")}
+                    : t("settings.slicer")}
             </h2>
           </header>
 
@@ -422,21 +524,21 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                   <label className="flex items-center justify-between gap-4">
                     <span>
                       <span className="block text-sm font-medium text-on-surface">
-                    {t("settings.enableAiAssistant")}
+                        {t("settings.enableAiAssistant")}
                       </span>
                       <span className="mt-1 block text-xs text-on-surface-muted">
                         {t("settings.enableAiAssistantDescription")}
                       </span>
                     </span>
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={config.ai.enabled}
-                      onChange={(event) => {
+                      ariaLabel={t("settings.enableAiAssistant")}
+                      onCheckedChange={(enabled) => {
                         updateConfig((current) => ({
                           ...current,
                           ai: {
                             ...current.ai,
-                            enabled: event.target.checked,
+                            enabled,
                           },
                         }));
                       }}
@@ -444,7 +546,14 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                   </label>
                 </div>
 
-                <div className="space-y-3">
+                <fieldset
+                  disabled={!config.ai.enabled}
+                  className={
+                    config.ai.enabled
+                      ? "m-0 space-y-3 border-0 p-0"
+                      : "m-0 space-y-3 border-0 p-0 opacity-45"
+                  }
+                >
                   <label className="block">
                     <span className="cad-kicker">{t("settings.ollamaUrl")}</span>
                     <input
@@ -452,7 +561,8 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                       value={config.ai.baseUrl}
                       placeholder="http://localhost:11434"
                       onChange={(event) => {
-                        setAiConnectionStatus(null);
+                        setAiModelLoadStatus(null);
+                        setAiModelNames([]);
                         updateConfig((current) => ({
                           ...current,
                           ai: {
@@ -464,19 +574,50 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                     />
                   </label>
 
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      className="cad-ribbon-action"
+                      disabled={isLoadingAiModels || !config.ai.enabled}
+                      onClick={() => void loadAiModels()}
+                    >
+                      {t("settings.loadModels")}
+                    </button>
+                    {aiModelLoadStatus ? (
+                      <span
+                        className={`flex items-center gap-1.5 text-sm ${
+                          aiModelLoadStatus.kind === "success"
+                            ? "text-success"
+                            : aiModelLoadStatus.kind === "error"
+                              ? "text-danger"
+                              : "text-on-surface-muted"
+                        }`}
+                      >
+                        {aiModelLoadStatus.kind === "success" ? (
+                          <StatusCheckIcon />
+                        ) : aiModelLoadStatus.kind === "error" ? (
+                          <StatusXIcon />
+                        ) : null}
+                        {aiModelLoadStatus.message}
+                      </span>
+                    ) : null}
+                  </div>
+
                   <label className="block">
                     <span className="cad-kicker">{t("settings.model")}</span>
-                    <input
-                      className="mt-2 w-full rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-on-surface outline-none transition-colors focus:border-primary-edge"
+                    <Dropdown
+                      label={t("settings.model")}
+                      className="mt-2 w-full"
                       value={config.ai.model}
-                      placeholder="gemma3:4b"
-                      onChange={(event) => {
-                        setAiConnectionStatus(null);
+                      options={aiModelOptions}
+                      disabled={!config.ai.enabled || aiModelNames.length === 0}
+                      onChange={(model) => {
+                        setAiModelLoadStatus(null);
                         updateConfig((current) => ({
                           ...current,
                           ai: {
                             ...current.ai,
-                            model: event.target.value,
+                            model,
                           },
                         }));
                       }}
@@ -503,40 +644,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                       }}
                     />
                   </label>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    className="cad-ribbon-action"
-                    disabled={isTestingAiConnection}
-                    onClick={() => {
-                      setIsTestingAiConnection(true);
-                      setAiConnectionStatus(t("settings.testingConnection"));
-                      void testOllamaConnection(config.ai)
-                        .then((message) => {
-                          setAiConnectionStatus(message);
-                        })
-                        .catch((error) => {
-                          setAiConnectionStatus(
-                            t("settings.connectionFailed", {
-                              error: String(error),
-                            }),
-                          );
-                        })
-                        .finally(() => {
-                          setIsTestingAiConnection(false);
-                        });
-                    }}
-                  >
-                    {t("settings.testConnection")}
-                  </button>
-                  {aiConnectionStatus ? (
-                    <span className="text-sm text-on-surface-muted">
-                      {aiConnectionStatus}
-                    </span>
-                  ) : null}
-                </div>
+                </fieldset>
               </div>
             ) : (
               <div className="max-w-xl space-y-5">
@@ -550,15 +658,15 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                         {t("settings.enableEmbeddedOrcaSlicerDescription")}
                       </span>
                     </span>
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={config.orcaSlicer.enabled}
-                      onChange={(event) => {
+                      ariaLabel={t("settings.enableEmbeddedOrcaSlicer")}
+                      onCheckedChange={(enabled) => {
                         updateConfig((current) => ({
                           ...current,
                           orcaSlicer: {
                             ...current.orcaSlicer,
-                            enabled: event.target.checked,
+                            enabled,
                           },
                         }));
                       }}
@@ -566,113 +674,123 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                   </label>
                 </div>
 
-                <label className="block">
-                  <span className="cad-kicker">
-                    {t("settings.orcaSlicerIntegrationMode")}
-                  </span>
-                  <div className="mt-2">
-                    <Dropdown
-                      value={config.orcaSlicer.integrationMode}
-                      options={[
-                        {
-                          value: "native",
-                          label: t(
-                            "settings.orcaSlicerIntegrationModeNative",
-                          ),
-                        },
-                        {
-                          value: "web",
-                          label: t(
-                            "settings.orcaSlicerIntegrationModeWeb",
-                          ),
-                        },
-                      ]}
-                      label={t("settings.orcaSlicerIntegrationMode")}
-                      onChange={(value) => {
-                        updateConfig((current) => ({
-                          ...current,
-                          orcaSlicer: {
-                            ...current.orcaSlicer,
-                            integrationMode: value as OrcaIntegrationMode,
-                          },
-                        }));
-                      }}
-                    />
-                  </div>
-                </label>
-
-                {config.orcaSlicer.integrationMode === "native" ? (
+                <fieldset
+                  disabled={!config.orcaSlicer.enabled}
+                  className={
+                    config.orcaSlicer.enabled
+                      ? "m-0 space-y-5 border-0 p-0"
+                      : "m-0 space-y-5 border-0 p-0 opacity-45"
+                  }
+                >
                   <label className="block">
                     <span className="cad-kicker">
-                      {t("settings.orcaSlicerBinaryPath")}
-                    </span>
-                    <div className="mt-2 flex gap-2">
-                      <input
-                        className="min-w-0 flex-1 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-on-surface outline-none transition-colors focus:border-primary-edge"
-                        value={config.orcaSlicer.binaryPath}
-                        placeholder={t(
-                          "settings.orcaSlicerBinaryPlaceholder",
-                        )}
-                        onChange={(event) => {
-                          updateConfig((current) => ({
-                            ...current,
-                            orcaSlicer: {
-                              ...current.orcaSlicer,
-                              binaryPath: event.target.value,
-                            },
-                          }));
-                        }}
-                      />
-                      <button
-                        type="button"
-                        className="cad-ribbon-action"
-                        onClick={async () => {
-                          const selectedPath = await open({
-                            title: t("settings.selectOrcaSlicerBinary"),
-                            multiple: false,
-                            directory: false,
-                          });
-                          if (typeof selectedPath !== "string") {
-                            return;
-                          }
-                          updateConfig((current) => ({
-                            ...current,
-                            orcaSlicer: {
-                              ...current.orcaSlicer,
-                              binaryPath: selectedPath,
-                            },
-                          }));
-                        }}
-                      >
-                        {t("common.browse")}
-                      </button>
-                    </div>
-                  </label>
-                ) : (
-                  <label className="block">
-                    <span className="cad-kicker">
-                      {t("settings.orcaSlicerWebUrl")}
+                      {t("settings.orcaSlicerIntegrationMode")}
                     </span>
                     <div className="mt-2">
-                      <input
-                        className="w-full rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-on-surface outline-none transition-colors focus:border-primary-edge"
-                        value={config.orcaSlicer.webUrl}
-                        placeholder={t(
-                          "settings.orcaSlicerWebUrlPlaceholder",
-                        )}
-                        onChange={(event) => {
+                      <Dropdown
+                        value={config.orcaSlicer.integrationMode}
+                        options={[
+                          {
+                            value: "native",
+                            label: t(
+                              "settings.orcaSlicerIntegrationModeNative",
+                            ),
+                          },
+                          {
+                            value: "web",
+                            label: t(
+                              "settings.orcaSlicerIntegrationModeWeb",
+                            ),
+                          },
+                        ]}
+                        label={t("settings.orcaSlicerIntegrationMode")}
+                        disabled={!config.orcaSlicer.enabled}
+                        onChange={(value) => {
                           updateConfig((current) => ({
                             ...current,
                             orcaSlicer: {
                               ...current.orcaSlicer,
-                              webUrl: event.target.value,
+                              integrationMode: value as OrcaIntegrationMode,
                             },
                           }));
                         }}
                       />
                     </div>
                   </label>
-                )}
+
+                  {config.orcaSlicer.integrationMode === "native" ? (
+                    <label className="block">
+                      <span className="cad-kicker">
+                        {t("settings.orcaSlicerBinaryPath")}
+                      </span>
+                      <div className="mt-2 flex gap-2">
+                        <input
+                          className="min-w-0 flex-1 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-on-surface outline-none transition-colors focus:border-primary-edge"
+                          value={config.orcaSlicer.binaryPath}
+                          placeholder={t(
+                            "settings.orcaSlicerBinaryPlaceholder",
+                          )}
+                          onChange={(event) => {
+                            updateConfig((current) => ({
+                              ...current,
+                              orcaSlicer: {
+                                ...current.orcaSlicer,
+                                binaryPath: event.target.value,
+                              },
+                            }));
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="cad-ribbon-action"
+                          onClick={async () => {
+                            const selectedPath = await open({
+                              title: t("settings.selectOrcaSlicerBinary"),
+                              multiple: false,
+                              directory: false,
+                            });
+                            if (typeof selectedPath !== "string") {
+                              return;
+                            }
+                            updateConfig((current) => ({
+                              ...current,
+                              orcaSlicer: {
+                                ...current.orcaSlicer,
+                                binaryPath: selectedPath,
+                              },
+                            }));
+                          }}
+                        >
+                          {t("common.browse")}
+                        </button>
+                      </div>
+                    </label>
+                  ) : (
+                    <label className="block">
+                      <span className="cad-kicker">
+                        {t("settings.orcaSlicerWebUrl")}
+                      </span>
+                      <div className="mt-2">
+                        <input
+                          className="w-full rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-on-surface outline-none transition-colors focus:border-primary-edge"
+                          value={config.orcaSlicer.webUrl}
+                          placeholder={t(
+                            "settings.orcaSlicerWebUrlPlaceholder",
+                          )}
+                          onChange={(event) => {
+                            updateConfig((current) => ({
+                              ...current,
+                              orcaSlicer: {
+                                ...current.orcaSlicer,
+                                webUrl: event.target.value,
+                              },
+                            }));
+                          }}
+                        />
+                      </div>
+                    </label>
+                  )}
+                </fieldset>
               </div>
             )}
           </div>

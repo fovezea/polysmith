@@ -1,4 +1,5 @@
 import type { LogEntry, LogLevel } from "@/types";
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 
 interface LogsWindowProps {
@@ -28,6 +29,20 @@ function formatLogTime(timestamp: string) {
 
 export function LogsWindow({ logs, onClose, onClear }: LogsWindowProps) {
   const { t } = useTranslation();
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [onClose]);
+
   return (
     <div className="pointer-events-auto fixed inset-x-6 top-24 z-40 mx-auto max-w-5xl">
       <section className="cad-floating-panel overflow-hidden p-0 shadow-[0_18px_70px_rgba(0,0,0,0.48)]">

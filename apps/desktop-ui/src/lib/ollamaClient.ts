@@ -1,5 +1,3 @@
-import type { AiConfig } from "@/config";
-
 interface OllamaTagsResponse {
   models?: Array<{ name?: string }>;
 }
@@ -15,21 +13,15 @@ function trimBaseUrl(baseUrl: string) {
   return baseUrl.replace(/\/+$/, "");
 }
 
-export async function testOllamaConnection(config: AiConfig): Promise<string> {
-  const response = await fetch(`${trimBaseUrl(config.baseUrl)}/api/tags`);
+export async function listOllamaModels(baseUrl: string): Promise<string[]> {
+  const response = await fetch(`${trimBaseUrl(baseUrl)}/api/tags`);
   if (!response.ok) {
     throw new Error(`Ollama returned HTTP ${response.status}`);
   }
   const payload = (await response.json()) as OllamaTagsResponse;
-  const modelNames = (payload.models ?? [])
+  return (payload.models ?? [])
     .map((model) => model.name)
     .filter((name): name is string => Boolean(name));
-  if (config.model.trim() && !modelNames.includes(config.model.trim())) {
-    return `Connected. Model "${config.model.trim()}" was not listed.`;
-  }
-  return modelNames.length > 0
-    ? `Connected. ${modelNames.length} model${modelNames.length === 1 ? "" : "s"} available.`
-    : "Connected. No local models were listed.";
 }
 
 export async function requestOllamaChat(

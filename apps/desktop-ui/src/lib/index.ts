@@ -1,4 +1,5 @@
 export * from "./cadCoreClient";
+export * from "./components/Checkbox";
 export * from "./components/Dropdown";
 export * from "./components/SplitToolButton";
 export * from "./components/ToolbarTooltip";

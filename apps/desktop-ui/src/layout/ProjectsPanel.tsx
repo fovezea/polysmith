@@ -8,6 +8,7 @@ import type {
   PointerEvent as ReactPointerEvent,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { Checkbox } from "@/lib";
 import type { ProjectFolder, RecentProject, RecentProjectsDocument } from "@/lib";
 import { ContextMenuShell } from "./ContextMenuShell";
 
@@ -1124,13 +1125,13 @@ export function ProjectsPanel({
               {t("projects.deleteProjectBody")}
             </p>
             <label className="cad-project-delete-file-option">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={deleteProjectRequest.shouldDeleteFile}
-                onChange={(event) =>
+                ariaLabel={t("projects.deleteFileToo")}
+                onCheckedChange={(shouldDeleteFile) =>
                   setDeleteProjectRequest({
                     ...deleteProjectRequest,
-                    shouldDeleteFile: event.target.checked,
+                    shouldDeleteFile,
                   })
                 }
               />

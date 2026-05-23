@@ -3372,6 +3372,13 @@ function App() {
                   );
                 });
               }}
+              onFinishSketch={async () => {
+                await runAction(async () => {
+                  clearArmedSketchConstraint();
+                  await finishSketch();
+                  await restoreTimelineCursorAfterEdit();
+                });
+              }}
               onSetSketchTool={async (tool) => {
                 await runAction(async () => {
                   clearArmedSketchConstraint();

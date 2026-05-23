@@ -15,7 +15,7 @@ import {
   matchesHotkey,
   useAppConfig,
 } from "@/config";
-import { Dropdown, ToolbarTooltip } from "@/lib";
+import { Checkbox, Dropdown, ToolbarTooltip } from "@/lib";
 import type { CrosshairMode } from "@/config";
 import { createViewportScene } from "@/lib";
 import type {
@@ -411,6 +411,7 @@ interface ViewportPanelProps {
     displayAs: string,
   ) => Promise<void>;
   onSetSketchTool: (tool: SketchTool) => Promise<void>;
+  onFinishSketch: () => Promise<void>;
   hiddenFeatureIds?: ReadonlySet<string>;
   hiddenSketchPlaneIds?: ReadonlySet<string>;
   hideReferences?: boolean;
@@ -994,6 +995,7 @@ export function ViewportPanel({
   onAddSketchPointDistanceDimension,
   onUpdateSketchDimensionDisplay,
   onSetSketchTool,
+  onFinishSketch,
   hiddenFeatureIds,
   hiddenSketchPlaneIds,
   hideReferences,
@@ -8522,13 +8524,12 @@ export function ViewportPanel({
               {isDrawableSketchTool(activeSketchTool) ? (
                 <label className="flex items-center justify-between gap-4 text-sm text-on-surface">
                   <span>{translate("common.construction")}</span>
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 cursor-pointer accent-cyan-300"
+                  <Checkbox
                     checked={sketchToolConstruction}
-                    onChange={(event) => {
-                      sketchToolConstructionRef.current = event.target.checked;
-                      setSketchToolConstruction(event.target.checked);
+                    ariaLabel={translate("common.construction")}
+                    onCheckedChange={(checked) => {
+                      sketchToolConstructionRef.current = checked;
+                      setSketchToolConstruction(checked);
                     }}
                   />
                 </label>
@@ -8846,62 +8847,74 @@ export function ViewportPanel({
                   : translate("viewport.noActiveSketch")}
               </p>
               {activeSketchPlaneId ? (
-                <p className="mt-1 text-xs text-on-surface-dim">
-                  {/* Status text — never embed internal ids; see
-                      AGENTS.md "UI Copy Rules". The selection
-                      details (entity / point / dimension /
-                      profile) just acknowledge that something is
-                      selected; specifics live in the floating
-                      panels keyed off those selections. */}
-                  {armedSketchConstraint
-                    ? armedSketchConstraint.kind === "coincident"
-                      ? armedSketchConstraint.firstPointId
-                        ? translate("constraints.coincidentSecondPoint")
-                        : translate("constraints.coincidentFirstPoint")
-                      : armedSketchConstraint.kind === "equal_length" ||
-                          armedSketchConstraint.kind === "perpendicular" ||
-                          armedSketchConstraint.kind === "parallel"
-                        ? armedSketchConstraint.firstLineId
-                          ? translate("constraints.lineSecond", {
-                              label:
-                                armedSketchConstraint.kind === "equal_length"
-                                  ? translate("toolbar.equalLength")
-                                  : armedSketchConstraint.kind ===
-                                      "perpendicular"
-                                    ? translate("toolbar.perpendicular")
-                                    : translate("toolbar.parallel"),
+                <>
+                  <p className="mt-1 text-xs text-on-surface-dim">
+                    {/* Status text — never embed internal ids; see
+                        AGENTS.md "UI Copy Rules". The selection
+                        details (entity / point / dimension /
+                        profile) just acknowledge that something is
+                        selected; specifics live in the floating
+                        panels keyed off those selections. */}
+                    {armedSketchConstraint
+                      ? armedSketchConstraint.kind === "coincident"
+                        ? armedSketchConstraint.firstPointId
+                          ? translate("constraints.coincidentSecondPoint")
+                          : translate("constraints.coincidentFirstPoint")
+                        : armedSketchConstraint.kind === "equal_length" ||
+                            armedSketchConstraint.kind === "perpendicular" ||
+                            armedSketchConstraint.kind === "parallel"
+                          ? armedSketchConstraint.firstLineId
+                            ? translate("constraints.lineSecond", {
+                                label:
+                                  armedSketchConstraint.kind === "equal_length"
+                                    ? translate("toolbar.equalLength")
+                                    : armedSketchConstraint.kind ===
+                                        "perpendicular"
+                                      ? translate("toolbar.perpendicular")
+                                      : translate("toolbar.parallel"),
+                              })
+                            : translate("constraints.lineFirst", {
+                                label:
+                                  armedSketchConstraint.kind === "equal_length"
+                                    ? translate("toolbar.equalLength")
+                                    : armedSketchConstraint.kind ===
+                                        "perpendicular"
+                                      ? translate("toolbar.perpendicular")
+                                      : translate("toolbar.parallel"),
+                              })
+                          : translate("constraints.lineConstraint", {
+                              kind: armedSketchConstraint.kind,
                             })
-                          : translate("constraints.lineFirst", {
-                              label:
-                                armedSketchConstraint.kind === "equal_length"
-                                  ? translate("toolbar.equalLength")
-                                  : armedSketchConstraint.kind ===
-                                      "perpendicular"
-                                    ? translate("toolbar.perpendicular")
-                                    : translate("toolbar.parallel"),
-                            })
-                        : translate("constraints.lineConstraint", {
-                            kind: armedSketchConstraint.kind,
-                          })
-                    : document?.selected_sketch_entity_id
-                      ? document?.selected_sketch_dimension_id
-                        ? translate("viewport.dimensionSelected")
-                        : translate("viewport.entitySelected")
-                      : document?.selected_sketch_point_id
-                        ? translate("viewport.pointSelected")
-                        : document?.selected_sketch_profile_id
-                          ? translate("viewport.profileSelected")
-                          : sketchSnapLabel
-                            ? translate("viewport.snap", { label: sketchSnapLabel })
-                            : activeSketchTool === "select"
-                              ? translate("viewport.selectionMode")
-                              : activeSketchTool === "project"
-                                ? translate("viewport.projectPrompt")
-                                : activeSketchTool === "line" &&
-                                    lineDraftStartRef.current
-                                  ? translate("viewport.lineChainActive")
-                                  : translate("viewport.clickPlaceGeometry")}
-                </p>
+                      : document?.selected_sketch_entity_id
+                        ? document?.selected_sketch_dimension_id
+                          ? translate("viewport.dimensionSelected")
+                          : translate("viewport.entitySelected")
+                        : document?.selected_sketch_point_id
+                          ? translate("viewport.pointSelected")
+                          : document?.selected_sketch_profile_id
+                            ? translate("viewport.profileSelected")
+                            : sketchSnapLabel
+                              ? translate("viewport.snap", { label: sketchSnapLabel })
+                              : activeSketchTool === "select"
+                                ? translate("viewport.selectionMode")
+                                : activeSketchTool === "project"
+                                  ? translate("viewport.projectPrompt")
+                                  : activeSketchTool === "line" &&
+                                      lineDraftStartRef.current
+                                    ? translate("viewport.lineChainActive")
+                                    : translate("viewport.clickPlaceGeometry")}
+                  </p>
+                  <button
+                    type="button"
+                    className="pointer-events-auto mt-3 ml-auto flex cad-ribbon-action cad-ribbon-action-primary"
+                    disabled={status !== "connected"}
+                    onClick={() => {
+                      void onFinishSketch();
+                    }}
+                  >
+                    {translate("toolbar.finishSketch")}
+                  </button>
+                </>
               ) : null}
             </div>
           </>

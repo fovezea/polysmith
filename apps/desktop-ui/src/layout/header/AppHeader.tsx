@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { ConstraintType, SketchTool, ArmedSketchConstraint } from "@/types";
 import { useAppConfig } from "@/config";
@@ -19,6 +20,7 @@ interface MenuDropdownItem {
 
 interface MenuDropdownProps {
   label: string;
+  icon?: ReactNode;
   disabled?: boolean;
   align?: "start" | "end";
   items: MenuDropdownItem[];
@@ -27,6 +29,7 @@ interface MenuDropdownProps {
 
 function MenuDropdown({
   label,
+  icon,
   disabled,
   align = "end",
   items,
@@ -75,9 +78,16 @@ function MenuDropdown({
         className="cad-ribbon-action"
         disabled={disabled}
         onClick={() => setIsOpen((current) => !current)}
+        aria-label={label}
+        title={label}
       >
-        {label}
-        <span aria-hidden className="ml-1.5 text-on-surface-dim">
+        {icon ?? label}
+        <span
+          aria-hidden
+          className={
+            icon ? "ml-1 text-on-surface-dim" : "ml-1.5 text-on-surface-dim"
+          }
+        >
           ▾
         </span>
       </button>
@@ -102,6 +112,62 @@ function MenuDropdown({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function FileMenuIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-[18px] w-[18px]"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M6 3.5h8l4 4v13H6Z" />
+      <path d="M14 3.5v4h4" />
+    </svg>
+  );
+}
+
+function EditMenuIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-[18px] w-[18px]"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4 20h4.5L19 9.5 14.5 5 4 15.5Z" />
+      <path d="m13.5 6 4.5 4.5" />
+    </svg>
+  );
+}
+
+function LogsMenuIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-[18px] w-[18px]"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M5 5h14" />
+      <path d="M5 10h14" />
+      <path d="M5 15h9" />
+      <path d="M5 20h6" />
+    </svg>
   );
 }
 
@@ -367,10 +433,8 @@ export function AppHeader({
           {status !== "connected" && status !== "starting" ? (
             // Hidden while the core is mid-launch so a double-click
             // can't kick off a second `start()` (which would race the
-            // first one's status-pill flip and confuse the auto-doc
-            // effect in App.tsx). The status pill below still shows
-            // "Core Offline" so the user has feedback during the few
-            // hundred ms it takes the native process to come up.
+            // first one's status flip and confuse the auto-doc effect
+            // in App.tsx).
             <button
               className="cad-ribbon-action cad-ribbon-action-primary"
               onClick={() => void onStart()}
@@ -380,6 +444,7 @@ export function AppHeader({
           ) : null}
           <MenuDropdown
             label={t("header.file")}
+            icon={<FileMenuIcon />}
             disabled={disabled}
             items={[
               { label: t("header.new"), onSelect: () => void onCreateDocument() },
@@ -397,6 +462,7 @@ export function AppHeader({
           />
           <MenuDropdown
             label={t("header.edit")}
+            icon={<EditMenuIcon />}
             disabled={disabled}
             items={[
               {
@@ -411,10 +477,16 @@ export function AppHeader({
               },
             ]}
           />
-          <button type="button" className="cad-ribbon-action" onClick={onOpenLogs}>
-            {t("header.logs")}
+          <button
+            type="button"
+            className="cad-ribbon-action"
+            onClick={onOpenLogs}
+            aria-label={t("header.logs")}
+            title={t("header.logs")}
+          >
+            <LogsMenuIcon />
             <span
-              className={`ml-2 rounded-full px-1.5 py-0.5 text-[0.65rem] ${
+              className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[0.65rem] ${
                 errorLogCount > 0
                   ? "bg-danger/20 text-danger"
                   : "bg-white/10 text-on-surface-dim"
@@ -425,7 +497,7 @@ export function AppHeader({
           </button>
           <button
             type="button"
-            className="cad-ribbon-action h-8 w-8 px-0 py-0 text-[11px] font-semibold uppercase tracking-wider text-on-surface-muted hover:text-on-surface"
+            className="cad-ribbon-action h-8 w-10 px-0 py-0 text-[11px] font-semibold uppercase tracking-wider text-on-surface-muted hover:text-on-surface"
             onClick={() =>
               updateConfig((prev) => ({
                 ...prev,
@@ -439,15 +511,6 @@ export function AppHeader({
             })}
           >
             {config.displayUnits}
-          </button>
-          <button
-            type="button"
-            className="cad-ribbon-action h-8 w-8 px-0 py-0 text-on-surface-muted hover:text-on-surface"
-            onClick={onOpenSettings}
-            aria-label={t("header.settings")}
-            title={t("header.settings")}
-          >
-            <SettingsGearIcon />
           </button>
           {showAiAssistant ? (
             <button
@@ -464,6 +527,7 @@ export function AppHeader({
               <AiSparkIcon />
             </button>
           ) : null}
+          {/*
           <div className="cad-status-pill">
             <span
               className={`h-2.5 w-2.5 rounded-full ${
@@ -478,6 +542,16 @@ export function AppHeader({
                 : t("header.coreOffline")}
             </span>
           </div>
+          */}
+          <button
+            type="button"
+            className="cad-ribbon-action h-8 w-8 px-0 py-0 text-on-surface-muted hover:text-on-surface"
+            onClick={onOpenSettings}
+            aria-label={t("header.settings")}
+            title={t("header.settings")}
+          >
+            <SettingsGearIcon />
+          </button>
         </div>
       </div>
 
