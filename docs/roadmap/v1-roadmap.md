@@ -143,6 +143,12 @@ Small individually but they shape day-to-day usability:
 4. **Pattern + mirror**.
 5. **Hole feature** (cut-extrude variant on a selected face).
 6. Polish: measure tool, named parameters, view cube, active sketch panel.
+7. **Display units (metric/inch toggle).** UI-layer conversion only: the
+   C++ core always works in mm; React converts at the presentation
+   boundary. Design doc: `docs/architecture/display-units.md`.
+8. **Manual sketch dimension tool completion.** Single-entity dimension
+   creation for lines, circles, and polygons whose auto-dimensions were
+   deleted by the fusion-style on-demand system.
 
 Each row above maps cleanly onto the existing contextual modeling action pattern
 (select inputs → invoke action → floating panel → live preview →
