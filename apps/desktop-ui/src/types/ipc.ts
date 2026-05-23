@@ -40,6 +40,7 @@ export interface DocumentState {
   selected_sketch_dimension_id: string | null;
   selected_sketch_profile_id: string | null;
   selected_sketch_profile_ids: string[];
+  timeline_cursor: number | null;
   feature_history: FeatureEntry[];
   parameters: ParameterEntry[];
 }
@@ -415,6 +416,14 @@ export interface RedoCommand {
   id: string;
   type: "redo";
   payload: Record<string, never>;
+}
+
+export interface SetTimelineCursorCommand {
+  id: string;
+  type: "set_timeline_cursor";
+  payload: {
+    included_action_count: number;
+  };
 }
 
 export interface SelectFeatureCommand {
@@ -1102,6 +1111,7 @@ export type CoreCommand =
   | DeleteFeatureCommand
   | UndoCommand
   | RedoCommand
+  | SetTimelineCursorCommand
   | SelectFeatureCommand
   | SelectReferenceCommand
   | SelectFaceCommand

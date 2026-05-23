@@ -1212,6 +1212,10 @@ json to_payload(const polysmith::core::DocumentState& document) {
          }
          return ids;
        }()},
+      {"timeline_cursor",
+       document.timeline_cursor.has_value()
+           ? json(document.timeline_cursor.value())
+           : json(nullptr)},
       {"feature_history", feature_history},
       {"parameters",
        [&document]() {
@@ -2085,6 +2089,12 @@ polysmith::core::DocumentState document_from_payload(const json& payload) {
   } else if (document.selected_sketch_profile_id.has_value()) {
     document.selected_sketch_profile_ids.push_back(
         document.selected_sketch_profile_id.value());
+  }
+  if (payload.contains("timeline_cursor") &&
+      payload.at("timeline_cursor").is_number_integer()) {
+    document.timeline_cursor = payload.at("timeline_cursor").get<int>();
+  } else {
+    document.timeline_cursor = std::nullopt;
   }
 
   if (payload.contains("feature_history") &&

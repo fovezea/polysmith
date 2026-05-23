@@ -228,6 +228,9 @@ function App() {
   // here. `null` means the panel is closed. Triggered by a
   // double-click in the timeline (see `onEditFeature` below).
   const [editingFeatureId, setEditingFeatureId] = useState<string | null>(null);
+  const restoreTimelineCursorAfterEditRef = useRef(false);
+  const [timelineEditVisibleFeatureIds, setTimelineEditVisibleFeatureIds] =
+    useState<Set<string>>(() => new Set<string>());
   const [hiddenFeatureIds, setHiddenFeatureIds] = useState<Set<string>>(
     () => new Set<string>(),
   );
@@ -396,6 +399,7 @@ function App() {
     deleteFeature,
     undo,
     redo,
+    setTimelineCursor,
     selectFeature,
     selectReference,
     selectFace,
@@ -460,8 +464,38 @@ function App() {
     clearSelection,
   } = useCadCore();
 
+  function clearTimelineEditVisibility() {
+    setTimelineEditVisibleFeatureIds((current) =>
+      current.size === 0 ? current : new Set<string>(),
+    );
+  }
+
+  function beginTimelineEditSession(featureId: string, featureKind: string) {
+    restoreTimelineCursorAfterEditRef.current = document?.timeline_cursor === null;
+    if (featureKind === "sketch") {
+      setTimelineEditVisibleFeatureIds(new Set([featureId]));
+      return;
+    }
+    clearTimelineEditVisibility();
+  }
+
+  async function restoreTimelineCursorAfterEdit() {
+    clearTimelineEditVisibility();
+    if (!restoreTimelineCursorAfterEditRef.current) {
+      return;
+    }
+    restoreTimelineCursorAfterEditRef.current = false;
+    const latestDocument = useCadCoreStore.getState().document ?? document;
+    const actionCount =
+      latestDocument?.feature_history.filter(
+        (feature) => feature.kind !== "root_part",
+      ).length ?? 0;
+    await setTimelineCursor(actionCount);
+  }
+
   useEffect(() => {
     if (!activeSketchPlaneId) {
+      clearTimelineEditVisibility();
       setArmedSketchConstraint(null);
       // Mirror tool is sketch-scoped: if the user finishes the
       // sketch (or the active sketch otherwise becomes null) we
@@ -523,9 +557,10 @@ function App() {
 
   // UI-only visibility: combine per-feature hides with category hides into
   // sets the viewport can use to filter primitives, sketch entities, and
-  // reference geometry. Sketch entities are filtered by plane id since the
-  // viewport snapshot does not carry the owning sketch feature id on each
-  // sketch primitive.
+  // reference geometry. Timeline sketch edits can temporarily force their
+  // sketch visible without changing the user's saved visibility choices.
+  // Sketch entities are filtered by plane id since the viewport snapshot
+  // does not carry the owning sketch feature id on each sketch primitive.
   const BODY_KINDS = new Set(["box", "cylinder", "polygon_extrude", "extrude"]);
   const hasSolidBody = useMemo(
     () =>
@@ -603,8 +638,11 @@ function App() {
         set.add(feature.feature_id);
       }
     }
+    for (const featureId of timelineEditVisibleFeatureIds) {
+      set.delete(featureId);
+    }
     return set;
-  }, [document, hiddenFeatureIds, hiddenCategories]);
+  }, [document, hiddenFeatureIds, hiddenCategories, timelineEditVisibleFeatureIds]);
 
   const hiddenSketchPlaneIds = useMemo(() => {
     const result = new Set<string>();
@@ -2061,6 +2099,7 @@ function App() {
             await runAction(async () => {
               clearArmedSketchConstraint();
               await finishSketch();
+              await restoreTimelineCursorAfterEdit();
             });
           }}
           onSetSketchTool={async (tool) => {
@@ -3003,6 +3042,7 @@ function App() {
                               await clearSelection();
                             });
                           }
+                          await restoreTimelineCursorAfterEdit();
                         }}
                         onCancel={async () => {
                           // Edit flow (snapshot present): restore the
@@ -3033,6 +3073,7 @@ function App() {
                             });
                           }
                           setExtrudeAction(null);
+                          await restoreTimelineCursorAfterEdit();
                         }}
                       />
                     );
@@ -3078,6 +3119,7 @@ function App() {
                                 );
                               });
                               setEditingFeatureId(null);
+                              await restoreTimelineCursorAfterEdit();
                             }}
                           />
                         </div>
@@ -3106,6 +3148,7 @@ function App() {
                                 );
                               });
                               setEditingFeatureId(null);
+                              await restoreTimelineCursorAfterEdit();
                             }}
                           />
                         </div>
@@ -3437,6 +3480,11 @@ function App() {
               await selectFeature(featureId);
             });
           }}
+          onSetTimelineCursor={(includedActionCount) => {
+            void runAction(async () => {
+              await setTimelineCursor(includedActionCount);
+            });
+          }}
           onEditFeature={(featureId) => {
             // Dispatch by feature kind: box/cylinder open the inline
             // parameter form; sketch re-enters the sketch so the user
@@ -3452,10 +3500,12 @@ function App() {
               return;
             }
             if (feature.kind === "box" || feature.kind === "cylinder") {
+              beginTimelineEditSession(featureId, feature.kind);
               setEditingFeatureId(featureId);
               return;
             }
             if (feature.kind === "sketch") {
+              beginTimelineEditSession(featureId, feature.kind);
               void runAction(async () => {
                 await reenterSketch(featureId);
               });
@@ -3469,6 +3519,7 @@ function App() {
               const otherBodies = (viewport?.bodies ?? []).filter(
                 (body) => body.id !== featureId,
               );
+              beginTimelineEditSession(featureId, feature.kind);
               setExtrudeAction({
                 phase: "active",
                 featureId,

@@ -187,6 +187,7 @@ Important fields for an agent:
   selected_sketch_dimension_id: string | null;
   selected_sketch_profile_id: string | null;
   selected_sketch_profile_ids: string[];
+  timeline_cursor: number | null;
   feature_history: FeatureEntry[];
 }
 ```
@@ -202,6 +203,11 @@ kinds currently include:
 - `fillet`
 - `chamfer`
 - `construction_plane`
+
+`timeline_cursor` is `null` when the history cursor is at the end. Otherwise it
+is the number of non-root timeline actions included in viewport rollback. A
+rolled-back cursor does not delete later features; it only affects
+`get_viewport_state`.
 
 ### `session_state`
 
@@ -556,6 +562,22 @@ Payload:
 
 ```json
 {}
+```
+
+#### `set_timeline_cursor`
+
+Moves the parametric history cursor without mutating feature history. The core
+clamps the value into the valid range; setting it to the current action count
+places the cursor at the end and serializes back as `timeline_cursor: null`.
+Subsequent `get_viewport_state` calls render only the feature-history prefix up
+to that cursor.
+
+Payload:
+
+```ts
+{
+  included_action_count: number;
+}
 ```
 
 ### Selection Commands

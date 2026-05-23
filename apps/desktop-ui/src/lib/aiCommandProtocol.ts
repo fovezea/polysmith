@@ -71,6 +71,9 @@ const commandPayloadSchemas = {
   delete_feature: z.object({ feature_id: stringField }).strict(),
   undo: emptyPayload,
   redo: emptyPayload,
+  set_timeline_cursor: z
+    .object({ included_action_count: z.number().int().min(0) })
+    .strict(),
   select_feature: z.object({ feature_id: stringField }).strict(),
   select_reference: z.object({ reference_id: stringField }).strict(),
   select_face: z.object({ face_id: stringField }).strict(),

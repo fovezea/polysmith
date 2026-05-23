@@ -55,6 +55,7 @@ Common command payloads:
 - project_profile_into_sketch { profile_id }
 - project_edge_into_sketch { edge_id }
 - project_vertex_into_sketch { vertex_id }
+- set_timeline_cursor { included_action_count }
 - clear_selection {}, undo {}, redo {}
 
 Modes and enums:

@@ -33,6 +33,7 @@
         "delete_feature",
         "undo",
         "redo",
+        "set_timeline_cursor",
         "select_feature",
         "select_reference",
         "select_face",

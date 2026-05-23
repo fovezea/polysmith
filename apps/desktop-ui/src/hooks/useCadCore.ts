@@ -53,6 +53,7 @@ import {
   makeSelectSketchDimensionCommand,
   makeSelectSketchEntityCommand,
   makeSelectSketchPointCommand,
+  makeSetTimelineCursorCommand,
   makeRenameFeatureCommand,
   makeSetFeatureSuppressedCommand,
   makeSelectFeatureCommand,
@@ -311,6 +312,10 @@ export function useCadCore() {
     redo: async () => {
       await sendCoreCommand(makeRedoCommand());
       await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    setTimelineCursor: async (includedActionCount: number) => {
+      await sendCoreCommand(makeSetTimelineCursorCommand(includedActionCount));
       await sendCoreCommand(makeGetViewportStateCommand());
     },
     selectFeature: async (featureId: string) => {

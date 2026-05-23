@@ -290,6 +290,7 @@
   },
   "timeline": {
     "activeSketchDeleteBlocked": "Finish the active sketch before deleting it",
+    "cursor": "History cursor",
     "suppressed": "suppressed"
   },
   "aiAssistant": {

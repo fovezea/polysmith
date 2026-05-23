@@ -37,6 +37,15 @@ double read_dimension(const polysmith::protocol::json& payload,
   return payload.at(key).get<double>();
 }
 
+int read_int(const polysmith::protocol::json& payload, const char* key) {
+  if (!payload.contains(key) || !payload.at(key).is_number_integer()) {
+    throw std::runtime_error(std::string("Command payload is missing integer field '") +
+                             key + "'");
+  }
+
+  return payload.at(key).get<int>();
+}
+
 std::string read_string(const polysmith::protocol::json& payload,
                         const char* key) {
   if (!payload.contains(key) || !payload.at(key).is_string()) {
@@ -316,6 +325,16 @@ void CadCoreApp::handle_command_line(const std::string& line) {
 
   if (command.type == "redo") {
     const auto document = document_manager().redo();
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "set_timeline_cursor") {
+    const auto document = document_manager().set_timeline_cursor(
+        read_int(command.payload, "included_action_count"));
 
     polysmith::protocol::write_message(
         polysmith::protocol::make_document_state_event(
