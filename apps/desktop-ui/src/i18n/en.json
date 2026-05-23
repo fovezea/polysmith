@@ -399,6 +399,7 @@
   },
   "snap": {
     "circleCenter": "Circle center",
+    "grid": "Grid",
     "constrainedLine": "{{constraint}} line",
     "lineEndpoint": "Line endpoint",
     "midpoint": "Midpoint",
@@ -410,6 +411,7 @@
   },
   "viewport": {
     "clickPlaceGeometry": "Click to place geometry",
+    "constraintSelected": "Constraint: {{kind}} — Press Delete to remove",
     "coreStartup": "Core Startup",
     "dimensionReady": "Dimension ready. Pick another element, drag the label, or type a value.",
     "dimensionSelected": "Dimension selected",
@@ -432,7 +434,10 @@
     "sketchStatus": "Sketching · {{tool}} · {{lineCount}} line{{linePlural}} · {{circleCount}} circle{{circlePlural}}",
     "snap": "Snap: {{label}}",
     "startingCore": "Starting the native CAD core...",
-    "title": "Viewport"
+    "title": "Viewport",
+    "entitySelectedDof": "{{entity}} · {{consumed}}/{{total}} DOF{{status}}",
+    "dofFull": " (fully constrained)",
+    "dofOver": " (OVER-CONSTRAINED)"
   },
   "parameters": {
     "title": "Parameters",

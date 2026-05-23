@@ -78,6 +78,31 @@ export interface ViewportState {
   scene_height: number;
   scene_depth: number;
   scene_bounds: ViewportSceneBounds;
+  dof_statuses: Array<{
+    entity_id: string;
+    entity_kind: string;
+    total_dof: number;
+    consumed_dof: number;
+    status: "under" | "full" | "over";
+  }>;
+  selection_filter: {
+    select_curves: boolean;
+    select_points: boolean;
+    select_construction: boolean;
+    select_constraints: boolean;
+    snap_endpoint: boolean;
+    snap_midpoint: boolean;
+    snap_center: boolean;
+    snap_intersection: boolean;
+    snap_nearest: boolean;
+    snap_quadrant: boolean;
+    snap_perpendicular: boolean;
+    snap_parallel: boolean;
+    snap_tangent: boolean;
+    snap_grid: boolean;
+    magnetic_pull: boolean;
+    tolerance_px: number;
+  };
 }
 
 export interface ViewportMeshPrimitive {
@@ -961,6 +986,29 @@ export interface DeleteParameterCommand {
   };
 }
 
+export interface UpdateSelectionFilterCommand {
+  id: string;
+  type: "update_selection_filter";
+  payload: {
+    select_curves?: boolean;
+    select_points?: boolean;
+    select_construction?: boolean;
+    select_constraints?: boolean;
+    snap_endpoint?: boolean;
+    snap_midpoint?: boolean;
+    snap_center?: boolean;
+    snap_intersection?: boolean;
+    snap_nearest?: boolean;
+    snap_quadrant?: boolean;
+    snap_perpendicular?: boolean;
+    snap_parallel?: boolean;
+    snap_tangent?: boolean;
+    snap_grid?: boolean;
+    magnetic_pull?: boolean;
+    tolerance_px?: number;
+  };
+}
+
 export interface UpdateSketchDimensionCommand {
   id: string;
   type: "update_sketch_dimension";
@@ -1176,4 +1224,5 @@ export type CoreCommand =
   | AddParameterCommand
   | UpdateParameterCommand
   | DeleteParameterCommand
+  | UpdateSelectionFilterCommand
   | ShutdownCommand;

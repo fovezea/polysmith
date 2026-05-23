@@ -461,3 +461,62 @@ Eliminate the global radius/diameter display hack (where `dimensionToolMode` mul
 - **Point-to-point distance is driven-only** (reference-only, cannot be edited to drive geometry).
 - **Polygon deletion error** (`Sketch line not found: polygon-1`) — pre-existing bug in the sketch deletion handler, unrelated to the dimension tool.
 - **i18n: translation files are incomplete.** Only `en.json` has full coverage. `es.json`, `ja.json`, `zh.json` only cover settings/header keys. Toolbar, viewport panels, sketch tool labels, and help tooltips fall back to English. Header is pinned to English via `{ lng: "en" }` in `AppHeader`. Language dropdown labels are hardcoded in English so users can always navigate back.
+
+---
+
+## 2026-05-23 / 2026-05-24
+
+### Unified Sketch Interaction — Selection Filter, Snap Gating, DOF Coloring, Constraint Deletion
+
+#### Goal
+Build a unified sketch interaction system where constraints, snapping, and selection are controlled by a single user-facing checkbox panel. Add DOF counting and entity coloring for constraint status visualization. Add constraint badge selection and deletion via Delete key.
+
+#### C++ Core — New Modules
+- `snap_engine.h/.cpp` — snap resolution engine (endpoint, midpoint, center, nearest). Not yet wired to `viewport_state` (future Phase 2).
+- `inference_engine.h/.cpp` — auto-detect coincident endpoints and concentric circles at entity-commit time. Populates `constraints[]` on `SketchFeatureParameters`.
+- `dof_counter.h/.cpp` — DOF counting for every sketch entity. Reads inline constraints, `line_relations[]`, `constraints[]`, dimensions, fixed points, anchors, and shared endpoints. Produces `EntityDofResult` with `"under"`/`"full"`/`"over"` status.
+
+#### C++ Core — Modified
+- `feature.h`: `SketchConstraint` struct, `SelectionFilter` struct (16 boolean toggles), `constraints[]` on `SketchFeatureParameters`.
+- `document.h/.cpp`: `selection_filter` on `DocumentState`, `update_selection_filter` with undo/redo.
+- `app.cpp`: `update_selection_filter` IPC handler (reads all 16 payload fields).
+- `viewport.h/.cpp`: `selection_filter` and `dof_statuses` on `ViewportState`. `count_sketch_dof()` called in `build_viewport_state` for active sketches.
+- `serialization.cpp`: constraints, filter, and DOF statuses round-trip (backward-compat: absent → defaults).
+- `sketch_feature.cpp`: calls inference engine in `add_sketch_line` / `add_sketch_circle`.
+- `CMakeLists.txt`: 3 new source files added.
+
+#### Protocol
+- `commands.schema.json`: `update_selection_filter`.
+
+#### TypeScript — Types, IPC, Hooks
+- `types/ipc.ts`: `UpdateSelectionFilterCommand`, `dof_statuses` and `selection_filter` on `ViewportState`.
+- `lib/ipcProtocol.ts`: `makeUpdateSelectionFilterCommand`.
+- `hooks/useCadCore.ts`: `updateSelectionFilter` hook with viewport refresh.
+- `lib/schemas/ipcSchema.ts`: zod schemas for `dof_statuses` and `selection_filter`.
+
+#### Selection Filter Panel UI
+- `layout/SelectionFilterPanel.tsx`: **NEW** — checkbox panel with 3 sections (Sketch Geometry, Snap Types, Global). Persists to localStorage. Instant snap gating (no IPC round trip).
+- `AppHeader.tsx`: gear button next to `f(x)`, renders panel below button.
+- `App.tsx`: `filterPanelOpen` state + IPC wiring.
+
+#### Snap Gating
+- `ViewportPanel.tsx` — `resolveSnappedSketchPoint()` reads filter from localStorage directly (instant response). Static candidates, grid, and perpendicular-foot snaps all gated.
+- Grid snap shows `"Snap: Grid"` label when active, respects filter immediately.
+
+#### DOF Coloring
+- `ViewportPanel.tsx` — `paintSketchEntityMaterials()`: single-pass DOF integration. Priority: selected → hovered → projected → DOF-full (dark blue) → DOF-over (red) → default yellow.
+- Status bar: selected entity shows `"Line · 3/4 DOF"` / `"Line · 4/4 DOF (fully constrained)"` / `"Line · 5/4 DOF (OVER-CONSTRAINED)"`.
+- `i18n/en.json`: `entitySelectedDof`, `dofFull`, `dofOver`.
+
+#### Constraint Deletion
+- Constraint badges: scale 6 (was 4.4), raycaster `recursive: true`.
+- Click badge → `selectedConstraint` state set → status bar `"Constraint: {kind} — Press Delete to remove"`.
+- Delete/Backspace → calls `clearSketchConstraintRef` with stored kind/entityId/relatedEntityId.
+- Escape / click elsewhere → deselects.
+- `i18n/en.json`: `constraintSelected`.
+
+#### Known Issues & Follow-up
+- **Perpendicular snap**: general perpendicular-to-line parked. Perpendicular-foot (start-on-host-line) works.
+- **Constraint badge highlight**: sprite doesn't visually change on selection (status bar only).
+- **Driven dimension proposal**: should offer driven dim when entity already fully constrained.
+- **DOF color legend**: help menu entry needed (blue=full, red=over, yellow=under).

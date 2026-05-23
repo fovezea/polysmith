@@ -1252,6 +1252,15 @@ export function ViewportPanel({
   const mirrorEntityPickRef = useRef(onMirrorEntityPick);
   const cancelSketchConstraintRef = useRef(onCancelSketchConstraint);
   const clearSketchConstraintRef = useRef(onClearSketchConstraint);
+  /** Selected constraint for deletion on Delete key. */
+  interface SelectedConstraint {
+    kind: string;
+    entityId: string;
+    relatedEntityId: string | null;
+  }
+  const [selectedConstraint, setSelectedConstraint] = useState<SelectedConstraint | null>(null);
+  const selectedConstraintRef = useRef(selectedConstraint);
+  selectedConstraintRef.current = selectedConstraint;
   const activeSketchToolRef = useRef<SketchTool>("select");
   const sketchSnapCandidatesRef = useRef<
     Array<{
@@ -2056,6 +2065,27 @@ export function ViewportPanel({
   useEffect(() => {
     setDimensionSuggestionIndex(0);
   }, [dimensionDraftValue, selectedSketchDimension?.dimensionId]);
+  /** Stable DOF map ref — updated on every viewport change, read by
+   *  paintSketchEntityMaterials so hover never sees an empty map. */
+  const dofMapRef = useRef<Map<string, "full" | "over">>(new Map());
+  useEffect(() => {
+    const map = new Map<string, "full" | "over">();
+    for (const ds of (viewport?.dof_statuses ?? [])) {
+      if (ds.status === "full" || ds.status === "over") {
+        map.set(ds.entity_id, ds.status);
+      }
+    }
+    dofMapRef.current = map;
+  }, [viewport?.dof_statuses]);
+
+  /** DOF status for the currently selected sketch entity, if any. */
+  const selectedEntityDof = useMemo(() => {
+    const id = document?.selected_sketch_entity_id;
+    const statuses = viewport?.dof_statuses;
+    if (!id || !statuses) return null;
+    return statuses.find((s) => s.entity_id === id) ?? null;
+  }, [document?.selected_sketch_entity_id, viewport?.dof_statuses]);
+
   const sketchSnapCandidates = useMemo(() => {
     if (!sketchFeature?.sketch_parameters) {
       return [];
@@ -2244,6 +2274,7 @@ export function ViewportPanel({
     paintVertexMaterials(hoveredVertexIdRef.current);
     paintSketchEntityMaterials();
     paintSketchPointMaterials();
+    paintDofStatusColors();
   }, [activeTheme.id]);
 
   function clearPreviewLine() {
@@ -2304,16 +2335,23 @@ export function ViewportPanel({
     previewDimensionRef.current = null;
   }
 
+  /** Returns the snapped point and a boolean indicating whether grid
+   *  snap actually fired. When gridSnap is disabled, returns raw point
+   *  with snapped = false. */
   function snapRawPointToGrid(
     rawPoint: {
       local: [number, number];
       world: [number, number, number];
     },
     worldUnitsPerPixel: number,
-  ) {
+    gridSnapEnabled: boolean,
+  ): { point: typeof rawPoint; snapped: boolean } {
     const spacing = currentGridSpacingRef.current;
+    if (!gridSnapEnabled) {
+      return { point: rawPoint, snapped: false };
+    }
     if (!Number.isFinite(spacing) || spacing <= 0) {
-      return rawPoint;
+      return { point: rawPoint, snapped: false };
     }
     const threshold = worldUnitsPerPixel * GRID_SNAP_SCREEN_DISTANCE_PX;
     const nearestX = Math.round(rawPoint.local[0] / spacing) * spacing;
@@ -2327,15 +2365,18 @@ export function ViewportPanel({
         : rawPoint.local[1],
     ];
     if (local[0] === rawPoint.local[0] && local[1] === rawPoint.local[1]) {
-      return rawPoint;
+      return { point: rawPoint, snapped: false };
     }
     return {
-      local,
-      world: toWorldPoint(
-        activeSketchPlaneId ?? "ref-plane-xy",
+      point: {
         local,
-        activeSketchPlaneFrame,
-      ),
+        world: toWorldPoint(
+          activeSketchPlaneId ?? "ref-plane-xy",
+          local,
+          activeSketchPlaneFrame,
+        ),
+      },
+      snapped: true,
     };
   }
 
@@ -3278,16 +3319,57 @@ export function ViewportPanel({
     );
   }
 
+  /** Read the selection filter from localStorage synchronously. */
+  function readLocalFilter(): import("../SelectionFilterPanel").SelectionFilter | null {
+    try {
+      const raw = localStorage.getItem("polysmith-selection-filter");
+      if (raw) return JSON.parse(raw) as import("../SelectionFilterPanel").SelectionFilter;
+    } catch { /* ignore */ }
+    return null;
+  }
+
   function resolveSnappedSketchPoint(rawPoint: {
     local: [number, number];
     world: [number, number, number];
   }) {
+    // Read filter from localStorage (instant, no IPC round trip).
+    const localFilter = readLocalFilter();
+    const gridSnapEnabled = localFilter ? localFilter.snap_grid : true;
+    const perpEnabled = localFilter ? localFilter.snap_perpendicular : true;
+
+    // Apply grid snap first — all subsequent geometric snaps resolve
+    // against grid-aligned coordinates so the user gets both.
+    const worldUnitsPerPixel =
+      cameraRef.current && rendererRef.current
+        ? getOrthographicViewHeight(cameraRef.current) /
+            Math.max(rendererRef.current.domElement.clientHeight, 1)
+        : 1;
+    const gridResult = snapRawPointToGrid(rawPoint, worldUnitsPerPixel, gridSnapEnabled);
+    let gridDidSnap = gridResult.snapped;
+    if (gridResult.snapped) {
+      rawPoint.local = gridResult.point.local;
+      rawPoint.world = gridResult.point.world;
+    }
+
     let closestCandidate:
       | (typeof sketchSnapCandidatesRef.current)[number]
       | null = null;
     let closestDistance = Number.POSITIVE_INFINITY;
 
     for (const candidate of sketchSnapCandidatesRef.current) {
+      // Gate on the selection filter when available.
+      if (localFilter) {
+        const allowed = (
+          (candidate.kind === "endpoint" && localFilter.snap_endpoint) ||
+          (candidate.kind === "midpoint" && localFilter.snap_midpoint) ||
+          (candidate.kind === "center" && localFilter.snap_center) ||
+          (candidate.kind === "intersection" && localFilter.snap_intersection) ||
+          (candidate.kind === "nearest" && localFilter.snap_nearest) ||
+          (candidate.kind === "tangent" && localFilter.snap_tangent) ||
+          (!candidate.kind) // unknown kinds pass unfiltered
+        );
+        if (!allowed) continue;
+      }
       const distance = distanceBetweenPoints(rawPoint.local, candidate.local);
       if (distance < closestDistance) {
         closestDistance = distance;
@@ -3321,15 +3403,62 @@ export function ViewportPanel({
       } satisfies SketchPreviewPoint;
     }
 
+    const startPoint = lineDraftStartRef.current;
+    const params = sketchLinesRef.current;
+
+    // General perpendicular-to-line snap — REMOVED. The on-line snap
+    // below handles line body placement correctly with a narrow
+    // activation window (like midpoint). The perpendicular-foot snap
+    // above handles the "start on host line" case. No separate
+    // general perpendicular needed.
+    if (false && localFilter?.snap_perpendicular && startPoint && params) {
+      let bestPerpSnap: {
+        local: [number, number];
+        distance: number;
+        lineId: string;
+      } | null = null;
+      for (const line of params.lines) {
+        if (line.is_construction) continue;
+        const dx = line.end_x - line.start_x;
+        const dy = line.end_y - line.start_y;
+        const lenSq = dx * dx + dy * dy;
+        if (lenSq < 1e-12) continue;
+        let t =
+          ((rawPoint.local[0] - line.start_x) * dx +
+           (rawPoint.local[1] - line.start_y) * dy) /
+          lenSq;
+        t = Math.max(0, Math.min(1, t));
+        const px = line.start_x + t * dx;
+        const py = line.start_y + t * dy;
+        const d = Math.hypot(rawPoint.local[0] - px, rawPoint.local[1] - py);
+        if (d > SKETCH_SNAP_DISTANCE) continue;
+        if (!bestPerpSnap || d < bestPerpSnap.distance) {
+          bestPerpSnap = { local: [px, py], distance: d, lineId: line.line_id };
+        }
+      }
+      if (bestPerpSnap) {
+        return {
+          local: bestPerpSnap.local,
+          world: toWorldPoint(
+            activeSketchPlaneId ?? "ref-plane-xy",
+            bestPerpSnap.local,
+            activeSketchPlaneFrame,
+          ),
+          snapLabel: translate("snap.perpendicular"),
+          snapMidpointHostLineId: null,
+          snapPerpendicularHostLineId: bestPerpSnap.lineId,
+          snapEndpointHostLineId: null,
+        } satisfies SketchPreviewPoint;
+      }
+    }
+
     // Dynamic perpendicular-foot snap. Active only on the second
     // click of a line draft, when the start lay on an existing line
     // (`draftStartEndpointHostRef` is set). Project the cursor onto
     // the ray rooted at the start, normal to the host line. If the
     // cursor is within snap distance of that ray, snap to the foot.
-    const startPoint = lineDraftStartRef.current;
     const perpHostId = draftStartEndpointHostRef.current;
-    const params = sketchLinesRef.current;
-    if (startPoint && perpHostId && params) {
+    if (localFilter?.snap_perpendicular && startPoint && perpHostId && params) {
       const hostLine = params.lines.find((line) => line.line_id === perpHostId);
       if (hostLine) {
         const dx = hostLine.end_x - hostLine.start_x;
@@ -3647,14 +3776,8 @@ export function ViewportPanel({
     }
 
     return {
-      ...snapRawPointToGrid(
-        rawPoint,
-        cameraRef.current && rendererRef.current
-          ? getOrthographicViewHeight(cameraRef.current) /
-              Math.max(rendererRef.current.domElement.clientHeight, 1)
-          : 1,
-      ),
-      snapLabel: null,
+      ...rawPoint,
+      snapLabel: gridDidSnap ? translate("snap.grid") : null,
       snapMidpointHostLineId: null,
       snapPerpendicularHostLineId: null,
       snapEndpointHostLineId: null,
@@ -3751,6 +3874,9 @@ export function ViewportPanel({
 
   const hoveredSketchEntityIdRef = useRef<string | null>(null);
   function paintSketchEntityMaterials() {
+    // Use the stable ref (updated from useMemo on viewport change)
+    // so hover never sees an empty DOF map when viewport is stale.
+    const dofMap = dofMapRef.current;
     for (const object of sketchEntityObjectsRef.current) {
       const id = object.userData.sketchEntityId as string | undefined;
       const isSelected = object.userData.isSelected === true;
@@ -3760,15 +3886,22 @@ export function ViewportPanel({
       const material = object.material as
         | THREE.LineBasicMaterial
         | THREE.LineDashedMaterial;
-      material.color.set(
-        isSelected
-          ? themeColor("--color-primary-edge-active", "#c3f5ff")
-          : isHovered
-            ? themeColor("--color-tertiary-plane-edge-hover", "#fff2b2")
-            : isProjected
-              ? themeColor("--cad-sketch-projected", "#ff4fd8")
-              : themeColor("--color-tertiary-plane-fill", "#fff7c0"),
-      );
+      if (isSelected) {
+        material.color.set(themeColor("--color-primary-edge-active", "#c3f5ff"));
+      } else if (isHovered) {
+        material.color.set(themeColor("--color-tertiary-plane-edge-hover", "#fff2b2"));
+      } else if (isProjected) {
+        material.color.set(themeColor("--cad-sketch-projected", "#ff4fd8"));
+      } else if (id && dofMap.has(id)) {
+        const status = dofMap.get(id)!;
+        if (status === "full") {
+          material.color.set(0x8899aa);
+        } else {
+          material.color.set(0xff4444);
+        }
+      } else {
+        material.color.set(themeColor("--color-tertiary-plane-fill", "#fff7c0"));
+      }
       material.opacity = isSelected || isHovered ? 1 : 0.98;
       material.linewidth = isSelected ? 3 : isHovered ? 2.5 : 1;
     }
@@ -3780,9 +3913,14 @@ export function ViewportPanel({
     }
     hoveredSketchEntityIdRef.current = entityId;
     paintSketchEntityMaterials();
+    paintDofStatusColors();
   }
 
   const hoveredSketchPointIdRef = useRef<string | null>(null);
+
+  /** No-op — DOF colors are now applied in paintSketchEntityMaterials directly. */
+  function paintDofStatusColors() {}
+
   function paintSketchPointMaterials() {
     for (const mesh of sketchPointObjectsRef.current) {
       const id = mesh.userData.sketchPointId as string | undefined;
@@ -5025,7 +5163,7 @@ export function ViewportPanel({
 
         const [sketchConstraintHit] = raycaster.intersectObjects(
           sketchConstraintObjectsRef.current,
-          false,
+          true, // recursive — catches sprites inside any group
         );
         const sketchConstraintId =
           sketchConstraintHit?.object.userData.sketchConstraintId;
@@ -5161,6 +5299,9 @@ export function ViewportPanel({
     }
 
     function handlePointerDown(event: PointerEvent) {
+      // Clear selected constraint on any pointer-down (except on the
+      // constraint badge itself, which sets it in the click path above).
+      setSelectedConstraint(null);
       lastPointerEventRef.current = event;
       setContextMenu(null);
 
@@ -6286,11 +6427,14 @@ export function ViewportPanel({
           }
 
           if (hit?.kind === "sketch_constraint") {
-            void clearSketchConstraintRef.current(
-              hit.constraintKind,
-              hit.entityId,
-              hit.relatedEntityId,
-            );
+            setSelectedConstraint({
+              kind: hit.constraintKind,
+              entityId: hit.entityId,
+              relatedEntityId: hit.relatedEntityId,
+            });
+            // Flash the entity this constraint sits on
+            paintSketchEntityMaterials();
+            paintSketchPointMaterials();
             return;
           }
 
@@ -7504,6 +7648,7 @@ export function ViewportPanel({
     syncSketchProfileVisuals();
     paintSketchEntityMaterials();
     paintSketchPointMaterials();
+    paintDofStatusColors();
 
     if (sceneData.geometryKey !== lastGeometryKeyRef.current) {
       // Auto-frame the camera ONLY on the very first scene load (when
@@ -7614,13 +7759,22 @@ export function ViewportPanel({
 
       if (event.code === "Escape") {
         event.preventDefault();
+        setSelectedConstraint(null);
         cancelActiveSketchDraft();
         return;
       }
 
       if (event.code === "Delete" || event.code === "Backspace") {
         event.preventDefault();
-        void deleteSketchSelectionRef.current();
+        const sel = selectedConstraintRef.current;
+        if (sel) {
+          setSelectedConstraint(null);
+          void clearSketchConstraintRef.current(
+            sel.kind, sel.entityId, sel.relatedEntityId ?? undefined,
+          );
+        } else {
+          void deleteSketchSelectionRef.current();
+        }
         return;
       }
 
@@ -8886,14 +9040,27 @@ export function ViewportPanel({
                               kind: armedSketchConstraint.kind,
                             })
                       : document?.selected_sketch_entity_id
-                        ? document?.selected_sketch_dimension_id
-                          ? translate("viewport.dimensionSelected")
-                          : translate("viewport.entitySelected")
+                        ? (
+                            (document?.selected_sketch_dimension_id
+                              ? translate("viewport.dimensionSelected")
+                              : (selectedEntityDof
+                                ? translate("viewport.entitySelectedDof", {
+                                    entity: selectedEntityDof.entity_kind,
+                                    dof: selectedEntityDof.total_dof,
+                                    consumed: selectedEntityDof.consumed_dof,
+                                    status: selectedEntityDof.status === "over"
+                                      ? translate("viewport.dofOver")
+                                      : selectedEntityDof.status === "full"
+                                        ? translate("viewport.dofFull") : "",
+                                  })
+                                : translate("viewport.entitySelected"))))
                         : document?.selected_sketch_point_id
                           ? translate("viewport.pointSelected")
                           : document?.selected_sketch_profile_id
                             ? translate("viewport.profileSelected")
-                            : sketchSnapLabel
+                            : selectedConstraint
+                              ? translate("viewport.constraintSelected", { kind: selectedConstraint.kind })
+                              : sketchSnapLabel
                               ? translate("viewport.snap", { label: sketchSnapLabel })
                               : activeSketchTool === "select"
                                 ? translate("viewport.selectionMode")
@@ -8903,7 +9070,7 @@ export function ViewportPanel({
                                       lineDraftStartRef.current
                                     ? translate("viewport.lineChainActive")
                                     : translate("viewport.clickPlaceGeometry")}
-                  </p>
+                </p>
                   <button
                     type="button"
                     className="pointer-events-auto mt-3 ml-auto flex cad-ribbon-action cad-ribbon-action-primary"

@@ -3,6 +3,7 @@
 #include <optional>
 #include <vector>
 
+#include "core/dof_counter.h"
 #include "core/document.h"
 
 namespace polysmith::core {
@@ -168,6 +169,7 @@ struct ViewportSketchLinePrimitive {
   // hover-targetable, and don't appear in the points/dimensions
   // arrays. False for committed sketch lines.
   bool is_preview = false;
+  std::string dof_status;
 };
 
 struct ViewportSketchCirclePrimitive {
@@ -182,6 +184,7 @@ struct ViewportSketchCirclePrimitive {
   bool is_construction = false;
   // See `ViewportSketchLinePrimitive::is_preview`.
   bool is_preview = false;
+  std::string dof_status;
 };
 
 // 2D arc primitive emitted to the viewport. Carries the arc's
@@ -212,6 +215,7 @@ struct ViewportSketchArcPrimitive {
   bool is_construction = false;
   // See `ViewportSketchLinePrimitive::is_preview`.
   bool is_preview = false;
+  std::string dof_status;
 };
 
 struct ViewportSketchPointPrimitive {
@@ -223,6 +227,7 @@ struct ViewportSketchPointPrimitive {
   double position_z;
   bool is_fixed;
   bool is_selected;
+  std::string dof_status;
 };
 
 struct ViewportSketchDimensionPrimitive {
@@ -279,6 +284,7 @@ struct ViewportSketchPolygonPrimitive {
   bool is_selected;
   bool is_construction = false;
   bool is_preview = false;
+  std::string dof_status;
 };
 
 struct ViewportSketchProfilePrimitive {
@@ -394,6 +400,10 @@ struct ViewportState {
   std::vector<ViewportSketchDimensionPrimitive> sketch_dimensions;
   std::vector<ViewportSketchConstraintPrimitive> sketch_constraints;
   std::vector<ViewportSketchProfilePrimitive> sketch_profiles;
+  // Per-entity DOF status array. Each entry mirrors the entity-id of
+  // the corresponding line/circle/polygon/arc/point, with the status
+  // string ("under", "full", "over"). Empty vector when unknown.
+  std::vector<EntityDofResult> dof_statuses;
   std::vector<ViewportMeshPrimitive> meshes;
   std::vector<ViewportCutPreview> cut_previews;
   // Available bodies (in document order) that boolean-mode extrudes can
@@ -413,6 +423,9 @@ struct ViewportState {
   double scene_height;
   double scene_depth;
   ViewportSceneBounds scene_bounds;
+  // Echo of the document's current selection filter so the UI can gate
+  // snap / selection / highlight behavior without an extra IPC round-trip.
+  SelectionFilter selection_filter;
 };
 
 ViewportState build_viewport_state(const std::optional<DocumentState>& document);

@@ -1269,10 +1269,10 @@ export function makeConstraintBadgeSprite(text: string, isSelected: boolean) {
     depthWrite: false,
   });
   const sprite = new THREE.Sprite(material);
-  sprite.scale.set(4.4, 4.4, 1);
+  sprite.scale.set(6, 6, 1);
   sprite.userData.screenSize = {
-    width: 34,
-    height: 34,
+    width: 44,
+    height: 44,
   };
   return sprite;
 }

@@ -8,6 +8,7 @@ import { CreateToolbar } from "./CreateToolbar";
 import { ModifyToolbar } from "./ModifyToolbar";
 import { ConstructToolbar } from "./ConstructToolbar";
 import { ParametersPanel } from "../ParametersPanel";
+import { SelectionFilterPanel, readStoredFilter, writeStoredFilter } from "../SelectionFilterPanel";
 
 const workspaces = ["create", "modify", "construct", "sketch"] as const;
 type WorkspaceView = "cad" | "slicer";
@@ -279,6 +280,26 @@ interface AppHeaderProps {
   // Parameters panel
   parametersPanelOpen: boolean;
   onToggleParametersPanel: () => void;
+  filterPanelOpen: boolean;
+  onToggleFilterPanel: () => void;
+  onUpdateSelectionFilter: (filter: {
+    select_curves?: boolean;
+    select_points?: boolean;
+    select_construction?: boolean;
+    select_constraints?: boolean;
+    snap_endpoint?: boolean;
+    snap_midpoint?: boolean;
+    snap_center?: boolean;
+    snap_intersection?: boolean;
+    snap_nearest?: boolean;
+    snap_quadrant?: boolean;
+    snap_perpendicular?: boolean;
+    snap_parallel?: boolean;
+    snap_tangent?: boolean;
+    snap_grid?: boolean;
+    magnetic_pull?: boolean;
+    tolerance_px?: number;
+  }) => Promise<void>;
 }
 
 export function AppHeader({
@@ -338,6 +359,9 @@ export function AppHeader({
   onWorkspaceDropdownOpenChange,
   parametersPanelOpen,
   onToggleParametersPanel,
+  filterPanelOpen,
+  onToggleFilterPanel,
+  onUpdateSelectionFilter,
 }: AppHeaderProps) {
   const { t: _t } = useTranslation();
   // Keep the main navigation bar in English regardless of the locale
@@ -420,6 +444,31 @@ export function AppHeader({
               >
                 <span className="normal-case">f(x)</span>
               </button>
+              <button
+                type="button"
+                className={
+                  filterPanelOpen
+                    ? "cad-ribbon-action cad-ribbon-action-primary"
+                    : "cad-ribbon-action"
+                }
+                onClick={onToggleFilterPanel}
+                title="Selection &amp; Snap Filter"
+              >
+                <span style={{ fontFamily: "monospace" }}>&#9881;</span>
+              </button>
+              {filterPanelOpen ? (
+                <div className="absolute left-0 top-[calc(100%+0.75rem)]">
+                  <SelectionFilterPanel
+                    currentFilter={readStoredFilter()}
+                    open={filterPanelOpen}
+                    onChange={(filter) => {
+                      writeStoredFilter(filter);
+                      void onUpdateSelectionFilter(filter);
+                    }}
+                    onClose={onToggleFilterPanel}
+                  />
+                </div>
+              ) : null}
               {parametersPanelOpen ? (
                 <div className="absolute left-0 top-[calc(100%+0.75rem)]">
                   <ParametersPanel onClose={onToggleParametersPanel} />

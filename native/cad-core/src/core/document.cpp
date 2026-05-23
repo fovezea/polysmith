@@ -589,6 +589,7 @@ DocumentState DocumentManager::create_document() {
       .selected_sketch_profile_ids = {},
       .timeline_cursor = std::nullopt,
       .feature_history = {make_root_feature()},
+      .selection_filter = SelectionFilter{},
   };
 
   document_ = document;
@@ -4825,6 +4826,18 @@ DocumentState DocumentManager::delete_parameter(const std::string& name) {
   }
   refresh_history_dependencies(document_.value());
   bump_geometry_revision();
+
+  return document_.value();
+}
+
+DocumentState DocumentManager::update_selection_filter(
+    const SelectionFilter& filter) {
+  require_document();
+
+  push_undo_state();
+  clear_redo_stack();
+
+  document_->selection_filter = filter;
 
   return document_.value();
 }

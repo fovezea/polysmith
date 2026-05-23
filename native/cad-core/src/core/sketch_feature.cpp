@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "core/formula_eval.h"
+#include "core/inference_engine.h"
 #include "core/sketch_profile.h"
 
 namespace polysmith::core {
@@ -2866,6 +2867,10 @@ void add_sketch_line(FeatureEntry& feature,
         .driven = constrained_axis,
     });
   }
+  if (!is_construction) {
+    run_inference_on_new_line(*feature.sketch_parameters,
+                              feature.sketch_parameters->lines.back());
+  }
   refresh_sketch_derived_state(feature);
 }
 
@@ -3420,6 +3425,10 @@ void add_sketch_circle(FeatureEntry& feature,
         .entity_id = circle.id,
         .value = circle.radius,
     });
+  }
+  if (!is_construction) {
+    run_inference_on_new_circle(*feature.sketch_parameters,
+                                feature.sketch_parameters->circles.back());
   }
   refresh_sketch_derived_state(feature);
 }

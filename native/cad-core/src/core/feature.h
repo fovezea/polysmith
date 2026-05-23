@@ -313,6 +313,48 @@ struct SketchPointLineAnchor {
   double t;
 };
 
+// A general geometric or dimensional constraint between sketch
+// entities or points. Used for constraint types not yet covered by
+// `SketchLineRelation` (equal_length, perpendicular) or inline
+// `SketchLine.constraint` (horizontal, vertical) — e.g. concentric,
+// symmetric, or coincident constraints created by the inference
+// engine at entity-commit time.
+struct SketchConstraint {
+    std::string constraint_id;       // "constraint-{N}"
+    std::string kind;                // "coincident", "concentric", ...
+    std::vector<std::string> target_ids;
+    double value = 0.0;              // for dimensional constraints
+    bool driven = false;             // true = reference only
+};
+
+// User-configurable selection filter that controls which geometric
+// element types are visible, selectable, snappable, and constrainable.
+// Stored per-session (persisted to localStorage on the TS side in v1).
+struct SelectionFilter {
+    // Sketch geometry toggles
+    bool select_curves        = true;
+    bool select_points        = true;
+    bool select_construction  = false;
+    bool select_constraints   = true;
+
+    // Snap toggles (derived from selection filter)
+    bool snap_endpoint        = true;
+    bool snap_midpoint        = true;
+    bool snap_center          = true;
+    bool snap_intersection    = true;
+    bool snap_nearest         = true;
+    bool snap_quadrant        = false;
+    bool snap_perpendicular   = false;
+    bool snap_parallel        = false;
+    bool snap_tangent         = true;
+    bool snap_grid            = true;
+
+    // Global settings
+    int tolerance_px           = 10;
+    std::vector<std::string> snap_priority;
+    bool magnetic_pull         = true;
+};
+
 struct SketchLineRelation {
   std::string id;
   std::string kind;
@@ -413,6 +455,7 @@ struct SketchFeatureParameters {
   std::vector<SketchPoint> points;
   std::vector<SketchDimension> dimensions;
   std::vector<SketchLineRelation> line_relations;
+  std::vector<SketchConstraint> constraints;
   std::vector<SketchMidpointAnchor> midpoint_anchors;
   std::vector<SketchPointLineAnchor> point_line_anchors;
   // Parametric corner fillets. Each entry's `arc_id` and trim point
