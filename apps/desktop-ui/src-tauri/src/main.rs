@@ -7,17 +7,26 @@ mod orca_slicer;
 mod project_metadata;
 mod protocol;
 
-use std::sync::Mutex;
+use std::{
+    sync::Mutex,
+    thread,
+    time::Duration,
+};
 
 use cad_core::{start_cad_core_process, CadCoreState};
 use orca_slicer::OrcaSlicerState;
 use serde_json::Value;
+use tauri::Manager;
 
 #[tauri::command]
 fn start_cad_core(
     app: tauri::AppHandle,
     state: tauri::State<CadCoreState>,
 ) -> Result<String, String> {
+    if let Err(error) = reveal_main_window(&app) {
+        eprintln!("failed to reveal main window during core startup: {error}");
+    }
+
     start_cad_core_process(app, state)
 }
 
@@ -76,6 +85,36 @@ fn project_file_exists(file_path: String) -> Result<bool, String> {
     project_metadata::project_file_exists(file_path)
 }
 
+fn reveal_main_window(app: &tauri::AppHandle) -> Result<(), String> {
+    let main_window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window was not found".to_string())?;
+
+    main_window
+        .show()
+        .map_err(|error| format!("failed to show main window: {error}"))?;
+    let maximize_result = main_window.maximize();
+    let focus_result = main_window.set_focus();
+
+    if let Some(splash_window) = app.get_webview_window("splashscreen") {
+        let _ = splash_window.close();
+    }
+
+    if let Err(error) = maximize_result {
+        eprintln!("failed to maximize main window: {error}");
+    }
+    if let Err(error) = focus_result {
+        eprintln!("failed to focus main window: {error}");
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn show_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    reveal_main_window(&app)
+}
+
 #[tauri::command]
 fn prepare_orca_export_path() -> Result<String, String> {
     orca_slicer::prepare_orca_export_path()
@@ -124,6 +163,19 @@ pub fn run() {
         .manage(OrcaSlicerState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            let app_handle = app.handle().clone();
+            thread::spawn(move || {
+                // Startup normally reveals the main window when the renderer invokes
+                // `start_cad_core`. This late fallback prevents a renderer failure from
+                // leaving users staring at the splash screen forever.
+                thread::sleep(Duration::from_millis(10000));
+                if app_handle.get_webview_window("splashscreen").is_some() {
+                    let _ = reveal_main_window(&app_handle);
+                }
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             start_cad_core,
             send_core_command,
@@ -135,6 +187,7 @@ pub fn run() {
             write_project_thumbnail,
             delete_project_file,
             project_file_exists,
+            show_main_window,
             prepare_orca_export_path,
             embed_orca_window,
             resize_orca_window,

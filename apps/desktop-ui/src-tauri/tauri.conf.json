@@ -12,10 +12,25 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Polysmith",
         "width": 800,
         "height": 600,
-        "maximized": true
+        "maximized": true,
+        "visible": false
+      },
+      {
+        "label": "splashscreen",
+        "title": "Polysmith",
+        "url": "splash.html",
+        "width": 720,
+        "height": 405,
+        "center": true,
+        "decorations": false,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "skipTaskbar": true
       }
     ],
     "security": {
