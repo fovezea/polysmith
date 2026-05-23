@@ -85,15 +85,55 @@ fn project_file_exists(file_path: String) -> Result<bool, String> {
     project_metadata::project_file_exists(file_path)
 }
 
+fn center_window_over_window(
+    window: &tauri::WebviewWindow,
+    anchor: &tauri::WebviewWindow,
+) -> Result<(), String> {
+    let anchor_position = anchor
+        .outer_position()
+        .map_err(|error| format!("failed to read anchor window position: {error}"))?;
+    let anchor_size = anchor
+        .outer_size()
+        .map_err(|error| format!("failed to read anchor window size: {error}"))?;
+    let window_size = window
+        .outer_size()
+        .or_else(|_| window.inner_size())
+        .map_err(|error| format!("failed to read splash window size: {error}"))?;
+
+    let mut position = anchor_position;
+    position.x += ((anchor_size.width as i32 - window_size.width as i32) / 2).max(0);
+    position.y += ((anchor_size.height as i32 - window_size.height as i32) / 2).max(0);
+
+    window
+        .set_position(position)
+        .map_err(|error| format!("failed to position splash window: {error}"))
+}
+
+fn position_startup_splash(app: &tauri::AppHandle) {
+    if let Some(splash_window) = app.get_webview_window("splashscreen") {
+        if let Some(main_window) = app.get_webview_window("main") {
+            if let Err(error) = center_window_over_window(&splash_window, &main_window) {
+                eprintln!("{error}");
+                if let Err(center_error) = splash_window.center() {
+                    eprintln!("failed to center splash window: {center_error}");
+                }
+            }
+        }
+        if let Err(error) = splash_window.show() {
+            eprintln!("failed to show splash window: {error}");
+        }
+    }
+}
+
 fn reveal_main_window(app: &tauri::AppHandle) -> Result<(), String> {
     let main_window = app
         .get_webview_window("main")
         .ok_or_else(|| "main window was not found".to_string())?;
 
+    let maximize_result = main_window.maximize();
     main_window
         .show()
         .map_err(|error| format!("failed to show main window: {error}"))?;
-    let maximize_result = main_window.maximize();
     let focus_result = main_window.set_focus();
 
     if let Some(splash_window) = app.get_webview_window("splashscreen") {
@@ -164,6 +204,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            position_startup_splash(app.handle());
             let app_handle = app.handle().clone();
             thread::spawn(move || {
                 // Startup normally reveals the main window when the renderer invokes

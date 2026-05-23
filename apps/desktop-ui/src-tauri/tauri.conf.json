@@ -25,7 +25,7 @@
         "url": "splash.html",
         "width": 720,
         "height": 405,
-        "center": true,
+        "visible": false,
         "decorations": false,
         "resizable": false,
         "maximizable": false,
