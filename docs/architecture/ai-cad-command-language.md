@@ -1255,6 +1255,63 @@ Supported combinations:
 - circle center to circle center
 - circle center to line
 
+#### `add_sketch_point_distance_dimension`
+
+Adds or reselects a straight-line distance dimension between two sketch points.
+
+Payload:
+
+```ts
+{
+  point_a_id: string;
+  point_b_id: string;
+}
+```
+
+#### `add_sketch_line_length_dimension`
+
+Creates a length dimension on a single sketch line. Used when the Dimension tool
+clicks a line whose auto-dimension was deleted. The core validates the entity
+exists, checks for a duplicate `dim-line-{id}`, then creates a `SketchDimension`
+of kind `line_length` with the current geometric length.
+
+Payload:
+
+```ts
+{
+  line_id: string;
+}
+```
+
+#### `add_sketch_circle_radius_dimension`
+
+Creates a radius (or diameter) dimension on a single sketch circle. Same
+pattern as line length: validates, deduplicates, creates a `SketchDimension`
+of kind `circle_radius`. An optional `display_as` field controls rendering.
+
+Payload:
+
+```ts
+{
+  circle_id: string;
+  display_as?: "radius" | "diameter";
+}
+```
+
+#### `add_sketch_polygon_radius_dimension`
+
+Creates a radius dimension on a single sketch polygon. Same pattern as the
+others: validates, deduplicates, creates a `SketchDimension` of kind
+`polygon_radius`.
+
+Payload:
+
+```ts
+{
+  polygon_id: string;
+}
+```
+
 #### `update_sketch_dimension`
 
 Solves a dimension to a new value. `value` can be a plain `number` (backward

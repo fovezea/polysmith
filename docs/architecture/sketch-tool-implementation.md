@@ -189,10 +189,14 @@ Auto-dimension IDs follow the pattern `dim-<prefix>-<entity_id>`:
 
 ---
 
-## Manual Sketch Dimension Tool Completion (Planned)
+## Manual Sketch Dimension Tool Completion (Shipped)
 
-> This section documents a planned feature extracted from
-> `implementation/NEXT_IMPLEMENTATION_PLAN.md` (Priority 1 — Item B).
+> Implemented 2026-05-24. All three single-entity dimension creation commands
+> (`add_sketch_line_length_dimension`, `add_sketch_circle_radius_dimension`,
+> `add_sketch_polygon_radius_dimension`) are wired end-to-end through C++ core,
+> IPC, TypeScript types, and ViewportPanel.tsx click handlers. Polygon entities
+> are now handled alongside lines and circles. The plan below is retained as
+> reference documentation.
 
 ### Goal
 
@@ -345,3 +349,26 @@ created dimensions appear immediately.
 | `apps/desktop-ui/src/layout/ViewportPanel.tsx` | Replace `selectSketchEntity` with dimension creation + add polygon support |
 | `docs/architecture/ai-cad-command-language.md` | Document new dimension commands |
 | `docs/architecture/ipc-protocol.md` | Document new dimension commands |
+
+---
+
+## Line Dimension Tool Specification
+
+The full behavioral specification for line dimension creation,
+intent-based dimension detection during drag, and post-creation endpoint
+drag is documented in `docs/implementation-log.md` (2026-05-24, "Line
+Dimension Tool — Specification"). Key items:
+
+- **Preview-phase**: length/angle inputs become constraints only when
+  explicitly edited; unedited values are driven and invisible after commit.
+- **Post-creation**: clicking a line body in Dimension tool creates a
+  single-entity dimension but should also permit a two-point distance
+  dimension via drag-direction disambiguation.
+- **Intent detection**: perpendicular drag → line length; parallel drag
+  → endpoint-to-endpoint distance; ambiguous → default to line length.
+- **Endpoint drag**: belongs to the select tool. Dragging an unconstrained
+  line endpoint resizes it in real time. Dragging a constrained line
+  endpoint converts the dimension to driven.
+
+Three work items remain: post-creation endpoint drag, intent-based
+drag-direction detection, and perpendicular snap for the dimension tool.

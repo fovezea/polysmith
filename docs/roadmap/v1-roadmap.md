@@ -146,9 +146,9 @@ Small individually but they shape day-to-day usability:
 7. **Display units (metric/inch toggle).** UI-layer conversion only: the
    C++ core always works in mm; React converts at the presentation
    boundary. Design doc: `docs/architecture/display-units.md`.
-8. **Manual sketch dimension tool completion.** Single-entity dimension
+8. ✅ **Manual sketch dimension tool completion.** Single-entity dimension
    creation for lines, circles, and polygons whose auto-dimensions were
-   deleted by the fusion-style on-demand system.
+   deleted — shipped 2026-05-24.
 9. ✅ **Unified sketch interaction system.** Selection filter checkbox
    panel with localStorage persistence. Snap gating (endpoint, midpoint,
    center, nearest, tangent, grid, perpendicular-foot) controlled by
