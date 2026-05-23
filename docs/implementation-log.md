@@ -517,7 +517,7 @@ Build a unified sketch interaction system where constraints, snapping, and selec
 
 #### Known Issues & Follow-up
 - **Perpendicular snap**: general perpendicular-to-line parked. Perpendicular-foot (start-on-host-line) works.
-- **Constraint badge highlight**: sprite doesn't visually change on selection (status bar only).
+- **Constraint badge highlight**: ✅ shipped 2026-05-24 — selected badges turn cyan + scale up via a dedicated useEffect. Right-click → Delete also works now.
 - **Driven dimension proposal**: should offer driven dim when entity already fully constrained.
 - **DOF color legend**: help menu entry needed (blue=full, red=over, yellow=under).
 - **Line dimension tool redesign**: full specification in the 2026-05-24 section below. Three work items remain: post-creation endpoint drag (select tool), intent-based drag-direction detection (dimension tool), and perpendicular snap for dimension tool disambiguation.
@@ -555,6 +555,24 @@ and **angle**. The user can Tab between them.
 that appears pre-populated in the input but is never edited does NOT
 create a constraint — it is a driven value that is invisible after commit.
 
+**Flickering problem (implementation artifact):** During line preview,
+the core creates auto-dimensions for the preview geometry. When the user
+commits the line without editing the input fields (click-only commit),
+`scheduleDimensionDeletion()` fires and deletes those auto-dimensions.
+This causes the dimension to appear momentarily on screen (as a flash)
+then disappear. Two impacts:
+
+- **Visual**: the dimension label flashes in/out during commit, creating
+  a distracting flicker.
+- **IPC overhead**: a round-trip IPC command (`add_sketch_line` → core
+  creates auto-dim → `delete_sketch_dimension` to remove it) per commit.
+
+The flicker is benign but wasteful. A cleaner approach would be to
+suppress auto-dimension creation during preview entirely and only create
+the dimension on explicit user edit, but the current architecture ties
+auto-dimension creation to entity push in the C++ core — there's no
+"preview mode" flag to gate it.
+
 #### Post-Creation Dimension Workflow
 
 If no dimension was created during preview, the user can add one later
@@ -566,11 +584,34 @@ through the Dimension tool (`D`):
 3. The dimension editor opens with the current length
 4. User types a value → Enter → dimension becomes constrained
 
-**Current bug:** clicking the line body immediately commits to a
-single-entity dimension and closes the option to pick a second point.
-This prevents the user from creating a point-to-point distance dimension
-between the line's two endpoints (a diagonal dimension when the line
-is not axis-aligned).
+**Current bug (root cause):** clicking the line body immediately commits
+to a single-entity dimension. This happens because:
+
+1. `dimensionToolFirstLineRef` is `null` on the first click.
+2. The code resolves the entity ID, sees no staged entity, and falls
+   through to the entity-kind dispatch (line ~6540).
+3. For a line with no existing `dim-line-{id}`, `dimCreateLine()` is
+   called immediately — it sends `add_sketch_line_length_dimension` IPC
+   and sets `pendingDimensionPlacementRef`.
+4. `dimCreateLine()` does NOT stage the entity (`dimensionToolFirstLineRef`
+   stays `null`) — only `dimSelectLine()` (called when dimension already
+   exists) stages. So the first click on a dimension-less line both
+   creates the dimension AND fails to stage for two-point follow-up.
+
+**Consequence:** the first click steals the interaction. The user cannot
+perform a two-point distance dimension from one endpoint of the line
+because clicking anywhere on the line body immediately triggers the
+single-entity dimension creation. The two-point `dimensionToolFirstLineRef`
+staging is never reached.
+
+**Example:** User wants to dimension the distance between one line endpoint
+and an arbitrary point in space. Clicks near the endpoint → the raycast
+hits the line body → `dimCreateLine` fires → single-entity dimension is
+created. The user never gets a chance to pick the second point.
+
+This also blocks the two-arbitrary-points distance dimension: clicking
+near a line's endpoint resolves to the line entity (via point regex),
+not to a point-distance pick.
 
 #### Intent-Based Dimension Detection
 
@@ -592,6 +633,77 @@ and clicks diagonal opposite points, the result should be:
   distance dimension (distance between the two endpoints)
 - The tool must NOT immediately snap to one interpretation — it waits
   for sufficient mouse movement to disambiguate
+
+**Commit-early-with-regroup model (correct design):**
+
+The Dimension tool uses the snap engine's resolution on the first click
+to jump to the most likely conclusion immediately, then allows the user
+to "regroup" — pick a second point that overrides the initial choice.
+
+**Principle:** Jump to conclusion from the first click when the snap type
+strongly indicates intent. Save clicks in the common case. Allow
+regrouping when the user contradicts the initial guess.
+
+**First-click behavior (by snap target):**
+
+| Snap target (first click) | Immediate action | Allows regroup? |
+|---|---|---|
+| **Line body** (snap on line) | Immediately create line length dimension + open editor. Stages the entity for two-entity follow-up. | Yes — if user clicks a second point or entity while the dimension editor is open, delete the line dimension and create a point-distance or two-entity dimension instead. |
+| **Circle edge** (snap on circle circumference) | Immediately create diameter dimension + show preview. Stages the circle for two-entity follow-up. | Yes — if user clicks a second point, delete the circle dimension and create point-distance instead. |
+| **Circle center / endpoint / sketch point** | **Wait.** Stage the point. Do not create a dimension yet. The next click determines: same entity → dimension, different entity → distance/angle, second point → point-to-point. | N/A — no dimension created yet, so no regroup needed. |
+| **Polygon edge / polygon center** | Same as line/circle respectively. | Yes. |
+| **Empty space** | Create a sketch-plane coordinate as the first point. Wait for second click → point-to-point distance. | N/A. |
+
+**Acceptance without editing:**
+
+After the first click creates a dimension and opens the editor, the user
+can accept the current value as-is without typing anything:
+
+| Method | Result |
+|---|---|
+| Click **empty canvas space** | Accept current value, close editor, dimension stays visible |
+| **Right-click** | Interpreted as "Enter" — accept + close |
+| **Enter** key | Accept + close (no text typed) |
+
+The dimension stays with its measured value — it does NOT become a
+constrained dimension (user didn't type), but it remains visible as a
+reference/driven dimension for the sketch. The editor closes.
+
+**Regrouping flow (the core mechanism):**
+
+When a dimension was created on the first click but the user picks a
+second point belonging to a **different** geometry (not the same entity):
+
+```
+1. First click on line body
+   → dimCreateLine() fires
+   → dimension `dim-line-{id}` created, editor opens
+   → pendingDimensionPlacementRef = true
+
+2. User clicks a point on a DIFFERENT entity (other line, circle, etc.)
+   → Tool detects: dimension editor is open AND target != staged entity
+   → delete_sketch_dimension(dim-line-{id})
+   → clear pendingDimensionPlacementRef
+   → create appropriate two-entity/two-point dimension
+
+3. Entity-to-entity regroup:
+   First click on line A → line dim created
+   Second click on line B (different entity) → delete line dim → create
+   angle or distance between A and B
+```
+
+**Contrast with acceptance:** If the second click is on empty space (not
+on another entity), it's an acceptance — dimension stays.
+
+**Why this is better than strict two-phase:**
+
+- Common case (user wants line length) = 1 click, done. No waiting.
+- Regroup is an error recovery path — delete the hasty dimension and
+  create the correct one. The delete IPC is cheap compared to making the
+  user always wait.
+- Ties directly into the snap engine: the snap type on the first click
+  IS the intent signal. Line body snap → length. Circle edge snap →
+  diameter. Point snap → ambiguous, wait.
 
 #### Line Drag After Creation
 
@@ -625,3 +737,74 @@ that referenced the polygon as a whole is treated as `dependency_broken`.
 - Post-creation endpoint drag (select tool) — **not yet implemented**
 - Intent-based drag-direction detection — **not yet implemented**
 - Perpendicular snap for dimension tool — **not yet implemented** (see Known Issues)
+
+#### Right-Click — Context-Sensitive Behavior
+
+Professional CAD software uses right-click as a context-sensitive shortcut
+whose function depends on the current tool/command state. PolySmith must
+implement this as a first-class interaction primitive:
+
+| State | Right-click behavior |
+|---|---|
+| **Active dimension editor** (value input open) | **Enter** — accept the current value, close editor. Same as pressing Enter key. |
+| **Active tool mid-operation** (line being drawn, circle being placed) | **Escape** — cancel the current operation, exit the tool. Same as pressing Escape. |
+| **No tool active** (select/idle mode) | **Repeat last tool** — re-launch the most recently used sketch or modeling tool. If last tool was Line, right-click starts drawing a new line. If last tool was Delete, right-click enters delete mode. |
+
+**Implementation notes:**
+
+- Right-click behavior must NOT be hardcoded to "context menu." The
+  default browser/OS right-click context menu is suppressed in the Tauri
+  shell — right-click is a first-class CAD input.
+- During dimension editing, right-click is specifically "accept without
+  editing" — the dimension stays with its measured value.
+- During active drawing (line preview, circle preview), right-click means
+  "abort" — discard the in-progress geometry.
+- The "last tool" must persist across tool switches. If the user selected
+  Dimension tool, closed it (Escape), then right-clicks → Dimension tool
+  reactivates. Last tool is cleared when the user starts a new tool via
+  toolbar click or hotkey (these are explicit choices, not repetition).
+
+**Last-tool tracking:**
+
+```
+let lastActiveTool: SketchTool | null = null;
+
+onToolActivate(tool):
+    lastActiveTool = tool   // explicit choice records itself
+
+onToolDeactivate():
+    // tool exited via Escape or completion
+    // lastActiveTool is preserved for right-click repeat
+
+onRightClick(idle):
+    if lastActiveTool:
+        activateTool(lastActiveTool)
+    else:
+        // no previous tool — right-click is a no-op in idle state
+```
+
+---
+
+### Session Summary — 2026-05-24 (second half)
+
+**Shipped this session:**
+
+| Item | Files |
+|---|---|
+| **Regroup-aware dimension tool** — clicking a different entity after a just-created dim now deletes the hasty dim and creates a two-entity dimension instead | `ViewportPanel.tsx` |
+| **Point-snap → wait** — clicking a sketch point in Dimension tool stages and waits instead of resolving to entity and creating a dimension | `ViewportPanel.tsx` |
+| **Empty-space acceptance** — clicking empty canvas while dimension editor is open keeps the dimension (clears pending refs) | `ViewportPanel.tsx` |
+| **Escape fix** — existing dimensions are no longer deleted on Escape (`pendingDimensionIdRef` removed from `dimSelect*` functions) | `ViewportPanel.tsx` |
+| **Constraint badge highlight** — selected badge turns cyan + scales up, driven by a `useEffect` on `selectedConstraint` state | `ViewportPanel.tsx` |
+| **Constraint right-click → Delete** — new context menu branch for constraints, extending `ViewportContextMenuState` type | `ViewportPanel.tsx`, `types/viewport.ts` |
+| **Delete key race fix** — reads selection from document directly instead of relying on async store round-trip; fixes projected-entity deletion (GitHub issue #4) | `ViewportPanel.tsx` |
+
+**Remaining work items (unchanged):**
+
+- Right-click context-sensitive behavior (Enter / Escape / repeat-last-tool)
+- Post-creation endpoint drag (select tool)
+- Perpendicular snap (needed for dimension tool disambiguation)
+- Driven dimension proposal
+- DOF color legend
+- Pre-existing test failure (`test_fixed_endpoint_stays_put_when_redimensioning`)
+- Flickering auto-dimensions during preview (low priority)

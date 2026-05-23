@@ -154,10 +154,11 @@ Small individually but they shape day-to-day usability:
    center, nearest, tangent, grid, perpendicular-foot) controlled by
    checkboxes. DOF counting and entity coloring (blue = fully
    constrained, red = over-constrained, yellow = under-constrained).
-   Constraint badge click + Delete to remove constraints. Inference
-   engine auto-creates coincident/concentric constraints. Remaining:
-   perpendicular snap, driven dimension proposal, constraint badge
-   highlight, DOF color legend.
+   Constraint badge click + Delete to remove constraints. ✅ badge
+   highlight (cyan + scale-up) and ✅ right-click → Delete on
+   constraint badges. Inference engine auto-creates coincident/
+   concentric constraints. Remaining: perpendicular snap, driven
+   dimension proposal, DOF color legend.
    See `docs/implementation-log.md` (2026-05-23/24) and
    `wiki/polysmith.wiki/Unified-Sketch-Interaction-Strategy.md`.
 

@@ -1333,16 +1333,43 @@ Dimension kinds emitted by state:
 
 - `line_length`
 - `circle_radius`
+- `polygon_radius`
 - `angle` (between two lines, radians internally)
 - `line_angle` (from positive X axis, radians internally)
 - `line_line_distance`
 - `circle_center_distance`
 - `circle_line_distance`
+- `point_distance` (distance between two sketch points)
 
 Angle dimensions (`angle`, `line_angle`) store radians in `value` but
 expressions are authored in degrees. The core converts degrees→radians
 during expression evaluation. `line_angle` preserves the sign quadrant
 from the current geometry when re-evaluated.
+
+#### `delete_sketch_dimension`
+
+Deletes a sketch dimension by ID.
+
+Payload:
+
+```ts
+{
+  dimension_id: string;
+}
+```
+
+#### `update_sketch_dimension_display`
+
+Toggles a circle dimension between radius and diameter display.
+
+Payload:
+
+```ts
+{
+  dimension_id: string;
+  display_as: "radius" | "diameter";
+}
+```
 
 ### Parametric Parameters
 

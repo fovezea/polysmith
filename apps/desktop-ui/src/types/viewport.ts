@@ -307,6 +307,11 @@ export interface ViewportContextMenuState {
     profileIds: string[];
   } | null;
   dimensionId?: string | null;
+  // Constraint right-click → Delete:
+  // Set when user right-clicks a constraint badge.
+  constraintKind?: string;
+  constraintEntityId?: string;
+  constraintRelatedEntityId?: string | null;
 }
 
 export interface SketchEntityInteractionState {

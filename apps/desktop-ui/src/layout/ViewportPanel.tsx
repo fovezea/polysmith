@@ -281,7 +281,7 @@ interface ViewportPanelProps {
     secondEntityId: string,
   ) => Promise<void>;
   onAddSketchLineLengthDimension: (lineId: string) => Promise<void>;
-  onAddSketchCircleRadiusDimension: (circleId: string) => Promise<void>;
+  onAddSketchCircleRadiusDimension: (circleId: string, displayAs?: string) => Promise<void>;
   onAddSketchPolygonRadiusDimension: (polygonId: string) => Promise<void>;
   onSetSketchLineConstraint: (
     lineId: string,
@@ -1232,6 +1232,10 @@ export function ViewportPanel({
   // The dimension ID that was just created (before the IPC round-trip).
   // Used to delete it on Escape even before the response arrives.
   const pendingDimensionIdRef = useRef<string | null>(null);
+  // The entity that was just dimensioned (the source of the pending dimension).
+  // Used by the regroup path: if user clicks a different entity, delete the
+  // pending dimension and create a two-entity/point dimension instead.
+  const pendingDimSourceEntityIdRef = useRef<string | null>(null);
   const dimensionPlacementOriginalPositionRef = useRef<
     [number, number, number] | null
   >(null);
@@ -2277,6 +2281,29 @@ export function ViewportPanel({
     paintDofStatusColors();
   }, [activeTheme.id]);
 
+  // Update constraint badge highlights whenever selection changes.
+  useEffect(() => {
+    for (const obj of sketchConstraintObjectsRef.current) {
+      const conEntityId =
+        obj.userData.sketchConstraintEntityId as string | undefined;
+      const conKind =
+        obj.userData.sketchConstraintKind as string | undefined;
+      const isSelected =
+        selectedConstraint !== null &&
+        conEntityId === selectedConstraint.entityId &&
+        conKind === selectedConstraint.kind;
+      if (obj instanceof THREE.Sprite && obj.material instanceof THREE.SpriteMaterial) {
+        if (isSelected) {
+          obj.material.color.set(0x60e0ff); // bright cyan
+          obj.scale.set(7.5, 7.5, 1);
+        } else {
+          obj.material.color.set(0xffffff);
+          obj.scale.set(6, 6, 1);
+        }
+      }
+    }
+  }, [selectedConstraint]);
+
   function clearPreviewLine() {
     const previewLine = previewLineRef.current;
     const sketchGroup = sketchGroupRef.current;
@@ -2478,18 +2505,19 @@ export function ViewportPanel({
   function dimCreateCircle(entityId: string, displayAs: string) {
     const dimensionId = `dim-circle-${entityId}`;
     pendingDimensionIdRef.current = dimensionId;
+    pendingDimSourceEntityIdRef.current = entityId;
     pendingDimensionPlacementRef.current = true;
     void addSketchCircleRadiusDimensionRef
       .current(entityId, displayAs)
       .catch(() => {
         pendingDimensionIdRef.current = null;
+        pendingDimSourceEntityIdRef.current = null;
         pendingDimensionPlacementRef.current = false;
       });
   }
 
   function dimSelectCircle(entityId: string) {
     const dimensionId = `dim-circle-${entityId}`;
-    pendingDimensionIdRef.current = dimensionId;
     handleDimensionClick(dimensionId);
     // Stage for possible two-entity follow-up pick
     dimensionToolFirstLineRef.current = entityId;
@@ -2499,18 +2527,19 @@ export function ViewportPanel({
   function dimCreateLine(entityId: string) {
     const dimensionId = `dim-line-${entityId}`;
     pendingDimensionIdRef.current = dimensionId;
+    pendingDimSourceEntityIdRef.current = entityId;
     pendingDimensionPlacementRef.current = true;
     void addSketchLineLengthDimensionRef
       .current(entityId)
       .catch(() => {
         pendingDimensionIdRef.current = null;
+        pendingDimSourceEntityIdRef.current = null;
         pendingDimensionPlacementRef.current = false;
       });
   }
 
   function dimSelectLine(entityId: string) {
     const dimensionId = `dim-line-${entityId}`;
-    pendingDimensionIdRef.current = dimensionId;
     handleDimensionClick(dimensionId);
     // Stage for possible two-entity follow-up pick
     dimensionToolFirstLineRef.current = entityId;
@@ -2520,18 +2549,19 @@ export function ViewportPanel({
   function dimCreatePolygon(entityId: string) {
     const dimensionId = `dim-polygon-${entityId}`;
     pendingDimensionIdRef.current = dimensionId;
+    pendingDimSourceEntityIdRef.current = entityId;
     pendingDimensionPlacementRef.current = true;
     void addSketchPolygonRadiusDimensionRef
       .current(entityId)
       .catch(() => {
         pendingDimensionIdRef.current = null;
+        pendingDimSourceEntityIdRef.current = null;
         pendingDimensionPlacementRef.current = false;
       });
   }
 
   function dimSelectPolygon(entityId: string) {
     const dimensionId = `dim-polygon-${entityId}`;
-    pendingDimensionIdRef.current = dimensionId;
     handleDimensionClick(dimensionId);
     // Stage for possible two-entity follow-up pick
     dimensionToolFirstLineRef.current = entityId;
@@ -2547,11 +2577,13 @@ export function ViewportPanel({
       sketchLinesShareEndpoint(firstEntityId, secondEntityId)
     ) {
       pendingDimensionPlacementRef.current = true;
+      pendingDimSourceEntityIdRef.current = null;
       void addSketchAngleDimensionRef
         .current(firstEntityId, secondEntityId)
         .catch(() => { pendingDimensionPlacementRef.current = false; });
     } else {
       pendingDimensionPlacementRef.current = true;
+      pendingDimSourceEntityIdRef.current = null;
       void addSketchDistanceDimensionRef
         .current(firstEntityId, secondEntityId)
         .catch(() => { pendingDimensionPlacementRef.current = false; });
@@ -2562,6 +2594,7 @@ export function ViewportPanel({
     pendingDimensionIdRef.current =
       `dim-point-distance-${pointAId}-${pointBId}`;
     pendingDimensionPlacementRef.current = true;
+    pendingDimSourceEntityIdRef.current = null;
     void addSketchPointDistanceDimensionRef
       .current(pointAId, pointBId)
       .catch(() => {
@@ -4367,6 +4400,7 @@ export function ViewportPanel({
       return;
     }
     pendingDimensionPlacementRef.current = false;
+    pendingDimSourceEntityIdRef.current = null;
     beginDimensionPlacement(selectedSketchDimension);
   }, [activeSketchTool, selectedSketchDimension]);
 
@@ -6456,6 +6490,7 @@ export function ViewportPanel({
             // Flash the entity this constraint sits on
             paintSketchEntityMaterials();
             paintSketchPointMaterials();
+            // Highlight will update via the useEffect below
             return;
           }
 
@@ -6485,6 +6520,55 @@ export function ViewportPanel({
             dimensionToolFirstPointRef.current = null;
             handleDimensionClick(hit.id);
             return;
+          }
+          // --- Regroup check ---
+          // If a single-entity dimension was just created (pending) and the
+          // user clicks a different entity, delete the pending dim and stage
+          // the source entity for a two-entity/point dimension.
+          if (
+            pendingDimensionPlacementRef.current &&
+            pendingDimSourceEntityIdRef.current
+          ) {
+            const pendingSourceId = pendingDimSourceEntityIdRef.current;
+            let clickedEntityId: string | null = null;
+            let clickedIsPoint = false;
+            if (hit?.kind === "sketch_entity") {
+              clickedEntityId = hit.id;
+            } else if (hit?.kind === "sketch_point") {
+              clickedIsPoint = true;
+              const lm = hit.id.match(/^point-(line-\d+)/);
+              if (lm) { clickedEntityId = lm[1]; }
+              if (!clickedEntityId) {
+                const cm = hit.id.match(/^point-(circle-\d+)/);
+                if (cm) { clickedEntityId = cm[1]; }
+              }
+              if (!clickedEntityId) {
+                const pm = hit.id.match(/^point-(polygon-\d+)/);
+                if (pm) { clickedEntityId = pm[1]; }
+              }
+            }
+            if (clickedEntityId && clickedEntityId !== pendingSourceId) {
+              // Regroup: delete the hastily-created dimension
+              const dimId = pendingDimensionIdRef.current;
+              if (dimId) {
+                void deleteSketchDimensionRef.current(dimId);
+              }
+              pendingDimensionIdRef.current = null;
+              pendingDimSourceEntityIdRef.current = null;
+              pendingDimensionPlacementRef.current = false;
+              // Stage the source entity so the two-entity handler below
+              // picks it up as the "first pick" in a two-entity flow.
+              dimensionToolFirstLineRef.current = pendingSourceId;
+              setDimensionToolFirstLine(pendingSourceId);
+              // If the click was on a sketch point, route through the
+              // point-distance path instead of entity handler.
+              if (clickedIsPoint) {
+                dimensionToolFirstPointRef.current = { id: hit!.id, x: 0, y: 0 };
+              }
+              // Fall through to the entity handler below which will see
+              // firstEntityId != clickedEntityId and call
+              // dimCreateAngleOrDistance / dimCreatePointDistance.
+            }
           }
           // Point_distance mode: on the *second* click of a two-pick
           // sequence, restore the staged entity so the existing handler
@@ -6598,65 +6682,36 @@ export function ViewportPanel({
             };
             // Resolve point → entity for the unary-dimension path
             let resolvedId: string | null = null;
-            let resolvedKind: "line" | "circle" | "polygon" | null = null;
             const lm = hit.id.match(/^point-(line-\d+)/);
-            if (lm) { resolvedId = lm[1]; resolvedKind = "line"; }
+            if (lm) { resolvedId = lm[1]; }
             const cm = hit.id.match(/^point-(circle-\d+)/);
-            if (cm) { resolvedId = cm[1]; resolvedKind = "circle"; }
+            if (cm) { resolvedId = cm[1]; }
             const pm = hit.id.match(/^point-(polygon-\d+)/);
-            if (pm) { resolvedId = pm[1]; resolvedKind = "polygon"; }
+            if (pm) { resolvedId = pm[1]; }
             if (!resolvedId) {
               dimensionToolFirstLineRef.current = null;
               setDimensionToolFirstLine(null);
               return;
             }
-            // Defer to entity-level handlers using the resolved entity ID.
-            const firstEntityId = dimensionToolFirstLineRef.current;
-            if (firstEntityId && firstEntityId !== resolvedId) {
-              dimensionToolFirstLineRef.current = null;
-              setDimensionToolFirstLine(null);
-              dimCreateAngleOrDistance(firstEntityId, resolvedId);
-              return;
-            }
-            if (resolvedKind === "circle") {
-              const exists =
-                sketchLinesRef.current?.dimensions.some(
-                  (d) => d.dimension_id === `dim-circle-${resolvedId}`,
-                ) ?? false;
-              if (exists) {
-                dimSelectCircle(resolvedId);
-              } else {
-                dimCreateCircle(resolvedId, "");
-              }
-              return;
-            }
-            if (resolvedKind === "polygon") {
-              const exists =
-                sketchLinesRef.current?.dimensions.some(
-                  (d) => d.dimension_id === `dim-polygon-${resolvedId}`,
-                ) ?? false;
-              if (exists) {
-                dimSelectPolygon(resolvedId);
-              } else {
-                dimCreatePolygon(resolvedId);
-              }
-              return;
-            }
-            // Line
-            const exists =
-              sketchLinesRef.current?.dimensions.some(
-                (d) => d.dimension_id === `dim-line-${resolvedId}`,
-              ) ?? false;
-            if (exists) {
-              dimSelectLine(resolvedId);
-            } else {
-              dimCreateLine(resolvedId);
-            }
+            // Stage the resolved entity so the next click can create
+            // a two-entity dimension. Don't create a single-entity dim yet
+            // — point clicks always stage and wait for the next action.
+            dimensionToolFirstLineRef.current = resolvedId;
+            setDimensionToolFirstLine(resolvedId);
             return;
           }
-          // Click in empty space cancels the pending angle pick.
+          // Click in empty space: accept pending dimension if one is open,
+          // or cancel staging if a two-entity pick is in progress.
+          if (pendingDimensionPlacementRef.current) {
+            // Accept the current dimension as-is — it stays visible.
+            // Clear pending refs so the regroup path doesn't fire on next click.
+            pendingDimensionIdRef.current = null;
+            pendingDimSourceEntityIdRef.current = null;
+            pendingDimensionPlacementRef.current = false;
+          }
           dimensionToolFirstLineRef.current = null;
           setDimensionToolFirstLine(null);
+          dimensionToolFirstPointRef.current = null;
           return;
         }
 
@@ -7269,9 +7324,30 @@ export function ViewportPanel({
           hit?.kind !== "sketch_entity" &&
           hit?.kind !== "sketch_point" &&
           hit?.kind !== "sketch_profile" &&
-          hit?.kind !== "sketch_dimension"
+          hit?.kind !== "sketch_dimension" &&
+          hit?.kind !== "sketch_constraint"
         ) {
           setContextMenu(null);
+          return;
+        }
+
+        // Right-click on a sketch constraint: show Delete context menu
+        if (hit?.kind === "sketch_constraint") {
+          const rect = renderer.domElement.getBoundingClientRect();
+          setContextMenu({
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top,
+            referenceId: null,
+            faceId: null,
+            constraintKind: hit.constraintKind,
+            constraintEntityId: hit.entityId,
+            constraintRelatedEntityId: hit.relatedEntityId,
+          });
+          setSelectedConstraint({
+            kind: hit.constraintKind,
+            entityId: hit.entityId,
+            relatedEntityId: hit.relatedEntityId,
+          });
           return;
         }
 
@@ -7664,6 +7740,27 @@ export function ViewportPanel({
       sketchConstraintObjectsRef.current.push(sketchConstraintObject);
       sketchGroup.add(sketchConstraintObject);
     }
+    // Highlight the currently selected constraint badge.
+    const selCon = selectedConstraintRef.current;
+    for (const obj of sketchConstraintObjectsRef.current) {
+      const conEntityId =
+        obj.userData.sketchConstraintEntityId as string | undefined;
+      const conKind =
+        obj.userData.sketchConstraintKind as string | undefined;
+      const isSelected =
+        selCon !== null &&
+        conEntityId === selCon.entityId &&
+        conKind === selCon.kind;
+      if (obj instanceof THREE.Sprite && obj.material instanceof THREE.SpriteMaterial) {
+        if (isSelected) {
+          obj.material.color.set(0x60e0ff); // bright cyan
+          obj.scale.set(7.5, 7.5, 1);
+        } else {
+          obj.material.color.set(0xffffff);
+          obj.scale.set(6, 6, 1);
+        }
+      }
+    }
 
     for (const sketchProfile of sceneData.sketchProfiles) {
       const sketchProfileObject = buildSketchProfileObject(sketchProfile);
@@ -7786,6 +7883,7 @@ export function ViewportPanel({
         if (targetId) {
           event.preventDefault();
           pendingDimensionIdRef.current = null;
+          pendingDimSourceEntityIdRef.current = null;
           pendingDimensionPlacementRef.current = false;
           dimensionLabelDragRef.current = null;
           dimensionPlacementOriginalPositionRef.current = null;
@@ -7821,7 +7919,29 @@ export function ViewportPanel({
             sel.kind, sel.entityId, sel.relatedEntityId ?? undefined,
           );
         } else {
-          void deleteSketchSelectionRef.current();
+          // Read selection from document state directly (not via the
+          // async store) to avoid a race condition where the user presses
+          // Delete before the select_sketch_entity IPC response updates
+          // the store's document state. Use selected_sketch_entity_ids
+          // from the current document object (ref).
+          const entityIds = document?.selected_sketch_entity_ids ?? [];
+          const entityId = document?.selected_sketch_entity_id;
+          const pointIds = document?.selected_sketch_point_ids ?? [];
+          const profileIds = document?.selected_sketch_profile_ids ?? [];
+          const allEntityIds = entityId
+            ? entityIds.includes(entityId)
+              ? entityIds
+              : [...entityIds, entityId]
+            : entityIds;
+          if (allEntityIds.length > 0 || pointIds.length > 0 || profileIds.length > 0) {
+            void deleteSketchSelectionRef.current({
+              entityIds: allEntityIds,
+              pointIds,
+              profileIds,
+            });
+          } else {
+            void deleteSketchSelectionRef.current();
+          }
         }
         return;
       }
@@ -8031,6 +8151,21 @@ export function ViewportPanel({
     setContextMenu(null);
     setIsDimensionEditorOpen(false);
     await deleteSketchDimensionRef.current(dimensionId);
+  }
+
+  async function handleDeleteConstraintFromContextMenu() {
+    const kind = contextMenu?.constraintKind;
+    const entityId = contextMenu?.constraintEntityId;
+    if (!kind || !entityId) {
+      return;
+    }
+    setContextMenu(null);
+    setSelectedConstraint(null);
+    await clearSketchConstraintRef.current(
+      kind as ConstraintType,
+      entityId,
+      contextMenu?.constraintRelatedEntityId ?? null,
+    );
   }
 
   async function handleToggleDimensionDisplayFromContextMenu() {
@@ -8501,6 +8636,14 @@ export function ViewportPanel({
                   Delete
                 </button>
               </>
+            ) : contextMenu.constraintKind ? (
+              <button
+                type="button"
+                className="cad-context-menu-item flex w-full items-center justify-start rounded-xl px-3 py-2 text-sm text-on-surface transition-colors duration-200"
+                onClick={handleDeleteConstraintFromContextMenu}
+              >
+                Delete Constraint
+              </button>
             ) : contextMenu.sketchDeleteSelection ? (
               <button
                 type="button"

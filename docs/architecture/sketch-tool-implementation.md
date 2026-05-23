@@ -370,5 +370,27 @@ Dimension Tool — Specification"). Key items:
   line endpoint resizes it in real time. Dragging a constrained line
   endpoint converts the dimension to driven.
 
-Three work items remain: post-creation endpoint drag, intent-based
-drag-direction detection, and perpendicular snap for the dimension tool.
+**Two root problems identified (2026-05-24):**
+
+1. **Flickering**: auto-dimensions are created by the core during line
+   preview, then deleted by `scheduleDimensionDeletion()` on commit.
+   Wastes IPC round-trips and causes visual flash. Fix: suppress
+   auto-dimension creation during preview (requires a preview-mode flag
+   in the C++ core's entity push path).
+
+2. ✅ **First-click steals two-point flow**: `dimCreateLine()` sends IPC
+   immediately on first click without a regroup path. Fixed 2026-05-24:
+   the regroup path now detects when user clicks a different entity after
+   a just-created dimension, deletes the hasty dim, and creates the
+   correct two-entity/point dimension instead. Point-snap → wait also
+   implemented (stages point, doesn't create dim). Empty-space click
+   accepts the current dimension.
+
+Three concrete work items remain: post-creation endpoint drag (select
+tool), right-click context-sensitive behavior (Enter/Escape/repeat-last),
+and perpendicular snap for dimension tool disambiguation.
+
+**Right-click specification** (see `docs/implementation-log.md` 2026-05-24):
+context-sensitive — Enter during dimension editing, Escape during active
+tool, repeat-last-tool when idle. Must be implemented as a first-class
+CAD input primitive, not a context menu.
