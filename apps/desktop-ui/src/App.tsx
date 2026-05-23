@@ -2609,7 +2609,7 @@ function App() {
               title={t("document.expandHierarchy")}
             >
               <span className="cad-sidebar-collapsed-label">
-                {t("document.hierarchy")}
+                {t("document.hierarchyProjects")}
               </span>
             </button>
           ) : (
