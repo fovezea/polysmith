@@ -343,7 +343,7 @@ export function AppHeader({
                 }
                 onClick={onToggleParametersPanel}
               >
-                f(x)
+                <span className="normal-case">f(x)</span>
               </button>
               {parametersPanelOpen ? (
                 <div className="cad-toolbar-popover absolute left-0 top-[calc(100%+0.75rem)]">

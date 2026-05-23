@@ -274,6 +274,14 @@ struct SketchDimension {
   // the resolved `value` is recomputed from this expression during
   // refresh_sketch_derived_state. Empty string = plain numeric value.
   std::string expression;
+  // When true, this is a reference-only (driven) dimension. Its value
+  // is kept in sync with the geometry during refresh_sketch_derived_state
+  // but editing it does not drive the geometry. Default false (driving).
+  bool driven = false;
+  // For circle_radius dimensions: controls whether the UI displays the
+  // value as radius or diameter. Empty string = diameter (default, for
+  // backward compat). "radius" = display the raw radius value.
+  std::string display_as;
 };
 
 // A point anchored to the midpoint of a line. The anchored point is

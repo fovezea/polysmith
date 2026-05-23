@@ -53,11 +53,16 @@ export interface SketchDimensionEntry {
     | "line_angle"
     | "line_line_distance"
     | "circle_center_distance"
-    | "circle_line_distance";
+    | "circle_line_distance"
+    | "point_distance";
   entity_id: string;
   secondary_entity_id: string;
   value: number;
   expression: string;
+  /** When true, this is a reference-only (driven) dimension. */
+  driven?: boolean;
+  /** For circle_radius: "" = diameter display (default), "radius" = radius display. */
+  display_as?: string;
 }
 
 export interface SketchLineRelationEntry {
@@ -353,3 +358,5 @@ export type CircleToolMode =
 
 /** Polygon creation modes for the split tool button. */
 export type PolygonToolMode = "circumscribed" | "inscribed" | "edge";
+
+

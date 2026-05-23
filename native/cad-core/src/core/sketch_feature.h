@@ -215,9 +215,13 @@ void delete_sketch_dimension(FeatureEntry& feature,
 void add_sketch_line_length_dimension(FeatureEntry& feature,
                                       const std::string& line_id);
 void add_sketch_circle_radius_dimension(FeatureEntry& feature,
-                                        const std::string& circle_id);
+                                        const std::string& circle_id,
+                                        std::optional<std::string> display_as = std::nullopt);
 void add_sketch_polygon_radius_dimension(FeatureEntry& feature,
                                          const std::string& polygon_id);
+void add_sketch_point_distance_dimension(FeatureEntry& feature,
+                                         const std::string& point_a_id,
+                                         const std::string& point_b_id);
 
 // ---------------------------------------------------------------
 // Mirror tool — contextual modeling pending preview lifecycle.
