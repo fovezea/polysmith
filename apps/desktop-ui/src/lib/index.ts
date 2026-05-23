@@ -10,5 +10,6 @@ export * from "./ipcProtocol";
 export * from "./logger";
 export * from "./ollamaClient";
 export * from "./orcaSlicerClient";
+export * from "./recentProjects";
 export * from "./schemas/ipcSchema";
 export * from "./viewportScene";

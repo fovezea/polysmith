@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "polysmith",
+  "productName": "Polysmith",
   "version": "0.1.0",
   "identifier": "org.sovezea.polysmith",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "polysmith",
+        "title": "Polysmith",
         "width": 800,
         "height": 600
       }

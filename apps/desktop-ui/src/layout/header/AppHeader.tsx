@@ -273,7 +273,7 @@ export function AppHeader({
   parametersPanelOpen,
   onToggleParametersPanel,
 }: AppHeaderProps) {
-  const { t: _t, i18n } = useTranslation();
+  const { t: _t } = useTranslation();
   // Keep the main navigation bar in English regardless of the locale
   // setting, so non-native speakers can always read the menu items.
   const t = useCallback(

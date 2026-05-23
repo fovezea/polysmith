@@ -84,6 +84,31 @@ export function awaitDocumentExport(
   });
 }
 
+export function awaitDocumentSaved(
+  predicate: (filePath: string) => boolean,
+  timeoutMs = 4000,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const initial = useCadCoreStore.getState().lastEvent;
+    const timer = window.setTimeout(() => {
+      unsubscribe();
+      reject(new Error("awaitDocumentSaved: timed out"));
+    }, timeoutMs);
+    const unsubscribe = useCadCoreStore.subscribe((state) => {
+      const event = state.lastEvent;
+      if (!event || event === initial || event.type !== "document_saved") {
+        return;
+      }
+      const filePath = event.payload.file_path;
+      if (predicate(filePath)) {
+        window.clearTimeout(timer);
+        unsubscribe();
+        resolve(filePath);
+      }
+    });
+  });
+}
+
 export const useCadCoreStore = create<CadCoreStoreState>((set) => ({
   status: "idle",
   messages: [],

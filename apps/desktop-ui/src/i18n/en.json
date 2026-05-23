@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "PolySmith"
+    "name": "Polysmith"
   },
   "common": {
     "action": "Action",
@@ -280,6 +280,47 @@
     "sketchPlane": "Sketch Plane",
     "sketches": "Sketches",
     "units": "Units"
+  },
+  "documentStatus": {
+    "saved": "Saved",
+    "unsaved": "Unsaved",
+    "untitled": "Untitled"
+  },
+  "projects": {
+    "create": "Create",
+    "delete": "Delete",
+    "deleteFolder": "Delete {{name}}",
+    "deleteFolderBody": "The folder will be removed. Projects and folders inside it will move up one level.",
+    "deleteFolderTitle": "Delete {{name}}?",
+    "deleteFileToo": "Also delete the file from disk",
+    "deleteProject": "Delete {{name}}",
+    "deleteProjectBody": "This removes the project from the Projects list. The file stays where it is unless you choose to delete it too.",
+    "deleteProjectTitle": "Remove {{name}}?",
+    "dropHere": "Drop projects here",
+    "empty": "Saved projects will appear here after you save them.",
+    "folderName": "Folder name",
+    "home": "Home",
+    "move": "Move",
+    "moveHere": "Move here",
+    "moveProjectTitle": "Move {{name}}",
+    "new": "New",
+    "newFolder": "New folder",
+    "newProject": "Project",
+    "noFolders": "No folders in this location.",
+    "openMissingFile": "{{name}} could not be opened because the file was moved or deleted. It was removed from Projects.",
+    "path": "Project folder path",
+    "remove": "Remove",
+    "renameFolderTitle": "Rename folder",
+    "renameProjectTitle": "Rename project",
+    "root": "Projects",
+    "title": "Projects"
+  },
+  "unsavedDialog": {
+    "body": "Save your changes before continuing, or continue without saving them.",
+    "continueWithoutSaving": "Discard",
+    "quitWithoutSaving": "Quit",
+    "saveFirst": "Save",
+    "title": "Save changes to {{name}}?"
   },
   "session": {
     "documents": "Documents",

@@ -237,6 +237,7 @@ interface ViewportPanelProps {
   status: "idle" | "starting" | "connected" | "error" | "stopped";
   document: DocumentState | null;
   viewport: ViewportState | null;
+  onSnapshotCaptureReady?: (capture: (() => string | null) | null) => void;
   onSelectPrimitive: (primitiveId: string) => Promise<void>;
   onSelectReference: (referenceId: string) => Promise<void>;
   onSelectFace: (faceId: string) => Promise<void>;
@@ -946,6 +947,7 @@ export function ViewportPanel({
   status,
   document,
   viewport,
+  onSnapshotCaptureReady,
   onSelectPrimitive,
   onSelectReference,
   onSelectFace,
@@ -4258,6 +4260,7 @@ export function ViewportPanel({
       canvas,
       antialias: true,
       alpha: true,
+      preserveDrawingBuffer: true,
     });
     const scene = new THREE.Scene();
     const camera = new THREE.OrthographicCamera(
@@ -4303,6 +4306,32 @@ export function ViewportPanel({
     const fillLight = new THREE.DirectionalLight(0xffffff, 0.45);
     fillLight.position.set(-1.5, 0.8, -1.1);
     scene.add(fillLight);
+
+    onSnapshotCaptureReady?.(() => {
+      renderer.render(scene, camera);
+      const source = renderer.domElement;
+      if (source.width === 0 || source.height === 0) {
+        return null;
+      }
+      const thumbnail = window.document.createElement("canvas");
+      thumbnail.width = 240;
+      thumbnail.height = 150;
+      const context = thumbnail.getContext("2d");
+      if (!context) {
+        return null;
+      }
+      const thumbnailBackground =
+        window
+          .getComputedStyle(host)
+          .getPropertyValue("--cad-project-thumbnail-bg")
+          .trim();
+      if (thumbnailBackground) {
+        context.fillStyle = thumbnailBackground;
+        context.fillRect(0, 0, thumbnail.width, thumbnail.height);
+      }
+      context.drawImage(source, 0, 0, thumbnail.width, thumbnail.height);
+      return thumbnail.toDataURL("image/png");
+    });
 
     controls.enableDamping = false;
     controls.enableZoom = false;
@@ -7181,6 +7210,7 @@ export function ViewportPanel({
     frameId = window.requestAnimationFrame(animate);
 
     return () => {
+      onSnapshotCaptureReady?.(null);
       window.cancelAnimationFrame(frameId);
       resizeObserver.disconnect();
       renderer.domElement.removeEventListener("pointerdown", handlePointerDown);

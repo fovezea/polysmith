@@ -95,6 +95,7 @@
   --cad-shadow-strong: rgba(0, 0, 0, 0.24);
   --cad-shadow-medium: rgba(0, 0, 0, 0.2);
   --cad-shadow-popover: rgba(0, 0, 0, 0.28);
+  --cad-modal-backdrop: rgba(0, 0, 0, 0.48);
   --cad-outline-soft: rgba(59, 73, 76, 0.18);
   --cad-outline-input: rgba(59, 73, 76, 0.4);
   --cad-ghost-bg: rgba(53, 53, 52, 0.35);
@@ -102,6 +103,7 @@
   --cad-subtle-surface-strong: rgba(255, 255, 255, 0.03);
   --cad-subtle-surface-dim: rgba(255, 255, 255, 0.02);
   --cad-subtle-surface-chip: rgba(255, 255, 255, 0.04);
+  --cad-project-thumbnail-bg: #f4f7f8;
   --cad-sidebar-bg: rgba(14, 14, 14, 0.72);
   --cad-timeline-bg: rgba(19, 19, 19, 0.88);
   --cad-ribbon-bg: rgba(19, 19, 19, 0.9);
@@ -157,6 +159,8 @@ body {
   background: transparent;
   color: var(--color-on-surface);
   overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 #root {
@@ -166,6 +170,15 @@ body {
 
 * {
   box-sizing: border-box;
+}
+
+input,
+textarea,
+select,
+[contenteditable="true"],
+[contenteditable="true"] * {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 button,
@@ -780,6 +793,364 @@ button:not(:disabled),
 
   .cad-status-dot-offline {
     box-shadow: 0 0 12px var(--cad-status-offline-glow);
+  }
+
+  .cad-sidebar-tabs {
+    display: flex;
+    min-width: 0;
+    gap: 0.25rem;
+    border-radius: 999px;
+    background: var(--cad-subtle-surface);
+    padding: 0.2rem;
+  }
+
+  .cad-sidebar-tab {
+    border-radius: 999px;
+    padding: 0.25rem 0.55rem;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--color-on-surface-dim);
+    transition:
+      background 120ms ease,
+      color 120ms ease;
+  }
+
+  .cad-sidebar-tab:hover {
+    color: var(--color-on-surface);
+  }
+
+  .cad-sidebar-tab-active {
+    background: var(--cad-accent-surface);
+    color: var(--color-on-surface);
+  }
+
+  .cad-projects-toolbar {
+    margin-bottom: 0.5rem;
+    display: grid;
+    min-width: 0;
+    gap: 0.45rem;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .cad-project-toolbar-row {
+    position: relative;
+    min-width: 0;
+    padding: 0 2.6rem 0 0.35rem;
+  }
+
+  .cad-project-breadcrumbs {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.25rem;
+    flex-wrap: wrap;
+  }
+
+  .cad-project-breadcrumb-button {
+    display: inline-flex;
+    height: 1.75rem;
+    max-width: 8rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border-radius: 0.35rem;
+    border: 1px solid var(--cad-outline-soft);
+    background: var(--cad-subtle-surface);
+    padding: 0 0.45rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--color-on-surface);
+  }
+
+  .cad-project-breadcrumb-button:hover {
+    background: var(--cad-context-hover);
+    border-color: var(--cad-outline);
+  }
+
+  .cad-project-breadcrumb-button-drop-target {
+    background: var(--cad-accent-surface);
+    border-color: var(--cad-accent-outline-strong);
+    box-shadow: inset 0 0 0 1px var(--cad-accent-outline-strong);
+  }
+
+  .cad-project-folder-form {
+    display: flex;
+    min-width: 0;
+    gap: 0.35rem;
+    padding: 0 0.35rem;
+  }
+
+  .cad-project-new-menu-wrapper {
+    position: absolute;
+    right: 0.35rem;
+    top: 0;
+  }
+
+  .cad-project-new-button {
+    display: inline-flex;
+    width: 1.75rem;
+    height: 1.75rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    border-radius: 0.4rem;
+    border: 1px solid var(--cad-outline-soft);
+    background: var(--cad-subtle-surface);
+    padding: 0;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-on-surface);
+  }
+
+  .cad-project-new-button:hover {
+    background: var(--cad-context-hover);
+    border-color: var(--cad-outline);
+  }
+
+  .cad-project-new-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.35rem);
+    z-index: 40;
+    min-width: 11rem;
+  }
+
+  .cad-project-new-menu .cad-context-menu-item {
+    white-space: nowrap;
+  }
+
+  .cad-project-folder-input {
+    min-width: 0;
+    flex: 1;
+    border-radius: 0.4rem;
+    border: 1px solid var(--cad-outline-soft);
+    background: var(--cad-subtle-surface);
+    padding: 0.35rem 0.5rem;
+    font-size: 0.75rem;
+    color: var(--color-on-surface);
+  }
+
+  .cad-project-folder-submit,
+  .cad-project-folder-create-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border-radius: 0.4rem;
+    border: 1px solid var(--cad-outline-soft);
+    background: var(--cad-subtle-surface);
+    padding: 0.35rem 0.55rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-on-surface);
+  }
+
+  .cad-project-folder-submit:hover,
+  .cad-project-folder-create-button:hover {
+    background: var(--cad-context-hover);
+    border-color: var(--cad-outline);
+  }
+
+  .cad-project-level {
+    display: flex;
+    min-height: 5rem;
+    flex-direction: column;
+    gap: 0.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid transparent;
+    padding: 0.35rem;
+    transition:
+      background 120ms ease,
+      border-color 120ms ease;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .cad-project-level-drop-target {
+    border-color: var(--cad-accent-outline-strong);
+    background: var(--cad-accent-surface);
+  }
+
+  .cad-project-folder-card {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--cad-outline-soft);
+    background: var(--cad-subtle-surface-dim);
+    padding: 0.25rem;
+    transition:
+      background 120ms ease,
+      border-color 120ms ease;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .cad-project-folder-card:hover,
+  .cad-project-folder-card-drop-target {
+    background: var(--cad-context-hover);
+    border-color: var(--cad-outline);
+  }
+
+  .cad-project-folder-card-drop-target {
+    box-shadow: inset 0 0 0 1px var(--cad-accent-outline-strong);
+  }
+
+  .cad-project-folder-open-button {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    align-items: center;
+    gap: 0.35rem;
+    border-radius: 0.35rem;
+    padding: 0.55rem 0.45rem;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .cad-project-card {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--cad-outline-soft);
+    background: var(--cad-subtle-surface-dim);
+    padding: 0.25rem;
+    transition:
+      background 120ms ease,
+      border-color 120ms ease;
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: grab;
+  }
+
+  .cad-project-card:hover {
+    background: var(--cad-context-hover);
+    border-color: var(--cad-outline);
+  }
+
+  .cad-project-card-active {
+    background: var(--cad-accent-surface);
+    border-color: var(--cad-accent-outline-strong);
+  }
+
+  .cad-project-open-button {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    align-items: center;
+    gap: 0.65rem;
+    border-radius: 0.35rem;
+    padding: 0.2rem;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .cad-project-delete-button {
+    display: inline-flex;
+    width: 1.75rem;
+    height: 1.75rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.35rem;
+    color: var(--color-danger);
+  }
+
+  .cad-project-delete-button:hover {
+    background: var(--cad-context-hover);
+  }
+
+  .cad-project-delete-file-option {
+    margin-top: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--color-on-surface);
+  }
+
+  .cad-project-delete-file-option input {
+    accent-color: var(--color-danger);
+  }
+
+  .cad-project-rename-input {
+    margin-top: 0.85rem;
+    width: 100%;
+    border-radius: 0.4rem;
+    border: 1px solid var(--cad-outline-soft);
+    background: var(--cad-subtle-surface);
+    padding: 0.45rem 0.55rem;
+    font-size: 0.9rem;
+    color: var(--color-on-surface);
+  }
+
+  .cad-project-folder-picker {
+    margin-top: 0.75rem;
+    display: flex;
+    max-height: 14rem;
+    flex-direction: column;
+    gap: 0.4rem;
+    overflow-y: auto;
+  }
+
+  .cad-project-folder-picker-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: 0.45rem;
+    border: 1px solid var(--cad-outline-soft);
+    background: var(--cad-subtle-surface-dim);
+    padding: 0.55rem 0.6rem;
+    font-size: 0.85rem;
+    color: var(--color-on-surface);
+  }
+
+  .cad-project-folder-picker-item:hover {
+    background: var(--cad-context-hover);
+    border-color: var(--cad-outline);
+  }
+
+  .cad-project-thumbnail,
+  .cad-project-thumbnail-placeholder {
+    width: 4.5rem;
+    height: 2.8125rem;
+    flex-shrink: 0;
+    border-radius: 0.35rem;
+    border: 1px solid var(--cad-outline-soft);
+    background: var(--cad-project-thumbnail-bg);
+    object-fit: cover;
+  }
+
+  .cad-project-thumbnail-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-on-surface-dim);
+  }
+
+  .cad-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--cad-modal-backdrop);
+    padding: 1rem;
+  }
+
+  .cad-unsaved-dialog {
+    width: min(28rem, 100%);
+    border-radius: 0.5rem;
+    border: 1px solid var(--cad-outline);
+    background: var(--cad-panel-bg);
+    box-shadow: 0 24px 48px var(--cad-context-shadow);
+    padding: 1rem;
   }
 
   .cad-hierarchy-item {
