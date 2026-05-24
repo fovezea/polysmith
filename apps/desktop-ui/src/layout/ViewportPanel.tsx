@@ -87,6 +87,8 @@ import {
   clearCubeHover,
   applyCubeDragOrbit,
   disposeViewCubeGroup,
+  lineLineIntersectionTrim,
+  lineCircleIntersectionTrim,
 } from "@/utils";
 import { parseDimensionInput, mmToDisplay } from "@/utils/units";
 import type { ViewCubeHit } from "@/utils";
@@ -217,7 +219,7 @@ const GRID_CAMERA_SCALE = 40;
 const SKETCH_GRID_BACK_OFFSET = 0.015;
 const SKETCH_SCREEN_SPRITE_BASE_HEIGHT = 900;
 const SKETCH_LABEL_SCREEN_SCALE = 0.72;
-const SKETCH_CONSTRAINT_SCREEN_SIZE = 28;
+const SKETCH_CONSTRAINT_SCREEN_SIZE = 34;
 const SKETCH_LABEL_COLLISION_PADDING = 6;
 const ORTHO_FRUSTUM_HEIGHT = 220;
 const ORTHO_MIN_ZOOM = 0.02;
@@ -394,6 +396,11 @@ interface ViewportPanelProps {
     value: number | string,
   ) => Promise<void>;
   onSelectSketchProfile: (profileId: string, additive: boolean) => Promise<void>;
+  onTrimSketchEntity?: (
+    entityId: string,
+    clickX: number,
+    clickY: number,
+  ) => Promise<void>;
   onDeleteSketchSelection: (
     selection?: {
       entityIds: string[];
@@ -990,6 +997,7 @@ export function ViewportPanel({
   onSelectSketchDimension,
   onUpdateSketchDimension,
   onSelectSketchProfile,
+  onTrimSketchEntity,
   onDeleteSketchSelection,
   onDeleteSketchDimension,
   onAddSketchPointDistanceDimension,
@@ -1004,6 +1012,7 @@ export function ViewportPanel({
   const { t: translate } = useTranslation();
   const [showReferencePlanes, setShowReferencePlanes] = useState(true);
   const [showViewportGrid, setShowViewportGrid] = useState(true);
+  const [trimDebugInfo, setTrimDebugInfo] = useState<string | null>(null);
   const [contextMenu, setContextMenu] =
     useState<ViewportContextMenuState | null>(null);
   const [sketchSnapLabel, setSketchSnapLabel] = useState<string | null>(null);
@@ -1103,6 +1112,8 @@ export function ViewportPanel({
   // user is between clicks 2 and 3 (or, in center+start+end mode, a
   // dashed circle while between clicks 1 and 2).
   const previewArcRef = useRef<THREE.Line | null>(null);
+  const trimSegmentHighlightRef = useRef<THREE.Line | null>(null);
+  const trimArcHighlightRef = useRef<THREE.Line | null>(null);
   const viewCubeGroupRef = useRef<THREE.Group | null>(null);
   const viewCubeSceneRef = useRef<THREE.Scene | null>(null);
   const viewCubeCameraRef = useRef<THREE.OrthographicCamera | null>(null);
@@ -1217,6 +1228,7 @@ export function ViewportPanel({
   const selectSketchDimensionRef = useRef(onSelectSketchDimension);
   const updateSketchDimensionRef = useRef(onUpdateSketchDimension);
   const selectSketchProfileRef = useRef(onSelectSketchProfile);
+  const trimSketchEntityRef = useRef(onTrimSketchEntity);
   const deleteSketchSelectionRef = useRef(onDeleteSketchSelection);
   const deleteSketchDimensionRef = useRef(onDeleteSketchDimension);
   const addSketchPointDistanceDimensionRef = useRef(
@@ -2343,6 +2355,72 @@ export function ViewportPanel({
     previewArcRef.current = null;
   }
 
+  function clearTrimSegmentHighlight() {
+    const hl = trimSegmentHighlightRef.current;
+    const sketchGroup = sketchGroupRef.current;
+    if (!hl || !sketchGroup) return;
+    sketchGroup.remove(hl);
+    hl.geometry.dispose();
+    disposeMaterial(hl.material);
+    trimSegmentHighlightRef.current = null;
+  }
+  function clearTrimArcHighlight() {
+    const hl = trimArcHighlightRef.current;
+    const sketchGroup = sketchGroupRef.current;
+    if (!hl || !sketchGroup) return;
+    sketchGroup.remove(hl);
+    hl.geometry.dispose();
+    disposeMaterial(hl.material);
+    trimArcHighlightRef.current = null;
+  }
+
+  function updateTrimSegmentHighlight(
+    _lineId: string,
+    segments: Array<{ sx: number; sy: number; sz: number; ex: number; ey: number; ez: number }>,
+    hoveredSegIdx: number,
+  ) {
+    clearTrimSegmentHighlight();
+    if (hoveredSegIdx < 0 || hoveredSegIdx >= segments.length) return;
+    const seg = segments[hoveredSegIdx];
+    const sketchGroup = sketchGroupRef.current;
+    if (!sketchGroup) return;
+
+    const material = new THREE.LineBasicMaterial({
+      color: 0xff3333,
+      transparent: true,
+      opacity: 0.9,
+      linewidth: 3,
+      depthTest: false,
+    });
+    const points = [
+      new THREE.Vector3(seg.sx, seg.sy, seg.sz),
+      new THREE.Vector3(seg.ex, seg.ey, seg.ez),
+    ];
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    const hl = new THREE.Line(geometry, material);
+    hl.renderOrder = 8; // above sketch entities (7)
+    trimSegmentHighlightRef.current = hl;
+    sketchGroup.add(hl);
+  }
+
+  function updateTrimArcHighlight(worldPts: Array<[number, number, number]>) {
+    clearTrimArcHighlight();
+    if (worldPts.length < 2) return;
+    const sketchGroup = sketchGroupRef.current;
+    if (!sketchGroup) return;
+    const material = new THREE.LineBasicMaterial({
+      color: 0xff3333, transparent: true, opacity: 0.9,
+      linewidth: 3, depthTest: false,
+    });
+    const geometry = new THREE.BufferGeometry().setFromPoints(
+      worldPts.map(([x, y, z]) => new THREE.Vector3(x, y, z)),
+    );
+    const hl = new THREE.Line(geometry, material);
+    hl.renderOrder = 8;
+    trimArcHighlightRef.current = hl;
+    sketchGroup.add(hl);
+  }
+
   function clearPreviewDimension() {
     const previewDimension = previewDimensionRef.current;
     const sketchGroup = sketchGroupRef.current;
@@ -3022,14 +3100,23 @@ export function ViewportPanel({
         }
         return;
       }
-      // corner_corner / center_point: existing full-rectangle draft.
-      const corners: Array<[number, number]> = [
-        [sx, sy],
-        [ex, sy],
-        [ex, ey],
-        [sx, ey],
-        [sx, sy],
-      ];
+      // corner_corner / center_point: full-rectangle draft.
+      const isCenterPoint = rectMode === "center_point";
+      const corners: Array<[number, number]> = isCenterPoint
+        ? [
+            [2 * sx - ex, 2 * sy - ey],
+            [ex, 2 * sy - ey],
+            [ex, ey],
+            [2 * sx - ex, ey],
+            [2 * sx - ex, 2 * sy - ey],
+          ]
+        : [
+            [sx, sy],
+            [ex, sy],
+            [ex, ey],
+            [sx, ey],
+            [sx, sy],
+          ];
       const preview = new THREE.Line(
         new THREE.BufferGeometry().setFromPoints(
           corners.map(
@@ -4127,6 +4214,7 @@ export function ViewportPanel({
     updateSketchDimensionDisplayRef.current =
       onUpdateSketchDimensionDisplay;
     selectSketchProfileRef.current = onSelectSketchProfile;
+    trimSketchEntityRef.current = onTrimSketchEntity;
     deleteSketchSelectionRef.current = onDeleteSketchSelection;
     setSketchToolRef.current = onSetSketchTool;
     armedSketchConstraintRef.current = armedSketchConstraint;
@@ -5259,12 +5347,14 @@ export function ViewportPanel({
         const sketchEntityIsProjected =
           sketchEntityHit?.object.userData.sketchEntityIsProjected === true;
         if (typeof sketchEntityId === "string") {
+          const hitPoint = sketchEntityHit!.point;
           return {
             kind: "sketch_entity" as const,
             id: sketchEntityId,
             entityKind:
               typeof sketchEntityKind === "string" ? sketchEntityKind : null,
             isProjected: sketchEntityIsProjected,
+            worldPoint: [hitPoint.x, hitPoint.y, hitPoint.z] as const,
           };
         }
 
@@ -5676,6 +5766,381 @@ export function ViewportPanel({
             projectHit?.kind === "vertex" ? projectHit.id : null,
           );
           return;
+        }
+
+        // Trim tool hover: highlight the segment under the cursor in red.
+        if (activeSketchToolRef.current === "trim") {
+          clearPreviewLine();
+          clearPreviewCircle();
+          clearPreviewArc();
+          clearPreviewDimension();
+          setSketchSnapLabel(null);
+          setConstraintPreview(null);
+          clearDraftDimensionSession();
+          const trimHit = intersectSceneTargets(event);
+          setHoveredSketchEntity(
+            trimHit?.kind === "sketch_entity" ? trimHit.id : null,
+          );
+          setHoveredSketchProfile(null);
+          setHoveredSketchPoint(null);
+          setHoveredFace(null);
+          setHoveredEdge(null);
+          setHoveredVertex(null);
+
+          const scn = sceneDataRef.current;
+          if (
+            !scn ||
+            !trimHit ||
+            trimHit.kind !== "sketch_entity" ||
+            (trimHit.entityKind !== "line" && trimHit.entityKind !== "circle" && trimHit.entityKind !== "arc")
+          ) {
+            clearTrimSegmentHighlight();
+            return;
+          }
+
+          // Compute the 2D sketch-local position of the cursor.
+          const rawPt = resolveSketchPlanePoint(
+            event,
+            renderer,
+            camera,
+            activeSketchPlaneId,
+            activeSketchPlaneFrame,
+          );
+          if (!rawPt) {
+            clearTrimSegmentHighlight();
+            clearTrimArcHighlight();
+            return;
+          }
+          const [mx, my] = rawPt.local;
+
+          const pid = activeSketchPlaneId;
+          const frame = activeSketchPlaneFrameRef.current;
+
+          const toLocal = (px: number, py: number, pz: number): [number, number] => {
+            if (frame) {
+              const dx = px - frame.origin.x;
+              const dy = py - frame.origin.y;
+              const dz = pz - frame.origin.z;
+              return [
+                dx * frame.x_axis.x + dy * frame.x_axis.y + dz * frame.x_axis.z,
+                dx * frame.y_axis.x + dy * frame.y_axis.y + dz * frame.y_axis.z,
+              ];
+            }
+            if (pid === "ref-plane-xy") return [px, pz];
+            if (pid === "ref-plane-yz") return [py, pz];
+            return [px, py];
+          };
+          const toWorld = (ux: number, uy: number): [number, number, number] => {
+            if (frame) {
+              return [
+                frame.origin.x + ux * frame.x_axis.x + uy * frame.y_axis.x,
+                frame.origin.y + ux * frame.x_axis.y + uy * frame.y_axis.y,
+                frame.origin.z + ux * frame.x_axis.z + uy * frame.y_axis.z,
+              ];
+            }
+            if (pid === "ref-plane-xy") return [ux, 0, uy];
+            if (pid === "ref-plane-yz") return [0, ux, uy];
+            return [ux, uy, 0];
+          };
+
+          // Line hover
+          if (trimHit.entityKind === "line") {
+          const lineData = scn.sketchLines.find((l) => l.lineId === trimHit.id);
+          if (!lineData) {
+            clearTrimSegmentHighlight();
+            clearTrimArcHighlight();
+            return;
+          }
+
+          // Convert 3D endpoints to 2D sketch-local.
+          const wx = lineData.start[0], wy = lineData.start[1], wz = lineData.start[2];
+          const lx = lineData.end[0], ly = lineData.end[1], lz = lineData.end[2];
+
+          const [ax2, ay2] = toLocal(wx, wy, wz);
+          const [bx2, by2] = toLocal(lx, ly, lz);
+
+          // Collect intersection parameters along the line.
+          const ts: number[] = [];
+
+          // Line-line intersections.
+          for (const other of scn.sketchLines) {
+            if (other.lineId === lineData.lineId || other.isConstruction) continue;
+            const [ox2, oy2] = toLocal(other.start[0], other.start[1], other.start[2]);
+            const [ox3, oy3] = toLocal(other.end[0], other.end[1], other.end[2]);
+            const t = lineLineIntersectionTrim(ax2, ay2, bx2, by2, ox2, oy2, ox3, oy3);
+            if (t !== null) ts.push(t);
+          }
+
+          // Line-circle intersections.
+          for (const circle of scn.sketchCircles) {
+            if (circle.isConstruction) continue;
+            const [cx, cy] = toLocal(circle.center[0], circle.center[1], circle.center[2]);
+            const lens = lineCircleIntersectionTrim(ax2, ay2, bx2, by2, cx, cy, circle.radius);
+            for (const t of lens) ts.push(t);
+          }
+
+          if (ts.length === 0) {
+            // No intersections — the entire line is one segment.
+            const [wsx, wsy, wsz] = toWorld(ax2, ay2);
+            const [wex, wey, wez] = toWorld(bx2, by2);
+            updateTrimSegmentHighlight(lineData.lineId, [
+              { sx: wsx, sy: wsy, sz: wsz, ex: wex, ey: wey, ez: wez },
+            ], 0);
+            return;
+          }
+
+          console.log("[trim_hover] line=", lineData.lineId,
+            "ts_raw=", ts.map((t: number) => t.toFixed(3)),
+            "n_lines=", scn.sketchLines.length,
+            "n_circles=", scn.sketchCircles.length);
+          // Sort and deduplicate.
+          ts.sort((a, b) => a - b);
+          const deduped: number[] = [ts[0]];
+          for (let i = 1; i < ts.length; i++) {
+            if (ts[i] - deduped[deduped.length - 1] > 0.01) {
+              deduped.push(ts[i]);
+            }
+          }
+
+          // Build segments.
+          const segs: Array<{ sx: number; sy: number; sz: number; ex: number; ey: number; ez: number }> = [];
+          // First segment: 0 → deduped[0]
+          {
+            const u = 0, v = deduped[0];
+            const sx = ax2 + u * (bx2 - ax2), sy = ay2 + u * (by2 - ay2);
+            const ex = ax2 + v * (bx2 - ax2), ey = ay2 + v * (by2 - ay2);
+            const [wsx, wsy, wsz] = toWorld(sx, sy);
+            const [wex, wey, wez] = toWorld(ex, ey);
+            segs.push({ sx: wsx, sy: wsy, sz: wsz, ex: wex, ey: wey, ez: wez });
+          }
+          // Middle segments.
+          for (let i = 0; i + 1 < deduped.length; i++) {
+            const u = deduped[i], v = deduped[i + 1];
+            const sx = ax2 + u * (bx2 - ax2), sy = ay2 + u * (by2 - ay2);
+            const ex = ax2 + v * (bx2 - ax2), ey = ay2 + v * (by2 - ay2);
+            const [wsx, wsy, wsz] = toWorld(sx, sy);
+            const [wex, wey, wez] = toWorld(ex, ey);
+            segs.push({ sx: wsx, sy: wsy, sz: wsz, ex: wex, ey: wey, ez: wez });
+          }
+          // Last segment: deduped[last] → 1
+          {
+            const u = deduped[deduped.length - 1], v = 1;
+            const sx = ax2 + u * (bx2 - ax2), sy = ay2 + u * (by2 - ay2);
+            const ex = ax2 + v * (bx2 - ax2), ey = ay2 + v * (by2 - ay2);
+            const [wsx, wsy, wsz] = toWorld(sx, sy);
+            const [wex, wey, wez] = toWorld(ex, ey);
+            segs.push({ sx: wsx, sy: wsy, sz: wsz, ex: wex, ey: wey, ez: wez });
+          }
+
+          // Determine which segment the cursor is on.
+          const abx = bx2 - ax2, aby = by2 - ay2;
+          const abLenSq = abx * abx + aby * aby;
+          let clickT = 0;
+          if (abLenSq > 1e-6) {
+            clickT = ((mx - ax2) * abx + (my - ay2) * aby) / abLenSq;
+            clickT = Math.max(0, Math.min(1, clickT));
+          }
+          let hoveredIdx = -1;
+          // Check segments in order: first, middle (loop), last
+          if (clickT >= 0 - 1e-10 && clickT <= deduped[0] + 1e-10) {
+            hoveredIdx = 0;
+          } else {
+            for (let i = 0; i + 1 < deduped.length; i++) {
+              if (clickT >= deduped[i] - 1e-10 && clickT <= deduped[i + 1] + 1e-10) {
+                hoveredIdx = i + 1;
+                break;
+              }
+            }
+            if (hoveredIdx < 0 && clickT >= deduped[deduped.length - 1] - 1e-10) {
+              hoveredIdx = deduped.length; // last segment
+            }
+          }
+
+          updateTrimSegmentHighlight(lineData.lineId, segs, hoveredIdx);
+          return;
+        }
+
+        // Circle hover: highlight the arc segment under the cursor.
+        if (trimHit.entityKind === "circle") {
+          clearTrimSegmentHighlight();
+          const circleData = scn.sketchCircles.find((c) => c.circleId === trimHit.id);
+          if (!circleData) { clearTrimArcHighlight(); return; }
+
+          const [clx, cly] = toLocal(circleData.center[0], circleData.center[1], circleData.center[2]);
+          const cursorAngle = Math.atan2(my - cly, mx - clx);
+          const wrap = (a: number) => { while (a < 0) a += 2*Math.PI; while (a >= 2*Math.PI) a -= 2*Math.PI; return a; };
+          const cAngle = wrap(cursorAngle);
+          const angles: number[] = [];
+
+          for (const other of scn.sketchLines) {
+            if (other.isConstruction) continue;
+            const [ox, oy] = toLocal(other.start[0], other.start[1], other.start[2]);
+            const [ox2, oy2] = toLocal(other.end[0], other.end[1], other.end[2]);
+            const ts = lineCircleIntersectionTrim(ox, oy, ox2, oy2, clx, cly, circleData.radius);
+            for (const t of ts) {
+              const ix = ox + t * (ox2 - ox), iy = oy + t * (oy2 - oy);
+              angles.push(wrap(Math.atan2(iy - cly, ix - clx)));
+            }
+          }
+          for (const other of scn.sketchCircles) {
+            if (other.circleId === circleData.circleId || other.isConstruction) continue;
+            const [ocx, ocy] = toLocal(other.center[0], other.center[1], other.center[2]);
+            const dx = ocx - clx, dy = ocy - cly;
+            const d = Math.hypot(dx, dy);
+            const r1 = circleData.radius, r2 = other.radius;
+            if (d > r1 + r2 + 0.01 || d < Math.abs(r1 - r2) - 0.01) continue;
+            const a = (r1 * r1 - r2 * r2 + d * d) / (2 * d);
+            const hSq = r1 * r1 - a * a;
+            const h = hSq <= 0 ? 0 : Math.sqrt(hSq);
+            const px = clx + a * dx / d, py = cly + a * dy / d;
+            const hx = -dy * h / d, hy = dx * h / d;
+            angles.push(wrap(Math.atan2(py + hy - cly, px + hx - clx)));
+            if (hSq > 1e-12) angles.push(wrap(Math.atan2(py - hy - cly, px - hx - clx)));
+          }
+
+          if (angles.length === 0) {
+            // No intersections — full circle as one segment.
+            const pts: Array<[number, number, number]> = [];
+            for (let i = 0; i <= 48; i++) {
+              const a = (i / 48) * 2 * Math.PI;
+              const [wx, wy, wz] = toWorld(clx + circleData.radius * Math.cos(a), cly + circleData.radius * Math.sin(a));
+              pts.push([wx, wy, wz]);
+            }
+            updateTrimArcHighlight(pts);
+            return;
+          }
+
+          angles.sort((a, b) => a - b);
+          const deduped = [angles[0]];
+          for (let i = 1; i < angles.length; i++)
+            if (angles[i] - deduped[deduped.length-1] > 0.01) deduped.push(angles[i]);
+          const N = deduped.length;
+          const full = 2 * Math.PI;
+
+          let hoveredSeg = -1;
+          for (let i = 0; i < N; i++) {
+            const s = deduped[i];
+            const e = deduped[(i+1)%N];
+            const ee = e <= s ? e + full : e;
+            let ta = cAngle;
+            if (e <= s && ta < s) ta += full;
+            if (ta >= s - 1e-10 && ta <= ee + 1e-10) { hoveredSeg = i; break; }
+          }
+          if (hoveredSeg < 0) { clearTrimArcHighlight(); return; }
+
+          const s = deduped[hoveredSeg];
+          const e = deduped[(hoveredSeg+1)%N];
+          const ee = e <= s ? e + full : e;
+          const pts: Array<[number, number, number]> = [];
+          const steps = 48;
+          for (let i = 0; i <= steps; i++) {
+            const a = s + (ee - s) * (i / steps);
+            const [wx, wy, wz] = toWorld(
+              clx + circleData.radius * Math.cos(a),
+              cly + circleData.radius * Math.sin(a));
+            pts.push([wx, wy, wz]);
+          }
+          updateTrimArcHighlight(pts);
+          return;
+        }
+
+        // Arc hover: like circle but constrained to the arc's sweep.
+        if (trimHit.entityKind === "arc") {
+          clearTrimSegmentHighlight();
+          const arcData = scn.sketchArcs.find((a) => a.arcId === trimHit.id);
+          if (!arcData) { clearTrimArcHighlight(); return; }
+
+          const [clx, cly] = toLocal(arcData.center[0], arcData.center[1], arcData.center[2]);
+          const [asx, asy] = toLocal(arcData.start[0], arcData.start[1], arcData.start[2]);
+          const [aex, aey] = toLocal(arcData.end[0], arcData.end[1], arcData.end[2]);
+          const aStart = Math.atan2(asy - cly, asx - clx);
+          const aEnd = Math.atan2(aey - cly, aex - clx);
+          const ccw = arcData.ccw;
+
+          const cursorAngle = Math.atan2(my - cly, mx - clx);
+          const wrap = (a: number) => { while (a < 0) a += 2*Math.PI; while (a >= 2*Math.PI) a -= 2*Math.PI; return a; };
+          const full = 2 * Math.PI;
+          let cAngle = wrap(cursorAngle);
+          if (ccw) { if (cAngle < wrap(aStart)) cAngle += full; }
+          else { if (cAngle > wrap(aStart)) cAngle -= full; }
+
+          const angles: number[] = [];
+          for (const other of scn.sketchLines) {
+            if (other.isConstruction) continue;
+            const [ox, oy] = toLocal(other.start[0], other.start[1], other.start[2]);
+            const [ox2, oy2] = toLocal(other.end[0], other.end[1], other.end[2]);
+            const ts = lineCircleIntersectionTrim(ox, oy, ox2, oy2, clx, cly, arcData.radius);
+            for (const t of ts) {
+              const ix = ox + t * (ox2 - ox), iy = oy + t * (oy2 - oy);
+              let ai = wrap(Math.atan2(iy - cly, ix - clx));
+              if (ccw) { if (ai < wrap(aStart)) ai += full; }
+              else { if (ai > wrap(aStart)) ai -= full; }
+              if ((ccw && ai >= wrap(aStart) - 1e-10 && ai <= (wrap(aEnd) <= wrap(aStart) ? wrap(aEnd) + full : wrap(aEnd)) + 1e-10) ||
+                  (!ccw && ai <= wrap(aStart) + 1e-10 && ai >= (wrap(aEnd) >= wrap(aStart) ? wrap(aEnd) - full : wrap(aEnd)) - 1e-10))
+                angles.push(ai);
+            }
+          }
+          for (const other of scn.sketchCircles) {
+            if (other.isConstruction) continue;
+            const [ocx, ocy] = toLocal(other.center[0], other.center[1], other.center[2]);
+            const dx = ocx - clx, dy = ocy - cly;
+            const d = Math.hypot(dx, dy);
+            if (d > arcData.radius + other.radius + 0.01 || d < Math.abs(arcData.radius - other.radius) - 0.01) continue;
+            const a = (arcData.radius * arcData.radius - other.radius * other.radius + d * d) / (2 * d);
+            const hSq = arcData.radius * arcData.radius - a * a;
+            const h = hSq <= 0 ? 0 : Math.sqrt(hSq);
+            const px = clx + a * dx / d, py = cly + a * dy / d;
+            const hx = -dy * h / d, hy = dx * h / d;
+            for (const [ix, iy] of [[px + hx, py + hy], [px - hx, py - hy]] as [number, number][]) {
+              let ai = wrap(Math.atan2(iy - cly, ix - clx));
+              if (ccw) { if (ai < wrap(aStart)) ai += full; }
+              else { if (ai > wrap(aStart)) ai -= full; }
+              if ((ccw && ai >= wrap(aStart) - 1e-10 && ai <= (wrap(aEnd) <= wrap(aStart) ? wrap(aEnd) + full : wrap(aEnd)) + 1e-10) ||
+                  (!ccw && ai <= wrap(aStart) + 1e-10 && ai >= (wrap(aEnd) >= wrap(aStart) ? wrap(aEnd) - full : wrap(aEnd)) - 1e-10))
+                angles.push(ai);
+            }
+          }
+
+          if (angles.length === 0) {
+            const pts: Array<[number, number, number]> = [];
+            const steps = 48;
+            for (let i = 0; i <= steps; i++) {
+              const ang = aStart + (ccw ? 1 : -1) * (i / steps) * Math.abs(ccw ? (wrap(aEnd) <= wrap(aStart) ? wrap(aEnd) + full - wrap(aStart) : wrap(aEnd) - wrap(aStart)) : (wrap(aStart) - (wrap(aEnd) >= wrap(aStart) ? wrap(aEnd) - full : wrap(aEnd))));
+              const [wx, wy, wz] = toWorld(clx + arcData.radius * Math.cos(ang), cly + arcData.radius * Math.sin(ang));
+              pts.push([wx, wy, wz]);
+            }
+            updateTrimArcHighlight(pts);
+            return;
+          }
+
+          angles.sort((a, b) => ccw ? a - b : b - a);
+          const deduped = [angles[0]];
+          for (let i = 1; i < angles.length; i++)
+            if (Math.abs(angles[i] - deduped[deduped.length-1]) > 0.01) deduped.push(angles[i]);
+
+          let hoveredSeg = -1;
+          const N = deduped.length;
+          const segs = [wrap(aStart), ...deduped, ccw ? (wrap(aEnd) <= wrap(aStart) ? wrap(aEnd) + full : wrap(aEnd)) : (wrap(aEnd) >= wrap(aStart) ? wrap(aEnd) - full : wrap(aEnd))];
+          for (let i = 0; i <= N; i++) {
+            const s = segs[i], e = segs[i+1];
+            let ta = cAngle;
+            if (ccw) { if (ta < s) ta += full; }
+            else { if (ta > s) ta -= full; }
+            if (ta >= s - 1e-10 && ta <= e + 1e-10) { hoveredSeg = i; break; }
+          }
+          if (hoveredSeg < 0) { clearTrimArcHighlight(); return; }
+
+          const s = segs[hoveredSeg], e = segs[hoveredSeg+1];
+          const pts: Array<[number, number, number]> = [];
+          const steps = 48;
+          for (let i = 0; i <= steps; i++) {
+            const ang = s + (e - s) * (i / steps);
+            const [wx, wy, wz] = toWorld(clx + arcData.radius * Math.cos(ang), cly + arcData.radius * Math.sin(ang));
+            pts.push([wx, wy, wz]);
+          }
+          updateTrimArcHighlight(pts);
+          return;
+        }
         }
 
         setHoveredSketchProfile(null);
@@ -6202,20 +6667,25 @@ export function ViewportPanel({
               }
             }
           } else {
-            // corner_corner / center_point: existing full-rectangle draft.
-            // Show the full 4-corner outline as the user drags so they
-            // can see the rectangle they're about to create — the old
-            // single-segment diagonal preview made sizing rectangles
-            // largely guesswork.
+            // corner_corner / center_point: full-rectangle draft.
             const [sx, sy] = draftStart;
             const [ex, ey] = draftPreviewLocal;
-            const corners: Array<[number, number]> = [
-              [sx, sy],
-              [ex, sy],
-              [ex, ey],
-              [sx, ey],
-              [sx, sy],
-            ];
+            const isCenterPoint = rectMode === "center_point";
+            const corners: Array<[number, number]> = isCenterPoint
+              ? [
+                  [2 * sx - ex, 2 * sy - ey],
+                  [ex, 2 * sy - ey],
+                  [ex, ey],
+                  [2 * sx - ex, ey],
+                  [2 * sx - ex, 2 * sy - ey],
+                ]
+              : [
+                  [sx, sy],
+                  [ex, sy],
+                  [ex, ey],
+                  [sx, ey],
+                  [sx, sy],
+                ];
             const worldCorners = corners.map(
               (corner) =>
                 new THREE.Vector3(
@@ -6440,6 +6910,49 @@ export function ViewportPanel({
           void selectSketchProfileRef.current(hit.id, false);
           return;
         }
+        // Trim tool. Intercept entity clicks. Uses the 3D world-space
+        // hit point from the raycaster, then projects it onto the sketch
+        // plane frame to get consistent sketch-local coordinates that
+        // match the core's line storage.
+        if (
+          activeSketchToolRef.current === "trim" &&
+          hit?.kind === "sketch_entity" &&
+          (hit.entityKind === "line" || hit.entityKind === "circle" || hit.entityKind === "arc") &&
+          "worldPoint" in hit
+        ) {
+          const wp = hit.worldPoint as readonly [number, number, number];
+          const frame = activeSketchPlaneFrameRef.current;
+          // Use the same sketch-local convention as resolveSketchPlanePoint
+          // so coordinates land in the same space as the line data.
+          let localX: number, localY: number;
+          if (frame) {
+            const dx = wp[0] - frame.origin.x;
+            const dy = wp[1] - frame.origin.y;
+            const dz = wp[2] - frame.origin.z;
+            localX = dx * frame.x_axis.x + dy * frame.x_axis.y + dz * frame.x_axis.z;
+            localY = dx * frame.y_axis.x + dy * frame.y_axis.y + dz * frame.y_axis.z;
+          } else if (activeSketchPlaneId === "ref-plane-xy") {
+            localX = wp[0];
+            localY = wp[2];
+          } else if (activeSketchPlaneId === "ref-plane-yz") {
+            localX = wp[1];
+            localY = wp[2];
+          } else {
+            localX = wp[0];
+            localY = wp[1];
+          }
+
+          console.log("[trim] hit_world=[", wp[0].toFixed(1), wp[1].toFixed(1), wp[2].toFixed(1),
+                      "] local=[", localX.toFixed(1), localY.toFixed(1), "]");
+
+          void trimSketchEntityRef.current?.(
+            hit.id,
+            localX,
+            localY,
+          );
+          return;
+        }
+
         if (activeSketchToolRef.current === "select") {
           // Mirror tool takes priority over the rest of the
           // selection / armed-constraint flow when one of its
@@ -6824,6 +7337,13 @@ export function ViewportPanel({
           }
           // No body geometry under the cursor — swallow the click
           // so we don't drop into the line-draft branch below.
+          return;
+        }
+
+        // Trim tool: only sketch-entity clicks (handled above)
+        // produce a trim. Empty-space clicks and non-entity clicks
+        // are no-ops so the tool stays armed.
+        if (activeSketchToolRef.current === "trim") {
           return;
         }
 
@@ -7961,6 +8481,12 @@ export function ViewportPanel({
       if (matchesHotkey(event, config.hotkeys.sketchToolbar.circle)) {
         event.preventDefault();
         void setSketchToolRef.current("circle");
+        return;
+      }
+
+      if (matchesHotkey(event, config.hotkeys.sketchToolbar.trim)) {
+        event.preventDefault();
+        void setSketchToolRef.current("trim");
         return;
       }
 

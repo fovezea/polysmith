@@ -104,7 +104,7 @@ export function LogsWindow({ logs, onClose, onClear }: LogsWindowProps) {
                     <td className="px-3 py-2 text-on-surface-muted">
                       {entry.source}
                     </td>
-                    <td className="whitespace-pre-wrap break-words px-3 py-2 text-on-surface">
+                    <td className="select-text whitespace-pre-wrap break-words px-3 py-2 text-on-surface">
                       {entry.message}
                     </td>
                   </tr>

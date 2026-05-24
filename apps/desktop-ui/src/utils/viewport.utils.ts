@@ -1845,3 +1845,46 @@ export function projectWorldPointToViewport(
     ),
   };
 }
+
+// -- Trim tool: 2D intersection helpers -----------------------------------
+
+const TRIM_COINCIDENT_TS = 0.01;
+
+export function lineLineIntersectionTrim(
+  ax: number, ay: number, bx: number, by: number,
+  cx: number, cy: number, dx: number, dy: number,
+): number | null {
+  const abx = bx - ax, aby = by - ay;
+  const cdx = dx - cx, cdy = dy - cy;
+  const denom = abx * cdy - aby * cdx;
+  if (Math.abs(denom) < TRIM_COINCIDENT_TS) return null;
+  const acx = cx - ax, acy = cy - ay;
+  const t = (acx * cdy - acy * cdx) / denom;
+  const u = (acx * aby - acy * abx) / denom;
+  if (t < -1e-12 || t > 1 + 1e-12) return null;
+  if (u < -1e-12 || u > 1 + 1e-12) return null;
+  return Math.max(0, Math.min(1, t));
+}
+
+export function lineCircleIntersectionTrim(
+  ax: number, ay: number, bx: number, by: number,
+  cx: number, cy: number, r: number,
+): number[] {
+  const abx = bx - ax, aby = by - ay;
+  const dx = ax - cx, dy = ay - cy;
+  const a = abx * abx + aby * aby;
+  if (a < TRIM_COINCIDENT_TS * TRIM_COINCIDENT_TS) return [];
+  const b = 2 * (dx * abx + dy * aby);
+  const c = dx * dx + dy * dy - r * r;
+  const disc = b * b - 4 * a * c;
+  if (disc < -TRIM_COINCIDENT_TS) return [];
+  const sqrtDisc = disc <= 0 ? 0 : Math.sqrt(disc);
+  const inv2a = 1 / (2 * a);
+  const result: number[] = [];
+  for (const t of [(-b - sqrtDisc) * inv2a, (-b + sqrtDisc) * inv2a]) {
+    if (t >= -1e-12 && t <= 1 + 1e-12) {
+      result.push(Math.max(0, Math.min(1, t)));
+    }
+  }
+  return result;
+}

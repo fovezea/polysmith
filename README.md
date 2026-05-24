@@ -203,11 +203,8 @@ native/
 protocol/
   schema/          IPC message schemas
 
-docs/
-  architecture/    System design and boundaries
-  decisions/       Architecture decision records
-  prompts/         AI workflow rules and templates
-  roadmap/         Near-term product and implementation roadmap
+wiki/
+  polysmith.wiki/  GitHub wiki submodule — all documentation
 
 third_party/
   occt/            Vendored OpenCascade source
@@ -230,13 +227,17 @@ At the moment, the repository contains:
 - an OpenCascade smoke test
 - a minimal IPC handshake and ping flow
 
-## Docs Index
+## Wiki
 
-- [Architecture Overview](docs/architecture/overview.md)
-- [IPC Protocol](docs/architecture/ipc-protocol.md)
-- [Repository Map](docs/architecture/repo-map.md)
-- [V1 Roadmap](docs/roadmap/v1-roadmap.md)
-- [ADR 0001: Initial Tech Stack](docs/decisions/0001-tech-stack.md)
+All project documentation has moved to the [GitHub wiki](wiki/polysmith.wiki/Home.md).
+
+Key pages:
+
+- [Architecture Overview](wiki/polysmith.wiki/Architecture-Overview.md)
+- [IPC Protocol](wiki/polysmith.wiki/IPC-Protocol.md)
+- [Repository Map](wiki/polysmith.wiki/Repository-Map.md)
+- [V1 Roadmap](wiki/polysmith.wiki/V1-Roadmap.md)
+- [ADR 0001: Initial Tech Stack](wiki/polysmith.wiki/ADR-0001-Tech-Stack.md)
 
 ## License
 

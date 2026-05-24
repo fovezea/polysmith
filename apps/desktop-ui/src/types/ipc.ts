@@ -796,6 +796,16 @@ export interface DeleteSketchDimensionCommand {
   };
 }
 
+export interface TrimSketchEntityCommand {
+  id: string;
+  type: "trim_sketch_entity";
+  payload: {
+    entity_id: string;
+    click_x: number;
+    click_y: number;
+  };
+}
+
 export interface DeleteSketchSelectionCommand {
   id: string;
   type: "delete_sketch_selection";
@@ -864,7 +874,7 @@ export interface SetSketchPerpendicularConstraintCommand {
 }
 
 // Mirror tool — contextual modeling pending preview lifecycle. See
-// `docs/architecture/contextual-modeling-workflow.md` and
+// `wiki/polysmith.wiki/Contextual-Modeling-Workflow.md` and
 // `core/sketch_feature.h`.
 export interface StartMirrorPreviewCommand {
   id: string;
@@ -1214,6 +1224,7 @@ export type CoreCommand =
   | UpdateSketchFilletRadiusCommand
   | DeleteSketchFilletCommand
   | DeleteSketchDimensionCommand
+  | TrimSketchEntityCommand
   | DeleteSketchSelectionCommand
   | SelectSketchPointCommand
   | SelectSketchEntityCommand

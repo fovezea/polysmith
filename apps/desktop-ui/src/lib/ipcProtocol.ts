@@ -1209,6 +1209,22 @@ export function makeDeleteParameterCommand(
   };
 }
 
+export function makeTrimSketchEntityCommand(
+  entityId: string,
+  clickX: number,
+  clickY: number,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "trim_sketch_entity",
+    payload: {
+      entity_id: entityId,
+      click_x: clickX,
+      click_y: clickY,
+    },
+  };
+}
+
 export function makeDeleteSketchSelectionCommand(
   entityIds: readonly string[],
   pointIds: readonly string[],
