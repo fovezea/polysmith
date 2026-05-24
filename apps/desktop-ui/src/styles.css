@@ -229,6 +229,7 @@ button:not(:disabled),
     box-shadow:
       inset 0 1px 0 var(--cad-glass-highlight),
       0 20px 40px var(--cad-shadow-medium);
+    user-select: text;
   }
 
   .cad-ribbon {

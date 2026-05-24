@@ -324,6 +324,40 @@ const filletEntry: HelpEntry = {
 };
 
 // ---------------------------------------------------------------------------
+// Trim tool
+// ---------------------------------------------------------------------------
+
+const trimEntry: HelpEntry = {
+  title: "Trim Tool",
+  summary:
+    "Deletes sketch curve segments by cutting them at intersection points with other curves.",
+  activation:
+    "Click the **Trim** button in the sketch toolbar (Modify tab), or press `T`.",
+  shortcuts: [
+    sc("T", "Select mode", "Activate Trim tool"),
+    sc("Escape", "Trim mode", "Exit to Select mode"),
+  ],
+  sections: [
+    sec(
+      "How It Works",
+      "Hover a curve to preview the segment that will be deleted (highlighted in red). " +
+        "Click to delete it. The entity shortens or splits at the nearest intersection points.\n\n" +
+        "End segment → curve shortens. Middle segment → curve splits into two. No intersections → entity deleted.",
+    ),
+    sec(
+      "Constraints",
+      "Trim is destructive. All constraints, relations, dimensions, anchors, and fillets on the trimmed entity are deleted. " +
+        "Shared endpoints are severed. Surviving entities get independent point IDs. " +
+        "Re-add constraints manually after trimming if needed.",
+    ),
+    sec(
+      "Multi-Click Repeat",
+      "The tool stays active after each operation — trim multiple segments in sequence. Press Escape to exit.",
+    ),
+  ],
+};
+
+// ---------------------------------------------------------------------------
 // Project tool
 // ---------------------------------------------------------------------------
 
@@ -366,6 +400,7 @@ export const helpRegistry: Record<string, HelpEntry> = {
   arc: arcEntry,
   polygon: polygonEntry,
   fillet: filletEntry,
+  trim: trimEntry,
   project: projectEntry,
   parameters: parametersEntry,
 };

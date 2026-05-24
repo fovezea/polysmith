@@ -808,3 +808,21 @@ onRightClick(idle):
 - DOF color legend
 - Pre-existing test failure (`test_fixed_endpoint_stays_put_when_redimensioning`)
 - Flickering auto-dimensions during preview (low priority)
+
+### Trim Tool — Planning (2026-05-24)
+
+Full implementation plan written at `wiki/polysmith.wiki/Trim-Tool-Implementation-Plan.md`.
+Summary:
+
+- **New core module:** `trim_engine.h/.cpp` — intersection detection, entity
+  splitting, segment selection
+- **Intersection types:** line-line, line-circle, line-arc, circle-circle,
+  circle-arc, arc-arc (6 pairs, 3 algorithms: segment-segment, line-circle
+  quadratic, circle-circle)
+- **Entity transformations:** lines → shortened lines, circles → arcs, arcs →
+  shortened arcs, polygon lines → independent lines (polygon dissolves)
+- **Constraint handling:** re-evaluated by geometric checks where possible;
+  `dependency_broken` for type-changing operations (circle→arc)
+- **4 phases:** line trimming (MVP) → circle→arc → arc trimming → polish
+- **Design decisions:** separate module, one entity at a time, conservative
+  constraint handling, polygon dissolve on trim

@@ -8,11 +8,13 @@
 #include <stdexcept>
 #include <tuple>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "core/formula_eval.h"
 #include "core/inference_engine.h"
 #include "core/sketch_profile.h"
+#include "core/trim_engine.h"
 
 namespace polysmith::core {
 namespace {
@@ -210,8 +212,8 @@ void validate_constraint(const std::optional<std::string>& constraint) {
 void validate_tool(const std::string& tool) {
   if (tool != "select" && tool != "line" && tool != "rectangle" &&
       tool != "circle" && tool != "polygon" && tool != "arc" && tool != "fillet" &&
-      tool != "project" && tool != "dimension") {
-    throw std::runtime_error("Unsupported sketch tool: " + tool);
+      tool != "trim" && tool != "project" && tool != "dimension") {
+    throw std::runtime_error("Unsupported sketch tool: " + tool + " (validate_tool)");
   }
 }
 
@@ -4063,6 +4065,545 @@ void add_sketch_polygon_radius_dimension(FeatureEntry& feature,
   });
 
   refresh_sketch_derived_state(feature);
+}
+
+void trim_sketch_entity(FeatureEntry& feature,
+                        const std::string& entity_id,
+                        double click_x,
+                        double click_y) {
+  if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+    throw std::runtime_error("Only sketch features can trim entities");
+  }
+
+  auto& params = *feature.sketch_parameters;
+
+  // Phase 1: lines.
+  const auto line_it = std::find_if(
+      params.lines.begin(),
+      params.lines.end(),
+      [&](const SketchLine& line) { return line.id == entity_id; });
+
+  if (line_it != params.lines.end()) {
+    const auto intersections = find_all_intersections(*line_it, params);
+
+    // 0 intersections — isolated entity: trim acts as normal delete.
+    if (intersections.empty()) {
+      params.constraints.erase(
+          std::remove_if(params.constraints.begin(), params.constraints.end(),
+                         [&](const SketchConstraint& c) {
+                           return std::find(c.target_ids.begin(),
+                                            c.target_ids.end(),
+                                            entity_id) != c.target_ids.end();
+                         }),
+          params.constraints.end());
+      params.dimensions.erase(
+          std::remove_if(params.dimensions.begin(), params.dimensions.end(),
+                         [&](const SketchDimension& d) {
+                           return d.entity_id == entity_id;
+                         }),
+          params.dimensions.end());
+      params.lines.erase(line_it);
+      return;
+    }
+
+    const auto segments = split_line_at_intersections(*line_it, intersections);
+    if (segments.empty()) return;
+
+    const int clicked_index = select_clicked_segment(
+        segments, *line_it, click_x, click_y);
+
+    fprintf(stderr, "[trim_debug] line=(%.1f,%.1f)->(%.1f,%.1f) click=(%.1f,%.1f) n_isects=%zu n_segs=%zu clicked=%d\n",
+            line_it->start_x, line_it->start_y, line_it->end_x, line_it->end_y,
+            click_x, click_y, intersections.size(), segments.size(), clicked_index);
+    for (size_t si = 0; si < segments.size(); ++si) {
+      fprintf(stderr, "[trim_seg %zu] t=[%.4f,%.4f] (%.1f,%.1f)->(%.1f,%.1f)\n",
+              si, segments[si].param_start, segments[si].param_end,
+              segments[si].start_x, segments[si].start_y,
+              segments[si].end_x, segments[si].end_y);
+    }
+
+    if (clicked_index < 0 || clicked_index >= static_cast<int>(segments.size())) {
+      throw std::runtime_error(
+          "Click position does not correspond to any segment on entity: " + entity_id);
+    }
+
+    // Capture old point IDs *before* vector mutations (push_back
+    // may invalidate the line iterator, making later reads garbage).
+    const std::string old_sp_id = line_it->start_point_id;
+    const std::string old_ep_id = line_it->end_point_id;
+
+    // If all non-clicked segments are zero-length (intersections at
+    // line endpoints), the trim is effectively a full delete.
+    bool only_clicked_is_real = true;
+    for (int si = 0; si < static_cast<int>(segments.size()); ++si) {
+      if (si == clicked_index) continue;
+      const double slen = std::hypot(
+          segments[si].end_x - segments[si].start_x,
+          segments[si].end_y - segments[si].start_y);
+      if (slen > kTrimCoincidentTolerance) { only_clicked_is_real = false; break; }
+    }
+    if (only_clicked_is_real) {
+      // Clicked the only real segment → delete the entire line.
+      params.constraints.erase(
+          std::remove_if(params.constraints.begin(), params.constraints.end(),
+                         [&](const SketchConstraint& c) {
+                           for (const auto& tid : c.target_ids)
+                             if (tid == entity_id || tid == old_sp_id || tid == old_ep_id)
+                               return true;
+                           return false;
+                         }),
+          params.constraints.end());
+      params.dimensions.erase(
+          std::remove_if(params.dimensions.begin(), params.dimensions.end(),
+                         [&](const SketchDimension& d) {
+                           return d.entity_id == entity_id ||
+                                  d.secondary_entity_id == entity_id;
+                         }),
+          params.dimensions.end());
+      params.lines.erase(line_it);
+      return;
+    }
+
+    // Delete the clicked segment.
+    const int last = static_cast<int>(segments.size()) - 1;
+
+    if (clicked_index == 0) {
+      // First segment deleted — keep from first intersection to end.
+      line_it->start_x = segments[1].start_x;
+      line_it->start_y = segments[1].start_y;
+      // end unchanged
+    } else if (clicked_index == last) {
+      // Last segment deleted — keep from start to last intersection.
+      line_it->end_x = segments[clicked_index - 1].end_x;
+      line_it->end_y = segments[clicked_index - 1].end_y;
+      // start unchanged
+    } else {
+      // Middle segment deleted — line splits into two.
+      // Left portion: original line shortened to intersection before deleted segment.
+      line_it->end_x = segments[clicked_index - 1].end_x;
+      line_it->end_y = segments[clicked_index - 1].end_y;
+
+      // Right portion: new line from intersection after deleted segment to end.
+      const int next_index = static_cast<int>(params.lines.size()) + 1;
+      const double rsx = segments[clicked_index + 1].start_x;
+      const double rsy = segments[clicked_index + 1].start_y;
+      const double rex = segments[last].end_x;
+      const double rey = segments[last].end_y;
+
+      const int right_idx = next_index * 10 + 2000;
+      params.lines.push_back(SketchLine{
+          .id = "line-" + std::to_string(next_index),
+          .start_point_id = "point-trim-" + std::to_string(right_idx) + "-start",
+          .end_point_id   = "point-trim-" + std::to_string(right_idx) + "-end",
+          .start_x = rsx,
+          .start_y = rsy,
+          .end_x = rex,
+          .end_y = rey,
+          .constraint = infer_constraint_hint(rsx, rsy, rex, rey),
+          .is_construction = line_it->is_construction,
+      });
+      auto& new_line = params.lines.back();
+      new_line.constraint = std::nullopt;
+
+      fprintf(stderr, "[trim_split] new_line=%s (%.1f,%.1f)->(%.1f,%.1f)\n",
+              new_line.id.c_str(),
+              new_line.start_x, new_line.start_y,
+              new_line.end_x, new_line.end_y);
+    }
+
+    // Trim breaks all existing constraints and dimensions on the entity.
+    // Delete them using the pre-captured point IDs (line_it may be
+    // invalid after push_back in the middle-segment case).
+    params.constraints.erase(
+        std::remove_if(params.constraints.begin(), params.constraints.end(),
+                       [&](const SketchConstraint& c) {
+                         for (const auto& tid : c.target_ids) {
+                           if (tid == entity_id || tid == old_sp_id || tid == old_ep_id)
+                             return true;
+                         }
+                         return false;
+                       }),
+        params.constraints.end());
+    params.dimensions.erase(
+        std::remove_if(params.dimensions.begin(), params.dimensions.end(),
+                       [&](const SketchDimension& d) {
+                         return d.entity_id == entity_id ||
+                                d.secondary_entity_id == entity_id;
+                       }),
+        params.dimensions.end());
+
+    // Delete midpoint and point-line anchors that reference the
+    // trimmed line — they become invalid when the line changes.
+    params.midpoint_anchors.erase(
+        std::remove_if(params.midpoint_anchors.begin(), params.midpoint_anchors.end(),
+                       [&](const SketchMidpointAnchor& a) {
+                         return a.line_id == entity_id;
+                       }),
+        params.midpoint_anchors.end());
+    params.point_line_anchors.erase(
+        std::remove_if(params.point_line_anchors.begin(), params.point_line_anchors.end(),
+                       [&](const SketchPointLineAnchor& a) {
+                         return a.line_id == entity_id;
+                       }),
+        params.point_line_anchors.end());
+
+    // Delete line relations (parallel, perpendicular, equal_length,
+    // tangent_line_circle) that involve the trimmed line, and clear
+    // the H/V constraint on every line whose relation was deleted.
+    // Otherwise the badge that was suppressed by the relation pops
+    // back and looks like a "morphed" constraint.
+    {
+      std::unordered_set<std::string> affected_line_ids;
+      for (const auto& r : params.line_relations) {
+        if (r.first_line_id == entity_id || r.second_line_id == entity_id) {
+          if (r.first_line_id != entity_id) affected_line_ids.insert(r.first_line_id);
+          if (r.second_line_id != entity_id) affected_line_ids.insert(r.second_line_id);
+        }
+      }
+      params.line_relations.erase(
+          std::remove_if(params.line_relations.begin(), params.line_relations.end(),
+                         [&](const SketchLineRelation& r) {
+                           return r.first_line_id == entity_id ||
+                                  r.second_line_id == entity_id;
+                         }),
+          params.line_relations.end());
+      for (auto& line : params.lines) {
+        if (affected_line_ids.count(line.id)) {
+          line.constraint = std::nullopt;
+        }
+      }
+    }
+
+    // Delete any fillet that involves this line — trimmed geometry
+    // can't keep a valid fillet and orphaned fillet points cause
+    // ghost dots in the viewport.
+    params.fillets.erase(
+        std::remove_if(params.fillets.begin(), params.fillets.end(),
+                       [&](const SketchFillet& f) {
+                         return f.line_a_id == entity_id ||
+                                f.line_b_id == entity_id ||
+                                f.arc_id == entity_id ||
+                                f.corner_point_id == old_sp_id ||
+                                f.corner_point_id == old_ep_id ||
+                                f.trim_a_point_id == old_sp_id ||
+                                f.trim_a_point_id == old_ep_id ||
+                                f.trim_b_point_id == old_sp_id ||
+                                f.trim_b_point_id == old_ep_id;
+                       }),
+        params.fillets.end());
+
+    // Give the line fresh point IDs so entities sharing the old IDs
+    // aren't pulled to the new endpoint position.
+    const int fresh_idx = static_cast<int>(params.lines.size()) * 10 +
+                          static_cast<int>(params.arcs.size()) * 10 + 1000;
+    line_it->start_point_id = "point-trim-" + std::to_string(fresh_idx) + "-start";
+    line_it->end_point_id   = "point-trim-" + std::to_string(fresh_idx) + "-end";
+
+    // Dissolve all polygon records — a trimmed polygon line breaks
+    // the parametric polygon. Remaining lines become independent.
+    params.dimensions.erase(
+        std::remove_if(params.dimensions.begin(), params.dimensions.end(),
+                       [&](const SketchDimension& d) {
+                         return d.kind == "polygon_radius";
+                       }),
+        params.dimensions.end());
+    params.polygons.clear();
+
+    // Break shared point IDs on other lines that referenced old IDs.
+    int next_fresh = fresh_idx + 1;
+    for (auto& ol : params.lines) {
+      if (ol.id == entity_id) continue;
+      if (ol.start_point_id == old_sp_id || ol.start_point_id == old_ep_id)
+        ol.start_point_id = "point-trim-" + std::to_string(next_fresh++) + "-start";
+      if (ol.end_point_id == old_sp_id || ol.end_point_id == old_ep_id)
+        ol.end_point_id = "point-trim-" + std::to_string(next_fresh++) + "-end";
+    }
+
+    // Clear any H/V constraint the line may have had — trim may have
+    // changed the direction enough to invalidate it.
+    line_it->constraint = std::nullopt;
+
+    fprintf(stderr, "[trim_cleanup] remaining constraints=%zu relations=%zu dims=%zu\n",
+            params.constraints.size(), params.line_relations.size(),
+            params.dimensions.size());
+    for (const auto& c : params.constraints) {
+      std::string ids;
+      for (const auto& tid : c.target_ids) ids += tid + " ";
+      fprintf(stderr, "[trim_survivor] kind=%s ids=[%s]\n", c.kind.c_str(), ids.c_str());
+    }
+    for (const auto& r : params.line_relations) {
+      fprintf(stderr, "[trim_survivor_rel] kind=%s %s <-> %s\n",
+              r.kind.c_str(), r.first_line_id.c_str(), r.second_line_id.c_str());
+    }
+
+    // Safety net: delete coincident constraints referencing orphaned point IDs.
+    {
+      std::unordered_set<std::string> live_pt;
+      for (const auto& l : params.lines) {
+        live_pt.insert(l.start_point_id); live_pt.insert(l.end_point_id);
+      }
+      for (const auto& c : params.circles)
+        live_pt.insert("point-circle-" + c.id + "-center");
+      for (const auto& a : params.arcs) {
+        live_pt.insert(a.start_point_id); live_pt.insert(a.end_point_id);
+      }
+      params.constraints.erase(
+          std::remove_if(params.constraints.begin(), params.constraints.end(),
+                         [&](const SketchConstraint& c) {
+                           if (c.kind != "coincident") return false;
+                           for (const auto& tid : c.target_ids)
+                             if (!live_pt.count(tid)) return true;
+                           return false;
+                         }),
+          params.constraints.end());
+    }
+
+    fprintf(stderr, "[trim_result] line=(%.1f,%.1f)->(%.1f,%.1f)\n",
+            line_it->start_x, line_it->start_y,
+            line_it->end_x, line_it->end_y);
+    return;
+  }
+
+  // Phase 2: circles → arcs.
+  const auto circle_it = std::find_if(
+      params.circles.begin(),
+      params.circles.end(),
+      [&](const SketchCircle& c) { return c.id == entity_id; });
+
+  if (circle_it != params.circles.end()) {
+    const auto intersections = find_all_intersections(*circle_it, params);
+
+    // 0 intersections — isolated entity: trim acts as normal delete.
+    if (intersections.empty()) {
+      params.constraints.erase(
+          std::remove_if(params.constraints.begin(), params.constraints.end(),
+                         [&](const SketchConstraint& c) {
+                           return std::find(c.target_ids.begin(),
+                                            c.target_ids.end(),
+                                            entity_id) != c.target_ids.end();
+                         }),
+          params.constraints.end());
+      params.dimensions.erase(
+          std::remove_if(params.dimensions.begin(), params.dimensions.end(),
+                         [&](const SketchDimension& d) {
+                           return d.entity_id == entity_id;
+                         }),
+          params.dimensions.end());
+      params.circles.erase(circle_it);
+      return;
+    }
+
+    const auto segments = split_circle_at_intersections(*circle_it, intersections);
+    if (segments.empty()) return;
+
+    const int clicked_index = select_clicked_segment(
+        segments, *circle_it, click_x, click_y);
+
+    fprintf(stderr, "[trim_debug] circle=(%.1f,%.1f) r=%.1f click=(%.1f,%.1f) n_isects=%zu clicked=%d\n",
+            circle_it->center_x, circle_it->center_y, circle_it->radius,
+            click_x, click_y, intersections.size(), clicked_index);
+
+    if (clicked_index < 0 || clicked_index >= static_cast<int>(segments.size())) {
+      throw std::runtime_error(
+          "Click position does not correspond to any segment on entity: " + entity_id);
+    }
+
+    // Delete the clicked arc segment — keep the complementary arc.
+    // For 2 segments this is the opposite; for 3+ we build the arc
+    // that spans all non-clicked segments going CCW.
+    const int N = static_cast<int>(segments.size());
+    const int arc_index = params.arcs.size() + 1;
+    const int start_pt_idx = arc_index * 2;
+    const int end_pt_idx = arc_index * 2 + 1;
+    const double cx = circle_it->center_x, cy = circle_it->center_y;
+    const double r = circle_it->radius;
+    auto pt_at_angle = [&](double a) -> std::pair<double, double> {
+      return {cx + r * std::cos(a), cy + r * std::sin(a)};
+    };
+
+    if (N == 2) {
+      const auto& kept = segments[1 - clicked_index];
+      auto [sx, sy] = pt_at_angle(kept.param_start);
+      auto [ex, ey] = pt_at_angle(kept.param_end < 2.0 * M_PI
+                                      ? kept.param_end
+                                      : kept.param_end - 2.0 * M_PI);
+      params.arcs.push_back(SketchArc{
+          .id = "arc-" + std::to_string(arc_index),
+          .start_point_id = "point-trim-" + std::to_string(start_pt_idx) + "-start",
+          .end_point_id   = "point-trim-" + std::to_string(end_pt_idx) + "-end",
+          .center_x = cx, .center_y = cy, .radius = r,
+          .start_x = sx, .start_y = sy,
+          .end_x = ex, .end_y = ey,
+          .ccw = true,
+          .is_construction = circle_it->is_construction,
+      });
+    } else {
+      // Complementary arc: from segment after clicked to clicked's start,
+      // going CCW the long way around the circle.
+      const int next = (clicked_index + 1) % N;
+      const double a_start = segments[next].param_start;
+      double a_end = segments[clicked_index].param_start;
+      if (a_end <= a_start) a_end += 2.0 * M_PI;
+      auto [sx, sy] = pt_at_angle(a_start);
+      auto [ex, ey] = pt_at_angle(segments[clicked_index].param_start);
+      params.arcs.push_back(SketchArc{
+          .id = "arc-" + std::to_string(arc_index),
+          .start_point_id = "point-trim-" + std::to_string(start_pt_idx) + "-start",
+          .end_point_id   = "point-trim-" + std::to_string(end_pt_idx) + "-end",
+          .center_x = cx, .center_y = cy, .radius = r,
+          .start_x = sx, .start_y = sy,
+          .end_x = ex, .end_y = ey,
+          .ccw = true,
+          .is_construction = circle_it->is_construction,
+      });
+    }
+
+    // Delete the circle.
+    params.circles.erase(circle_it);
+
+    // Mark all constraints referencing the circle as dependency_broken.
+    // (The constraint and dimension structs don't have a dependency_broken
+    // flag yet, so for v1 we just delete circle-related constraints.)
+    params.constraints.erase(
+        std::remove_if(params.constraints.begin(), params.constraints.end(),
+                       [&](const SketchConstraint& c) {
+                         return std::find(c.target_ids.begin(), c.target_ids.end(),
+                                          entity_id) != c.target_ids.end();
+                       }),
+        params.constraints.end());
+
+    params.dimensions.erase(
+        std::remove_if(params.dimensions.begin(), params.dimensions.end(),
+                       [&](const SketchDimension& d) {
+                         return d.entity_id == entity_id ||
+                                d.secondary_entity_id == entity_id;
+                       }),
+        params.dimensions.end());
+    return;
+  }
+
+  // Phase 3: arcs — not yet supported.
+  const auto arc_it = std::find_if(
+      params.arcs.begin(),
+      params.arcs.end(),
+      [&](const SketchArc& a) { return a.id == entity_id; });
+
+  if (arc_it != params.arcs.end()) {
+    const auto intersections = find_all_intersections(*arc_it, params);
+
+    if (intersections.empty()) {
+      params.constraints.erase(
+          std::remove_if(params.constraints.begin(), params.constraints.end(),
+                         [&](const SketchConstraint& c) {
+                           return std::find(c.target_ids.begin(), c.target_ids.end(),
+                                            entity_id) != c.target_ids.end();
+                         }),
+          params.constraints.end());
+      params.dimensions.erase(
+          std::remove_if(params.dimensions.begin(), params.dimensions.end(),
+                         [&](const SketchDimension& d) {
+                           return d.entity_id == entity_id;
+                         }),
+          params.dimensions.end());
+      params.arcs.erase(arc_it);
+      return;
+    }
+
+    const auto segments = split_arc_at_intersections(*arc_it, intersections);
+    if (segments.empty()) return;
+
+    const std::string old_sp_id = arc_it->start_point_id;
+    const std::string old_ep_id = arc_it->end_point_id;
+
+    const int clicked_index = select_clicked_segment(
+        segments, *arc_it, click_x, click_y);
+
+    if (clicked_index < 0 || clicked_index >= static_cast<int>(segments.size())) {
+      throw std::runtime_error(
+          "Click position does not correspond to any segment on entity: " + entity_id);
+    }
+
+    // Delete the clicked segment — keep from arc start to segment
+    // boundary, or from boundary to arc end.
+    const int last = static_cast<int>(segments.size()) - 1;
+    if (clicked_index == 0) {
+      arc_it->start_x = segments[1].start_x;
+      arc_it->start_y = segments[1].start_y;
+      arc_it->start_point_id = "point-trim-arc-"
+          + std::to_string(params.arcs.size() * 10 + 3000) + "-start";
+    } else if (clicked_index == last) {
+      arc_it->end_x = segments[clicked_index - 1].end_x;
+      arc_it->end_y = segments[clicked_index - 1].end_y;
+      arc_it->end_point_id = "point-trim-arc-"
+          + std::to_string(params.arcs.size() * 10 + 3000) + "-end";
+    } else {
+      // Middle segment deleted — arc splits into two.
+      arc_it->end_x = segments[clicked_index - 1].end_x;
+      arc_it->end_y = segments[clicked_index - 1].end_y;
+      arc_it->end_point_id = "point-trim-arc-"
+          + std::to_string(params.arcs.size() * 10 + 3000) + "-end";
+
+      const int next_idx = static_cast<int>(params.arcs.size()) + 1;
+      const auto& right = segments[clicked_index + 1];
+      const auto& last_seg = segments[last];
+      params.arcs.push_back(SketchArc{
+          .id = "arc-" + std::to_string(next_idx),
+          .start_point_id = "point-trim-arc-" + std::to_string(next_idx * 10 + 4000) + "-start",
+          .end_point_id   = "point-trim-arc-" + std::to_string(next_idx * 10 + 4000) + "-end",
+          .center_x = arc_it->center_x,
+          .center_y = arc_it->center_y,
+          .radius   = arc_it->radius,
+          .start_x  = right.start_x,
+          .start_y  = right.start_y,
+          .end_x    = last_seg.end_x,
+          .end_y    = last_seg.end_y,
+          .ccw      = arc_it->ccw,
+          .is_construction = arc_it->is_construction,
+      });
+    }
+
+    // Clean up constraints/dimensions/relations/fillets on the arc.
+    params.constraints.erase(
+        std::remove_if(params.constraints.begin(), params.constraints.end(),
+                       [&](const SketchConstraint& c) {
+                         for (const auto& tid : c.target_ids)
+                           if (tid == entity_id || tid == old_sp_id || tid == old_ep_id)
+                             return true;
+                         return false;
+                       }),
+        params.constraints.end());
+    params.dimensions.erase(
+        std::remove_if(params.dimensions.begin(), params.dimensions.end(),
+                       [&](const SketchDimension& d) {
+                         return d.entity_id == entity_id;
+                       }),
+        params.dimensions.end());
+    params.line_relations.erase(
+        std::remove_if(params.line_relations.begin(), params.line_relations.end(),
+                       [&](const SketchLineRelation& r) {
+                         return r.first_line_id == entity_id ||
+                                r.second_line_id == entity_id;
+                       }),
+        params.line_relations.end());
+    params.fillets.erase(
+        std::remove_if(params.fillets.begin(), params.fillets.end(),
+                       [&](const SketchFillet& f) {
+                         return f.line_a_id == entity_id ||
+                                f.line_b_id == entity_id ||
+                                f.arc_id == entity_id ||
+                                f.corner_point_id == old_sp_id ||
+                                f.corner_point_id == old_ep_id ||
+                                f.trim_a_point_id == old_sp_id ||
+                                f.trim_a_point_id == old_ep_id ||
+                                f.trim_b_point_id == old_sp_id ||
+                                f.trim_b_point_id == old_ep_id;
+                       }),
+        params.fillets.end());
+
+    return;
+  }
+
+  throw std::runtime_error("Sketch entity not found: " + entity_id);
 }
 
 }  // namespace polysmith::core

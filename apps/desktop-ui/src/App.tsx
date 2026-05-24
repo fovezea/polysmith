@@ -563,6 +563,7 @@ function App() {
     addSketchPointDistanceDimension,
     updateSketchDimensionDisplay,
     deleteSketchSelection,
+    trimSketchEntity,
     selectSketchPoint,
     selectSketchEntity,
     selectSketchDimension,
@@ -3352,6 +3353,11 @@ function App() {
               }}
               onDeleteSketchSelection={async (selection) => {
                 confirmAndDeleteSketchSelection(selection);
+              }}
+              onTrimSketchEntity={async (entityId, clickX, clickY) => {
+                await runAction(async () => {
+                  await trimSketchEntity(entityId, clickX, clickY);
+                });
               }}
               onDeleteSketchDimension={async (dimensionId) => {
                 await runAction(async () => {

@@ -14,6 +14,7 @@ import {
   makeUpdateSketchFilletRadiusCommand,
   makeDeleteSketchFilletCommand,
   makeDeleteSketchDimensionCommand,
+  makeTrimSketchEntityCommand,
   makeUpdateSketchDimensionDisplayCommand,
   makeAddParameterCommand,
   makeUpdateParameterCommand,
@@ -760,6 +761,10 @@ export function useCadCore() {
     },
     deleteParameter: async (name: string) => {
       await sendCoreCommand(makeDeleteParameterCommand(name));
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    trimSketchEntity: async (entityId: string, clickX: number, clickY: number) => {
+      await sendCoreCommand(makeTrimSketchEntityCommand(entityId, clickX, clickY));
       await sendCoreCommand(makeGetViewportStateCommand());
     },
     deleteSketchSelection: async (

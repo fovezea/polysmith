@@ -75,6 +75,7 @@
   },
   "toolbar": {
     "arc": "Arc",
+    "trim": "Trim",
     "arcCenter": "Center",
     "arcCenterTooltip": "Center + start + end: click center, start, then end",
     "arcCreationMode": "Arc creation mode",

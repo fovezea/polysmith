@@ -18,9 +18,9 @@ Please read:
 
 - `README.md`
 - `AGENTS.md`
-- `docs/architecture/overview.md`
-- `docs/architecture/ipc-protocol.md`
-- `docs/decisions/0001-tech-stack.md`
+- `wiki/polysmith.wiki/Architecture-Overview.md`
+- `wiki/polysmith.wiki/IPC-Protocol.md`
+- `wiki/polysmith.wiki/ADR-0001-Tech-Stack.md`
 
 ## Development Workflow
 
@@ -86,7 +86,7 @@ Communication must go through the protocol layer.
 
 If you change message shapes or behavior, also update:
 
-- `docs/architecture/ipc-protocol.md`
+- `wiki/polysmith.wiki/IPC-Protocol.md`
 - `protocol/schema/*`
 
 ## AI-Assisted Development
@@ -94,7 +94,7 @@ If you change message shapes or behavior, also update:
 If using Codex or other AI tools:
 
 - follow `AGENTS.md`
-- follow `docs/prompts/codex-rules.md`
+- follow `wiki/polysmith.wiki/Codex-Rules.md`
 - keep tasks narrow
 - avoid broad autonomous refactors
 

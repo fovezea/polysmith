@@ -349,6 +349,14 @@ class DocumentManager {
                                  const std::string& kind = "length");
   DocumentState delete_parameter(const std::string& name);
 
+  // Trim a sketch entity at its intersection points. The entity is
+  // split at all intersections with other non-construction entities and
+  // only the segment under (click_x, click_y) is kept. Phase 1 handles
+  // lines only. Single undoable action via full sketch snapshot.
+  DocumentState trim_sketch_entity(const std::string& entity_id,
+                                   double click_x,
+                                   double click_y);
+
   // Update the per-session selection filter. The filter controls which
   // geometric element types are visible, selectable, snappable, and
   // constrainable. Stored on DocumentState for persistence in saved

@@ -227,7 +227,7 @@ void add_sketch_point_distance_dimension(FeatureEntry& feature,
 // Mirror tool — contextual modeling pending preview lifecycle.
 //
 // The mirror feature follows the canonical action pattern (see
-// `docs/architecture/contextual-modeling-workflow.md`):
+// `wiki/polysmith.wiki/Contextual-Modeling-Workflow.md`):
 //   1. `start_mirror_preview` — opens a transient `pending_mirror`
 //      with empty selections. No geometry yet.
 //   2. `update_mirror_preview_axis` / `update_mirror_preview_objects`
@@ -238,6 +238,24 @@ void add_sketch_point_distance_dimension(FeatureEntry& feature,
 //      and inferred constraints), and clears `pending_mirror`.
 //   4. `cancel_mirror_preview` — discards the generated geometry
 //      and clears `pending_mirror`. No state escapes the tool.
+// ---------------------------------------------------------------
+// Sketch trim tool — line trimming (Phase 1).
+//
+// Given a sketch entity id and a click position in sketch-local
+// coordinates, find all intersections between the target entity and
+// other non-construction sketch entities, split the target at the
+// intersection points, identify the segment under the click, and
+// update the target to keep only that segment. The trimmed-away
+// portions are discarded. Phase 1 handles lines only.
+//
+// Throws when the entity is not found or the click position does not
+// correspond to any segment. Refresh is NOT called here — the
+// caller (document layer) handles that.
+void trim_sketch_entity(FeatureEntry& feature,
+                        const std::string& entity_id,
+                        double click_x,
+                        double click_y);
+
 // ---------------------------------------------------------------
 void start_mirror_preview(FeatureEntry& feature);
 void update_mirror_preview_axis(FeatureEntry& feature,

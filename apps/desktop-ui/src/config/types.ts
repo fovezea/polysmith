@@ -25,6 +25,7 @@ export interface AppHotkeys {
     rectangle: HotkeyBinding;
     circle: HotkeyBinding;
     dimension: HotkeyBinding;
+    trim: HotkeyBinding;
     toggleConstruction: HotkeyBinding;
   };
 }

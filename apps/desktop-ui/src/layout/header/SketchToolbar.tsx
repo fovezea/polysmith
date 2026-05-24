@@ -57,6 +57,7 @@ const sketchTools: Array<{
   { id: "polygon", labelKey: "toolbar.polygon", enabled: true },
   { id: "arc", labelKey: "toolbar.arc", enabled: true },
   { id: "fillet", labelKey: "toolbar.fillet", enabled: true },
+  { id: "trim", labelKey: "toolbar.trim", hotkey: "trim", enabled: true },
   // Modal Project tool. While active, viewport face / edge / vertex
   // clicks are routed to `project_*_into_sketch` instead of the
   // normal selection. Toggling the button (or pressing P / Esc /

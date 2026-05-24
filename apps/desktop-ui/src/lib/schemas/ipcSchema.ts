@@ -29,19 +29,7 @@ const documentStateSchema = z.object({
   active_sketch_plane_id: z.string().nullable(),
   active_sketch_face_id: z.string().nullable(),
   active_sketch_feature_id: z.string().nullable(),
-  active_sketch_tool: z
-    .enum([
-      "select",
-      "line",
-      "rectangle",
-      "circle",
-      "polygon",
-      "arc",
-      "fillet",
-      "project",
-      "dimension",
-    ])
-    .nullable(),
+  active_sketch_tool: z.string().nullable(),
   selected_sketch_point_id: z.string().nullable(),
   selected_sketch_entity_id: z.string().nullable(),
   selected_sketch_point_ids: z.array(z.string()).default([]),
@@ -162,17 +150,7 @@ const documentStateSchema = z.object({
               normal: z.object({ x: z.number(), y: z.number(), z: z.number() }),
             })
             .nullable(),
-          active_tool: z.enum([
-            "select",
-            "line",
-            "rectangle",
-            "circle",
-            "polygon",
-            "arc",
-            "fillet",
-            "project",
-            "dimension",
-          ]),
+          active_tool: z.string(),
           lines: z.array(
             z.object({
               line_id: z.string(),
