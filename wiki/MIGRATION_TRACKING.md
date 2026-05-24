@@ -47,8 +47,8 @@ pushed to the GitHub wiki.
 
 | File | Old reference | New reference |
 |---|---|---|
-| `Unified-Sketch-Interaction-Strategy.md` | `docs/architecture/ipc-protocol.md` | `IPC-Protocol` |
-| `Unified-Sketch-Interaction-Strategy.md` | `docs/architecture/ai-cad-command-language.md` | `AI-CAD-Command-Language` |
+| `Sketch-Selection-Controls.md` | `docs/architecture/ipc-protocol.md` | `IPC-Protocol` |
+| `Sketch-Selection-Controls.md` | `docs/architecture/ai-cad-command-language.md` | `AI-CAD-Command-Language` |
 | `Trim-Tool-Implementation-Plan.md` | `docs/architecture/sketch-tool-implementation.md` | `Sketch-Tool-Implementation` |
 | `Trim-Tool-Implementation-Plan.md` | `docs/implementation-log.md` | `Implementation-Log` |
 
