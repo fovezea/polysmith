@@ -252,6 +252,23 @@ struct ViewportSketchDimensionPrimitive {
   double label_x;
   double label_y;
   double label_z;
+
+  // Angle arc geometry (for angle/line_angle kinds; zero otherwise)
+  double arc_center_x = 0.0;
+  double arc_center_y = 0.0;
+  double arc_center_z = 0.0;
+  double arc_radius = 0.0;
+  double arc_start_angle = 0.0;  // radians
+  double arc_end_angle = 0.0;    // radians
+  bool arc_ccw = false;
+
+  // Reference line (for angle/line_angle kinds; zero otherwise)
+  double ref_line_start_x = 0.0;
+  double ref_line_start_y = 0.0;
+  double ref_line_start_z = 0.0;
+  double ref_line_end_x = 0.0;
+  double ref_line_end_y = 0.0;
+  double ref_line_end_z = 0.0;
 };
 
 struct ViewportSketchConstraintPrimitive {

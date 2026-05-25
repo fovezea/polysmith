@@ -25,6 +25,7 @@
 | 📡 **[IPC Protocol](IPC-Protocol)** | JSON-based protocol between UI and CAD core |
 | 🔷 **[Topological Naming Problem](Topological-Naming-Problem)** | TNP strategy and defences (project mantra) |
 | 🎨 **[Design System](Design-System)** | Dark/Light dual theme system and Catppuccin palette support |
+| 📏 **[Dimension Rendering Design](Dimension-Rendering-Design)** | Design rationale and decision record for dimension rendering |
 | 📐 **[Display Units](Display-Units)** | Metric / inch toggle architecture |
 | 📋 **[Contextual Modeling Workflow](Contextual-Modeling-Workflow)** | Binding UX pattern for all modeling features |
 
@@ -74,9 +75,4 @@
 
 ---
 
-## Migration Notice
 
-This wiki was consolidated from the `docs/` directory in May 2026. All documentation
-now lives here. The `docs/` directory in the repo is retained during a transition
-period but is deprecated. See `wiki/MIGRATION_TRACKING.md` (outside the submodule,
-not pushed to GitHub) for the full migration map.

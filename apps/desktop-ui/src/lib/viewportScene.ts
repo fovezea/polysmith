@@ -302,6 +302,31 @@ function makeSketchDimension(
       dimension.label_position.y,
       dimension.label_position.z,
     ],
+
+    // Angle arc geometry (optional, from C++ core)
+    arcCenter: dimension.arc_center
+      ? [dimension.arc_center.x, dimension.arc_center.y, dimension.arc_center.z]
+      : undefined,
+    arcRadius: dimension.arc_radius,
+    arcStartAngle: dimension.arc_start_angle,
+    arcEndAngle: dimension.arc_end_angle,
+    arcCcw: dimension.arc_ccw,
+
+    // Reference line (optional, from C++ core)
+    refLineStart: dimension.ref_line_start
+      ? [
+          dimension.ref_line_start.x,
+          dimension.ref_line_start.y,
+          dimension.ref_line_start.z,
+        ]
+      : undefined,
+    refLineEnd: dimension.ref_line_end
+      ? [
+          dimension.ref_line_end.x,
+          dimension.ref_line_end.y,
+          dimension.ref_line_end.z,
+        ]
+      : undefined,
   };
 }
 

@@ -62,33 +62,63 @@ flickering, GPU churn, and crashes when user input arrived mid-cycle.
 The duplicate was removed; only `renderDraftDimensions()` draws
 dimension geometry now.
 
-### Zoom-aware scaling
+### Formal specification — zoom formulas
 
-Dimension offset and arc cap derive from the current orthographic
-camera frustum so they stay readable at any zoom level:
+All zoom-aware constants are computed once per frame from the
+orthographic camera frustum and the viewport pixel height:
 
-- **Length dimension offset**: `max(4, 30 × viewHeight / viewportHeight)`
-  world units, doubled for visual breathing room.
+```
+viewH    = (camera.top - camera.bottom) / camera.zoom
+vpH      = renderer.domElement.height (pixels)
+zoomDimOffset = max(4, 30 × viewH / vpH)   // ≈30 px on screen
+zoomCap       = max(20, 480 × viewH / vpH) // ≈480 px on screen
+```
 
-- **Angle arc cap**: `max(8, min(lineLength, 480 × viewHeight / viewportHeight))`.
-  Arc hugs the rubber band for short lines; caps at a zoom-dependent
-  maximum for long lines.
+### Length dimension
+
+- **Offset direction**: `-perpDir` (flipped toward camera for 3D
+  visibility). This is the opposite side from the angle arc.
+- **Dimension line**: endpoints of the rubber band, offset by
+  `-2 × zoomDimOffset × perpDir`. The `-2` doubles the offset (~60 px).
+- **Extension lines**: from rubber-band start/end to dimension line
+  start/end (perpendicular connector).
+- **Arrowheads**: at both ends of the dimension line, oriented inward.
+- **Label**: midpoint of the dimension line.
+
+### Angle arc
+
+- **Arc center**: the line's start point (pivot).
+- **Arc radius**: `max(8, min(lineLen, zoomCap))`. The arc follows the
+  rubber band up to the zoom cap; below 8 units the arc has a hard
+  minimum so it stays readable for tiny lines.
+- **Arc sweep**: `refAngle → angleRad` along the shorter angular path
+  (normalised to [-π, π]). Natural CCW direction places the arc in the
+  half-plane opposite to the length dimension.
+- **Arrowheads**: at both sweep endpoints, orientation tangential to
+  the arc.
+- **Label**: midpoint of the arc.
+
+### Reference line (angle)
+
+- **Length**: `max(12, lineLen × 0.28)`. 28% of the rubber band,
+  minimum 12 world units.
+- **Direction**: from the line start along `refAngle`.
+- **Style**: dashed, lower opacity than the solid dimension lines.
+
+### Cursor extension
+
+- **Length**: `max(12, lineLen × 0.35)`. 35% of the rubber band,
+  minimum 12 world units.
+- **Direction**: from cursor outward along the line direction.
+- **Style**: dashed, matching the reference line.
 
 ### Angle reference (chained lines)
 
 - `previousLineAngleRef` stores the 2D sketch angle of the last
-  committed line segment. Set on commit, cleared on chain break or
-  session clear.
+  committed line segment (set on commit, cleared on chain break).
 - First / independent line: reference = horizontal (0 rad).
 - Chained line: reference = previous segment direction, so the arc
   shows the relative turn angle.
-
-### Length / angle opposite sides
-
-The length dimension is offset by `-perpDir` (opposite to the computed
-perpendicular). The angle arc is centered at the line start with no
-perpendicular offset. This puts them on visually opposite sides of the
-rubber band.
 
 ### Per-frame cleanup
 

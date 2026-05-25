@@ -2,8 +2,7 @@
 
 ## Documentation
 
-All project documentation lives in `wiki/`. The `docs/`
-directory is deprecated and must not be read or written to.
+All project documentation lives in `wiki/`.
 
 ### First-session reading order
 

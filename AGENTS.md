@@ -4,8 +4,7 @@ Guidelines for AI-assisted development (Codex, ChatGPT, etc.)
 
 ## Documentation
 
-All project documentation lives in `wiki/`. The `docs/`
-directory is deprecated and must not be read or written to.
+All project documentation lives in `wiki/`.
 
 New sessions should read the onboarding guide at `.deepseek/instructions.md`
 for a recommended reading order. At minimum, read these pages first to

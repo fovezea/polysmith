@@ -1,8 +1,7 @@
 # PolySmith — Project Onboarding
 
 When starting a new session in this project, read these wiki pages first to
-understand the system. They are the canonical documentation; the `docs/`
-directory is deprecated and should not be used.
+understand the system. They are the canonical documentation.
 
 ## Reading order (first session)
 
@@ -18,9 +17,38 @@ directory is deprecated and should not be used.
 - **[V1 Roadmap](wiki/V1-Roadmap.md)** — current priorities
 - **[Implementation Log](wiki/Implementation-Log.md)** — what's shipped
 
+## Wiki Mirroring
+
+The PolySmith wiki is mirrored across two locations that must stay in sync
+with the canonical source:
+
+| Location | Description |
+|---|---|
+| `wiki/` | Canonical source — edit here first |
+| `felix/polysmith.wiki/` | felix's personal mirror (separate git repo) |
+| `stefan/polysmith.wiki/` | stefan's personal mirror (separate git repo) |
+
+The normal flow is **canonical → mirrors**: changes originate in `wiki/` and
+are propagated outward. Seldom, changes may originate in a mirror and need to
+flow back to canonical. In either case, all three locations must stay consistent.
+
+### When editing wiki documentation
+
+1. Make the change in `wiki/<file>.md` first.
+2. Mirror the identical change to both:
+   - `felix/polysmith.wiki/<file>.md`
+   - `stefan/polysmith.wiki/<file>.md`
+3. Verify all three copies match after the edit.
+
+### When adding new wiki pages
+
+1. Create the file in `wiki/<New-Page>.md`.
+2. Add a link from `wiki/Home.md`.
+3. Copy the new file and mirror the `Home.md` link update to both mirrors.
+
 ## Rules
 
-- All documentation lives in `wiki/`. Do not read or write to `docs/`.
+- All documentation lives in `wiki/`.
 - AGENTS.md at repo root is the binding instruction set — read it at session start.
 - When adding new docs, create the file in `wiki/` and add a link from `wiki/Home.md`.
 - Cross-reference wiki pages by their title-cased name without extension (e.g., `Architecture-Overview`).

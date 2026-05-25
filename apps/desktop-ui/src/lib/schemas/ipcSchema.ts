@@ -706,6 +706,21 @@ const viewportStateSchema = z.object({
         y: z.number(),
         z: z.number(),
       }),
+      // Angle arc geometry (from C++ core, optional)
+      arc_center: z
+        .object({ x: z.number(), y: z.number(), z: z.number() })
+        .optional(),
+      arc_radius: z.number().optional(),
+      arc_start_angle: z.number().optional(),
+      arc_end_angle: z.number().optional(),
+      arc_ccw: z.boolean().optional(),
+      // Reference line (from C++ core, optional)
+      ref_line_start: z
+        .object({ x: z.number(), y: z.number(), z: z.number() })
+        .optional(),
+      ref_line_end: z
+        .object({ x: z.number(), y: z.number(), z: z.number() })
+        .optional(),
     }),
   ),
   sketch_constraints: z.array(

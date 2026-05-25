@@ -579,7 +579,40 @@ logic, not presentation), but the migration is staged:
 
 ---
 
-## 7. Related Pages
+## 7. Rectangle Selection (Planning — 2026-05-26)
+
+### Goal
+
+Add rectangular drag selection in the sketch viewport following CAD
+industry standard:
+- **Left → Right drag (window):** selects entities fully inside the rectangle
+- **Right → Left drag (crossing):** selects entities touching or crossing the rectangle
+
+### Implementation approach
+
+All frontend — no core or IPC changes needed:
+
+- Use existing `clear_selection` + `select_sketch_entity { additive: true }` commands
+- Selection rectangle rendered as an HTML `<div>` overlay (fast, no Three.js overhead)
+- Entity screen positions computed via `projectWorldPointToViewport()`
+- 2D rectangle hit testing on mouse-up
+
+### Selection rules per entity
+
+| Entity | Window (L→R) | Crossing (R→L) |
+|---|---|---|
+| Line | Both screen-space endpoints inside | Any endpoint inside, or segment-crossing |
+| Circle | Entire bounding box inside | Center or any quadrant point inside |
+| Arc | Both endpoints + midpoint inside | Any endpoint or arc point inside |
+| Point | Point inside | Point inside |
+| Polygon | All vertices inside | Any vertex inside or edge-crossing |
+
+### Files
+
+- `ViewportPanel.tsx` — all changes (drag state, overlay div, hit test logic)
+- No new dependencies, no core changes, no schema changes
+
+## 8. Related Pages
 
 - [2D Sketch System Architecture](2D-Sketch-System-Architecture) — design overview
 - [2D Sketch Constraint System — Implementation TODO](2D-Sketch-Constraint-System) — constraint list

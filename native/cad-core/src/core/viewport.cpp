@@ -553,13 +553,32 @@ ViewportSketchDimensionPrimitive make_line_dimension_primitive(
   const double midpoint_x = (line.start_x + line.end_x) / 2.0;
   const double midpoint_y = (line.start_y + line.end_y) / 2.0;
   const SketchCentroid2D centroid = compute_sketch_centroid_2d(parameters);
+  const double to_outside_x = centroid.has_value ? midpoint_x - centroid.x : 0.0;
+  const double to_outside_y = centroid.has_value ? midpoint_y - centroid.y : 0.0;
+  const double to_outside_mag = std::sqrt(
+      to_outside_x * to_outside_x + to_outside_y * to_outside_y);
   if (centroid.has_value) {
-    const double to_outside_x = midpoint_x - centroid.x;
-    const double to_outside_y = midpoint_y - centroid.y;
     if (normal_x * to_outside_x + normal_y * to_outside_y < 0.0) {
       normal_x = -normal_x;
       normal_y = -normal_y;
     }
+  }
+
+  // After the centroid flip, ensure the length dimension sits on the
+  // opposite side of the line from the angle arc — but only as a
+  // tiebreaker when the centroid is ambiguous (the line's midpoint
+  // is near the centroid, i.e. isolated line or single entity).
+  // When the centroid is well-defined (multi-entity sketch), let
+  // the centroid-aware flip handle collision avoidance.
+  // The angle arc sweeps from the +X reference (horizontal right)
+  // to the line direction. For dy > 0 (up-right line), the arc is at
+  // sin(θ) ≤ sin(line_angle) → arc is BELOW the line → normal already
+  // above → no flip needed.
+  // For dy < 0 (down-right line), the arc is at sin(θ) ≥ sin(line_angle)
+  // → arc is ABOVE the line → normal also points above → flip to below.
+  if (dy < 0.0 && to_outside_mag < 0.5) {
+    normal_x = -normal_x;
+    normal_y = -normal_y;
   }
 
   const WorldPoint anchor_start = to_world_point(parameters, line.start_x, line.start_y);
@@ -642,14 +661,14 @@ ViewportSketchDimensionPrimitive make_line_angle_dimension_primitive(
   const double bisector_ux = bx / blen;
   const double bisector_uy = by / blen;
 
+  const double kArcRadius = std::max(8.0, std::min(length, 60.0));
   constexpr double kAnchorRadius = 4.0;
-  constexpr double kArcRadius = 6.0;
-  constexpr double kLabelRadius = 9.0;
+  const double kLabelRadius = kArcRadius + 3.0;
 
   const WorldPoint anchor_start = to_world_point(
       parameters,
-      pivot_x + ref_ux * kAnchorRadius,
-      pivot_y + ref_uy * kAnchorRadius);
+      pivot_x + ref_ux * kArcRadius,
+      pivot_y + ref_uy * kArcRadius);
   const WorldPoint anchor_end = to_world_point(
       parameters,
       pivot_x + line_ux * kAnchorRadius,
@@ -666,6 +685,23 @@ ViewportSketchDimensionPrimitive make_line_angle_dimension_primitive(
       parameters,
       pivot_x + bisector_ux * kLabelRadius,
       pivot_y + bisector_uy * kLabelRadius);
+
+  // Compute arc sweep: from reference direction to line direction.
+  // Use cross-product sign to determine CCW vs CW.
+  const double sweep_cross = ref_ux * line_uy - ref_uy * line_ux;
+  const bool arc_ccw = sweep_cross >= 0.0;
+  const double arc_start_angle = std::atan2(ref_uy, ref_ux);
+  const double arc_end_angle = std::atan2(line_uy, line_ux);
+
+  // Compute reference line endpoints: from pivot along reference direction.
+  const WorldPoint ref_line_start = to_world_point(parameters, pivot_x, pivot_y);
+  const WorldPoint ref_line_end = to_world_point(
+      parameters,
+      pivot_x + ref_ux * kArcRadius,
+      pivot_y + ref_uy * kArcRadius);
+
+  // Arc center in world space (the pivot).
+  const WorldPoint arc_center_world = to_world_point(parameters, pivot_x, pivot_y);
 
   const double degrees = dimension.value * 180.0 / 3.14159265358979323846;
   return ViewportSketchDimensionPrimitive{
@@ -690,6 +726,23 @@ ViewportSketchDimensionPrimitive make_line_angle_dimension_primitive(
       .label_x = label.x,
       .label_y = label.y,
       .label_z = label.z,
+
+      // Angle arc geometry
+      .arc_center_x = arc_center_world.x,
+      .arc_center_y = arc_center_world.y,
+      .arc_center_z = arc_center_world.z,
+      .arc_radius = kArcRadius,
+      .arc_start_angle = arc_start_angle,
+      .arc_end_angle = arc_end_angle,
+      .arc_ccw = arc_ccw,
+
+      // Reference line (along reference direction from pivot)
+      .ref_line_start_x = ref_line_start.x,
+      .ref_line_start_y = ref_line_start.y,
+      .ref_line_start_z = ref_line_start.z,
+      .ref_line_end_x = ref_line_end.x,
+      .ref_line_end_y = ref_line_end.y,
+      .ref_line_end_z = ref_line_end.z,
   };
 }
 
@@ -802,14 +855,14 @@ ViewportSketchDimensionPrimitive make_angle_dimension_primitive(
   const double bisector_ux = bx / blen;
   const double bisector_uy = by / blen;
 
+  const double kArcRadius = std::max(8.0, std::min(std::min(a_len, b_len), 60.0));
   constexpr double kAnchorRadius = 4.0;
-  constexpr double kArcRadius = 6.0;
-  constexpr double kLabelRadius = 9.0;
+  const double kLabelRadius = kArcRadius + 3.0;
 
   const WorldPoint anchor_start = to_world_point(
       parameters,
-      pivot_x + a_ux * kAnchorRadius,
-      pivot_y + a_uy * kAnchorRadius);
+      pivot_x + a_ux * kArcRadius,
+      pivot_y + a_uy * kArcRadius);
   const WorldPoint anchor_end = to_world_point(
       parameters,
       pivot_x + b_ux * kAnchorRadius,
@@ -826,6 +879,22 @@ ViewportSketchDimensionPrimitive make_angle_dimension_primitive(
       parameters,
       pivot_x + bisector_ux * kLabelRadius,
       pivot_y + bisector_uy * kLabelRadius);
+
+  // Compute arc sweep: from line A direction to line B direction.
+  const double sweep_cross = a_ux * b_uy - a_uy * b_ux;
+  const bool arc_ccw = sweep_cross >= 0.0;
+  const double arc_start_angle = std::atan2(a_uy, a_ux);
+  const double arc_end_angle = std::atan2(b_uy, b_ux);
+
+  // Reference line along line A direction from pivot
+  const WorldPoint ref_line_start = to_world_point(parameters, pivot_x, pivot_y);
+  const WorldPoint ref_line_end = to_world_point(
+      parameters,
+      pivot_x + a_ux * kArcRadius,
+      pivot_y + a_uy * kArcRadius);
+
+  // Arc center in world space (the pivot)
+  const WorldPoint arc_center_world = to_world_point(parameters, pivot_x, pivot_y);
 
   // Render the value in degrees (CAD convention) with the same
   // formatter as length / radius so trailing-zero handling stays
@@ -853,6 +922,23 @@ ViewportSketchDimensionPrimitive make_angle_dimension_primitive(
       .label_x = label.x,
       .label_y = label.y,
       .label_z = label.z,
+
+      // Angle arc geometry
+      .arc_center_x = arc_center_world.x,
+      .arc_center_y = arc_center_world.y,
+      .arc_center_z = arc_center_world.z,
+      .arc_radius = kArcRadius,
+      .arc_start_angle = arc_start_angle,
+      .arc_end_angle = arc_end_angle,
+      .arc_ccw = arc_ccw,
+
+      // Reference line (along line A direction from pivot)
+      .ref_line_start_x = ref_line_start.x,
+      .ref_line_start_y = ref_line_start.y,
+      .ref_line_start_z = ref_line_start.z,
+      .ref_line_end_x = ref_line_end.x,
+      .ref_line_end_y = ref_line_end.y,
+      .ref_line_end_z = ref_line_end.z,
   };
 }
 

@@ -356,7 +356,7 @@ created dimensions appear immediately.
 
 The full behavioral specification for line dimension creation,
 intent-based dimension detection during drag, and post-creation endpoint
-drag is documented in `docs/implementation-log.md` (2026-05-24, "Line
+drag is documented in [Implementation-Log](Implementation-Log) (2026-05-24, "Line
 Dimension Tool — Specification"). Key items:
 
 - **Preview-phase**: length/angle inputs become constraints only when
@@ -390,7 +390,7 @@ Three concrete work items remain: post-creation endpoint drag (select
 tool), right-click context-sensitive behavior (Enter/Escape/repeat-last),
 and perpendicular snap for dimension tool disambiguation.
 
-**Right-click specification** (see `docs/implementation-log.md` 2026-05-24):
+**Right-click specification** (see [Implementation-Log](Implementation-Log) 2026-05-24):
 context-sensitive — Enter during dimension editing, Escape during active
 tool, repeat-last-tool when idle. Must be implemented as a first-class
 CAD input primitive, not a context menu.

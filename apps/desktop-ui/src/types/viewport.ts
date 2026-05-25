@@ -203,6 +203,17 @@ export interface ViewportSketchDimension {
   dimension_start: Vector3;
   dimension_end: Vector3;
   label_position: Vector3;
+
+  // Angle arc geometry (from C++ core, optional)
+  arc_center?: Vector3;
+  arc_radius?: number;
+  arc_start_angle?: number;
+  arc_end_angle?: number;
+  arc_ccw?: boolean;
+
+  // Reference line (from C++ core, optional)
+  ref_line_start?: Vector3;
+  ref_line_end?: Vector3;
 }
 
 export interface ViewportSketchConstraint {

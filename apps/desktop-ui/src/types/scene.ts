@@ -246,6 +246,17 @@ export interface SketchDimensionScene {
   dimensionStart: [number, number, number];
   dimensionEnd: [number, number, number];
   labelPosition: [number, number, number];
+
+  // Angle arc geometry (from C++ core, for angle/line_angle kinds)
+  arcCenter?: [number, number, number];
+  arcRadius?: number;
+  arcStartAngle?: number;
+  arcEndAngle?: number;
+  arcCcw?: boolean;
+
+  // Reference line (from C++ core, for angle/line_angle kinds)
+  refLineStart?: [number, number, number];
+  refLineEnd?: [number, number, number];
 }
 
 export interface SketchConstraintScene {
