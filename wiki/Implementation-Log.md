@@ -21,7 +21,7 @@ Add a document-scoped parameter table (name → formula expression → resolved 
 
 #### Protocol / Schema
 - `protocol/schema/commands.schema.json`: `add_parameter`, `update_parameter`, `delete_parameter` in command enum.
-- `docs/architecture/ipc-protocol.md`: documented parametric parameters section and dimension expressions.
+- `IPC-Protocol`: documented parametric parameters section and dimension expressions.
 
 #### TypeScript — Types & IPC
 - `types/ipc.ts`: `ParameterEntry` interface, `AddParameterCommand`, `UpdateParameterCommand`, `DeleteParameterCommand`, extended `UpdateSketchDimensionCommand.value` to `number | string`. `DocumentState.parameters` field.
@@ -78,10 +78,10 @@ Add a document-scoped parameter table (name → formula expression → resolved 
 - Added `handleDeleteDimensionFromContextMenu` handler
 - Added `handleDimensionClick` (renamed from `selectSketchDimensionForEdit`) with select-then-edit logic
 
-### Fusion-Style On-Demand Sketch Dimensions
+### On-Demand Sketch Dimensions
 
 #### Goal
-Match Fusion 360 behavior: shapes created by mouse-only drag get **no automatic dimension**. Shapes created with a **typed value** (draft dimension input during preview) keep the dimension. Prevents sketch bloat and over-constraining.
+Shapes created by mouse-only drag get **no automatic dimension**. Shapes created with a **typed value** (draft dimension input during preview) keep the dimension. Prevents sketch bloat and over-constraining.
 
 #### Approach
 Keep C++ auto-dimension creation, then delete from TypeScript when the user didn't type.
@@ -126,7 +126,7 @@ Auto-dimensions use `dim-<prefix>-<entity_id>`: `dim-line-line-1`, `dim-circle-c
 6. **Split commit paths** — shape commits can go through `commitDraftDimensionSession` (Enter/submit) OR the snap handler in `handlePointerUp` (click-based). Initially only `commitDraftDimensionSession` was handled, causing clicks to silently bypass deletion. Fixed by calling `scheduleDimensionDeletion` from EVERY commit path. The centralized helper prevents drift between paths.
 
 #### Documentation
-- `docs/architecture/sketch-tool-implementation.md`: comprehensive guide for implementing new sketch tools, covering all files to touch, the two commit paths, dimension deletion integration, and all pitfalls discovered.
+- `Sketch-Tool-Implementation`: comprehensive guide for implementing new sketch tools, covering all files to touch, the two commit paths, dimension deletion integration, and all pitfalls discovered.
 
 ## 2026-05-19
 
@@ -258,12 +258,12 @@ Auto-dimensions use `dim-<prefix>-<entity_id>`: `dim-line-line-1`, `dim-circle-c
 - kept fixed-point behavior solver-lite in the native core by preserving fixed flags through point rebuilds and coincident merges while driving line-length edits from the unfixed endpoint whenever possible
 - added point-driven sketch editing through `update_sketch_point`, tightened fixed-point preservation across line edits and solver-lite relations, and refreshed profile-linked extrude parameters when source sketch profiles change
 - added editable extrude depth through a core-owned `update_extrude_depth` IPC command and an inspector form so a selected extrude feature can be redimensioned without rebuilding from the source sketch
-- adopted a contextual modeling select-action-preview-confirm pattern across the UI: hoverable solid faces with face hover highlighting, double-click on any face to start a sketch, world-aligned camera framing on sketch entry, a subtle frameless inline dimension input that auto-dismisses on Enter, and an `E` hotkey that triggers a floating extrude preview panel driving live `update_extrude_depth` previews with confirm/cancel; documented the pattern as binding in `docs/architecture/contextual-modeling-workflow.md` so future contributions follow the same flow
+- adopted a contextual modeling select-action-preview-confirm pattern across the UI: hoverable solid faces with face hover highlighting, double-click on any face to start a sketch, world-aligned camera framing on sketch entry, a subtle frameless inline dimension input that auto-dismisses on Enter, and an `E` hotkey that triggers a floating extrude preview panel driving live `update_extrude_depth` previews with confirm/cancel; documented the pattern as binding in `Contextual-Modeling-Workflow` so future contributions follow the same flow
 - stabilized sketch UX further: the camera now reframes only on sketch plane transitions instead of every viewport snapshot, the extrude preview panel debounces depth previews so the inspector no longer needs its own depth form, profiles can be selected and extruded outside an active sketch via relaxed `select_sketch_profile` and `extrude_profile`, finished sketches can be reopened through a new `reenter_sketch` IPC command, and the document browser was rebuilt as a CAD-style collapsible hierarchy with Origin / Sketches / Bodies categories, compact icon-and-name rows, and per-row plus per-category eye toggles that drive UI-side viewport visibility filtering
 - fixed the live extrude depth bug at its root: the Tauri IPC bridge is fire-and-forget, so reading the document store immediately after `await sendCoreCommand(...)` returned stale state and the floating Extrude panel was driving `update_extrude_depth` on the wrong feature id; introduced an `awaitDocumentChange` helper on the store and used it to capture the freshly-created extrude feature id before opening the action panel
 - shipped binary STL export through a new core `export_document_as_stl` (BRepMesh_IncrementalMesh + StlAPI_Writer), an `export_document_stl` IPC command, and an Export STL button in the header; the existing `document_exported` reply distinguishes formats via its `format` field
 - added Cmd/Ctrl+Z, Cmd/Ctrl+Shift+Z, and Cmd/Ctrl+Y hotkeys for undo/redo at the App level, gated by typing-target detection and core-reported `can_undo`/`can_redo` so users can iterate without reaching for the header buttons
-- refreshed `docs/roadmap/v1-roadmap.md` to reflect actual project state and a tiered next-feature plan (cut extrude, save/load, fillet/chamfer with edge selection, etc.)
+- refreshed `V1-Roadmap` to reflect actual project state and a tiered next-feature plan (cut extrude, save/load, fillet/chamfer with edge selection, etc.)
 - shipped native document persistence: a new `document_from_payload` deserializer mirrors the existing `to_payload`, `DocumentManager::save_document_to_path` / `load_document_from_path` write and reload `.polysmith` JSON files, ID counters are restored from the loaded feature/sketch ids, undo/redo stacks are cleared on load, and new `save_document` / `load_document` IPC commands plus an Open and Save header pair complete the flow end-to-end
 - added a contextual modeling Project sketch tool: a new core `face_geometry` module computes world-space face outlines for extrude features that carry a `plane_frame` (rectangle and circle profiles, base/top and four side rectangles), `DocumentManager::project_face_into_sketch` projects the outline onto the active sketch plane and inserts fixed-endpoint sketch lines (or a sketch circle for circular caps), and the SketchToolPanel exposes a "Project selected face" button gated by face selection. Polygon-extrude side faces and legacy box/cylinder features are explicitly rejected for v1.
 - compacted the AppHeader: File and Edit buttons collapsed into dropdown menus while Start Core and the session indicator stayed inline, freeing horizontal space for upcoming feature buttons.
@@ -317,7 +317,7 @@ When adding a new entity, grep `ipcSchema.ts` for the union literally and walk e
 - parametric chain: `refresh_history_dependencies` now walks `construction_plane → sketch → extrude` in one pass. Editing the offset on a construction plane re-derives every downstream sketch's plane frame, and that propagates into the consuming extrude's `extrude_parameters.plane_frame` via the existing extrude-from-sketch step. End result: editing the construction plane's offset moves its sketches and their extruded bodies in lockstep, matching the request "if I make a plane, then I make sketches and then I go back to move the plane again, my sketch should move with the plane".
 - UI: new `Offset Plane` button in the Construct ribbon (replacing the disabled placeholder); new `OffsetPlanePanel` component (contextual modeling two-phase pending → active flow, debounced numeric input, Enter / Esc handlers). App-level state mirrors the fillet/chamfer pattern: clicking the button with no plane / face selected opens the panel in pending phase and the next plane / planar-face click in the viewport calls `create_offset_plane` with the currently-typed offset; an already-selected plane / face short-circuits straight to active phase. The panel's `sourceSummary` uses friendly names ("XY plane", "Top face", or the construction plane's user-facing label) per the AGENTS.md UI Copy Rules — internal ids never reach the user.
 - hierarchy: `DocumentHierarchyPanel` gained a new `Construction` category between `Origin` and `Sketches`, listing every `construction_plane` feature with a parallelogram glyph (new `ConstructionPlaneIcon` in `header/ToolBarIcons.tsx`). Clicking a construction plane in the hierarchy dispatches `select_reference` (not `select_feature`) so it lights up in the viewport and the Sketch button enables. The Construction category participates in per-category visibility hides; the per-feature visibility toggle hides the construction plane in the viewport and any sketches anchored on it follow via the existing `hiddenSketchPlaneIds` grouping.
-- protocol / schema / docs: added the two new commands to `protocol/schema/commands.schema.json`, documented them and the new `viewport_state.reference_planes[].plane_frame` field in `docs/architecture/ipc-protocol.md`, and updated `findDependents` so deleting a construction plane (or any plane it sources from) surfaces a "this will break N downstream features" prompt. Round-trip serialization for `construction_plane_parameters` is symmetric with the other feature kinds; older `.polysmith` saves load cleanly because the field defaults to null.
+- protocol / schema / docs: added the two new commands to `protocol/schema/commands.schema.json`, documented them and the new `viewport_state.reference_planes[].plane_frame` field in `IPC-Protocol`, and updated `findDependents` so deleting a construction plane (or any plane it sources from) surfaces a "this will break N downstream features" prompt. Round-trip serialization for `construction_plane_parameters` is symmetric with the other feature kinds; older `.polysmith` saves load cleanly because the field defaults to null.
 - v1 limitations (deliberate): no in-panel "Edit" entry from the timeline yet (the user undoes + redoes to revisit the offset for now); no Mid-plane / Axis / Point construct features (still placeholders); the panel's Cancel collapses to a single `undo()` which won't separately revert older live offset edits if the panel is reopened — acceptable because v1 only opens the panel during creation. All natural follow-ups.
 
 ### Modal Project Tool (face / edge / vertex)
@@ -327,7 +327,7 @@ When adding a new entity, grep `ipcSchema.ts` for the union literally and walk e
 - `DocumentManager::project_edge_into_sketch` and `DocumentManager::project_vertex_into_sketch` join the existing `project_face_into_sketch` next to a new shared `require_projection_target` validator. Linear edges become locked sketch lines; circular edges that lie in a plane parallel to the sketch normal become sketch circles or arcs (using the body-axis vs. sketch-normal dot product to determine winding). Edges that would project to ellipses or whose curve type is unsupported (B-splines, etc.) are rejected with a structured error so the UI can surface a transient toast — matches the user's "skip + show message" choice.
 - vertex projection introduces a new `SketchProjectedPoint` struct on `SketchFeatureParameters`. The Project tool appends an entry per click; `rebuild_sketch_points` re-emits each as a `SketchPoint` of kind `"projected"`, and a new `enforce_projected_points_fixed` pass forces them locked on every recompute (so the user can't drag derived geometry off its source). `refresh_sketch_derived_state` was promoted out of the anonymous namespace so the new code path can re-run the recompute pipeline after appending to the projected-points vector.
 - idempotency: a single `projected_sources: vector<string>` records every face / edge id already projected onto the sketch so a second click on the same source is a no-op. Vertex projections check `projected_points[*].source_id` directly. All three project paths share the same id-tracking convention.
-- IPC: two new commands `project_edge_into_sketch { edge_id }` and `project_vertex_into_sketch { vertex_id }` in `commands.schema.json`, with matching builders, hooks, and `app.cpp` dispatch entries. `docs/architecture/ipc-protocol.md` documents the new commands, the supported-curve constraints, and the idempotency guarantees.
+- IPC: two new commands `project_edge_into_sketch { edge_id }` and `project_vertex_into_sketch { vertex_id }` in `commands.schema.json`, with matching builders, hooks, and `app.cpp` dispatch entries. `IPC-Protocol` documents the new commands, the supported-curve constraints, and the idempotency guarantees.
 - UI: `SketchToolbar` lost its standalone "Project Face" button — Project now lives in the main tool row alongside Select/Line/Rectangle/Circle/Arc/Fillet, toggleable like any other modal tool. The `SketchTool` union grew a `"project"` member; the C++ `validate_tool` and `is_supported_sketch_tool` allowlists were widened in lockstep. The `P` hotkey toggles the tool instead of running a one-shot project. App.tsx intercepts the viewport's `onSelectFace` / `onSelectEdge` / `onSelectVertex` callbacks while the tool is active and dispatches the matching `project_*_into_sketch` IPC, with structured error messages routed to the existing message log. The `findDependents` walker still treats Project's outputs as derived geometry; nothing else needed updating because projected entities are stored as ordinary sketch lines / circles / arcs / points.
 - renderer: standalone projected points get a slightly larger sphere in the Z-axis cyan so they read as derived geometry vs. user-drawn endpoints. The Zod schema and TS interfaces (`SketchPointScene`, `ViewportSketchPoint`, `SketchPointEntry`) all gained `"projected"` on their `kind` union; the schema for `sketch_parameters` ships `projected_points` and `projected_sources` fields with `default([])` so older saves keep loading cleanly.
 - v1 limitations (deliberate): no live highlight differentiation while hovering with the Project tool active (the existing hover plumbing already lights up edges / faces / vertices, just not Project-specifically); curved edges whose plane isn't parallel to the sketch are rejected rather than projected as ellipses; projected geometry is "static" — moving the source body does not currently update the projection (matches the existing face-project semantics; live parametric link is a natural follow-up). Existing `project_face_into_sketch` polygon-side handling was unchanged; only the duplicate-click path it shares with the new methods was extended via `projected_sources`.
@@ -341,7 +341,7 @@ When adding a new entity, grep `ipcSchema.ts` for the union literally and walk e
 - idempotency now walks `projections[*].source_id` instead of `projected_sources`. All three project methods share the same lookup, so face / edge / vertex sources can never collide on a duplicate id even though they share the same dedup vector. Vertex projections still carry their canonical record on `projected_points[]` (for the cached x, y) but their live-link record sits on `projections` like the other two; `refresh_sketch_projections` patches `projected_points[]` by `generated_point_id`.
 - generated-id capture pattern: each project path snapshots `lines.size()` / `circles.size()` / `arcs.size()` immediately before its `add_sketch_*` calls and walks the trailing range to collect the new ids. That way the projection record only ever points at entities the same call actually emitted, and the standard `add_sketch_*` mutators don't need awareness of projections.
 - serialization round-trips the new struct. `protocol/serialization.cpp` writes `projection_id`, `source_id`, `source_kind`, `generated_line_ids`, `generated_circle_ids`, `generated_arc_ids`, `generated_point_id`, `dependency_broken`, and `dependency_warning` under a new `projections` array on each sketch's `sketch_parameters` payload; the reader is gated behind a `payload.contains("projections")` guard so older `.polysmith` saves load cleanly (those documents lose the live link until the user re-projects, which is the previous behaviour). `load_document_from_path` extends the id-counter restoration loop to bump `next_sketch_projection_id_` past every loaded projection id.
-- UI plumbing: `SketchFeatureParameters` (the TS interface) gained a `projections: SketchProjectionEntry[]` field with the same shape as the core struct; `lib/schemas/ipcSchema.ts` added a matching Zod object inside `sketch_parameters` with `default([])` so messages from a pre-live-link core also parse. The UI doesn't dispatch projections directly — the records ride along in the document state for round-trip + future "fix broken projection" UX. `docs/architecture/ipc-protocol.md` documents the new field, the live-link semantics, the `dependency_broken` flag, and the implicit migration story.
+- UI plumbing: `SketchFeatureParameters` (the TS interface) gained a `projections: SketchProjectionEntry[]` field with the same shape as the core struct; `lib/schemas/ipcSchema.ts` added a matching Zod object inside `sketch_parameters` with `default([])` so messages from a pre-live-link core also parse. The UI doesn't dispatch projections directly — the records ride along in the document state for round-trip + future "fix broken projection" UX. `IPC-Protocol` documents the new field, the live-link semantics, the `dependency_broken` flag, and the implicit migration story.
 - v1 limitations (deliberate): polygon faces with a _different_ vertex count after upstream edits surface as broken rather than rebuilding the entity set (re-projecting solves it); circle / arc edges that flip their plane orientation (axis dot product changes sign) update CCW correctly but won't try to recover from "circle became a B-spline" — that path also flags broken; projection-broken sketches still render their last-known geometry so the user has something visible to grab. Wiring the live link through `findDependents` (so deleting an upstream feature warns about projection-broken downstream sketches) is a natural next step but not strictly required since the core already surfaces the broken state on the next recompute.
 
 ### Split Sketch Profiles, Hole Regions, And Multi-Profile Extrude
@@ -824,5 +824,63 @@ Summary:
 - **Constraint handling:** re-evaluated by geometric checks where possible;
   `dependency_broken` for type-changing operations (circle→arc)
 - **4 phases:** line trimming (MVP) → circle→arc → arc trimming → polish
-- **Design decisions:** separate module, one entity at a time, conservative
-  constraint handling, polygon dissolve on trim
+- **Design decisions:** trim sees only segments — no entity-level logic.
+  All constraints are destroyed. Every segment is independently deletable.
+  Shared points are severed on trim. Polygon dissolves on any constituent
+  line trim.
+- **Bugs fixed:** iterator invalidation from `push_back` during split;
+  zero-length endpoint segments; H/V constraint badge revival after
+  relation deletion; fillet corner/trim point ID survival; TS `u`-parameter
+  check missing; coordinate mismatch with `resolveSketchPlanePoint`
+
+---
+
+### Draft Dimension Visualization — Line Tool (2026-05-25)
+
+Full design doc at [Draft Dimension Visualization](Draft-Dimension-Visualization).
+
+#### Goal
+Replace the HTML-only floating input boxes during line drafting with Three.js-rendered dimension geometry (length dimension lines, angle arc, reference lines, arrowheads) matching the visual language of committed sketch dimensions.
+
+#### Performance fix — duplicate rendering path removed
+The initial implementation had two code paths drawing the same cyan dimension geometry every frame: `renderDraftDimensions()` in the animation loop and a reusable `draftDimSceneObjRef` in
+`handlePointerMove`. `clearDraftDimGroup()` destroyed the reusable object every frame;
+`handlePointerMove` recreated it on every mouse move — a destroy/recreate cycle at 60 fps.
+This caused flickering, GPU churn, and crashes when user input arrived mid-cycle. The
+duplicate (~80 lines) was removed; only `renderDraftDimensions()` draws dimension
+geometry now. This also eliminated the sluggishness that had been affecting line drafting.
+
+#### Per-frame geometry leak removed
+Two diagnostic magenta debug lines created new `THREE.BufferGeometry` +
+`THREE.LineBasicMaterial` every frame with 100ms `setTimeout` cleanup — multiple
+generations alive simultaneously, leaking ~120 geometry allocations + GPU buffer
+uploads per second. Both removed.
+
+#### Angle arc
+- Arc centered at line start point (`sx, sy`), not sketch-plane origin (0,0) —
+  fixes arc disappearing for chained lines
+- Dotted reference line from start along reference angle (horizontal for first
+  line, previous segment direction for chained)
+- Dotted cursor extension line from cursor outward
+- Zoom-aware arc cap: `max(8, min(lineLength, 480 × viewHeight / viewportHeight))`
+  — arc hugs rubber band for short lines, caps at ~480px-equivalent for
+  readability at any zoom
+- `previousLineAngleRef` stores the 2D sketch angle of the last committed
+  segment. Chained lines reference the previous segment direction instead of
+  horizontal
+- Arc arrowheads at both sweep endpoints
+
+#### Length dimension
+- Zoom-aware offset: `max(4, 30 × viewHeight / viewportHeight)` doubled
+  (`-2 × zoomDimOffset`)
+- Offset in `-perpDir` direction (opposite to angle arc) for visual separation
+
+#### Input overlay fixes
+- `draftFieldScreenPosition()` fallback updated for line tool: length at line
+  midpoint, angle at start point
+- Stale `draftDimScreenPositionsRef` values cleared on input change (`delete`)
+  to prevent one-frame label jumps
+
+#### Files changed
+- `apps/desktop-ui/src/layout/ViewportPanel.tsx` — all changes
+  (~95 lines net removed, ~50 lines changed)

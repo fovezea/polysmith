@@ -35,7 +35,7 @@ codebase now has:
 - finished sketches can be re-entered without rebuilding via `reenter_sketch`
 - STEP export of the live document
 - a contextual modeling workflow documented in
-  `docs/architecture/contextual-modeling-workflow.md`: select inputs → invoke
+  `Contextual-Modeling-Workflow`: select inputs → invoke
   action → floating context panel → real geometry preview → confirm/cancel
 - an `E` hotkey + floating extrude preview panel that drives live, debounced
   `update_extrude_depth` recomputes
@@ -53,9 +53,9 @@ These are rules going forward, not goals to chase:
 - React UI does **not** own CAD state. The native core is the single
   source of truth for documents, features, geometry, and selection.
 - The IPC protocol is the contract. Schema, TypeScript types, C++ command
-  dispatch, and `docs/architecture/ipc-protocol.md` move together.
+  dispatch, and `IPC-Protocol` move together.
 - All modeling features follow the contextual modeling workflow in
-  `docs/architecture/contextual-modeling-workflow.md`.
+  `Contextual-Modeling-Workflow`.
 - Live previews are real geometry recomputed by the core. The UI does not
   invent geometry locally.
 - Changes stay minimal, scoped, and reviewable. No vibe-coded rewrites.
@@ -145,7 +145,7 @@ Small individually but they shape day-to-day usability:
 6. Polish: measure tool, named parameters, view cube, active sketch panel.
 7. **Display units (metric/inch toggle).** UI-layer conversion only: the
    C++ core always works in mm; React converts at the presentation
-   boundary. Design doc: `docs/architecture/display-units.md`.
+   boundary. Design doc: `Display-Units`.
 8. ✅ **Manual sketch dimension tool completion.** Single-entity dimension
    creation for lines, circles, and polygons whose auto-dimensions were
    deleted — shipped 2026-05-24.
@@ -160,7 +160,7 @@ Small individually but they shape day-to-day usability:
    concentric constraints. Remaining: perpendicular snap, driven
    dimension proposal, DOF color legend.
    See `docs/implementation-log.md` (2026-05-23/24) and
-   `wiki/polysmith.wiki/Unified-Sketch-Interaction-Strategy.md`.
+   `wiki/polysmith.wiki/Sketch-Selection-Controls.md`.
 
 Each row above maps cleanly onto the existing contextual modeling action pattern
 (select inputs → invoke action → floating panel → live preview →

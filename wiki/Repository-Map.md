@@ -8,7 +8,7 @@ This document describes the purpose of each top-level directory in PolySmith.
 apps/
 native/
 protocol/
-docs/
+wiki/
 third_party/
 ```
 
@@ -70,21 +70,24 @@ Responsibilities:
 
 ---
 
-## docs/
+## wiki/
 
-Project documentation.
+Project documentation — a GitHub wiki submodule at `wiki/polysmith.wiki/`.
 
-### `docs/architecture`
+The wiki contains:
 
-System design and structure.
+- Architecture overview, IPC protocol, and repository map
+- UX pattern definitions (contextual modeling workflow)
+- Topological naming problem strategy
+- Design system and theme specifications
+- Architecture decision records (ADRs)
+- AI workflow rules and task templates
+- Roadmap and implementation log
+- Active feature plans (sketch tools, trim tool, snap settings)
+- AI CAD command language reference
 
-### `docs/decisions`
-
-Architecture decision records (ADRs).
-
-### `docs/prompts`
-
-AI workflow rules and task templates.
+Pages are flat Markdown files. Internal wiki links use the page name without
+extension (e.g., `Architecture-Overview`).
 
 ---
 

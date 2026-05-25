@@ -26,9 +26,8 @@
 
 This is FreeCAD's most infamous bug. It affects every CAD that builds on
 top of a boundary-representation kernel (OCCT, Parasolid, ACIS) without
-an explicit TNP strategy. Commercial CADs (SolidWorks, Fusion 360,
-Onshape) have invested years in solving this; PolySmith must avoid it
-from day one.
+an explicit TNP strategy. Commercial CADs have invested years in solving
+this; PolySmith must avoid it from day one.
 
 ---
 

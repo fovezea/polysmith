@@ -11,8 +11,8 @@ Runtime source of truth:
 - Command builder helpers: `apps/desktop-ui/src/lib/ipcProtocol.ts`
 - Core command dispatch: `native/cad-core/src/app.cpp`
 - Core response validation schema: `apps/desktop-ui/src/lib/schemas/ipcSchema.ts`
-- Protocol rules: `docs/architecture/ipc-protocol.md`
-- Contextual modeling workflow rule: `docs/architecture/contextual-modeling-workflow.md`
+- Protocol rules: `IPC-Protocol`
+- Contextual modeling workflow rule: `Contextual-Modeling-Workflow`
 
 ## Mental Model
 

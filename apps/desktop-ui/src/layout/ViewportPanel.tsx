@@ -1144,8 +1144,12 @@ export function ViewportPanel({
   // the chain and start an independent line on the next click.
   const lastPointerDownTimeRef = useRef(0);
   const lastPointerDownPosRef = useRef<{ x: number; y: number } | null>(null);
-  const chainBreakRequestedRef = useRef(false);
-  const currentGridSpacingRef = useRef(10);
+const chainBreakRequestedRef = useRef(false);
+// 2D sketch-plane angle (radians) of the last committed line segment,
+// used as the reference for the next chained line's angle arc.
+// null for the first / independent line (defaults to horizontal, 0 rad).
+const previousLineAngleRef = useRef<number | null>(null);
+const currentGridSpacingRef = useRef(10);
   const draftDimensionSessionRef = useRef<DraftDimensionSession | null>(null);
   const draftDimensionInputRefs = useRef<
     Partial<Record<DraftDimensionField, HTMLInputElement | null>>
@@ -2554,6 +2558,7 @@ export function ViewportPanel({
     draftFieldFocusedRef.current = null;
     draftRawInputRef.current = {};
     draftParameterExpressionRef.current = {};
+    previousLineAngleRef.current = null;
     setDraftSuggestionState(null);
   }
 
@@ -5077,29 +5082,15 @@ export function ViewportPanel({
         allSegs.push(new THREE.Vector3(b[0], b[1], b[2]));
       };
 
-      // --- Compute sketch plane axes in world ---
-      // Plane frame fields can come from IPC as arrays or objects.
-      const pOrigin = new THREE.Vector3(sw[0], sw[1], sw[2]);
+      // --- Compute sketch plane normal ---
       let pNormal: THREE.Vector3;
-      let pXAxis: THREE.Vector3;
-      let pYAxis: THREE.Vector3;
       if (planeFrame) {
         const nx = Array.isArray(planeFrame.normal) ? planeFrame.normal[0] : planeFrame.normal.x;
         const ny = Array.isArray(planeFrame.normal) ? planeFrame.normal[1] : planeFrame.normal.y;
         const nz = Array.isArray(planeFrame.normal) ? planeFrame.normal[2] : planeFrame.normal.z;
-        const xx = Array.isArray(planeFrame.x_axis) ? planeFrame.x_axis[0] : planeFrame.x_axis.x;
-        const xy = Array.isArray(planeFrame.x_axis) ? planeFrame.x_axis[1] : planeFrame.x_axis.y;
-        const xz = Array.isArray(planeFrame.x_axis) ? planeFrame.x_axis[2] : planeFrame.x_axis.z;
-        const yx = Array.isArray(planeFrame.y_axis) ? planeFrame.y_axis[0] : planeFrame.y_axis.x;
-        const yy = Array.isArray(planeFrame.y_axis) ? planeFrame.y_axis[1] : planeFrame.y_axis.y;
-        const yz = Array.isArray(planeFrame.y_axis) ? planeFrame.y_axis[2] : planeFrame.y_axis.z;
         pNormal = new THREE.Vector3(nx, ny, nz);
-        pXAxis = new THREE.Vector3(xx, xy, xz).normalize();
-        pYAxis = new THREE.Vector3(yx, yy, yz).normalize();
       } else {
         pNormal = new THREE.Vector3(0, 1, 0);
-        pXAxis = new THREE.Vector3(1, 0, 0);
-        pYAxis = new THREE.Vector3(0, 0, -1);
       }
 
       // Line direction and perpendicular (in sketch plane)
@@ -5112,16 +5103,20 @@ export function ViewportPanel({
       const toCam = new THREE.Vector3().copy(camera.position).sub(sVec).normalize();
       if (perpDir.dot(toCam) < 0) perpDir.negate();
 
-      const DIM_OFFSET = 6;
+      // Zoom-aware dimension offset (~30 px on screen)
+      const viewH = getOrthographicViewHeight(camera);
+      const vpH = rendererRef.current?.domElement.height ?? 600;
+      const zoomDimOffset = Math.max(4, 30 * viewH / vpH);
       const ARROW_LEN = 1.5;
       const ARROW_W = 0.5;
 
       // --- Length dimension ---
       const dimLabelPos: [number, number, number] = [0, 0, 0];
       let angleRad = 0; // hoisted for label position computation below
+      let arcMidWorldLabel: [number, number, number] = [0, 0, 0];
       if (session.tool === "line") {
-        const dimS = new THREE.Vector3(sw[0], sw[1], sw[2]).add(perpDir.clone().multiplyScalar(DIM_OFFSET));
-        const dimE = new THREE.Vector3(ew[0], ew[1], ew[2]).add(perpDir.clone().multiplyScalar(DIM_OFFSET));
+        const dimS = new THREE.Vector3(sw[0], sw[1], sw[2]).add(perpDir.clone().multiplyScalar(-2 * zoomDimOffset));
+        const dimE = new THREE.Vector3(ew[0], ew[1], ew[2]).add(perpDir.clone().multiplyScalar(-2 * zoomDimOffset));
         const dimDir = dimE.clone().sub(dimS);
 
         // Extension lines
@@ -5158,83 +5153,108 @@ export function ViewportPanel({
           dimLabelPos[2] = mid.z;
         }
 
-        // --- Angle arc ---
-        const ARC_RADIUS = Math.max(3, DIM_OFFSET + 1);
+        // --- Dotted extension + reference line + angle arc ---
         angleRad = Math.atan2(dy, dx);
-        // Arc sweeps from positive X axis (angle 0) to the line direction
-        const startAngle = 0;
-        const endAngle = angleRad;
-        const sweep = endAngle - startAngle;
+        const lineLen = Math.hypot(dx, dy);
 
-        // Compute arc in 2D sketch coordinates then map to 3D
+        // Determine reference angle: previous chained line, or horizontal (0)
+        const refAngle = previousLineAngleRef.current ?? 0;
+
+        // Compute relative display angle (shorter arc direction)
+        let displayAngle = angleRad - refAngle;
+        while (displayAngle > Math.PI) displayAngle -= 2 * Math.PI;
+        while (displayAngle < -Math.PI) displayAngle += 2 * Math.PI;
+        // Negate so arc and length dimension occupy opposite sides.
+        // Preserves angle magnitude, just flips the sweep direction.
+        // Arc sweeps the natural shorter direction (CCW for positive angles).
+
+        // --- Dotted cursor extension (from cursor outward) ---
+        const extLen = Math.max(12, lineLen * 0.35);
+        const extEndLocalX = ex + (dx / lineLen) * extLen;
+        const extEndLocalY = ey + (dy / lineLen) * extLen;
+        {
+          const esw = toWorldPoint(planeId, [ex, ey], planeFrame);
+          const eew = toWorldPoint(planeId, [extEndLocalX, extEndLocalY], planeFrame);
+          const extGeom = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(esw[0], esw[1], esw[2]),
+            new THREE.Vector3(eew[0], eew[1], eew[2]),
+          ]);
+          const extMat = new THREE.LineDashedMaterial({
+            color: new THREE.Color(0x8feaf7), transparent: true,
+            opacity: 0.45, dashSize: 2, gapSize: 1.5, depthTest: false,
+          });
+          const extLine = new THREE.Line(extGeom, extMat);
+          extLine.computeLineDistances();
+          extLine.renderOrder = 7;
+          group.add(extLine);
+        }
+
+        // --- Dotted reference line from start point along reference angle ---
+        const refLineLen = Math.max(12, lineLen * 0.28);
+        {
+          const rsw = toWorldPoint(planeId, [sx, sy], planeFrame);
+          const rex = sx + refLineLen * Math.cos(refAngle);
+          const rey = sy + refLineLen * Math.sin(refAngle);
+          const rew = toWorldPoint(planeId, [rex, rey], planeFrame);
+          const refGeom = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(rsw[0], rsw[1], rsw[2]),
+            new THREE.Vector3(rew[0], rew[1], rew[2]),
+          ]);
+          const refMat = new THREE.LineDashedMaterial({
+            color: new THREE.Color(0x8feaf7), transparent: true,
+            opacity: 0.40, dashSize: 2, gapSize: 2, depthTest: false,
+          });
+          const refLine = new THREE.Line(refGeom, refMat);
+          refLine.computeLineDistances();
+          refLine.renderOrder = 7;
+          group.add(refLine);
+        }
+
+        // --- Angle arc centered at line start, sweeping refAngle → angleRad ---
+        // Zoom-aware cap so the arc stays ~480 px on screen.
+        const zoomCap = Math.max(20, 480 * viewH / vpH);
+        const arcRadius = Math.max(8, Math.min(lineLen, zoomCap));
+        const arcSweep = displayAngle;
         const arcSegments = 24;
-        let prev: THREE.Vector3 | null = null;
+        let prevArc: THREE.Vector3 | null = null;
+        let arcStartWorldPt: [number, number, number] = [0, 0, 0];
+        let arcEndWorldPt: [number, number, number] = [0, 0, 0];
         for (let i = 0; i <= arcSegments; i++) {
-          const t = i / arcSegments;
-          const a = startAngle + sweep * t;
-          const localX = ARC_RADIUS * Math.cos(a);
-          const localY = ARC_RADIUS * Math.sin(a);
-          const wp = toWorldPoint(planeId, [localX, localY], planeFrame);
+          const a = refAngle + arcSweep * (i / arcSegments);
+          const lx = sx + arcRadius * Math.cos(a);
+          const ly = sy + arcRadius * Math.sin(a);
+          const wp = toWorldPoint(planeId, [lx, ly], planeFrame);
           const p = new THREE.Vector3(wp[0], wp[1], wp[2]);
-          if (prev) {
-            addSeg(
-              [prev.x, prev.y, prev.z],
-              [p.x, p.y, p.z],
-            );
-          }
-          prev = p;
+          if (i === 0) arcStartWorldPt = wp;
+          if (i === arcSegments) arcEndWorldPt = wp;
+          if (prevArc) addSeg([prevArc.x, prevArc.y, prevArc.z], [p.x, p.y, p.z]);
+          prevArc = p;
         }
 
         // Arrowheads at arc ends
-        // Helper for arc arrow heads: small V shape at tip along tangent
-        const addArcArrow = (tipWorld: [number, number, number], tipWorldAngle: number) => {
+        const addArcArrow = (tipWorld: [number, number, number], tipAngle: number) => {
           const tip = new THREE.Vector3(tipWorld[0], tipWorld[1], tipWorld[2]);
-          // Tangent direction at arc endpoint
-          const tanX = -ARC_RADIUS * Math.sin(tipWorldAngle);
-          const tanY = ARC_RADIUS * Math.cos(tipWorldAngle);
-          const tanWorld = toWorldPoint(planeId, [tanX, tanY], planeFrame);
-          const tanDir = new THREE.Vector3(tanWorld[0], tanWorld[1], tanWorld[2]).sub(tip).normalize();
-          const arcArrowLen = 1.0;
-          const arcArrowW = 0.35;
-          // Perpendicular to tangent (in-plane radial)
-          const radDir = tip.clone().sub(pOrigin).normalize();
-          const base = tip.clone().add(tanDir.clone().multiplyScalar(arcArrowLen));
-          const side = radDir.clone().multiplyScalar(arcArrowW);
-          addSeg(
-            [tip.x, tip.y, tip.z],
-            [base.x + side.x, base.y + side.y, base.z + side.z],
-          );
-          addSeg(
-            [tip.x, tip.y, tip.z],
-            [base.x - side.x, base.y - side.y, base.z - side.z],
-          );
+          const tlx = sx + arcRadius * Math.cos(tipAngle) - arcRadius * Math.sin(tipAngle);
+          const tly = sy + arcRadius * Math.sin(tipAngle) + arcRadius * Math.cos(tipAngle);
+          const tw = toWorldPoint(planeId, [tlx, tly], planeFrame);
+          const tanDir = new THREE.Vector3(tw[0], tw[1], tw[2]).sub(tip).normalize();
+          const radDir = tip.clone().sub(sVec).normalize();
+          const base = tip.clone().add(tanDir.clone().multiplyScalar(1.0));
+          const side = radDir.clone().multiplyScalar(0.35);
+          addSeg([tip.x, tip.y, tip.z], [base.x + side.x, base.y + side.y, base.z + side.z]);
+          addSeg([tip.x, tip.y, tip.z], [base.x - side.x, base.y - side.y, base.z - side.z]);
         };
-        const arcStartWorld = toWorldPoint(planeId, [ARC_RADIUS, 0], planeFrame);
-        addArcArrow(arcStartWorld, 0);
-        const arcEndWorld = toWorldPoint(planeId, [ARC_RADIUS * Math.cos(angleRad), ARC_RADIUS * Math.sin(angleRad)], planeFrame);
-        addArcArrow(arcEndWorld, angleRad);
+        addArcArrow(arcStartWorldPt, refAngle);
+        addArcArrow(arcEndWorldPt, angleRad);
+
+        // Arc midpoint for label positioning
+        arcMidWorldLabel = toWorldPoint(planeId, [
+          sx + arcRadius * Math.cos(refAngle + arcSweep / 2),
+          sy + arcRadius * Math.sin(refAngle + arcSweep / 2),
+        ], planeFrame);
       }
 
-      // Build diagnostic line: bright magenta, spans from start to end
-      // offset by DIM_OFFSET in the perpendicular direction.
-      // If this shows up, the render pipeline is healthy.
-      {
-        const diagVerts = new Float32Array(6);
-        const diagS = sVec.clone().add(perpDir.clone().multiplyScalar(DIM_OFFSET));
-        const diagE = eVec.clone().add(perpDir.clone().multiplyScalar(DIM_OFFSET));
-        diagVerts[0] = diagS.x; diagVerts[1] = diagS.y; diagVerts[2] = diagS.z;
-        diagVerts[3] = diagE.x; diagVerts[4] = diagE.y; diagVerts[5] = diagE.z;
-        const diagGeom = new THREE.BufferGeometry();
-        diagGeom.setAttribute("position", new THREE.BufferAttribute(diagVerts, 3));
-        const diagMat = new THREE.LineBasicMaterial({
-          color: new THREE.Color(0xff00ff),
-          linewidth: 1,
-          depthTest: false,
-        });
-        const diagLine = new THREE.LineSegments(diagGeom, diagMat);
-        diagLine.renderOrder = 99;
-        group.add(diagLine);
-      }
+      // (diagnostic line removed)
 
       // Build line geometry
       const segCount = allSegs.length;
@@ -5270,13 +5290,9 @@ export function ViewportPanel({
           if (lenLabelProj) {
             draftDimScreenPositionsRef.current.length = lenLabelProj;
           }
-          // Angle label at arc midpoint (half the sweep angle)
-          const halfAngle = angleRad / 2;
-          const arcMidX = ARC_RADIUS * Math.cos(halfAngle);
-          const arcMidY = ARC_RADIUS * Math.sin(halfAngle);
-          const arcMidWorld = toWorldPoint(planeId, [arcMidX, arcMidY], planeFrame);
+          // Angle label at arc midpoint
           const angleLabelProj = projectWorldPointToViewport(
-            arcMidWorld, camera, theRenderer,
+            arcMidWorldLabel, camera, theRenderer,
           );
           if (angleLabelProj) {
             draftDimScreenPositionsRef.current.angle = angleLabelProj;
@@ -5293,23 +5309,6 @@ export function ViewportPanel({
       updateDynamicGrids();
       updateScreenSpaceSketchSprites();
       try {
-        const session = draftDimensionSessionRef.current;
-        const sg = sketchGroupRef.current;
-        if (session && sg) {
-          const planeId = activeSketchPlaneId ?? "ref-plane-xy";
-          const frame = activeSketchPlaneFrame;
-          const sw = toWorldPoint(planeId, session.start, frame);
-          const ew = toWorldPoint(planeId, session.current, frame);
-          const diagVerts = new Float32Array(6);
-          diagVerts[0] = sw[0]; diagVerts[1] = sw[1]; diagVerts[2] = sw[2];
-          diagVerts[3] = ew[0]; diagVerts[4] = ew[1]; diagVerts[5] = ew[2];
-          const diagGeom = new THREE.BufferGeometry();
-          diagGeom.setAttribute("position", new THREE.BufferAttribute(diagVerts, 3));
-          const diagLine = new THREE.LineSegments(diagGeom, new THREE.LineBasicMaterial({color:0xff00ff,depthTest:false}));
-          sg.add(diagLine);
-          // Cleanup next frame
-          setTimeout(() => { sg.remove(diagLine); diagGeom.dispose(); }, 100);
-        }
         renderDraftDimensions();
       } catch (err) {
         console.warn("renderDraftDimensions error:", err);
@@ -7047,95 +7046,6 @@ export function ViewportPanel({
           }
           previewLineRef.current = preview;
           sketchGroupRefValue.add(preview);
-
-          // --- Draft dimension geometry for line tool ---
-          const dimSession = draftDimensionSessionRef.current;
-          if (dimSession && dimSession.tool === "line") {
-            const [sx, sy] = dimSession.start;
-            const [ex, ey] = dimSession.current;
-            const len = Math.hypot(ex - sx, ey - sy);
-            if (len > 0.001) {
-              const sw = toWorldPoint(activeSketchPlaneId, [sx, sy], activeSketchPlaneFrame);
-              const ew = toWorldPoint(activeSketchPlaneId, [ex, ey], activeSketchPlaneFrame);
-              const sV = new THREE.Vector3(sw[0], sw[1], sw[2]);
-              const eV = new THREE.Vector3(ew[0], ew[1], ew[2]);
-              const lDir = eV.clone().sub(sV).normalize();
-              const pN = activeSketchPlaneFrame
-                ? new THREE.Vector3(
-                    activeSketchPlaneFrame.normal.x ?? activeSketchPlaneFrame.normal[0] ?? 0,
-                    activeSketchPlaneFrame.normal.y ?? activeSketchPlaneFrame.normal[1] ?? 1,
-                    activeSketchPlaneFrame.normal.z ?? activeSketchPlaneFrame.normal[2] ?? 0,
-                  )
-                : new THREE.Vector3(0, 1, 0);
-              const pD = new THREE.Vector3().crossVectors(lDir, pN).normalize();
-              const toCam = cameraRef.current ? new THREE.Vector3().copy(cameraRef.current.position).sub(sV).normalize() : pD;
-              if (pD.dot(toCam) < 0) pD.negate();
-              const OFF = 6, ARR_LEN = 1.5, ARR_W = 0.5;
-              const dS = sV.clone().add(pD.clone().multiplyScalar(OFF));
-              const dE = eV.clone().add(pD.clone().multiplyScalar(OFF));
-              const dx = ex - sx;
-              const dy = ey - sy;
-              const angleRad = Math.atan2(dy, dx);
-              const arcR = 12;
-
-              // Create reusable buffer on first call; update in-place thereafter
-              let obj = draftDimSceneObjRef.current;
-              if (!obj) {
-                const buf = new Float32Array(400);
-                const geom = new THREE.BufferGeometry();
-                geom.setAttribute("position", new THREE.BufferAttribute(buf, 3));
-                const mat = new THREE.LineBasicMaterial({color: 0x8feaf7, depthTest: false, transparent: true, opacity: 0.78});
-                obj = new THREE.LineSegments(geom, mat);
-                obj.renderOrder = 50;
-                sketchGroupRefValue.add(obj);
-                draftDimSceneObjRef.current = obj;
-              }
-
-              const array = obj.geometry.attributes.position.array as Float32Array;
-              let i = 0;
-              const wrt = (v: THREE.Vector3) => { array[i++] = v.x; array[i++] = v.y; array[i++] = v.z; };
-              const seg = (a: THREE.Vector3, b: THREE.Vector3) => { wrt(a); wrt(b); };
-              const arr = (tip: THREE.Vector3, inward: THREE.Vector3) => {
-                const side = pD.clone().multiplyScalar(ARR_W);
-                const base = tip.clone().add(inward.clone().multiplyScalar(ARR_LEN));
-                seg(tip, base.clone().add(side));
-                seg(tip, base.clone().sub(side));
-              };
-              seg(sV, dS);
-              seg(eV, dE);
-              seg(dS, dE);
-              const dDir = dE.clone().sub(dS);
-              if (dDir.lengthSq() > 0.01) {
-                const dDirN = dDir.clone().normalize();
-                arr(dS, dDirN);
-                arr(dE, dDirN.clone().negate());
-              }
-              for (let k = 0; k < 24; k++) {
-                const a0 = (angleRad * k) / 24;
-                const a1 = (angleRad * (k + 1)) / 24;
-                const w0 = toWorldPoint(activeSketchPlaneId, [sx + arcR * Math.cos(a0), sy + arcR * Math.sin(a0)], activeSketchPlaneFrame);
-                const w1 = toWorldPoint(activeSketchPlaneId, [sx + arcR * Math.cos(a1), sy + arcR * Math.sin(a1)], activeSketchPlaneFrame);
-                wrt(new THREE.Vector3(w0[0], w0[1], w0[2]));
-                wrt(new THREE.Vector3(w1[0], w1[1], w1[2]));
-              }
-
-              obj.geometry.attributes.position.needsUpdate = true;
-              obj.geometry.setDrawRange(0, i / 3);
-
-              // Update screen positions for HTML input overlay
-              const theRenderer = rendererRef.current;
-              if (theRenderer && cameraRef.current) {
-                const mid = dS.clone().add(dE).multiplyScalar(0.5);
-                const halfA = angleRad / 2;
-                const amw = toWorldPoint(activeSketchPlaneId, [sx + arcR * Math.cos(halfA), sy + arcR * Math.sin(halfA)], activeSketchPlaneFrame);
-                draftDimScreenPositionsRef.current = {};
-                const lenPos = projectWorldPointToViewport([mid.x, mid.y, mid.z], cameraRef.current, theRenderer);
-                if (lenPos) draftDimScreenPositionsRef.current.length = lenPos;
-                const angPos = projectWorldPointToViewport(amw, cameraRef.current, theRenderer);
-                if (angPos) draftDimScreenPositionsRef.current.angle = angPos;
-              }
-            }
-          }
         }
         return;
       }
@@ -8159,10 +8069,19 @@ export function ViewportPanel({
         if (chainBreakRequestedRef.current) {
           chainBreakRequestedRef.current = false;
           lineDraftStartRef.current = null;
+          previousLineAngleRef.current = null;
           scheduleDraftDimensionExpressionUpdate("line");
           clearDraftDimensionSession();
         } else {
           lineDraftStartRef.current = committedEnd;
+          // Store the 2D sketch angle of the committed segment so
+          // the next chained line's angle arc references it instead of
+          // the horizontal axis.
+          const pdx = committedEnd[0] - startX;
+          const pdy = committedEnd[1] - startY;
+          if (Math.hypot(pdx, pdy) > 1e-6) {
+            previousLineAngleRef.current = Math.atan2(pdy, pdx);
+          }
           draftStartMidpointHostRef.current = endHostLineId;
           // Reset the perpendicular host: a fresh draft segment starts
           // from the just-clicked end. Only set it again if that end
@@ -9310,6 +9229,14 @@ export function ViewportPanel({
         local = [ex, (sy + ey) / 2];
         offset = [DRAFT_DIMENSION_OFFSET_PX, 0];
       }
+    } else if (session.tool === "line") {
+      if (field === "angle") {
+        local = [sx, sy];
+        offset = [0, -DRAFT_DIMENSION_OFFSET_PX];
+      } else {
+        local = [(sx + ex) / 2, (sy + ey) / 2];
+        offset = [0, -DRAFT_DIMENSION_OFFSET_PX];
+      }
     } else {
       local = session.start;
       offset = [0, -DRAFT_DIMENSION_OFFSET_PX];
@@ -9379,6 +9306,10 @@ export function ViewportPanel({
     }
     const next = applyDraftDimensionField(session, field, mmValue);
     draftDimensionSessionRef.current = next;
+    // Clear render-loop position so fallback computes fresh position now,
+    // avoiding a one-frame lag where the stale value positions the label
+    // at the previous (shorter) line's midpoint.
+    delete draftDimScreenPositionsRef.current[field];
     setDraftDimensionSession(next);
     setDraftSuggestionState({ field, index: 0 });
   }

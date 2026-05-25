@@ -121,14 +121,14 @@ functional `setState` so toggles compound correctly.
 - React UI must not own CAD state. The core owns documents, features,
   selection, sketch state, and parametric edits.
 - All cross-boundary work uses the JSON IPC protocol. New commands need a
-  schema entry **and** a doc update in `docs/architecture/ipc-protocol.md`.
+  schema entry **and** a doc update in `IPC-Protocol`.
 - Live previews must be real geometry recomputed by the core. The UI may
   poll viewport snapshots; it must not invent geometry locally.
 
 ## What This Pattern Is Not
 
 - It is not a 1:1 visual clone of another CAD product. PolySmith uses the
-  `Midnight Carbon` design language (see `docs/DESIGN.md`).
+  `Midnight Carbon` design language (see `Design-System`).
 - It is not a contract to expose every option from other CAD tools. We add parameters
   only when the core supports them.
 - It is not a license to build modal blocking dialogs. Floating panels are
