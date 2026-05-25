@@ -93,9 +93,9 @@ Inside `handlePointerUp`, there are tool-specific branches:
 
 ---
 
-## Dimension Deletion - Fusion 360 Behavior
+## Dimension Deletion
 
-PolySmith implements Fusion 360-style on-demand dimensions:
+PolySmith implements on-demand dimensions:
 
 - **Drag-only (no typing):** the auto-dimension is deleted after commit
 - **Typed value during preview:** the dimension is preserved
@@ -206,7 +206,7 @@ dimension label dragging). What's missing is the ability to **create a
 dimension on a single entity that doesn't already have one**.
 
 When the user clicks a line or circle whose auto-dimension was deleted (by
-the fusion-style on-demand system), the tool currently just selects the
+the on-demand system), the tool currently just selects the
 entity. It needs to **create** the missing dimension instead.
 
 ### Current State
@@ -347,8 +347,8 @@ created dimensions appear immediately.
 | `apps/desktop-ui/src/lib/ipcProtocol.ts` | Add 3 command builders |
 | `apps/desktop-ui/src/hooks/useCadCore.ts` | Add 3 hooks + refs |
 | `apps/desktop-ui/src/layout/ViewportPanel.tsx` | Replace `selectSketchEntity` with dimension creation + add polygon support |
-| `docs/architecture/ai-cad-command-language.md` | Document new dimension commands |
-| `docs/architecture/ipc-protocol.md` | Document new dimension commands |
+| `AI-CAD-Command-Language` | Document new dimension commands |
+| `IPC-Protocol` | Document new dimension commands |
 
 ---
 

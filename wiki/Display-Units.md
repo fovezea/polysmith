@@ -126,4 +126,4 @@ conversion layer:
 | `apps/desktop-ui/src/layout/ParametersPanel.tsx` | Wire Value column through conversion |
 | `apps/desktop-ui/src/layout/header/AppHeader.tsx` | Add mm/in toggle button |
 | `apps/desktop-ui/src/i18n/en.json` | Add `settings.units` strings |
-| `docs/architecture/ipc-protocol.md` | Document `set_document_units` if the IPC approach is taken |
+| `IPC-Protocol` | Document `set_document_units` if the IPC approach is taken |

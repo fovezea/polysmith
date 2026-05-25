@@ -1114,6 +1114,17 @@ export function ViewportPanel({
   const previewArcRef = useRef<THREE.Line | null>(null);
   const trimSegmentHighlightRef = useRef<THREE.Line | null>(null);
   const trimArcHighlightRef = useRef<THREE.Line | null>(null);
+  const draftDimGroupRef = useRef<THREE.Group | null>(null);
+  /** Reusable scene object for draft dimension lines (create once, update positions in-place). */
+  const draftDimSceneObjRef = useRef<{
+    lines: THREE.LineSegments;
+  } | null>(null);
+  const draftArcTestRef = useRef<THREE.LineSegments | null>(null);
+  // Projected screen positions for draft dimension labels, updated
+  // every frame by the render loop so React can position inputs.
+  const draftDimScreenPositionsRef = useRef<
+    Partial<Record<DraftDimensionField, { x: number; y: number }>>
+  >({});
   const viewCubeGroupRef = useRef<THREE.Group | null>(null);
   const viewCubeSceneRef = useRef<THREE.Scene | null>(null);
   const viewCubeCameraRef = useRef<THREE.OrthographicCamera | null>(null);
@@ -1133,8 +1144,12 @@ export function ViewportPanel({
   // the chain and start an independent line on the next click.
   const lastPointerDownTimeRef = useRef(0);
   const lastPointerDownPosRef = useRef<{ x: number; y: number } | null>(null);
-  const chainBreakRequestedRef = useRef(false);
-  const currentGridSpacingRef = useRef(10);
+const chainBreakRequestedRef = useRef(false);
+// 2D sketch-plane angle (radians) of the last committed line segment,
+// used as the reference for the next chained line's angle arc.
+// null for the first / independent line (defaults to horizontal, 0 rad).
+const previousLineAngleRef = useRef<number | null>(null);
+const currentGridSpacingRef = useRef(10);
   const draftDimensionSessionRef = useRef<DraftDimensionSession | null>(null);
   const draftDimensionInputRefs = useRef<
     Partial<Record<DraftDimensionField, HTMLInputElement | null>>
@@ -2440,6 +2455,38 @@ export function ViewportPanel({
     previewDimensionRef.current = null;
   }
 
+  function clearDraftDimGroup() {
+    const group = draftDimGroupRef.current;
+    const sketchGroup = sketchGroupRef.current;
+    if (!group || !sketchGroup) {
+      return;
+    }
+    sketchGroup.remove(group);
+    group.traverse((child) => {
+      if (child instanceof THREE.Mesh || child instanceof THREE.LineSegments || child instanceof THREE.Line) {
+        child.geometry.dispose();
+        disposeMaterial(child.material);
+      }
+    });
+    draftDimGroupRef.current = null;
+
+    // Also clean up the reusable scene object
+    const sceneObj = draftDimSceneObjRef.current;
+    if (sceneObj && sketchGroup) {
+      sketchGroup.remove(sceneObj.lines);
+      sceneObj.lines.geometry.dispose();
+      disposeMaterial(sceneObj.lines.material);
+      draftDimSceneObjRef.current = null;
+    }
+    const arcTest = draftArcTestRef.current;
+    if (arcTest && sketchGroup) {
+      sketchGroup.remove(arcTest);
+      arcTest.geometry.dispose();
+      disposeMaterial(arcTest.material);
+      draftArcTestRef.current = null;
+    }
+  }
+
   /** Returns the snapped point and a boolean indicating whether grid
    *  snap actually fired. When gridSnap is disabled, returns raw point
    *  with snapped = false. */
@@ -2505,11 +2552,13 @@ export function ViewportPanel({
     Object.values(draftDimensionInputRefs.current).forEach((input) => {
       input?.blur();
     });
+    clearDraftDimGroup();
     setDraftDimensionSession(null);
     draftDimensionSessionRef.current = null;
     draftFieldFocusedRef.current = null;
     draftRawInputRef.current = {};
     draftParameterExpressionRef.current = {};
+    previousLineAngleRef.current = null;
     setDraftSuggestionState(null);
   }
 
@@ -4989,10 +5038,282 @@ export function ViewportPanel({
       controls.update();
     }
 
+    function renderDraftDimensions() {
+      const session = draftDimensionSessionRef.current;
+      const sketchGroup = sketchGroupRef.current;
+      const camera = cameraRef.current;
+      if (!session || !sketchGroup || !camera) {
+        clearDraftDimGroup();
+        return;
+      }
+
+      // Clear previous frame's geometry
+      clearDraftDimGroup();
+
+      const [sx, sy] = session.start;
+      const [ex, ey] = session.current;
+      const dx = ex - sx;
+      const dy = ey - sy;
+      const len = Math.hypot(dx, dy);
+      if (len < 0.001) return;
+
+      // Current implementation handles line tool only.
+      // Rectangle, circle, polygon tools are left working as before
+      // via the existing HTML input overlay.
+      if (session.tool !== "line") {
+        draftDimScreenPositionsRef.current = {};
+        return;
+      }
+
+      const planeId = activeSketchPlaneId ?? "ref-plane-xy";
+      const planeFrame = activeSketchPlaneFrame;
+
+      // Convert 2D sketch coords to 3D world
+      const sw = toWorldPoint(planeId, [sx, sy], planeFrame);
+      const ew = toWorldPoint(planeId, [ex, ey], planeFrame);
+
+      const group = new THREE.Group();
+      group.renderOrder = 6;
+
+      // --- Helper: add line segments to a collection ---
+      const allSegs: THREE.Vector3[] = [];
+      const addSeg = (a: [number, number, number], b: [number, number, number]) => {
+        allSegs.push(new THREE.Vector3(a[0], a[1], a[2]));
+        allSegs.push(new THREE.Vector3(b[0], b[1], b[2]));
+      };
+
+      // --- Compute sketch plane normal ---
+      let pNormal: THREE.Vector3;
+      if (planeFrame) {
+        const nx = Array.isArray(planeFrame.normal) ? planeFrame.normal[0] : planeFrame.normal.x;
+        const ny = Array.isArray(planeFrame.normal) ? planeFrame.normal[1] : planeFrame.normal.y;
+        const nz = Array.isArray(planeFrame.normal) ? planeFrame.normal[2] : planeFrame.normal.z;
+        pNormal = new THREE.Vector3(nx, ny, nz);
+      } else {
+        pNormal = new THREE.Vector3(0, 1, 0);
+      }
+
+      // Line direction and perpendicular (in sketch plane)
+      const sVec = new THREE.Vector3(sw[0], sw[1], sw[2]);
+      const eVec = new THREE.Vector3(ew[0], ew[1], ew[2]);
+      const lineDir = eVec.clone().sub(sVec).normalize();
+      const perpDir = new THREE.Vector3().crossVectors(lineDir, pNormal).normalize();
+
+      // Flip perpDir toward camera
+      const toCam = new THREE.Vector3().copy(camera.position).sub(sVec).normalize();
+      if (perpDir.dot(toCam) < 0) perpDir.negate();
+
+      // Zoom-aware dimension offset (~30 px on screen)
+      const viewH = getOrthographicViewHeight(camera);
+      const vpH = rendererRef.current?.domElement.height ?? 600;
+      const zoomDimOffset = Math.max(4, 30 * viewH / vpH);
+      const ARROW_LEN = 1.5;
+      const ARROW_W = 0.5;
+
+      // --- Length dimension ---
+      const dimLabelPos: [number, number, number] = [0, 0, 0];
+      let angleRad = 0; // hoisted for label position computation below
+      let arcMidWorldLabel: [number, number, number] = [0, 0, 0];
+      if (session.tool === "line") {
+        const dimS = new THREE.Vector3(sw[0], sw[1], sw[2]).add(perpDir.clone().multiplyScalar(-2 * zoomDimOffset));
+        const dimE = new THREE.Vector3(ew[0], ew[1], ew[2]).add(perpDir.clone().multiplyScalar(-2 * zoomDimOffset));
+        const dimDir = dimE.clone().sub(dimS);
+
+        // Extension lines
+        addSeg(sw, [dimS.x, dimS.y, dimS.z]);
+        addSeg(ew, [dimE.x, dimE.y, dimE.z]);
+
+        if (dimDir.lengthSq() > 0.001) {
+          const dimDirN = dimDir.clone().normalize();
+
+          // Dimension line
+          addSeg([dimS.x, dimS.y, dimS.z], [dimE.x, dimE.y, dimE.z]);
+
+          // Arrowheads
+          const addArrow = (tip: THREE.Vector3, inward: THREE.Vector3) => {
+            const side = perpDir.clone().multiplyScalar(ARROW_W);
+            const base = tip.clone().add(inward.clone().multiplyScalar(ARROW_LEN));
+            addSeg(
+              [tip.x, tip.y, tip.z],
+              [base.x + side.x, base.y + side.y, base.z + side.z],
+            );
+            addSeg(
+              [tip.x, tip.y, tip.z],
+              [base.x - side.x, base.y - side.y, base.z - side.z],
+            );
+          };
+
+          addArrow(dimS, dimDirN);
+          addArrow(dimE, dimDirN.clone().negate());
+
+          // Label position = midpoint of dimension line
+          const mid = dimS.clone().add(dimE).multiplyScalar(0.5);
+          dimLabelPos[0] = mid.x;
+          dimLabelPos[1] = mid.y;
+          dimLabelPos[2] = mid.z;
+        }
+
+        // --- Dotted extension + reference line + angle arc ---
+        angleRad = Math.atan2(dy, dx);
+        const lineLen = Math.hypot(dx, dy);
+
+        // Determine reference angle: previous chained line, or horizontal (0)
+        const refAngle = previousLineAngleRef.current ?? 0;
+
+        // Compute relative display angle (shorter arc direction)
+        let displayAngle = angleRad - refAngle;
+        while (displayAngle > Math.PI) displayAngle -= 2 * Math.PI;
+        while (displayAngle < -Math.PI) displayAngle += 2 * Math.PI;
+        // Negate so arc and length dimension occupy opposite sides.
+        // Preserves angle magnitude, just flips the sweep direction.
+        // Arc sweeps the natural shorter direction (CCW for positive angles).
+
+        // --- Dotted cursor extension (from cursor outward) ---
+        const extLen = Math.max(12, lineLen * 0.35);
+        const extEndLocalX = ex + (dx / lineLen) * extLen;
+        const extEndLocalY = ey + (dy / lineLen) * extLen;
+        {
+          const esw = toWorldPoint(planeId, [ex, ey], planeFrame);
+          const eew = toWorldPoint(planeId, [extEndLocalX, extEndLocalY], planeFrame);
+          const extGeom = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(esw[0], esw[1], esw[2]),
+            new THREE.Vector3(eew[0], eew[1], eew[2]),
+          ]);
+          const extMat = new THREE.LineDashedMaterial({
+            color: new THREE.Color(0x8feaf7), transparent: true,
+            opacity: 0.45, dashSize: 2, gapSize: 1.5, depthTest: false,
+          });
+          const extLine = new THREE.Line(extGeom, extMat);
+          extLine.computeLineDistances();
+          extLine.renderOrder = 7;
+          group.add(extLine);
+        }
+
+        // --- Dotted reference line from start point along reference angle ---
+        const refLineLen = Math.max(12, lineLen * 0.28);
+        {
+          const rsw = toWorldPoint(planeId, [sx, sy], planeFrame);
+          const rex = sx + refLineLen * Math.cos(refAngle);
+          const rey = sy + refLineLen * Math.sin(refAngle);
+          const rew = toWorldPoint(planeId, [rex, rey], planeFrame);
+          const refGeom = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(rsw[0], rsw[1], rsw[2]),
+            new THREE.Vector3(rew[0], rew[1], rew[2]),
+          ]);
+          const refMat = new THREE.LineDashedMaterial({
+            color: new THREE.Color(0x8feaf7), transparent: true,
+            opacity: 0.40, dashSize: 2, gapSize: 2, depthTest: false,
+          });
+          const refLine = new THREE.Line(refGeom, refMat);
+          refLine.computeLineDistances();
+          refLine.renderOrder = 7;
+          group.add(refLine);
+        }
+
+        // --- Angle arc centered at line start, sweeping refAngle → angleRad ---
+        // Zoom-aware cap so the arc stays ~480 px on screen.
+        const zoomCap = Math.max(20, 480 * viewH / vpH);
+        const arcRadius = Math.max(8, Math.min(lineLen, zoomCap));
+        const arcSweep = displayAngle;
+        const arcSegments = 24;
+        let prevArc: THREE.Vector3 | null = null;
+        let arcStartWorldPt: [number, number, number] = [0, 0, 0];
+        let arcEndWorldPt: [number, number, number] = [0, 0, 0];
+        for (let i = 0; i <= arcSegments; i++) {
+          const a = refAngle + arcSweep * (i / arcSegments);
+          const lx = sx + arcRadius * Math.cos(a);
+          const ly = sy + arcRadius * Math.sin(a);
+          const wp = toWorldPoint(planeId, [lx, ly], planeFrame);
+          const p = new THREE.Vector3(wp[0], wp[1], wp[2]);
+          if (i === 0) arcStartWorldPt = wp;
+          if (i === arcSegments) arcEndWorldPt = wp;
+          if (prevArc) addSeg([prevArc.x, prevArc.y, prevArc.z], [p.x, p.y, p.z]);
+          prevArc = p;
+        }
+
+        // Arrowheads at arc ends
+        const addArcArrow = (tipWorld: [number, number, number], tipAngle: number) => {
+          const tip = new THREE.Vector3(tipWorld[0], tipWorld[1], tipWorld[2]);
+          const tlx = sx + arcRadius * Math.cos(tipAngle) - arcRadius * Math.sin(tipAngle);
+          const tly = sy + arcRadius * Math.sin(tipAngle) + arcRadius * Math.cos(tipAngle);
+          const tw = toWorldPoint(planeId, [tlx, tly], planeFrame);
+          const tanDir = new THREE.Vector3(tw[0], tw[1], tw[2]).sub(tip).normalize();
+          const radDir = tip.clone().sub(sVec).normalize();
+          const base = tip.clone().add(tanDir.clone().multiplyScalar(1.0));
+          const side = radDir.clone().multiplyScalar(0.35);
+          addSeg([tip.x, tip.y, tip.z], [base.x + side.x, base.y + side.y, base.z + side.z]);
+          addSeg([tip.x, tip.y, tip.z], [base.x - side.x, base.y - side.y, base.z - side.z]);
+        };
+        addArcArrow(arcStartWorldPt, refAngle);
+        addArcArrow(arcEndWorldPt, angleRad);
+
+        // Arc midpoint for label positioning
+        arcMidWorldLabel = toWorldPoint(planeId, [
+          sx + arcRadius * Math.cos(refAngle + arcSweep / 2),
+          sy + arcRadius * Math.sin(refAngle + arcSweep / 2),
+        ], planeFrame);
+      }
+
+      // (diagnostic line removed)
+
+      // Build line geometry
+      const segCount = allSegs.length;
+      if (segCount > 0) {
+        const positions = new Float32Array(segCount * 3);
+        for (let i = 0; i < segCount; i++) {
+          positions[i * 3] = allSegs[i].x;
+          positions[i * 3 + 1] = allSegs[i].y;
+          positions[i * 3 + 2] = allSegs[i].z;
+        }
+        const geom = new THREE.BufferGeometry();
+        geom.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+        const mat = new THREE.LineBasicMaterial({
+          color: new THREE.Color(0x8feaf7),
+          transparent: true,
+          opacity: 0.78,
+          depthTest: false,
+        });
+        const line = new THREE.LineSegments(geom, mat);
+        line.renderOrder = 6;
+        group.add(line);
+      }
+
+      // Store computed label positions for HTML input overlay
+      draftDimScreenPositionsRef.current = {};
+      if (session.tool === "line") {
+        const theRenderer = rendererRef.current;
+        if (theRenderer) {
+          // Length label at dimension line midpoint
+          const lenLabelProj = projectWorldPointToViewport(
+            dimLabelPos, camera, theRenderer,
+          );
+          if (lenLabelProj) {
+            draftDimScreenPositionsRef.current.length = lenLabelProj;
+          }
+          // Angle label at arc midpoint
+          const angleLabelProj = projectWorldPointToViewport(
+            arcMidWorldLabel, camera, theRenderer,
+          );
+          if (angleLabelProj) {
+            draftDimScreenPositionsRef.current.angle = angleLabelProj;
+          }
+        }
+      }
+
+      sketchGroup.add(group);
+      draftDimGroupRef.current = group;
+    }
+
     function render() {
       controls.update();
       updateDynamicGrids();
       updateScreenSpaceSketchSprites();
+      try {
+        renderDraftDimensions();
+      } catch (err) {
+        console.warn("renderDraftDimensions error:", err);
+        clearDraftDimGroup();
+      }
       renderer.render(scene, camera);
       renderViewCube();
 
@@ -7748,10 +8069,19 @@ export function ViewportPanel({
         if (chainBreakRequestedRef.current) {
           chainBreakRequestedRef.current = false;
           lineDraftStartRef.current = null;
+          previousLineAngleRef.current = null;
           scheduleDraftDimensionExpressionUpdate("line");
           clearDraftDimensionSession();
         } else {
           lineDraftStartRef.current = committedEnd;
+          // Store the 2D sketch angle of the committed segment so
+          // the next chained line's angle arc references it instead of
+          // the horizontal axis.
+          const pdx = committedEnd[0] - startX;
+          const pdy = committedEnd[1] - startY;
+          if (Math.hypot(pdx, pdy) > 1e-6) {
+            previousLineAngleRef.current = Math.atan2(pdy, pdx);
+          }
           draftStartMidpointHostRef.current = endHostLineId;
           // Reset the perpendicular host: a fresh draft segment starts
           // from the just-clicked end. Only set it again if that end
@@ -7774,6 +8104,8 @@ export function ViewportPanel({
             committedEnd,
             committedEnd,
           );
+          // Clear previous line's scene object so the next line gets a fresh one
+          clearDraftDimGroup();
           draftDimensionSessionRef.current = nextLineSession;
           setDraftDimensionSession(nextLineSession);
           focusDraftField(nextLineSession.activeField);
@@ -8866,31 +9198,44 @@ export function ViewportPanel({
   }
 
   function draftFieldScreenPosition(field: DraftDimensionField) {
-    if (!draftDimensionSession || !cameraRef.current || !rendererRef.current) {
+    const session = draftDimensionSession;
+    // For line tool, use the render-loop-computed screen positions from
+    // the 3D dimension lines. These are updated every frame and match
+    // the Three.js geometry drawn in renderDraftDimensions().
+    if (session?.tool === "line") {
+      const fromRef = draftDimScreenPositionsRef.current[field];
+      if (fromRef) {
+        return fromRef;
+      }
+      // Fall through to legacy path if the render loop hasn't computed
+      // positions yet (e.g., first frame).
+    }
+
+    if (!cameraRef.current || !rendererRef.current) {
       return null;
     }
-    const session = draftDimensionSession;
+    if (!session) return null;
+
     const [sx, sy] = session.start;
     const [ex, ey] = session.current;
     let local: [number, number] = session.current;
     let offset: [number, number] = [0, -DRAFT_DIMENSION_OFFSET_PX];
 
-    if (session.tool === "line") {
-      if (field === "angle") {
-        // Angle badge near the start point, offset upward from the line.
-        local = [sx, sy];
-        offset = [-DRAFT_DIMENSION_OFFSET_PX, -DRAFT_DIMENSION_OFFSET_PX];
-      } else {
-        // Length badge at the line's midpoint.
-        local = [(sx + ex) / 2, (sy + ey) / 2];
-      }
-    } else if (session.tool === "rectangle") {
+    if (session.tool === "rectangle") {
       if (field === "width") {
         local = [(sx + ex) / 2, sy];
         offset = [0, -DRAFT_DIMENSION_OFFSET_PX];
       } else {
         local = [ex, (sy + ey) / 2];
         offset = [DRAFT_DIMENSION_OFFSET_PX, 0];
+      }
+    } else if (session.tool === "line") {
+      if (field === "angle") {
+        local = [sx, sy];
+        offset = [0, -DRAFT_DIMENSION_OFFSET_PX];
+      } else {
+        local = [(sx + ex) / 2, (sy + ey) / 2];
+        offset = [0, -DRAFT_DIMENSION_OFFSET_PX];
       }
     } else {
       local = session.start;
@@ -8961,6 +9306,10 @@ export function ViewportPanel({
     }
     const next = applyDraftDimensionField(session, field, mmValue);
     draftDimensionSessionRef.current = next;
+    // Clear render-loop position so fallback computes fresh position now,
+    // avoiding a one-frame lag where the stale value positions the label
+    // at the previous (shorter) line's midpoint.
+    delete draftDimScreenPositionsRef.current[field];
     setDraftDimensionSession(next);
     setDraftSuggestionState({ field, index: 0 });
   }

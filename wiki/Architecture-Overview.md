@@ -2,7 +2,7 @@
 
 PolySmith is a local-first desktop CAD application built with a strict separation between UI and modeling logic.
 
-For near-term implementation priorities and milestones, see `docs/roadmap/v1-roadmap.md`.
+For near-term implementation priorities and milestones, see `V1-Roadmap`.
 
 ## High-Level Architecture
 
