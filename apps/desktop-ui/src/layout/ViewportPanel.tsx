@@ -2487,6 +2487,7 @@ const currentGridSpacingRef = useRef(10);
     }
   }
 
+
   /** Returns the snapped point and a boolean indicating whether grid
    *  snap actually fired. When gridSnap is disabled, returns raw point
    *  with snapped = false. */

@@ -884,3 +884,27 @@ uploads per second. Both removed.
 #### Files changed
 - `apps/desktop-ui/src/layout/ViewportPanel.tsx` — all changes
   (~95 lines net removed, ~50 lines changed)
+
+### Committed Dimension Style Matching — Planning (2026-05-25)
+
+Committed line dimensions currently use `buildSketchDimensionObject` which
+renders fixed-size geometry from C++ core data. They lack the preview's
+zoom-aware offsets, reference lines, and angle arc style.
+
+**Two approaches evaluated:**
+
+1. **C++ core approach** — extend IPC schema and core dimension computation to
+   emit preview-style geometry (reference lines, zoom-aware offsets, arc data).
+   Thorough but spans C++/protocol/TypeScript layers.
+
+2. **Frontend approach (chosen)** — compute committed line dimension rendering
+   client-side from existing `sceneData.sketchLines` + `displayedSketchDimensions`,
+   reusing the same rendering pipeline built for the draft preview. No IPC changes,
+   negligible perf (~1-5 dims per sketch vs preview's 60fps). Non-line dimensions
+   (circle, rectangle) stay on the C++ path until their previews are modernized.
+
+#### Decision
+Use frontend approach. Render committed line-type dimensions through the same
+zoom-aware, reference-line-equipped pipeline as `renderDraftDimensions`.
+Circle/rectangle/polygon dimensions continue using `buildSketchDimensionObject`
+until their draft previews are upgraded.
