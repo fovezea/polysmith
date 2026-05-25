@@ -1078,3 +1078,15 @@ the sketch viewport. Full plan at [Sketch-Selection-Controls](Sketch-Selection-C
 | Arc | Both endpoints + midpoint inside | Any endpoint or arc crossing |
 | Point | Point inside | Point inside |
 | Polygon | All vertices inside | Any vertex or edge inside |
+
+#### Status: implemented (2026-05-26)
+
+Single file implementation in `ViewportPanel.tsx`:
+- `handlePointerDown` starts drag on empty canvas (Select mode, no hit)
+- `handlePointerMove` updates rectangle, disables orbit during drag
+- `handlePointerUp` runs `performRectangleSelect` and sends IPC
+- Canvas-space projection via `projectWorldPointToViewport`
+- Segment intersection for crossing mode (Cohen-Sutherland variant)
+- HTML overlay div with blue/green border and translucent fill
+
+No TS regressions. No core changes needed.

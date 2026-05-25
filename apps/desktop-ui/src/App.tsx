@@ -3246,6 +3246,13 @@ function App() {
                   await handleSketchConstraintLinePick(entityId, additive);
                 });
               }}
+              onBatchSelectEntities={async (entityIds, additive) => {
+                await runAction(async () => {
+                  for (const id of entityIds) {
+                    await selectSketchEntity(id, additive);
+                  }
+                });
+              }}
               onPickSketchPoint={async (pointId, kind, additive) => {
                 await runAction(async () => {
                   await handleSketchConstraintPointPick(
