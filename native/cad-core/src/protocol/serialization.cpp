@@ -1701,6 +1701,28 @@ json to_payload(const polysmith::core::ViewportSketchDimensionPrimitive& primiti
            {"y", primitive.label_y},
            {"z", primitive.label_z},
        }},
+      {"arc_center",
+       {
+           {"x", primitive.arc_center_x},
+           {"y", primitive.arc_center_y},
+           {"z", primitive.arc_center_z},
+       }},
+      {"arc_radius", primitive.arc_radius},
+      {"arc_start_angle", primitive.arc_start_angle},
+      {"arc_end_angle", primitive.arc_end_angle},
+      {"arc_ccw", primitive.arc_ccw},
+      {"ref_line_start",
+       {
+           {"x", primitive.ref_line_start_x},
+           {"y", primitive.ref_line_start_y},
+           {"z", primitive.ref_line_start_z},
+       }},
+      {"ref_line_end",
+       {
+           {"x", primitive.ref_line_end_x},
+           {"y", primitive.ref_line_end_y},
+           {"z", primitive.ref_line_end_z},
+       }},
   };
 }
 

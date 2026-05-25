@@ -159,8 +159,8 @@ Small individually but they shape day-to-day usability:
    constraint badges. Inference engine auto-creates coincident/
    concentric constraints. Remaining: perpendicular snap, driven
    dimension proposal, DOF color legend.
-   See `docs/implementation-log.md` (2026-05-23/24) and
-   `wiki/polysmith.wiki/Sketch-Selection-Controls.md`.
+   See [Implementation-Log](Implementation-Log) (2026-05-23/24) and
+   [Sketch-Selection-Controls](Sketch-Selection-Controls).
 
 Each row above maps cleanly onto the existing contextual modeling action pattern
 (select inputs → invoke action → floating panel → live preview →

@@ -4,20 +4,19 @@ Guidelines for AI-assisted development (Codex, ChatGPT, etc.)
 
 ## Documentation
 
-All project documentation lives in `wiki/polysmith.wiki/`. The `docs/`
-directory is deprecated and must not be read or written to.
+All project documentation lives in `wiki/`.
 
 New sessions should read the onboarding guide at `.deepseek/instructions.md`
 for a recommended reading order. At minimum, read these pages first to
 understand the system:
 
-- `wiki/polysmith.wiki/Architecture-Overview.md` — system layout
-- `wiki/polysmith.wiki/Contextual-Modeling-Workflow.md` — binding UX pattern
-- `wiki/polysmith.wiki/IPC-Protocol.md` — communication contract
-- `wiki/polysmith.wiki/Topological-Naming-Problem.md` — the project's mantra
+- `wiki/Architecture-Overview.md` — system layout
+- `wiki/Contextual-Modeling-Workflow.md` — binding UX pattern
+- `wiki/IPC-Protocol.md` — communication contract
+- `wiki/Topological-Naming-Problem.md` — the project's mantra
 
-When adding new documentation, create the file in `wiki/polysmith.wiki/` and
-add a link from `wiki/polysmith.wiki/Home.md`.
+When adding new documentation, create the file in `wiki/` and
+add a link from `wiki/Home.md`.
 
 ## Core Principles
 
@@ -46,7 +45,7 @@ add a link from `wiki/polysmith.wiki/Home.md`.
 - All communication must follow the defined schema.
 - Always update protocol docs when changing messages.
 - When IPC commands, payloads, responses, or CAD-agent workflows change, also
-  update `wiki/polysmith.wiki/AI-CAD-Command-Language.md` so coding agents keep
+  update `wiki/AI-CAD-Command-Language.md` so coding agents keep
   the app's CAD command language current.
 
 ## Workflow Expectations
@@ -68,7 +67,7 @@ against live body shapes on every recompute. When resolution fails,
 degrade gracefully with `dependency_broken` + a warning — never crash or
 produce garbage.
 
-Full strategy: `wiki/polysmith.wiki/Topological-Naming-Problem.md`
+Full strategy: `wiki/Topological-Naming-Problem.md`
 
 ## Testing
 
@@ -88,7 +87,7 @@ PolySmith follows a **contextual modeling workflow** for all modeling
 features: select inputs → invoke action → floating context panel with real
 geometry preview → confirm or cancel.
 
-This pattern is documented in `wiki/polysmith.wiki/Contextual-Modeling-Workflow.md`
+This pattern is documented in `wiki/Contextual-Modeling-Workflow.md`
 and is binding for new features.
 
 ## UI Copy Rules
@@ -113,7 +112,7 @@ and is binding for new features.
 - Keep theme-specific palette values, including Catppuccin colors, inside the
   theme JSON files. Components should remain theme-agnostic.
 - When adding a third-party palette theme, preserve clear attribution in
-  `wiki/polysmith.wiki/Design-System.md` and keep user-visible theme names properly credited.
+  `wiki/Design-System.md` and keep user-visible theme names properly credited.
 
 ## Philosophy
 

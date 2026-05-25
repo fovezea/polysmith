@@ -173,7 +173,7 @@ Auto-dimensions use `dim-<prefix>-<entity_id>`: `dim-line-line-1`, `dim-circle-c
 - established a strict JSON IPC path between UI and native core
 - moved native CAD startup, document handling, and protocol logic out of `main.cpp`
 - moved Tauri process management and protocol forwarding out of `main.rs`
-- documented roadmap, protocol direction, and onboarding updates in `docs/`
+- documented roadmap, protocol direction, and onboarding updates in `wiki/`
 
 ### Core Document Foundation
 
@@ -198,7 +198,7 @@ Auto-dimensions use `dim-<prefix>-<entity_id>`: `dim-line-line-1`, `dim-circle-c
 
 ### UI Rebuild
 
-- adopted the `Midnight Carbon` design direction from `docs/DESIGN.md`
+- adopted the `Midnight Carbon` design direction from [Design-System](Design-System)
 - added Tailwind-based styling and font setup
 - rebuilt the desktop shell into a more CAD-like workspace layout
 - introduced a top mode header, floating command bar, side panels, and bottom feature timeline
@@ -811,7 +811,7 @@ onRightClick(idle):
 
 ### Trim Tool — Planning (2026-05-24)
 
-Full implementation plan written at `wiki/polysmith.wiki/Trim-Tool-Implementation-Plan.md`.
+Full implementation plan written at [Trim-Tool-Implementation-Plan](Trim-Tool-Implementation-Plan).
 Summary:
 
 - **New core module:** `trim_engine.h/.cpp` — intersection detection, entity
@@ -884,3 +884,197 @@ uploads per second. Both removed.
 #### Files changed
 - `apps/desktop-ui/src/layout/ViewportPanel.tsx` — all changes
   (~95 lines net removed, ~50 lines changed)
+
+### Committed Dimension Style Matching — Planning (2026-05-25)
+
+Committed line dimensions currently use `buildSketchDimensionObject` which
+renders fixed-size geometry from C++ core data. They lack the preview's
+zoom-aware offsets, reference lines, and angle arc style.
+
+**Two approaches evaluated:**
+
+1. **C++ core approach** — extend IPC schema and core dimension computation to
+   emit preview-style geometry (reference lines, zoom-aware offsets, arc data).
+   Thorough but spans C++/protocol/TypeScript layers.
+
+2. **Frontend approach (chosen)** — compute committed line dimension rendering
+   client-side from existing `sceneData.sketchLines` + `displayedSketchDimensions`,
+   reusing the same rendering pipeline built for the draft preview. No IPC changes,
+   negligible perf (~1-5 dims per sketch vs preview's 60fps). Non-line dimensions
+   (circle, rectangle) stay on the C++ path until their previews are modernized.
+
+#### Original decision (under reconsideration)
+
+Initially chose the frontend approach: render committed line-type dimensions
+through the same zoom-aware pipeline as `renderDraftDimensions`, reusing
+client-side data without IPC changes.
+
+#### Reconsideration (2026-05-25)
+
+Concerns with the frontend approach:
+
+- **Architectural boundary.** The project rule is that React must not own
+  CAD state or compute geometry. Having the frontend derive dimension
+  geometry from scene data sets a precedent that breaks this boundary.
+- **Consistency.** Every other dimension path (circle, rectangle, polygon,
+  arcs, angle, distance) goes through the C++ core → IPC → `buildSketchDimensionObject`.
+  A frontend-only path for line dimensions creates a split that future
+  contributors will trip over.
+- **Scaling.** On large projects with many committed dimensions, frontend
+  recomputation at render time may regress vs the core's single-pass
+  geometry emission.
+- **Long-term advantage of core path.** The C++ core approach extends the
+  IPC dimension schema once and benefits every dimension type uniformly,
+  not just lines. It also enables the same zoom-aware rendering for
+  non-draft-preview contexts (e.g. dimension-only view, printing,
+  future 2D drawing workspace).
+
+The core path remains the architecturally sound direction. The frontend
+approach is noted as a quicker visual match to the draft preview but carries
+long-term debt. Final decision pending further evaluation.
+
+### Draft Dimension Visualization — Formal Specification (2026-05-25)
+
+The draft preview rendering rules in `renderDraftDimensions()` were
+extracted into a formal specification in
+[Draft-Dimension-Visualization](Draft-Dimension-Visualization).
+These rules must be the reference for any committed dimension
+restyling — regardless of whether the implementation is C++ core or
+frontend.
+
+**Zoom formulas** (computed per frame):
+
+```
+viewH         = (camera.top - camera.bottom) / camera.zoom
+vpH           = renderer.domElement.height
+zoomDimOffset = max(4, 30 × viewH / vpH)      // ≈30 px
+zoomCap       = max(20, 480 × viewH / vpH)     // ≈480 px
+```
+
+**Length dimension:**
+- Offset direction: `-perpDir` (flipped toward camera) — opposite
+  side from the angle arc
+- Dimension line offset: `-2 × zoomDimOffset × perpDir` (~60 px)
+- Extension lines from entity endpoints to dimension line endpoints
+- Arrowheads at both ends, oriented inward
+- Label at dimension line midpoint
+
+**Angle arc:**
+- Center: line start point (pivot)
+- Radius: `max(8, min(lineLen, zoomCap))` — follows rubber band, clamps
+  at zoom cap, hard minimum of 8
+- Sweep: `refAngle → angleRad`, shorter path (normalised to [-π, π])
+- CCW direction places arc opposite to length dimension
+- Arrowheads at sweep endpoints, tangential to arc
+- Label at arc midpoint
+
+**Reference line (angle):** `max(12, lineLen × 0.28)` from start along
+`refAngle`, dashed
+
+**Cursor extension:** `max(12, lineLen × 0.35)` from cursor outward,
+dashed
+
+**Angle reference:** `previousLineAngleRef` — horizontal (0) for first
+line, previous committed segment angle for chained lines
+
+---
+
+### C++ Core Arc Geometry — Committed Dimension Restyling Start (2026-05-25)
+
+Extended the C++ core to emit enriched arc and reference-line geometry
+for angle dimensions, and wired it through the full stack:
+
+**C++ Core:**
+- `viewport.h`: added 13 fields to `ViewportSketchDimensionPrimitive` —
+  arc center/radius/start-angle/end-angle/ccw, reference-line start/end
+- `viewport.cpp:make_line_angle_dimension_primitive`: computes arc sweep
+  (cross-product sign for CCW), reference line along reference direction,
+  arc center at pivot — all in world space
+- `serialization.cpp`: serializes all new fields as IPC JSON
+
+**TypeScript types & pipeline:**
+- `viewport.ts`: `ViewportSketchDimension` interface with optional
+  arc/reference-line fields
+- `scene.ts`: `SketchDimensionScene` with matching optional camelCase fields
+- `viewportScene.ts`: `makeSketchDimension` maps IPC snake_case → scene tuples
+- `ipcSchema.ts`: Zod validator accepts new optional fields
+- `viewport.utils.ts`: `buildSketchDimensionObject` prefers core-provided arc
+  data when available (`arcRadius > 0 && arcCenter`), falls back to existing
+  client-side collinear-ray reconstruction for legacy data
+
+No TS regressions (same 26 pre-existing errors).
+
+### Two-Line Angle Arc + Zoom-Aware Scaling (2026-05-25)
+
+Extended the same arc/reference-line geometry to the two-line angle
+dimension primitive (`make_angle_dimension_primitive` in `viewport.cpp`),
+and added zoom-aware scaling for all committed dimension groups.
+
+**C++ Core:**
+- `viewport.cpp:make_angle_dimension_primitive` — computes arc sweep
+  from line-A direction to line-B direction, reference line along
+  line A, arc center at the shared pivot endpoint
+
+**Zoom-aware scaling (frontend):**
+- Every frame in `render()`, before `renderer.render()`: computes
+  `zoomFactor = max(0.5, min(30 × viewH / vpH, 6.0))` from the
+  orthographic camera and applies it uniformly to every committed
+  dimension group via `obj.scale.setScalar(zoomFactor)`
+- Label sprites are separate objects — not scaled
+- The zoomFactor range [0.5, 6.0] prevents arrows from disappearing
+  at extreme zoom-out and from overwhelming the canvas at zoom-in
+- Formula matches the draft preview's `zoomDimOffset / 2` convention
+
+#### Bugfix — zoom scaling reverted (2026-05-25)
+
+Uniform scaling of dimension groups from origin `(0,0,0)` pushes
+world-space geometry radially away — wrong for committed dimensions
+whose geometry IS world-space position. The zoom-aware scaling
+was reverted from the render loop. Zoom-aware committed dimensions
+need a different mechanism (recompute offset in world space, not
+scale).
+
+#### Fix — arc radius proportional to line length
+
+Committed angle dimensions now use a dynamic arc radius instead of
+the fixed 6.0 world units:
+- `make_line_angle_dimension_primitive`: `max(4, min(lineLength × 0.5, 30))`
+- `make_angle_dimension_primitive`: `max(4, min(shorterLineLen × 0.5, 30))`
+- `kLabelRadius` follows the arc (`kArcRadius + 3`) so the label stays
+  outside the arc at any size.
+
+#### Bugfix — raycaster recursion
+
+Changed `raycaster.intersectObjects` call for dimension hit
+detection from `recursive: false` to `recursive: true`, because
+`buildSketchDimensionObject` now returns a `THREE.Group` (containing
+LineSegments + optional arrow Mesh) instead of a bare
+`THREE.LineSegments`. Both children carry `userData.sketchDimensionId`.
+
+---
+
+### Viewport Rectangle Selection — Planning (2026-05-26)
+
+Design doc and implementation plan for rectangular drag selection in
+the sketch viewport. Full plan at [Sketch-Selection-Controls](Sketch-Selection-Controls).
+
+**Industry standard:**
+- **Left → Right (window):** solid blue rectangle, selects fully enclosed entities
+- **Right → Left (crossing):** dashed green rectangle, selects any touching/crossing entity
+
+**Implementation approach:**
+- All frontend — no core changes needed
+- Existing IPC primitives: `clear_selection` + `select_sketch_entity { additive: true }`
+- Selection rectangle: HTML `<div>` overlay (fast, no Three.js overhead)
+- Selection algorithm: project 3D entity points to screen space via
+  `projectWorldPointToViewport`, then 2D rectangle hit testing
+
+**Entity hit test per mode:**
+
+| Entity | Window (L→R) | Crossing (R→L) |
+|---|---|---|
+| Line | Both endpoints inside | Any endpoint inside, or segment crosses rect |
+| Circle | Entire bounding box inside | Center or any quadrant inside |
+| Arc | Both endpoints + midpoint inside | Any endpoint or arc crossing |
+| Point | Point inside | Point inside |
+| Polygon | All vertices inside | Any vertex or edge inside |

@@ -2487,6 +2487,7 @@ const currentGridSpacingRef = useRef(10);
     }
   }
 
+
   /** Returns the snapped point and a boolean indicating whether grid
    *  snap actually fired. When gridSnap is disabled, returns raw point
    *  with snapped = false. */
@@ -5082,6 +5083,23 @@ const currentGridSpacingRef = useRef(10);
         allSegs.push(new THREE.Vector3(b[0], b[1], b[2]));
       };
 
+      // Filled arrow triangle collection
+      const arrowPositions: number[] = [];
+      const arrowIndices: number[] = [];
+      const addFilledArrow = (
+        tip: THREE.Vector3,
+        inward: THREE.Vector3,
+        perp: THREE.Vector3,
+      ) => {
+        const base = tip.clone().add(inward.clone().multiplyScalar(ARROW_LEN));
+        const side = perp.clone().multiplyScalar(ARROW_W);
+        const idx = arrowPositions.length / 3;
+        arrowPositions.push(tip.x, tip.y, tip.z);
+        arrowPositions.push(base.x + side.x, base.y + side.y, base.z + side.z);
+        arrowPositions.push(base.x - side.x, base.y - side.y, base.z - side.z);
+        arrowIndices.push(idx, idx + 1, idx + 2);
+      };
+
       // --- Compute sketch plane normal ---
       let pNormal: THREE.Vector3;
       if (planeFrame) {
@@ -5108,7 +5126,7 @@ const currentGridSpacingRef = useRef(10);
       const vpH = rendererRef.current?.domElement.height ?? 600;
       const zoomDimOffset = Math.max(4, 30 * viewH / vpH);
       const ARROW_LEN = 1.5;
-      const ARROW_W = 0.5;
+      const ARROW_W = 0.27;
 
       // --- Length dimension ---
       const dimLabelPos: [number, number, number] = [0, 0, 0];
@@ -5129,22 +5147,9 @@ const currentGridSpacingRef = useRef(10);
           // Dimension line
           addSeg([dimS.x, dimS.y, dimS.z], [dimE.x, dimE.y, dimE.z]);
 
-          // Arrowheads
-          const addArrow = (tip: THREE.Vector3, inward: THREE.Vector3) => {
-            const side = perpDir.clone().multiplyScalar(ARROW_W);
-            const base = tip.clone().add(inward.clone().multiplyScalar(ARROW_LEN));
-            addSeg(
-              [tip.x, tip.y, tip.z],
-              [base.x + side.x, base.y + side.y, base.z + side.z],
-            );
-            addSeg(
-              [tip.x, tip.y, tip.z],
-              [base.x - side.x, base.y - side.y, base.z - side.z],
-            );
-          };
-
-          addArrow(dimS, dimDirN);
-          addArrow(dimE, dimDirN.clone().negate());
+          // Arrowheads (filled triangles)
+          addFilledArrow(dimS, dimDirN, perpDir);
+          addFilledArrow(dimE, dimDirN.clone().negate(), perpDir);
 
           // Label position = midpoint of dimension line
           const mid = dimS.clone().add(dimE).multiplyScalar(0.5);
@@ -5231,7 +5236,7 @@ const currentGridSpacingRef = useRef(10);
           prevArc = p;
         }
 
-        // Arrowheads at arc ends
+        // Filled arrowheads at arc ends
         const addArcArrow = (tipWorld: [number, number, number], tipAngle: number) => {
           const tip = new THREE.Vector3(tipWorld[0], tipWorld[1], tipWorld[2]);
           const tlx = sx + arcRadius * Math.cos(tipAngle) - arcRadius * Math.sin(tipAngle);
@@ -5239,10 +5244,7 @@ const currentGridSpacingRef = useRef(10);
           const tw = toWorldPoint(planeId, [tlx, tly], planeFrame);
           const tanDir = new THREE.Vector3(tw[0], tw[1], tw[2]).sub(tip).normalize();
           const radDir = tip.clone().sub(sVec).normalize();
-          const base = tip.clone().add(tanDir.clone().multiplyScalar(1.0));
-          const side = radDir.clone().multiplyScalar(0.35);
-          addSeg([tip.x, tip.y, tip.z], [base.x + side.x, base.y + side.y, base.z + side.z]);
-          addSeg([tip.x, tip.y, tip.z], [base.x - side.x, base.y - side.y, base.z - side.z]);
+          addFilledArrow(tip, tanDir, radDir);
         };
         addArcArrow(arcStartWorldPt, refAngle);
         addArcArrow(arcEndWorldPt, angleRad);
@@ -5276,6 +5278,26 @@ const currentGridSpacingRef = useRef(10);
         const line = new THREE.LineSegments(geom, mat);
         line.renderOrder = 6;
         group.add(line);
+      }
+
+      // Build filled arrow mesh
+      if (arrowIndices.length > 0) {
+        const arrowGeom = new THREE.BufferGeometry();
+        arrowGeom.setAttribute(
+          "position",
+          new THREE.Float32BufferAttribute(arrowPositions, 3),
+        );
+        arrowGeom.setIndex(arrowIndices);
+        const arrowMat = new THREE.MeshBasicMaterial({
+          color: new THREE.Color(0x8feaf7),
+          transparent: true,
+          opacity: 0.78,
+          depthTest: false,
+          side: THREE.DoubleSide,
+        });
+        const arrowMesh = new THREE.Mesh(arrowGeom, arrowMat);
+        arrowMesh.renderOrder = 6;
+        group.add(arrowMesh);
       }
 
       // Store computed label positions for HTML input overlay
@@ -5314,6 +5336,7 @@ const currentGridSpacingRef = useRef(10);
         console.warn("renderDraftDimensions error:", err);
         clearDraftDimGroup();
       }
+
       renderer.render(scene, camera);
       renderViewCube();
 
@@ -5617,7 +5640,7 @@ const currentGridSpacingRef = useRef(10);
       if (activeSketchPlaneId) {
         const [sketchDimensionHit] = raycaster.intersectObjects(
           sketchDimensionObjectsRef.current,
-          false,
+          true,
         );
         const sketchDimensionId =
           sketchDimensionHit?.object.userData.sketchDimensionId;

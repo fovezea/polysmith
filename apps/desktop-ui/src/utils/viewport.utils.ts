@@ -1291,8 +1291,8 @@ export function buildSketchDimensionObject(
   const dimensionStart = new THREE.Vector3(...dimension.dimensionStart);
   const dimensionEnd = new THREE.Vector3(...dimension.dimensionEnd);
   const extensionOverrun = 0.75;
-  const arrowLength = 1.45;
-  const arrowWidth = 0.48;
+  const arrowLength = 1.5;
+  const arrowWidth = 0.27;
   const dimensionDirection = dimensionEnd.clone().sub(dimensionStart);
   const dimensionLength = dimensionDirection.length();
   if (dimensionLength > 1e-6) {
@@ -1311,94 +1311,145 @@ export function buildSketchDimensionObject(
   const addSegment = (start: THREE.Vector3, end: THREE.Vector3) => {
     points.push(start.clone(), end.clone());
   };
-  const addArrowHead = (tip: THREE.Vector3, inward: THREE.Vector3) => {
-    const side = extensionDirection.clone().multiplyScalar(arrowWidth);
+
+  // Filled arrow triangle vertices (flat array, 3 floats per vertex)
+  const arrowPositions: number[] = [];
+  const arrowIndices: number[] = [];
+  const addFilledArrow = (tip: THREE.Vector3, inward: THREE.Vector3, perp: THREE.Vector3) => {
     const base = tip.clone().add(inward.clone().multiplyScalar(arrowLength));
-    addSegment(tip, base.clone().add(side));
-    addSegment(tip, base.clone().sub(side));
+    const side = perp.clone().multiplyScalar(arrowWidth);
+    const idx = arrowPositions.length / 3;
+    arrowPositions.push(tip.x, tip.y, tip.z);
+    arrowPositions.push(base.x + side.x, base.y + side.y, base.z + side.z);
+    arrowPositions.push(base.x - side.x, base.y - side.y, base.z - side.z);
+    arrowIndices.push(idx, idx + 1, idx + 2);
   };
 
+  // Reference line data for angle dimensions (hoisted for access outside the angle block)
+  const refLineData: { start: THREE.Vector3; end: THREE.Vector3 } | null =
+    (dimension.kind === "angle" || dimension.kind === "line_angle") &&
+    dimension.refLineStart && dimension.refLineEnd
+      ? {
+          start: new THREE.Vector3(...dimension.refLineStart),
+          end: new THREE.Vector3(...dimension.refLineEnd),
+        }
+      : null;
+
   if (dimension.kind === "angle" || dimension.kind === "line_angle") {
-    const startRay = dimensionStart.clone().sub(anchorStart);
-    const endRay = dimensionEnd.clone().sub(anchorEnd);
-    if (startRay.lengthSq() > 1e-8 && endRay.lengthSq() > 1e-8) {
-      // Angle primitives provide two collinear point pairs. Intersect
-      // those two rays to recover the real corner even after the user
-      // has dragged the arc radius away from the core's default.
-      const startDirection = startRay.clone().normalize();
-      const endDirection = endRay.clone().normalize();
-      const betweenAnchors = anchorStart.clone().sub(anchorEnd);
-      const directionDot = startDirection.dot(endDirection);
-      const denominator = 1 - directionDot * directionDot;
-      if (Math.abs(denominator) > 1e-8) {
-        const startOffset =
-          (directionDot * endDirection.dot(betweenAnchors) -
-            startDirection.dot(betweenAnchors)) /
-          denominator;
-        const endOffset =
-          (endDirection.dot(betweenAnchors) -
-            directionDot * startDirection.dot(betweenAnchors)) /
-          denominator;
-        const pivot = anchorStart
-          .clone()
-          .add(startDirection.clone().multiplyScalar(startOffset))
-          .add(
-            anchorEnd
-              .clone()
-              .add(endDirection.clone().multiplyScalar(endOffset)),
-          )
-          .multiplyScalar(0.5);
-        const startVector = dimensionStart.clone().sub(pivot);
-        const endVector = dimensionEnd.clone().sub(pivot);
-        const radius = startVector.length();
-        const normal = startVector.clone().cross(endVector).normalize();
-        if (radius > 1e-6 && normal.lengthSq() > 1e-8) {
-          const uAxis = startVector.clone().normalize();
-          const vAxis = normal.clone().cross(uAxis).normalize();
-          let sweep = Math.atan2(endVector.dot(vAxis), endVector.dot(uAxis));
-          if (sweep > Math.PI) {
-            sweep -= Math.PI * 2;
-          } else if (sweep < -Math.PI) {
-            sweep += Math.PI * 2;
+    // Prefer core-provided arc geometry when available
+    if (dimension.arcRadius && dimension.arcRadius > 0 && dimension.arcCenter) {
+      const pivot = new THREE.Vector3(...dimension.arcCenter);
+      const startAngle = dimension.arcStartAngle ?? 0;
+      const endAngle = dimension.arcEndAngle ?? 0;
+      const ccw = dimension.arcCcw ?? true;
+
+
+
+      // Arc vectors
+      const startRay = dimensionStart.clone().sub(pivot);
+      const endRay = dimensionEnd.clone().sub(pivot);
+      const radius = startRay.length();
+      const normal = startRay.clone().cross(endRay).normalize();
+      if (radius > 1e-6 && normal.lengthSq() > 1e-8) {
+        const uAxis = startRay.clone().normalize();
+        const vAxis = normal.clone().cross(uAxis).normalize();
+
+        // Sweep from core angles
+        let sweep = endAngle - startAngle;
+        if (!ccw) sweep = -sweep;
+        const arcSegments = 32;
+        let previousPoint = dimensionStart.clone();
+        for (let index = 1; index <= arcSegments; index++) {
+          const angle = startAngle + sweep * (index / arcSegments);
+          const point = pivot
+            .clone()
+            .add(uAxis.clone().multiplyScalar(Math.cos(angle) * radius))
+            .add(vAxis.clone().multiplyScalar(Math.sin(angle) * radius));
+          addSegment(previousPoint, point);
+          previousPoint = point;
+        }
+
+        // Arrowheads at arc endpoints
+        const startTangent = normal.clone().cross(startRay).normalize();
+        const endTangent = normal.clone().cross(endRay).normalize();
+        const sweepSign = sweep >= 0 ? 1 : -1;
+        addFilledArrow(
+          dimensionStart,
+          startTangent.clone().multiplyScalar(sweepSign),
+          startRay.clone().normalize(),
+        );
+        addFilledArrow(
+          dimensionEnd,
+          endTangent.clone().multiplyScalar(-sweepSign),
+          endRay.clone().normalize(),
+        );
+      }
+    } else {
+      // Fallback: client-side arc reconstruction from collinear point pairs
+      const startRay = dimensionStart.clone().sub(anchorStart);
+      const endRay = dimensionEnd.clone().sub(anchorEnd);
+      if (startRay.lengthSq() > 1e-8 && endRay.lengthSq() > 1e-8) {
+        const startDirection = startRay.clone().normalize();
+        const endDirection = endRay.clone().normalize();
+        const betweenAnchors = anchorStart.clone().sub(anchorEnd);
+        const directionDot = startDirection.dot(endDirection);
+        const denominator = 1 - directionDot * directionDot;
+        if (Math.abs(denominator) > 1e-8) {
+          const startOffset =
+            (directionDot * endDirection.dot(betweenAnchors) -
+              startDirection.dot(betweenAnchors)) /
+            denominator;
+          const endOffset =
+            (endDirection.dot(betweenAnchors) -
+              directionDot * startDirection.dot(betweenAnchors)) /
+            denominator;
+          const pivot = anchorStart
+            .clone()
+            .add(startDirection.clone().multiplyScalar(startOffset))
+            .add(
+              anchorEnd
+                .clone()
+                .add(endDirection.clone().multiplyScalar(endOffset)),
+            )
+            .multiplyScalar(0.5);
+          const startVector = dimensionStart.clone().sub(pivot);
+          const endVector = dimensionEnd.clone().sub(pivot);
+          const radius = startVector.length();
+          const normal2 = startVector.clone().cross(endVector).normalize();
+          if (radius > 1e-6 && normal2.lengthSq() > 1e-8) {
+            const uAxis = startVector.clone().normalize();
+            const vAxis = normal2.clone().cross(uAxis).normalize();
+            let sweep = Math.atan2(endVector.dot(vAxis), endVector.dot(uAxis));
+            if (sweep > Math.PI) {
+              sweep -= Math.PI * 2;
+            } else if (sweep < -Math.PI) {
+              sweep += Math.PI * 2;
+            }
+            const arcSegments = 32;
+            let previousPoint = dimensionStart.clone();
+            for (let index = 1; index <= arcSegments; index++) {
+              const angle = (sweep * index) / arcSegments;
+              const point = pivot
+                .clone()
+                .add(uAxis.clone().multiplyScalar(Math.cos(angle) * radius))
+                .add(vAxis.clone().multiplyScalar(Math.sin(angle) * radius));
+              addSegment(previousPoint, point);
+              previousPoint = point;
+            }
+            const startTangent = normal2.clone().cross(startVector).normalize();
+            const endTangent = normal2.clone().cross(endVector).normalize();
+            const sweepSign = sweep >= 0 ? 1 : -1;
+            addFilledArrow(
+              dimensionStart,
+              startTangent.clone().multiplyScalar(sweepSign),
+              startVector.clone().normalize(),
+            );
+            addFilledArrow(
+              dimensionEnd,
+              endTangent.clone().multiplyScalar(-sweepSign),
+              endVector.clone().normalize(),
+            );
           }
-          const arcSegments = 32;
-          let previousPoint = dimensionStart.clone();
-          for (let index = 1; index <= arcSegments; index++) {
-            const angle = (sweep * index) / arcSegments;
-            const point = pivot
-              .clone()
-              .add(uAxis.clone().multiplyScalar(Math.cos(angle) * radius))
-              .add(vAxis.clone().multiplyScalar(Math.sin(angle) * radius));
-            addSegment(previousPoint, point);
-            previousPoint = point;
-          }
-          const startTangent = normal.clone().cross(startVector).normalize();
-          const endTangent = normal.clone().cross(endVector).normalize();
-          const sweepSign = sweep >= 0 ? 1 : -1;
-          const angleArrowLength = 1.0;
-          const angleArrowWidth = 0.32;
-          const addAngleArrowHead = (
-            tip: THREE.Vector3,
-            tangent: THREE.Vector3,
-            radial: THREE.Vector3,
-          ) => {
-            const base = tip
-              .clone()
-              .add(tangent.clone().multiplyScalar(angleArrowLength));
-            const side = radial.clone().normalize().multiplyScalar(angleArrowWidth);
-            addSegment(tip, base.clone().add(side));
-            addSegment(tip, base.clone().sub(side));
-          };
-          addAngleArrowHead(
-            dimensionStart,
-            startTangent.clone().multiplyScalar(sweepSign),
-            startVector,
-          );
-          addAngleArrowHead(
-            dimensionEnd,
-            endTangent.clone().multiplyScalar(-sweepSign),
-            endVector,
-          );
         }
       }
     }
@@ -1416,10 +1467,11 @@ export function buildSketchDimensionObject(
         .clone()
         .add(extensionDirection.clone().multiplyScalar(extensionOverrun)),
     );
-    addArrowHead(dimensionStart, dimensionDirection);
-    addArrowHead(dimensionEnd, dimensionDirection.clone().multiplyScalar(-1));
+    addFilledArrow(dimensionStart, dimensionDirection, extensionDirection);
+    addFilledArrow(dimensionEnd, dimensionDirection.clone().multiplyScalar(-1), extensionDirection);
   }
 
+  // Build line segments geometry
   const material = new THREE.LineBasicMaterial({
     color: dimension.isSelected
       ? themeColor("--color-primary-edge-active", "#c3f5ff")
@@ -1429,9 +1481,59 @@ export function buildSketchDimensionObject(
     depthTest: false,
   });
   const geometry = new THREE.BufferGeometry().setFromPoints(points);
-  const line = new THREE.LineSegments(geometry, material);
-  line.renderOrder = 6;
-  line.userData.sketchDimensionId = dimension.dimensionId;
+  const lineSegments = new THREE.LineSegments(geometry, material);
+  lineSegments.renderOrder = 6;
+  lineSegments.userData.sketchDimensionId = dimension.dimensionId;
+
+  // Build filled arrow mesh
+  const group = new THREE.Group();
+  group.add(lineSegments);
+  group.userData.sketchDimensionId = dimension.dimensionId;
+
+  if (arrowIndices.length > 0) {
+    const arrowGeom = new THREE.BufferGeometry();
+    arrowGeom.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(arrowPositions, 3),
+    );
+    arrowGeom.setIndex(arrowIndices);
+    const arrowMat = new THREE.MeshBasicMaterial({
+      color: dimension.isSelected
+        ? themeColor("--color-primary-edge-active", "#c3f5ff")
+        : themeColor("--color-primary-soft", "#8feaf7"),
+      transparent: true,
+      opacity: dimension.isSelected ? 0.98 : 0.84,
+      depthTest: false,
+      side: THREE.DoubleSide,
+    });
+    const arrowMesh = new THREE.Mesh(arrowGeom, arrowMat);
+    arrowMesh.renderOrder = 6;
+    arrowMesh.userData.sketchDimensionId = dimension.dimensionId;
+    group.add(arrowMesh);
+  }
+
+  // Dashed reference line for angle dimensions
+  if (refLineData) {
+    const refGeom = new THREE.BufferGeometry().setFromPoints([
+      refLineData.start,
+      refLineData.end,
+    ]);
+    const refMat = new THREE.LineDashedMaterial({
+      color: dimension.isSelected
+        ? themeColor("--color-primary-edge-active", "#c3f5ff")
+        : themeColor("--color-primary-soft", "#8feaf7"),
+      transparent: true,
+      opacity: 0.40,
+      dashSize: 2,
+      gapSize: 2,
+      depthTest: false,
+    });
+    const refLine = new THREE.Line(refGeom, refMat);
+    refLine.computeLineDistances();
+    refLine.renderOrder = 6;
+    refLine.userData.sketchDimensionId = dimension.dimensionId;
+    group.add(refLine);
+  }
 
   const label = makeDimensionLabelSprite(labelText, dimension.isSelected);
   label.position.copy(labelPosition);
@@ -1442,7 +1544,7 @@ export function buildSketchDimensionObject(
   label.userData.dimensionEnd = dimension.dimensionEnd;
   label.userData.dimensionKind = dimension.kind;
 
-  return { line, label };
+  return { line: group, label };
 }
 
 export function buildSketchConstraintObject(constraint: SketchConstraintScene) {
