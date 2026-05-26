@@ -1515,12 +1515,29 @@ sketch.
 Payload:
 
 ```ts
+type ExtrudeSideParameters = {
+  extent_type: "distance" | "through_all" | "to_object" | "to_next";
+  distance: number;
+  start_offset: number;
+  taper_angle_degrees: number;
+  target_reference_id?: string;
+};
+
 {
   profile_id?: string;
   profile_ids?: string[];
+  open_entity_ids?: string[];
   depth: number;
-  mode?: "new_body" | "join" | "cut";
+  mode?: "new_body" | "join" | "cut" | "intersect";
   target_body_id?: string;
+  parameters?: {
+    operation?: "auto" | "new_body" | "join" | "cut" | "intersect";
+    extent_mode?: "one_side" | "symmetric" | "two_sides";
+    side1?: ExtrudeSideParameters;
+    side2?: ExtrudeSideParameters;
+    thin?: { enabled: boolean; thickness: number; placement: "center" | "inside" | "outside" };
+    intersect_result?: "replace_target" | "new_body";
+  };
 }
 ```
 
@@ -1529,7 +1546,10 @@ Rules:
 - Prefer `profile_ids` even for one profile.
 - `profile_id` is kept for legacy single-profile callers.
 - Multiple profiles must belong to the same sketch plane.
-- `mode` defaults to `new_body`.
+- `mode` defaults to `new_body`; `parameters.operation: "auto"` lets the
+  core infer New Body / Join / Cut while previewing.
+- `open_entity_ids` requires `parameters.thin.enabled = true` and currently
+  accepts connected sketch line / arc chains.
 - For `join` and `cut`, `target_body_id` is optional. If omitted, the core
   falls back to the most recent body when possible.
 - Use `viewport_state.bodies[]` to discover explicit target body IDs.
@@ -1545,8 +1565,9 @@ Payload:
 {
   face_id: string;
   depth: number;
-  mode?: "new_body" | "join" | "cut";
+  mode?: "new_body" | "join" | "cut" | "intersect";
   target_body_id?: string;
+  parameters?: { ...same extrude parameter fields as `extrude_profile` };
 }
 ```
 
@@ -1596,6 +1617,20 @@ Payload:
 ```
 
 Omit `target_body_id` to clear the explicit target.
+
+#### `update_extrude_parameters`
+
+Live-edits the complete extrude parameter object. Use this for feature-complete
+extrude editing instead of sending several shorthand commands.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+  parameters: ExtrudeFeatureParameters;
+}
+```
 
 #### `update_extrude_profiles`
 

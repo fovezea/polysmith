@@ -9,6 +9,7 @@
 
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
+#include <BRepAlgoAPI_Common.hxx>
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
@@ -315,7 +316,11 @@ CompiledBodies compile_bodies(const DocumentState& document) {
         any_boolean = true;
         break;
       }
-      // Profile holes and multi-profile extrudes are real native-core
+      // Profile holes, multi-profile, thin, and side-based extrudes are
+      // real native-core topology. The legacy three.js polygon-extrude
+      // preview can show simple prisms, but OCCT tessellation is the
+      // authoritative path for rings, disjoint same-plane regions, and
+      // advanced extents.
       // topology. The legacy three.js polygon-extrude preview can show
       // simple prisms, but OCCT tessellation is the authoritative path
       // for rings and disjoint same-plane regions.
@@ -326,7 +331,13 @@ CompiledBodies compile_bodies(const DocumentState& document) {
           [](const auto& loops) { return !loops.empty(); });
       if (!params.inner_loops.empty() ||
           !params.additional_profile_points.empty() ||
-          has_additional_holes) {
+          has_additional_holes ||
+          params.thin.enabled ||
+          params.extent_mode != "one_side" ||
+          params.side1.start_offset != 0.0 ||
+          params.side1.taper_angle_degrees != 0.0 ||
+          params.side1.extent_type != "distance" ||
+          params.side2.has_value()) {
         any_boolean = true;
         break;
       }
@@ -466,6 +477,8 @@ CompiledBodies compile_bodies(const DocumentState& document) {
           combined = BRepAlgoAPI_Fuse(target_shape, shape).Shape();
         } else if (mode == "cut") {
           combined = BRepAlgoAPI_Cut(target_shape, shape).Shape();
+        } else if (mode == "intersect") {
+          combined = BRepAlgoAPI_Common(target_shape, shape).Shape();
         } else {
           throw std::runtime_error("Unknown extrude mode: " + mode);
         }
@@ -483,6 +496,18 @@ CompiledBodies compile_bodies(const DocumentState& document) {
         continue;
       }
       combined = unify_same_domain(combined);
+
+      const bool intersect_as_new_body =
+          mode == "intersect" &&
+          feature.kind == "extrude" &&
+          feature.extrude_parameters.has_value() &&
+          feature.extrude_parameters->intersect_result == "new_body";
+      if (intersect_as_new_body) {
+        body_shapes[feature.id] = combined;
+        body_order.push_back(feature.id);
+        result.consumed_feature_ids.insert(feature.id);
+        continue;
+      }
 
       body_shapes[target_id] = combined;
       // A boolean op replaced the body's topology, so any stale

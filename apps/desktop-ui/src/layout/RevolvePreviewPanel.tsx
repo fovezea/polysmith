@@ -110,9 +110,8 @@ export function RevolvePreviewPanel({
 
   return (
     <section className="pointer-events-auto cad-floating-panel box-border w-80 max-w-[calc(100vw-2rem)] overflow-hidden px-5 py-5">
-      <p className="cad-kicker">{t("common.action")}</p>
-      <h2 className="cad-title mt-2">{t("panels.revolve.title")}</h2>
-      <div className="mt-3 space-y-2 rounded-md bg-surface-container-low px-3 py-3 text-xs uppercase tracking-[0.16em] text-on-surface-muted">
+      <p className="cad-kicker">{t("panels.revolve.title")}</p>
+      <div className="mt-3 space-y-2 rounded-md bg-surface-container-low px-3 py-2 text-xs uppercase tracking-[0.16em] text-on-surface-muted">
         <div className="flex items-center justify-between gap-3">
           <span>{t("panels.revolve.profile")}</span>
           <span className="min-w-0 truncate text-on-surface">

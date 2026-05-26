@@ -107,9 +107,8 @@ export function EdgeOpPreviewPanel({
 
   return (
     <section className="pointer-events-auto cad-floating-panel px-5 py-5">
-      <p className="cad-kicker">{t("common.action")}</p>
-      <h2 className="cad-title mt-2">{title}</h2>
-      <p className="mt-1 text-xs text-on-surface-muted">
+      <p className="cad-kicker">{title}</p>
+      <p className="mt-3 text-xs text-on-surface-muted">
         {t("panels.edgeOp.edgePicker", {
           count: edgeCount,
           plural: edgeCount === 1 ? "" : "s",

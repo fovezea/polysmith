@@ -60,7 +60,11 @@ import {
 } from "./layout";
 import type { CategoryId } from "./layout";
 import { ArmedSketchConstraint } from "./types";
-import type { ExtrudeMode } from "./types";
+import type {
+  ExtrudeAdvancedParameters,
+  ExtrudeFeatureParameters,
+  ExtrudeMode,
+} from "./types";
 import type { DocumentState } from "./types/ipc";
 import type { RecentProject, RecentProjectsDocument } from "./lib";
 
@@ -143,6 +147,7 @@ interface ActiveExtrudeAction {
   featureId: string | null;
   initialDepth: number;
   initialMode: ExtrudeMode;
+  initialParameters: ExtrudeFeatureParameters | null;
   initialTargetBodyId: string | null;
   profileCount: number;
   // Snapshot of "did the document have any other solid bodies before the
@@ -157,6 +162,7 @@ interface ActiveExtrudeAction {
     depth: number;
     mode: ExtrudeMode;
     targetBodyId: string | null;
+    parameters: ExtrudeFeatureParameters;
   } | null;
 }
 
@@ -415,6 +421,7 @@ function App() {
     document?.selected_sketch_profile_ids ?? selectedSketchProfiles.map(
       (profile) => profile.profile_id,
     );
+  const selectedSketchEntityIds = document?.selected_sketch_entity_ids ?? [];
   const selectedSketchProfileIdsKey = selectedSketchProfileIds.join("|");
   const sketchProfileLabelById = new Map<string, string>();
   const sketchLineLabelById = new Map<string, string>();
@@ -599,8 +606,10 @@ function App() {
     updateSketchDimension,
     selectSketchProfile,
     extrudeProfile,
+    extrudeOpenEntities,
     extrudeFace,
     updateExtrudeMode,
+    updateExtrudeParameters,
     updateExtrudeProfiles,
     updateExtrudeTargetBody,
     loftProfiles,
@@ -930,9 +939,12 @@ function App() {
       featureId: null,
       initialDepth: DEFAULT_EXTRUDE_DEPTH,
       initialMode: defaultSettings.mode,
+      initialParameters: null,
       initialTargetBodyId: defaultSettings.targetBodyId,
       profileCount:
-        selectedSketchProfileIds.length || (selectedExtrudableFaceId ? 1 : 0),
+        selectedSketchProfileIds.length ||
+        (selectedExtrudableFaceId ? 1 : 0) ||
+        selectedSketchEntityIds.length,
       originalSnapshot: null,
       canCombineWithExistingBody: hasExistingBody,
     });
@@ -988,6 +1000,7 @@ function App() {
     depth: number,
     mode: ExtrudeMode,
     targetBodyId: string | null,
+    parameters: ExtrudeAdvancedParameters | null = null,
   ) {
     const profileIds = [...selectedSketchProfileIds];
     if (profileIds.length === 0) {
@@ -1020,7 +1033,7 @@ function App() {
 
     await runAction(async () => {
       try {
-        await extrudeProfile(profileIds, depth, mode, targetBodyId);
+        await extrudeProfile(profileIds, depth, mode, targetBodyId, parameters);
         const nextDocument = await documentPromise;
         const newFeatureId = nextDocument.selected_feature_id ?? null;
         if (!newFeatureId) {
@@ -1036,6 +1049,7 @@ function App() {
           featureId: newFeatureId,
           initialDepth: depth,
           initialMode: createdParams?.mode ?? mode,
+          initialParameters: createdParams ?? null,
           initialTargetBodyId:
             createdParams?.target_body_id ?? targetBodyId ?? null,
           profileCount: profileIds.length,
@@ -1062,6 +1076,7 @@ function App() {
     depth: number,
     mode: ExtrudeMode,
     targetBodyId: string | null,
+    parameters: ExtrudeAdvancedParameters | null = null,
   ) {
     if (extrudeCreateInFlightRef.current) {
       return;
@@ -1085,7 +1100,7 @@ function App() {
 
     await runAction(async () => {
       try {
-        await extrudeFace(faceId, depth, mode, targetBodyId);
+        await extrudeFace(faceId, depth, mode, targetBodyId, parameters);
         const nextDocument = await documentPromise;
         const newFeatureId = nextDocument.selected_feature_id ?? null;
         if (!newFeatureId) {
@@ -1100,6 +1115,7 @@ function App() {
           featureId: newFeatureId,
           initialDepth: depth,
           initialMode: createdParams?.mode ?? mode,
+          initialParameters: createdParams ?? null,
           initialTargetBodyId:
             createdParams?.target_body_id ?? targetBodyId ?? null,
           profileCount: 1,
@@ -1114,6 +1130,71 @@ function App() {
         });
       } catch (error) {
         addMessage(`extrude face action error: ${String(error)}`);
+      } finally {
+        extrudeCreateInFlightRef.current = false;
+      }
+    });
+  }
+
+  async function createThinExtrudeFromSelectedEntities(
+    depth: number,
+    mode: ExtrudeMode,
+    targetBodyId: string | null,
+    parameters: ExtrudeAdvancedParameters,
+  ) {
+    const entityIds = [...selectedSketchEntityIds];
+    if (entityIds.length === 0 || extrudeCreateInFlightRef.current) {
+      return;
+    }
+    extrudeCreateInFlightRef.current = true;
+
+    const documentPromise = awaitDocumentChange((next, previous) => {
+      if (!next.selected_feature_id) {
+        return false;
+      }
+      const previousLength = previous?.feature_history.length ?? 0;
+      if (next.feature_history.length <= previousLength) {
+        return false;
+      }
+      const lastFeature = next.feature_history[next.feature_history.length - 1];
+      return (
+        lastFeature.feature_id === next.selected_feature_id &&
+        lastFeature.kind === "extrude"
+      );
+    });
+
+    await runAction(async () => {
+      try {
+        await extrudeOpenEntities(entityIds, depth, mode, targetBodyId, parameters);
+        const nextDocument = await documentPromise;
+        const newFeatureId = nextDocument.selected_feature_id ?? null;
+        if (!newFeatureId) {
+          return;
+        }
+        const createdFeature = nextDocument.feature_history.find(
+          (entry) => entry.feature_id === newFeatureId,
+        );
+        const createdParams = createdFeature?.extrude_parameters;
+        setExtrudeAction({
+          phase: "active",
+          featureId: newFeatureId,
+          initialDepth: depth,
+          initialMode: createdParams?.mode ?? mode,
+          initialParameters: createdParams ?? null,
+          initialTargetBodyId:
+            createdParams?.target_body_id ?? targetBodyId ?? null,
+          profileCount: entityIds.length,
+          originalSnapshot: null,
+          canCombineWithExistingBody:
+            (document?.feature_history ?? []).some(
+              (entry) =>
+                entry.kind === "box" ||
+                entry.kind === "cylinder" ||
+                entry.kind === "extrude",
+            ) ?? false,
+        });
+      } catch (error) {
+        addMessage(`thin extrude action error: ${String(error)}`);
       } finally {
         extrudeCreateInFlightRef.current = false;
       }
@@ -3739,17 +3820,19 @@ function App() {
               hideReferences={hiddenCategories.has("origin")}
             />
 
-            <div className="pointer-events-none absolute right-4 top-4 z-10 flex max-h-[calc(100%-1rem)] w-[340px] flex-col gap-3">
+            <div className="pointer-events-none absolute bottom-4 right-4 top-4 z-10 flex min-h-0 w-[340px] flex-col gap-3">
               {extrudeAction?.phase === "pending" ? (
                 <ExtrudePreviewPanel
                   phase="pending"
                   initialDepth={extrudeAction.initialDepth}
                   initialMode={extrudeAction.initialMode}
+                  initialParameters={extrudeAction.initialParameters}
                   selectedProfileCount={extrudeAction.profileCount}
                   canCombineWithExistingBody={
                     extrudeAction.canCombineWithExistingBody
                   }
                   availableTargetBodies={viewport?.bodies ?? []}
+                  selectedFaceTargetId={document?.selected_face_id ?? null}
                   initialTargetBodyId={extrudeAction.initialTargetBodyId}
                   disabled={status !== "connected"}
                   onPreviewDepth={async (depth) => {
@@ -3783,12 +3866,40 @@ function App() {
                         : current,
                     );
                   }}
-                  onConfirm={async (depth, mode, targetBodyId) => {
+                  onPreviewParameters={async (parameters) => {
+                    if ("sketch_feature_id" in parameters) {
+                      return;
+                    }
+                    setExtrudeAction((current) =>
+                      current?.phase === "pending"
+                        ? {
+                            ...current,
+                            initialParameters: null,
+                          }
+                        : current,
+                    );
+                  }}
+                  onConfirm={async (depth, mode, targetBodyId, parameters) => {
+                    if (
+                      parameters.thin.enabled &&
+                      selectedSketchProfileIds.length === 0 &&
+                      selectedExtrudableFaceId === null &&
+                      selectedSketchEntityIds.length > 0
+                    ) {
+                      await createThinExtrudeFromSelectedEntities(
+                        depth,
+                        mode,
+                        targetBodyId,
+                        parameters,
+                      );
+                      return;
+                    }
                     if (selectedSketchProfileIds.length > 0) {
                       await createExtrudeFromSelectedProfiles(
                         depth,
                         mode,
                         targetBodyId,
+                        parameters,
                       );
                       return;
                     }
@@ -3798,6 +3909,7 @@ function App() {
                         depth,
                         mode,
                         targetBodyId,
+                        parameters,
                       );
                     }
                   }}
@@ -3821,16 +3933,29 @@ function App() {
                     const availableTargetBodies = (
                       viewport?.bodies ?? []
                     ).filter((body) => body.id !== extrudeAction.featureId);
+                    const activeExtrudeFeature =
+                      document?.feature_history.find(
+                        (entry) =>
+                          entry.feature_id === activeExtrudeFeatureId,
+                      ) ?? null;
+                    const extrudePreviewError =
+                      activeExtrudeFeature?.dependency_broken ||
+                      activeExtrudeFeature?.status === "warning"
+                        ? activeExtrudeFeature.dependency_warning ?? null
+                        : null;
                     return (
                       <ExtrudePreviewPanel
                         initialDepth={extrudeAction.initialDepth}
                         initialMode={extrudeAction.initialMode}
+                        initialParameters={extrudeAction.initialParameters}
                         selectedProfileCount={extrudeAction.profileCount}
                         canCombineWithExistingBody={
                           extrudeAction.canCombineWithExistingBody
                         }
                         availableTargetBodies={availableTargetBodies}
+                        selectedFaceTargetId={document?.selected_face_id ?? null}
                         initialTargetBodyId={extrudeAction.initialTargetBodyId}
+                        previewError={extrudePreviewError}
                         disabled={status !== "connected"}
                         onPreviewDepth={async (depth) => {
                           await runAction(async () => {
@@ -3853,6 +3978,17 @@ function App() {
                             await updateExtrudeTargetBody(
                               activeExtrudeFeatureId,
                               targetBodyId,
+                            );
+                          });
+                        }}
+                        onPreviewParameters={async (parameters) => {
+                          if (!("sketch_feature_id" in parameters)) {
+                            return;
+                          }
+                          await runAction(async () => {
+                            await updateExtrudeParameters(
+                              activeExtrudeFeatureId,
+                              parameters,
                             );
                           });
                         }}
@@ -3918,6 +4054,10 @@ function App() {
                               await updateExtrudeTargetBody(
                                 activeExtrudeFeatureId,
                                 snapshot.targetBodyId,
+                              );
+                              await updateExtrudeParameters(
+                                activeExtrudeFeatureId,
+                                snapshot.parameters,
                               );
                             });
                           } else {
@@ -4589,6 +4729,7 @@ function App() {
                 featureId,
                 initialDepth: params.depth,
                 initialMode: params.mode,
+                initialParameters: params,
                 initialTargetBodyId: params.target_body_id ?? null,
                 profileCount: params.profile_ids?.length || 1,
                 canCombineWithExistingBody: otherBodies.length > 0,
@@ -4596,6 +4737,7 @@ function App() {
                   depth: params.depth,
                   mode: params.mode,
                   targetBodyId: params.target_body_id ?? null,
+                  parameters: params,
                 },
               });
             }

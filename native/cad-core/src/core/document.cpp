@@ -5,6 +5,7 @@
 #include <array>
 #include <cmath>
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -13,9 +14,13 @@
 
 #include <nlohmann/json.hpp>
 
+#include <Bnd_Box.hxx>
+#include <BRepBndLib.hxx>
 #include <BRepAlgoAPI_Common.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS_Shape.hxx>
+#include <gp_Pnt.hxx>
+#include <gp_Vec.hxx>
 
 #include "core/body_compiler.h"
 #include "core/construction_plane_feature.h"
@@ -58,6 +63,37 @@ bool includes_feature_at_cursor(const DocumentState& document,
     return feature.kind == "root_part" || remaining_actions > 0;
   }
   return false;
+}
+
+void mark_feature_healthy(FeatureEntry& feature) {
+  feature.status = "healthy";
+  feature.dependency_broken = false;
+  feature.dependency_warning.clear();
+}
+
+void mark_extrude_preview_warning(FeatureEntry& feature,
+                                  const std::string& message) {
+  feature.status = "warning";
+  feature.dependency_broken = true;
+  feature.dependency_warning = message;
+  feature.parameters_summary = "Preview unavailable";
+}
+
+void apply_extrude_parameters_with_preview_validation(
+    FeatureEntry& feature,
+    const ExtrudeFeatureParameters& parameters) {
+  feature.extrude_parameters = parameters;
+  try {
+    const TopoDS_Shape preview_shape = build_extrude_shape(parameters);
+    if (preview_shape.IsNull()) {
+      throw std::runtime_error("Extrude preview produced an empty shape");
+    }
+    mark_feature_healthy(feature);
+    feature.parameters_summary =
+        parameters.profile_id + " · " + std::to_string(parameters.depth) + " mm";
+  } catch (const std::exception& error) {
+    mark_extrude_preview_warning(feature, error.what());
+  }
 }
 
 void normalize_timeline_cursor(DocumentState& document) {
@@ -234,6 +270,232 @@ PlaneFrame make_plane_frame(
       .normal_y = plane_frame.normal_y,
       .normal_z = plane_frame.normal_z,
   };
+}
+
+gp_Vec extrude_normal_vector(const ExtrudeFeatureParameters& params,
+                             double side_sign) {
+  if (params.plane_frame.has_value()) {
+    return gp_Vec(params.plane_frame->normal_x * side_sign,
+                  params.plane_frame->normal_y * side_sign,
+                  params.plane_frame->normal_z * side_sign);
+  }
+  if (params.plane_id == "ref-plane-xy") {
+    return gp_Vec(0.0, side_sign, 0.0);
+  }
+  if (params.plane_id == "ref-plane-yz") {
+    return gp_Vec(side_sign, 0.0, 0.0);
+  }
+  return gp_Vec(0.0, 0.0, side_sign);
+}
+
+gp_Pnt extrude_plane_origin(const ExtrudeFeatureParameters& params) {
+  if (params.plane_frame.has_value()) {
+    return gp_Pnt(params.plane_frame->origin_x,
+                  params.plane_frame->origin_y,
+                  params.plane_frame->origin_z);
+  }
+  return gp_Pnt(0.0, 0.0, 0.0);
+}
+
+std::optional<std::pair<double, double>> body_projection_range(
+    const TopoDS_Shape& shape,
+    const gp_Pnt& origin,
+    const gp_Vec& direction) {
+  if (shape.IsNull()) {
+    return std::nullopt;
+  }
+  Bnd_Box box;
+  BRepBndLib::Add(shape, box);
+  if (box.IsVoid()) {
+    return std::nullopt;
+  }
+  double xmin = 0.0;
+  double ymin = 0.0;
+  double zmin = 0.0;
+  double xmax = 0.0;
+  double ymax = 0.0;
+  double zmax = 0.0;
+  box.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+  const std::array<gp_Pnt, 8> corners = {
+      gp_Pnt(xmin, ymin, zmin),
+      gp_Pnt(xmin, ymin, zmax),
+      gp_Pnt(xmin, ymax, zmin),
+      gp_Pnt(xmin, ymax, zmax),
+      gp_Pnt(xmax, ymin, zmin),
+      gp_Pnt(xmax, ymin, zmax),
+      gp_Pnt(xmax, ymax, zmin),
+      gp_Pnt(xmax, ymax, zmax),
+  };
+  double min_projection = std::numeric_limits<double>::infinity();
+  double max_projection = -std::numeric_limits<double>::infinity();
+  for (const auto& corner : corners) {
+    const gp_Vec delta(origin, corner);
+    const double projection = delta.Dot(direction);
+    min_projection = std::min(min_projection, projection);
+    max_projection = std::max(max_projection, projection);
+  }
+  return std::make_pair(min_projection, max_projection);
+}
+
+std::optional<double> distance_to_body_boundary(
+    const CompiledBodies& compiled,
+    const std::optional<std::string>& body_id,
+    const gp_Pnt& origin,
+    const gp_Vec& direction,
+    double start_offset,
+    bool through_all) {
+  std::optional<double> best;
+  for (const auto& body : compiled.bodies) {
+    if (body_id.has_value() && body.id != body_id.value()) {
+      continue;
+    }
+    const auto range = body_projection_range(body.shape, origin, direction);
+    if (!range.has_value()) {
+      continue;
+    }
+    const double target =
+        through_all ? range->second + std::max(1.0, range->second - range->first) * 0.05
+                    : (range->first > start_offset ? range->first : range->second);
+    const double distance = target - start_offset;
+    if (distance <= 1.0e-6) {
+      continue;
+    }
+    if (!best.has_value() || distance < best.value()) {
+      best = distance;
+    }
+  }
+  return best;
+}
+
+std::optional<double> distance_to_face_plane(
+    const DocumentState& document,
+    const std::string& face_id,
+    const gp_Pnt& origin,
+    const gp_Vec& direction,
+    double start_offset) {
+  const auto profile = compute_planar_face_profile(document, face_id);
+  if (!profile.has_value()) {
+    return std::nullopt;
+  }
+  const gp_Pnt target_origin(profile->plane_frame.origin_x,
+                             profile->plane_frame.origin_y,
+                             profile->plane_frame.origin_z);
+  const gp_Vec target_normal(profile->plane_frame.normal_x,
+                             profile->plane_frame.normal_y,
+                             profile->plane_frame.normal_z);
+  const double denom = direction.Dot(target_normal);
+  if (std::abs(denom) <= 1.0e-8) {
+    return std::nullopt;
+  }
+  const double t = gp_Vec(origin, target_origin).Dot(target_normal) / denom;
+  const double distance = t - start_offset;
+  return distance > 1.0e-6 ? std::optional<double>(distance) : std::nullopt;
+}
+
+void resolve_extrude_side_extent(
+    const DocumentState& document,
+    ExtrudeFeatureParameters& params,
+    ExtrudeFeatureParameters::SideParameters& side,
+    double side_sign) {
+  if (side.extent_type == "distance") {
+    return;
+  }
+
+  const CompiledBodies compiled = compile_bodies(document);
+  const gp_Pnt origin = extrude_plane_origin(params);
+  const gp_Vec direction = extrude_normal_vector(params, side_sign);
+  std::optional<double> distance;
+
+  if (side.extent_type == "to_object" && side.target_reference_id.has_value() &&
+      side.target_reference_id->find(":face:") != std::string::npos) {
+    distance = distance_to_face_plane(document,
+                                      side.target_reference_id.value(),
+                                      origin,
+                                      direction,
+                                      side.start_offset);
+  } else if (side.extent_type == "through_all" ||
+             side.extent_type == "to_object") {
+    const std::optional<std::string> body_id =
+        side.target_reference_id.has_value()
+            ? side.target_reference_id
+            : params.target_body_id;
+    if (side.extent_type == "through_all" && !body_id.has_value()) {
+      throw std::runtime_error("Through All extrude requires a target body");
+    }
+    distance = distance_to_body_boundary(compiled,
+                                         body_id,
+                                         origin,
+                                         direction,
+                                         side.start_offset,
+                                         side.extent_type == "through_all");
+  } else if (side.extent_type == "to_next") {
+    distance = distance_to_body_boundary(compiled,
+                                         std::nullopt,
+                                         origin,
+                                         direction,
+                                         side.start_offset,
+                                         false);
+  }
+
+  if (!distance.has_value()) {
+    throw std::runtime_error("Unable to resolve extrude extent: " +
+                             side.extent_type);
+  }
+  side.distance = distance.value();
+}
+
+void normalize_extrude_parameters(const DocumentState& document,
+                                  ExtrudeFeatureParameters& params) {
+  const double abs_depth = std::abs(params.depth);
+  const bool default_side =
+      params.side1.extent_type == "distance" &&
+      params.side1.distance == 10.0 &&
+      params.side1.start_offset == 0.0 &&
+      params.side1.taper_angle_degrees == 0.0 &&
+      !params.side1.target_reference_id.has_value();
+  if (default_side) {
+    params.side1.distance = abs_depth > 0.0 ? abs_depth : 10.0;
+  }
+  if (params.operation.empty()) {
+    params.operation = params.mode.empty() ? "new_body" : params.mode;
+  }
+  if (params.operation != "auto") {
+    params.mode = params.operation;
+  }
+
+  if (params.extent_mode != "one_side" && params.extent_mode != "symmetric" &&
+      params.extent_mode != "two_sides") {
+    params.extent_mode = "one_side";
+  }
+  if (params.extent_mode == "symmetric" && !params.side2.has_value()) {
+    params.side2 = params.side1;
+  }
+  if (params.extent_mode == "two_sides" && !params.side2.has_value()) {
+    params.side2 = params.side1;
+  }
+
+  resolve_extrude_side_extent(document, params, params.side1, params.depth < 0 ? -1.0 : 1.0);
+  if (params.side2.has_value()) {
+    resolve_extrude_side_extent(document, params, params.side2.value(), params.depth < 0 ? 1.0 : -1.0);
+  }
+
+  if (params.extent_mode == "symmetric") {
+    params.depth = (params.depth < 0.0 ? -1.0 : 1.0) * params.side1.distance;
+  } else {
+    params.depth = (params.depth < 0.0 ? -1.0 : 1.0) * params.side1.distance;
+  }
+
+  if (params.operation == "auto") {
+    params.mode = "new_body";
+    const auto intersected = find_intersecting_body_for_extrude(document, params);
+    if (intersected.has_value()) {
+      params.mode = "cut";
+      params.target_body_id = intersected;
+    } else if (params.target_body_id.has_value() ||
+               params.profile_id.rfind("face:", 0) == 0) {
+      params.mode = "join";
+    }
+  }
 }
 
 std::vector<SketchProfilePoint> sample_circle_profile_points(
@@ -963,6 +1225,9 @@ DocumentState DocumentManager::update_cylinder_feature(
 DocumentState DocumentManager::update_extrude_depth(
     const std::string& feature_id, double depth) {
   require_document();
+  if (depth == 0.0) {
+    return document_.value();
+  }
 
   const auto feature_it = std::find_if(
       document_->feature_history.begin(),
@@ -976,6 +1241,15 @@ DocumentState DocumentManager::update_extrude_depth(
   push_undo_state();
   clear_redo_stack();
   polysmith::core::update_extrude_depth(*feature_it, depth);
+  if (feature_it->extrude_parameters.has_value()) {
+    feature_it->extrude_parameters->extent_mode = "one_side";
+    feature_it->extrude_parameters->side1.extent_type = "distance";
+    feature_it->extrude_parameters->side1.distance = std::abs(depth);
+    feature_it->extrude_parameters->side2 = std::nullopt;
+    normalize_extrude_parameters(*document_, feature_it->extrude_parameters.value());
+    apply_extrude_parameters_with_preview_validation(
+        *feature_it, feature_it->extrude_parameters.value());
+  }
   bump_geometry_revision();
   return document_.value();
 }
@@ -984,7 +1258,8 @@ DocumentState DocumentManager::update_extrude_mode(
     const std::string& feature_id, const std::string& mode) {
   require_document();
 
-  if (mode != "new_body" && mode != "join" && mode != "cut") {
+  if (mode != "new_body" && mode != "join" && mode != "cut" &&
+      mode != "intersect") {
     throw std::runtime_error("Unsupported extrude mode: " + mode);
   }
 
@@ -1006,6 +1281,10 @@ DocumentState DocumentManager::update_extrude_mode(
   push_undo_state();
   clear_redo_stack();
   feature_it->extrude_parameters->mode = mode;
+  feature_it->extrude_parameters->operation = mode;
+  normalize_extrude_parameters(*document_, feature_it->extrude_parameters.value());
+  apply_extrude_parameters_with_preview_validation(
+      *feature_it, feature_it->extrude_parameters.value());
   if (feature_it->name == "Extrude" || feature_it->name == "Body") {
     feature_it->name = mode == "new_body" ? "Body" : "Extrude";
   }
@@ -1058,6 +1337,45 @@ DocumentState DocumentManager::update_extrude_target_body(
   push_undo_state();
   clear_redo_stack();
   feature_it->extrude_parameters->target_body_id = resolved;
+  normalize_extrude_parameters(*document_, feature_it->extrude_parameters.value());
+  apply_extrude_parameters_with_preview_validation(
+      *feature_it, feature_it->extrude_parameters.value());
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::update_extrude_parameters(
+    const std::string& feature_id,
+    const ExtrudeFeatureParameters& parameters) {
+  require_document();
+
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Feature not found: " + feature_id);
+  }
+  if (feature_it->kind != "extrude" ||
+      !feature_it->extrude_parameters.has_value()) {
+    throw std::runtime_error(
+        "update_extrude_parameters requires an extrude feature: " + feature_id);
+  }
+
+  ExtrudeFeatureParameters next = parameters;
+  if (next.depth == 0.0 || next.side1.distance == 0.0 ||
+      (next.side2.has_value() && next.side2->distance == 0.0)) {
+    return document_.value();
+  }
+  normalize_extrude_parameters(*document_, next);
+
+  push_undo_state();
+  clear_redo_stack();
+  apply_extrude_parameters_with_preview_validation(*feature_it, next);
+  if (feature_it->name == "Extrude" || feature_it->name == "Body") {
+    feature_it->name = next.mode == "new_body" ? "Body" : "Extrude";
+  }
   bump_geometry_revision();
   return document_.value();
 }
@@ -3055,15 +3373,17 @@ DocumentState DocumentManager::extrude_profile(
     const std::string& profile_id,
     double depth,
     const std::string& mode,
-    const std::optional<std::string>& target_body_id) {
-  return extrude_profiles({profile_id}, depth, mode, target_body_id);
+    const std::optional<std::string>& target_body_id,
+    const std::optional<ExtrudeFeatureParameters>& parameters) {
+  return extrude_profiles({profile_id}, depth, mode, target_body_id, parameters);
 }
 
 DocumentState DocumentManager::extrude_profiles(
     const std::vector<std::string>& profile_ids,
     double depth,
     const std::string& mode,
-    const std::optional<std::string>& target_body_id) {
+    const std::optional<std::string>& target_body_id,
+    const std::optional<ExtrudeFeatureParameters>& parameters) {
   require_document();
   if (profile_ids.empty()) {
     throw std::runtime_error("No sketch profiles selected");
@@ -3146,14 +3466,40 @@ DocumentState DocumentManager::extrude_profiles(
   if (!extrude_parameters.has_value()) {
     throw std::runtime_error("Sketch profile not found");
   }
+  if (parameters.has_value()) {
+    const auto source = *extrude_parameters;
+    *extrude_parameters = parameters.value();
+    extrude_parameters->sketch_feature_id = source.sketch_feature_id;
+    extrude_parameters->profile_id = source.profile_id;
+    extrude_parameters->profile_ids = source.profile_ids;
+    extrude_parameters->plane_id = source.plane_id;
+    extrude_parameters->plane_frame = source.plane_frame;
+    extrude_parameters->profile_kind = source.profile_kind;
+    extrude_parameters->start_x = source.start_x;
+    extrude_parameters->start_y = source.start_y;
+    extrude_parameters->width = source.width;
+    extrude_parameters->height = source.height;
+    extrude_parameters->radius = source.radius;
+    extrude_parameters->profile_points = source.profile_points;
+    extrude_parameters->inner_loops = source.inner_loops;
+    extrude_parameters->additional_profile_points =
+        source.additional_profile_points;
+    extrude_parameters->additional_inner_loops = source.additional_inner_loops;
+  }
+  extrude_parameters->depth = depth;
   extrude_parameters->mode = mode;
+  if (extrude_parameters->operation == "new_body" && mode != "new_body") {
+    extrude_parameters->operation = mode;
+  }
   extrude_parameters->target_body_id = target_body_id;
+  normalize_extrude_parameters(*document_, extrude_parameters.value());
 
   // Auto-cut detection (contextual modeling): when the user invokes a default
   // new_body extrude on a profile whose swept volume overlaps an
   // existing body, silently promote the feature to a cut against that
   // body. Explicit modes (the user picked join/cut) are honored as-is.
-  if (extrude_parameters->mode == "new_body" &&
+  if (extrude_parameters->operation != "auto" &&
+      extrude_parameters->mode == "new_body" &&
       !extrude_parameters->target_body_id.has_value()) {
     const auto intersected =
         find_intersecting_body_for_extrude(*document_,
@@ -3180,11 +3526,152 @@ DocumentState DocumentManager::extrude_profiles(
   return document_.value();
 }
 
+DocumentState DocumentManager::extrude_open_entities(
+    const std::vector<std::string>& entity_ids,
+    double depth,
+    const std::string& mode,
+    const std::optional<std::string>& target_body_id,
+    const std::optional<ExtrudeFeatureParameters>& parameters) {
+  require_document();
+  if (entity_ids.empty()) {
+    throw std::runtime_error("No sketch entities selected");
+  }
+
+  FeatureEntry* sketch_feature = nullptr;
+  std::vector<SketchProfilePoint> chain;
+  for (const auto& entity_id : entity_ids) {
+    FeatureEntry* owner = nullptr;
+    const SketchLine* line = nullptr;
+    const SketchArc* arc = nullptr;
+    for (auto& feature : document_->feature_history) {
+      if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+        continue;
+      }
+      const auto& sketch = feature.sketch_parameters.value();
+      const auto line_it = std::find_if(
+          sketch.lines.begin(),
+          sketch.lines.end(),
+          [&](const SketchLine& candidate) { return candidate.id == entity_id; });
+      if (line_it != sketch.lines.end()) {
+        owner = &feature;
+        line = &(*line_it);
+        break;
+      }
+      const auto arc_it = std::find_if(
+          sketch.arcs.begin(),
+          sketch.arcs.end(),
+          [&](const SketchArc& candidate) { return candidate.id == entity_id; });
+      if (arc_it != sketch.arcs.end()) {
+        owner = &feature;
+        arc = &(*arc_it);
+        break;
+      }
+    }
+    if (owner == nullptr) {
+      throw std::runtime_error("Sketch entity not found: " + entity_id);
+    }
+    if (sketch_feature != nullptr && sketch_feature->id != owner->id) {
+      throw std::runtime_error(
+          "Open thin extrude entities must belong to the same sketch");
+    }
+    sketch_feature = owner;
+
+    auto append_point = [&](double x, double y) {
+      if (!chain.empty()) {
+        const auto& last = chain.back();
+        const double dx = last.x - x;
+        const double dy = last.y - y;
+        if (std::sqrt(dx * dx + dy * dy) <= 1.0e-6) {
+          return;
+        }
+      }
+      chain.push_back({.x = x, .y = y});
+    };
+
+    if (line != nullptr) {
+      append_point(line->start_x, line->start_y);
+      append_point(line->end_x, line->end_y);
+    } else if (arc != nullptr) {
+      const double start_angle =
+          std::atan2(arc->start_y - arc->center_y, arc->start_x - arc->center_x);
+      double end_angle =
+          std::atan2(arc->end_y - arc->center_y, arc->end_x - arc->center_x);
+      if (arc->ccw && end_angle < start_angle) {
+        end_angle += 2.0 * 3.14159265358979323846;
+      } else if (!arc->ccw && end_angle > start_angle) {
+        end_angle -= 2.0 * 3.14159265358979323846;
+      }
+      constexpr int kArcSegments = 16;
+      for (int index = 0; index <= kArcSegments; ++index) {
+        const double t = static_cast<double>(index) / kArcSegments;
+        const double angle = start_angle + (end_angle - start_angle) * t;
+        append_point(arc->center_x + std::cos(angle) * arc->radius,
+                     arc->center_y + std::sin(angle) * arc->radius);
+      }
+    }
+  }
+
+  if (sketch_feature == nullptr || !sketch_feature->sketch_parameters.has_value()) {
+    throw std::runtime_error("Open thin extrude source sketch not found");
+  }
+  if (chain.size() < 2) {
+    throw std::runtime_error("Open thin extrude requires a connected chain");
+  }
+
+  const auto& sketch = sketch_feature->sketch_parameters.value();
+  const std::string plane_id =
+      sketch.plane_frame.has_value() ? plane_id_from_frame(sketch.plane_frame.value())
+                                     : sketch.plane_id;
+  const std::optional<PlaneFrame> plane_frame =
+      sketch.plane_frame.has_value()
+          ? std::optional<PlaneFrame>(make_plane_frame(sketch.plane_frame.value()))
+          : std::nullopt;
+
+  ExtrudeFeatureParameters extrude_parameters =
+      parameters.value_or(ExtrudeFeatureParameters{});
+  extrude_parameters.sketch_feature_id = sketch_feature->id;
+  extrude_parameters.profile_id = "open-chain";
+  extrude_parameters.profile_ids = {};
+  extrude_parameters.open_entity_ids = entity_ids;
+  extrude_parameters.plane_id = plane_id;
+  extrude_parameters.plane_frame = plane_frame;
+  extrude_parameters.profile_kind = "open_chain";
+  extrude_parameters.start_x = 0.0;
+  extrude_parameters.start_y = 0.0;
+  extrude_parameters.width = 0.0;
+  extrude_parameters.height = 0.0;
+  extrude_parameters.radius = 0.0;
+  extrude_parameters.profile_points = chain;
+  extrude_parameters.inner_loops.clear();
+  extrude_parameters.additional_profile_points.clear();
+  extrude_parameters.additional_inner_loops.clear();
+  extrude_parameters.depth = depth;
+  extrude_parameters.mode = mode;
+  if (extrude_parameters.operation == "new_body" && mode != "new_body") {
+    extrude_parameters.operation = mode;
+  }
+  extrude_parameters.target_body_id = target_body_id;
+  extrude_parameters.thin.enabled = true;
+  normalize_extrude_parameters(*document_, extrude_parameters);
+
+  push_undo_state();
+  clear_redo_stack();
+  document_->feature_history.push_back(
+      create_extrude_feature(next_feature_id_++, extrude_parameters));
+  document_->selected_feature_id = document_->feature_history.back().id;
+  document_->selected_reference_id = std::nullopt;
+  document_->selected_sketch_entity_ids.clear();
+  document_->selected_sketch_entity_id = std::nullopt;
+  bump_geometry_revision();
+  return document_.value();
+}
+
 DocumentState DocumentManager::extrude_face(
     const std::string& face_id,
     double depth,
     const std::string& mode,
-    const std::optional<std::string>& target_body_id) {
+    const std::optional<std::string>& target_body_id,
+    const std::optional<ExtrudeFeatureParameters>& parameters) {
   require_document();
 
   const auto profile = compute_planar_face_profile(*document_, face_id);
@@ -3211,7 +3698,36 @@ DocumentState DocumentManager::extrude_face(
       .target_body_id = target_body_id,
   };
 
-  if (extrude_parameters.mode == "new_body" &&
+  if (parameters.has_value()) {
+    const auto source = extrude_parameters;
+    extrude_parameters = parameters.value();
+    extrude_parameters.sketch_feature_id = source.sketch_feature_id;
+    extrude_parameters.profile_id = source.profile_id;
+    extrude_parameters.profile_ids = source.profile_ids;
+    extrude_parameters.plane_id = source.plane_id;
+    extrude_parameters.plane_frame = source.plane_frame;
+    extrude_parameters.profile_kind = source.profile_kind;
+    extrude_parameters.start_x = source.start_x;
+    extrude_parameters.start_y = source.start_y;
+    extrude_parameters.width = source.width;
+    extrude_parameters.height = source.height;
+    extrude_parameters.radius = source.radius;
+    extrude_parameters.profile_points = source.profile_points;
+    extrude_parameters.inner_loops = source.inner_loops;
+    extrude_parameters.additional_profile_points =
+        source.additional_profile_points;
+    extrude_parameters.additional_inner_loops = source.additional_inner_loops;
+  }
+  extrude_parameters.depth = depth;
+  extrude_parameters.mode = mode;
+  if (extrude_parameters.operation == "new_body" && mode != "new_body") {
+    extrude_parameters.operation = mode;
+  }
+  extrude_parameters.target_body_id = target_body_id;
+  normalize_extrude_parameters(*document_, extrude_parameters);
+
+  if (extrude_parameters.operation != "auto" &&
+      extrude_parameters.mode == "new_body" &&
       !extrude_parameters.target_body_id.has_value()) {
     const auto intersected =
         find_intersecting_body_for_extrude(*document_, extrude_parameters);

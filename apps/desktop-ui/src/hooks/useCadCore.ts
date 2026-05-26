@@ -85,6 +85,7 @@ import {
   makeCancelMirrorPreviewCommand,
   makeSetSketchPointFixedCommand,
   makeExtrudeFaceCommand,
+  makeExtrudeOpenEntitiesCommand,
   makeExtrudeProfileCommand,
   makeSetSketchLineConstraintCommand,
   makeSetSketchToolCommand,
@@ -99,6 +100,7 @@ import {
   makeUpdateCylinderFeatureCommand,
   makeUpdateExtrudeDepthCommand,
   makeUpdateExtrudeModeCommand,
+  makeUpdateExtrudeParametersCommand,
   makeUpdateExtrudeProfilesCommand,
   makeUpdateExtrudeTargetBodyCommand,
   makeLoftProfilesCommand,
@@ -112,7 +114,11 @@ import {
   makeUiLogEntry,
   writeLogToConsole,
 } from "@/lib";
-import type { ExtrudeMode } from "@/types";
+import type {
+  ExtrudeAdvancedParameters,
+  ExtrudeFeatureParameters,
+  ExtrudeMode,
+} from "@/types";
 
 import { useCadCoreStore } from "@/state";
 import { SketchTool } from "@/types";
@@ -805,9 +811,35 @@ export function useCadCore() {
       depth: number,
       mode: ExtrudeMode = "new_body",
       targetBodyId: string | null = null,
+      parameters: Partial<ExtrudeAdvancedParameters> | null = null,
     ) => {
       await sendCoreCommand(
-        makeExtrudeProfileCommand(profileIds, depth, mode, targetBodyId),
+        makeExtrudeProfileCommand(
+          profileIds,
+          depth,
+          mode,
+          targetBodyId,
+          parameters,
+        ),
+      );
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    extrudeOpenEntities: async (
+      entityIds: readonly string[],
+      depth: number,
+      mode: ExtrudeMode = "new_body",
+      targetBodyId: string | null = null,
+      parameters: Partial<ExtrudeAdvancedParameters> | null = null,
+    ) => {
+      await sendCoreCommand(
+        makeExtrudeOpenEntitiesCommand(
+          entityIds,
+          depth,
+          mode,
+          targetBodyId,
+          parameters,
+        ),
       );
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());
@@ -817,9 +849,10 @@ export function useCadCore() {
       depth: number,
       mode: ExtrudeMode = "new_body",
       targetBodyId: string | null = null,
+      parameters: Partial<ExtrudeAdvancedParameters> | null = null,
     ) => {
       await sendCoreCommand(
-        makeExtrudeFaceCommand(faceId, depth, mode, targetBodyId),
+        makeExtrudeFaceCommand(faceId, depth, mode, targetBodyId, parameters),
       );
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());
@@ -835,6 +868,16 @@ export function useCadCore() {
     ) => {
       await sendCoreCommand(
         makeUpdateExtrudeTargetBodyCommand(featureId, targetBodyId),
+      );
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateExtrudeParameters: async (
+      featureId: string,
+      parameters: ExtrudeFeatureParameters,
+    ) => {
+      await sendCoreCommand(
+        makeUpdateExtrudeParametersCommand(featureId, parameters),
       );
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());

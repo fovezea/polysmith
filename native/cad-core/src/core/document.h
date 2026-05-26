@@ -82,6 +82,9 @@ class DocumentManager {
   DocumentState update_extrude_target_body(
       const std::string& feature_id,
       const std::optional<std::string>& target_body_id);
+  DocumentState update_extrude_parameters(
+      const std::string& feature_id,
+      const ExtrudeFeatureParameters& parameters);
   DocumentState update_extrude_profiles(
       const std::string& feature_id,
       const std::vector<std::string>& profile_ids);
@@ -253,17 +256,30 @@ class DocumentManager {
       const std::string& profile_id,
       double depth,
       const std::string& mode = "new_body",
-      const std::optional<std::string>& target_body_id = std::nullopt);
+      const std::optional<std::string>& target_body_id = std::nullopt,
+      const std::optional<ExtrudeFeatureParameters>& parameters =
+          std::nullopt);
   DocumentState extrude_profiles(
       const std::vector<std::string>& profile_ids,
       double depth,
       const std::string& mode = "new_body",
-      const std::optional<std::string>& target_body_id = std::nullopt);
+      const std::optional<std::string>& target_body_id = std::nullopt,
+      const std::optional<ExtrudeFeatureParameters>& parameters =
+          std::nullopt);
+  DocumentState extrude_open_entities(
+      const std::vector<std::string>& entity_ids,
+      double depth,
+      const std::string& mode = "new_body",
+      const std::optional<std::string>& target_body_id = std::nullopt,
+      const std::optional<ExtrudeFeatureParameters>& parameters =
+          std::nullopt);
   DocumentState extrude_face(
       const std::string& face_id,
       double depth,
       const std::string& mode = "new_body",
-      const std::optional<std::string>& target_body_id = std::nullopt);
+      const std::optional<std::string>& target_body_id = std::nullopt,
+      const std::optional<ExtrudeFeatureParameters>& parameters =
+          std::nullopt);
   DocumentState add_sketch_line(double start_x,
                                 double start_y,
                                 double end_x,

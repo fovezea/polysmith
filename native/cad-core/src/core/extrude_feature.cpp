@@ -13,6 +13,8 @@
 #include <gp_Vec.hxx>
 #include <TopoDS_Shape.hxx>
 
+#include "core/feature_shape.h"
+
 namespace polysmith::core {
 namespace {
 
@@ -23,6 +25,49 @@ void validate_parameters(const ExtrudeFeatureParameters& parameters) {
   // against.
   if (parameters.depth == 0.0) {
     throw std::runtime_error("Extrude depth must be non-zero");
+  }
+  const auto validate_side = [](const ExtrudeFeatureParameters::SideParameters& side,
+                                const std::string& label) {
+    if (side.distance <= 0.0) {
+      throw std::runtime_error(label + " distance must be greater than zero");
+    }
+    if (side.start_offset < 0.0) {
+      throw std::runtime_error(label + " start offset must be non-negative");
+    }
+    if (std::abs(side.taper_angle_degrees) >= 89.0) {
+      throw std::runtime_error(label + " taper angle must be less than 89 degrees");
+    }
+  };
+  validate_side(parameters.side1, "Extrude side 1");
+  if (parameters.extent_mode == "two_sides" ||
+      parameters.extent_mode == "symmetric") {
+    if (parameters.side2.has_value()) {
+      validate_side(parameters.side2.value(), "Extrude side 2");
+    }
+  }
+  if (parameters.thin.enabled) {
+    if (parameters.thin.thickness <= 0.0) {
+      throw std::runtime_error("Thin extrude thickness must be greater than zero");
+    }
+    if (parameters.thin.placement != "center" &&
+        parameters.thin.placement != "inside" &&
+        parameters.thin.placement != "outside") {
+      throw std::runtime_error("Unsupported thin extrude placement: " +
+                               parameters.thin.placement);
+    }
+  }
+  if (parameters.extent_mode != "one_side" &&
+      parameters.extent_mode != "symmetric" &&
+      parameters.extent_mode != "two_sides") {
+    throw std::runtime_error("Unsupported extrude extent mode: " +
+                             parameters.extent_mode);
+  }
+
+  if (parameters.profile_kind == "open_chain") {
+    if (!parameters.thin.enabled || parameters.profile_points.size() < 2) {
+      throw std::runtime_error("Open-chain extrude requires thin mode and at least two points");
+    }
+    return;
   }
 
   if (parameters.profile_kind == "rectangle") {
@@ -50,38 +95,7 @@ void validate_parameters(const ExtrudeFeatureParameters& parameters) {
 }
 
 void validate_occt_shape(const ExtrudeFeatureParameters& parameters) {
-  // Validation only checks that OCCT can build *some* shape with these
-  // parameters; it doesn't have to match the world-space shape that
-  // build_extrude_shape produces. Negative depths are validated via
-  // abs(depth) on the legacy primitives below since BRepPrimAPI_MakeBox
-  // and BRepPrimAPI_MakeCylinder reject non-positive dimensions.
-  const double abs_depth = std::abs(parameters.depth);
-  TopoDS_Shape shape;
-  if (parameters.profile_kind == "rectangle") {
-    shape = BRepPrimAPI_MakeBox(
-                parameters.width, abs_depth, parameters.height)
-                .Shape();
-  } else if (parameters.profile_kind == "circle") {
-    shape = BRepPrimAPI_MakeCylinder(parameters.radius, abs_depth).Shape();
-  } else {
-    BRepBuilderAPI_MakePolygon polygon_builder;
-    for (const auto& point : parameters.profile_points) {
-      polygon_builder.Add(gp_Pnt(point.x, point.y, 0.0));
-    }
-    polygon_builder.Close();
-
-    if (!polygon_builder.IsDone()) {
-      throw std::runtime_error("OCCT failed to create a polygon wire");
-    }
-
-    const TopoDS_Shape face =
-        BRepBuilderAPI_MakeFace(polygon_builder.Wire()).Shape();
-    // gp_Vec is happy with signed components, so the polygon prism
-    // path doesn't need abs(depth) — extruding by a negative vector
-    // produces a valid solid in the -z direction.
-    shape = BRepPrimAPI_MakePrism(face, gp_Vec(0.0, 0.0, parameters.depth)).Shape();
-  }
-
+  const TopoDS_Shape shape = build_extrude_shape(parameters);
   if (shape.IsNull()) {
     throw std::runtime_error("OCCT failed to create an extruded shape");
   }

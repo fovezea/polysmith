@@ -117,9 +117,8 @@ export function LoftPreviewPanel({
 
   return (
     <section className="pointer-events-auto cad-floating-panel box-border w-80 max-w-[calc(100vw-2rem)] overflow-hidden px-5 py-5">
-      <p className="cad-kicker">{t("common.action")}</p>
-      <h2 className="cad-title mt-2">{t("panels.loft.title")}</h2>
-      <div className="mt-3 rounded-md bg-surface-container-low px-3 py-2 text-xs uppercase tracking-[0.16em] text-on-surface-muted">
+      <p className="cad-kicker">{t("panels.loft.title")}</p>
+      <div className="mt-3 py-1 text-xs uppercase tracking-[0.16em] text-on-surface-muted">
         {profiles.length >= 2
           ? t("panels.loft.sectionsSelected", { count: profiles.length })
           : t("panels.loft.pickProfiles")}

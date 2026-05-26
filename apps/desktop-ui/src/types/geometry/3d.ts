@@ -1,5 +1,9 @@
 import type {
   ExtrudeMode,
+  ExtrudeOperation,
+  ExtrudeExtentMode,
+  ExtrudeSideParameters,
+  ExtrudeThinParameters,
   SketchProfilePoint,
   Shape2D,
   PlaneFrame,
@@ -20,9 +24,10 @@ export interface ExtrudeFeatureParameters {
   sketch_feature_id: string;
   profile_id: string;
   profile_ids: string[];
+  open_entity_ids: string[];
   plane_id: string;
   plane_frame: PlaneFrame | null;
-  profile_kind: Shape2D;
+  profile_kind: Shape2D | "open_chain";
   start_x: number;
   start_y: number;
   width: number;
@@ -33,7 +38,13 @@ export interface ExtrudeFeatureParameters {
   additional_profile_points: SketchProfilePoint[][];
   additional_inner_loops: SketchProfilePoint[][][];
   depth: number;
+  extent_mode: ExtrudeExtentMode;
+  side1: ExtrudeSideParameters;
+  side2: ExtrudeSideParameters | null;
+  thin: ExtrudeThinParameters;
   mode: ExtrudeMode;
+  operation: ExtrudeOperation;
+  intersect_result: "replace_target" | "new_body";
   target_body_id: string | null;
 }
 

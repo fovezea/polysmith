@@ -509,6 +509,16 @@ button:not(:disabled),
     box-shadow: 0 2px 0 var(--cad-input-focus);
   }
 
+  .cad-input-error {
+    border-bottom-color: var(--color-danger);
+    box-shadow: 0 2px 0 color-mix(in srgb, var(--color-danger) 35%, transparent);
+  }
+
+  .cad-input-error:focus {
+    border-color: var(--color-danger);
+    box-shadow: 0 2px 0 color-mix(in srgb, var(--color-danger) 55%, transparent);
+  }
+
   .cad-metric {
     @apply font-medium tracking-[0.04em] text-primary-soft;
     font-variant-numeric: tabular-nums;

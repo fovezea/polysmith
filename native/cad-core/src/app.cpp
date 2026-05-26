@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <exception>
+#include <optional>
 #include <string>
 
 #include <BRepPrimAPI_MakeBox.hxx>
@@ -20,6 +21,7 @@ namespace {
 using polysmith::core::DocumentManager;
 using polysmith::core::BoxFeatureParameters;
 using polysmith::core::CylinderFeatureParameters;
+using polysmith::core::ExtrudeFeatureParameters;
 using polysmith::protocol::CommandMessage;
 
 DocumentManager& document_manager() {
@@ -54,6 +56,111 @@ std::string read_string(const polysmith::protocol::json& payload,
   }
 
   return payload.at(key).get<std::string>();
+}
+
+std::optional<std::string> read_optional_string(
+    const polysmith::protocol::json& payload,
+    const char* key) {
+  if (!payload.contains(key) || payload.at(key).is_null()) {
+    return std::nullopt;
+  }
+  if (!payload.at(key).is_string()) {
+    throw std::runtime_error(std::string("Command payload field is not a string '") +
+                             key + "'");
+  }
+  return payload.at(key).get<std::string>();
+}
+
+double read_optional_dimension(const polysmith::protocol::json& payload,
+                               const char* key,
+                               double fallback) {
+  if (!payload.contains(key) || payload.at(key).is_null()) {
+    return fallback;
+  }
+  if (!payload.at(key).is_number()) {
+    throw std::runtime_error(std::string("Command payload field is not numeric '") +
+                             key + "'");
+  }
+  return payload.at(key).get<double>();
+}
+
+ExtrudeFeatureParameters::SideParameters read_extrude_side(
+    const polysmith::protocol::json& payload,
+    const char* key,
+    const ExtrudeFeatureParameters::SideParameters& fallback) {
+  ExtrudeFeatureParameters::SideParameters side = fallback;
+  if (!payload.contains(key) || !payload.at(key).is_object()) {
+    return side;
+  }
+  const auto& side_payload = payload.at(key);
+  side.extent_type =
+      read_optional_string(side_payload, "extent_type").value_or(side.extent_type);
+  side.distance =
+      read_optional_dimension(side_payload, "distance", side.distance);
+  side.start_offset =
+      read_optional_dimension(side_payload, "start_offset", side.start_offset);
+  side.taper_angle_degrees =
+      read_optional_dimension(side_payload,
+                              "taper_angle_degrees",
+                              side.taper_angle_degrees);
+  side.target_reference_id =
+      read_optional_string(side_payload, "target_reference_id");
+  return side;
+}
+
+std::optional<ExtrudeFeatureParameters> read_optional_extrude_parameters(
+    const polysmith::protocol::json& payload,
+    double depth,
+    const std::string& mode,
+    const std::optional<std::string>& target_body_id) {
+  const bool has_parameter_fields =
+      payload.contains("extent_mode") || payload.contains("side1") ||
+      payload.contains("side2") || payload.contains("thin") ||
+      payload.contains("operation") || payload.contains("intersect_result");
+  if (!has_parameter_fields && !payload.contains("parameters")) {
+    return std::nullopt;
+  }
+
+  if (payload.contains("parameters") && payload.at("parameters").is_object() &&
+      payload.at("parameters").contains("sketch_feature_id")) {
+    return polysmith::protocol::extrude_parameters_from_payload(
+        payload.at("parameters"));
+  }
+
+  const auto& parameter_payload =
+      payload.contains("parameters") && payload.at("parameters").is_object()
+          ? payload.at("parameters")
+          : payload;
+  ExtrudeFeatureParameters params{};
+  params.depth = depth;
+  params.mode = mode;
+  params.operation =
+      read_optional_string(parameter_payload, "operation").value_or(mode);
+  params.target_body_id = target_body_id;
+  params.extent_mode =
+      read_optional_string(parameter_payload, "extent_mode").value_or("one_side");
+  params.side1.distance = std::abs(depth);
+  params.side1 = read_extrude_side(parameter_payload, "side1", params.side1);
+  if (parameter_payload.contains("side2") &&
+      parameter_payload.at("side2").is_object()) {
+    params.side2 =
+        read_extrude_side(parameter_payload, "side2", params.side1);
+  }
+  if (parameter_payload.contains("thin") &&
+      parameter_payload.at("thin").is_object()) {
+    const auto& thin = parameter_payload.at("thin");
+    if (thin.contains("enabled") && thin.at("enabled").is_boolean()) {
+      params.thin.enabled = thin.at("enabled").get<bool>();
+    }
+    params.thin.thickness =
+        read_optional_dimension(thin, "thickness", params.thin.thickness);
+    params.thin.placement =
+        read_optional_string(thin, "placement").value_or(params.thin.placement);
+  }
+  params.intersect_result =
+      read_optional_string(parameter_payload, "intersect_result")
+          .value_or(params.intersect_result);
+  return params;
 }
 
 polysmith::core::SketchFeatureParameters::SketchPlaneFrame read_plane_frame(
@@ -982,11 +1089,34 @@ void CadCoreApp::handle_command_line(const std::string& line) {
         }
       }
     }
-    if (profile_ids.empty()) {
+    const bool has_open_entity_ids =
+        command.payload.contains("open_entity_ids") &&
+        command.payload.at("open_entity_ids").is_array();
+    if (profile_ids.empty() && !has_open_entity_ids) {
       profile_ids.push_back(read_string(command.payload, "profile_id"));
     }
+    const double depth = read_dimension(command.payload, "depth");
+    const auto parameters =
+        read_optional_extrude_parameters(command.payload,
+                                         depth,
+                                         mode,
+                                         target_body_id);
+    if (profile_ids.empty() && has_open_entity_ids) {
+      std::vector<std::string> entity_ids;
+      for (const auto& id : command.payload.at("open_entity_ids")) {
+        if (id.is_string()) {
+          entity_ids.push_back(id.get<std::string>());
+        }
+      }
+      const auto document = document_manager().extrude_open_entities(
+          entity_ids, depth, mode, target_body_id, parameters);
+      polysmith::protocol::write_message(
+          polysmith::protocol::make_document_state_event(
+              command.id, polysmith::protocol::to_payload(document)));
+      return;
+    }
     const auto document = document_manager().extrude_profiles(
-        profile_ids, read_dimension(command.payload, "depth"), mode, target_body_id);
+        profile_ids, depth, mode, target_body_id, parameters);
 
     polysmith::protocol::write_message(
         polysmith::protocol::make_document_state_event(
@@ -1006,11 +1136,18 @@ void CadCoreApp::handle_command_line(const std::string& line) {
       target_body_id =
           command.payload.at("target_body_id").get<std::string>();
     }
+    const double depth = read_dimension(command.payload, "depth");
+    const auto parameters =
+        read_optional_extrude_parameters(command.payload,
+                                         depth,
+                                         mode,
+                                         target_body_id);
     const auto document = document_manager().extrude_face(
         read_string(command.payload, "face_id"),
-        read_dimension(command.payload, "depth"),
+        depth,
         mode,
-        target_body_id);
+        target_body_id,
+        parameters);
 
     polysmith::protocol::write_message(
         polysmith::protocol::make_document_state_event(
@@ -1038,6 +1175,23 @@ void CadCoreApp::handle_command_line(const std::string& line) {
     }
     const auto document = document_manager().update_extrude_target_body(
         read_string(command.payload, "feature_id"), target_body_id);
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "update_extrude_parameters") {
+    const auto parameters =
+        command.payload.contains("parameters") &&
+                command.payload.at("parameters").is_object()
+            ? polysmith::protocol::extrude_parameters_from_payload(
+                  command.payload.at("parameters"))
+            : polysmith::protocol::extrude_parameters_from_payload(
+                  command.payload);
+    const auto document = document_manager().update_extrude_parameters(
+        read_string(command.payload, "feature_id"), parameters);
 
     polysmith::protocol::write_message(
         polysmith::protocol::make_document_state_event(

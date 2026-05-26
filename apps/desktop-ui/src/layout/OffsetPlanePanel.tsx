@@ -119,9 +119,8 @@ export function OffsetPlanePanel({
 
   return (
     <section className="pointer-events-auto cad-floating-panel px-5 py-5">
-      <p className="cad-kicker">{t("common.construction")}</p>
-      <h2 className="cad-title mt-2">{t("panels.offsetPlane.title")}</h2>
-      <p className="mt-1 text-xs text-on-surface-muted">
+      <p className="cad-kicker">{t("panels.offsetPlane.title")}</p>
+      <p className="mt-3 text-xs text-on-surface-muted">
         {isPending
           ? t("panels.offsetPlane.pickSource")
           : sourceSummary

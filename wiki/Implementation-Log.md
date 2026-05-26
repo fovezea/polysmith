@@ -1135,6 +1135,23 @@ Three bugs fixed after initial implementation:
    round-trips (select + getViewportState). For N entities that's 2N
    round-trips, ~0.5 s per entity. Added `batchSelectSketchEntities` to
    `useCadCore` that parallelizes all select commands via `Promise.all`
-   and sends one final `getViewportState`. Also added `documentRef` in
-   `ViewportPanel.tsx` so `handleContextMenu` always sees the latest
-   document state after a batch select.
+  and sends one final `getViewportState`. Also added `documentRef` in
+  `ViewportPanel.tsx` so `handleContextMenu` always sees the latest
+  document state after a batch select.
+
+## Feature-Complete Extrude Parameter Model (2026-05-26)
+
+- upgraded extrude parameters from a single `depth` into a side-based model:
+  `extent_mode`, `side1`, optional `side2`, `thin`, `operation`, and
+  `intersect_result`, while keeping legacy `depth`, `mode`, and
+  `target_body_id` readable and writable
+- added `update_extrude_parameters` for full live-preview edits; existing
+  `update_extrude_depth`, `update_extrude_mode`, `update_extrude_target_body`,
+  and `update_extrude_profiles` remain shorthand compatibility paths
+- added core support for one-side, symmetric, two-side, per-side start offset,
+  per-side taper, thin closed profiles, thin open sketch line/arc chains,
+  Through All / To Object / To Next extent solving, Auto operation, and
+  Intersect mode
+- reworked the extrude floating panel into grouped controls for operation,
+  intersect result, extents, side settings, thin placement, and targets, with
+  timeline cancel restoring the complete saved extrude parameter snapshot

@@ -46,8 +46,8 @@ Common command payloads:
 - add_sketch_circle { center_x, center_y, radius, is_construction }
 - add_sketch_arc { start_x, start_y, end_x, end_y, anchor_x, anchor_y, mode, is_construction }
 - select_sketch_profile { profile_id, additive? }
-- extrude_profile { profile_ids, depth, mode?, target_body_id? }
-- extrude_face { face_id, depth, mode?, target_body_id? }
+- extrude_profile { profile_ids?, open_entity_ids?, depth, mode?, target_body_id?, parameters? }
+- extrude_face { face_id, depth, mode?, target_body_id?, parameters? }
 - loft_profiles { profile_ids, ruled? }
 - update_loft_profiles { feature_id, profile_ids }
 - update_loft_ruled { feature_id, ruled }
@@ -58,6 +58,7 @@ Common command payloads:
 - update_extrude_depth { feature_id, depth }
 - update_extrude_mode { feature_id, mode }
 - update_extrude_target_body { feature_id, target_body_id? }
+- update_extrude_parameters { feature_id, parameters }
 - create_fillet { edge_ids, radius }
 - create_chamfer { edge_ids, distance }
 - create_offset_plane { source_plane_id, offset }

@@ -5,6 +5,8 @@ import type {
   DocumentState,
   DocumentExportResult,
   ErrorEvent,
+  ExtrudeAdvancedParameters,
+  ExtrudeFeatureParameters,
   ExtrudeMode,
   ViewportState,
 } from "@/types";
@@ -751,6 +753,7 @@ export function makeExtrudeProfileCommand(
   depth: number,
   mode: ExtrudeMode = "new_body",
   targetBodyId: string | null = null,
+  parameters: Partial<ExtrudeAdvancedParameters> | null = null,
 ): CoreCommand {
   const ids = Array.isArray(profileIds) ? [...profileIds] : [profileIds];
   return {
@@ -762,6 +765,27 @@ export function makeExtrudeProfileCommand(
       depth,
       mode,
       ...(targetBodyId ? { target_body_id: targetBodyId } : {}),
+      ...(parameters ? { parameters } : {}),
+    },
+  };
+}
+
+export function makeExtrudeOpenEntitiesCommand(
+  entityIds: readonly string[],
+  depth: number,
+  mode: ExtrudeMode = "new_body",
+  targetBodyId: string | null = null,
+  parameters: Partial<ExtrudeAdvancedParameters> | null = null,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "extrude_profile",
+    payload: {
+      open_entity_ids: [...entityIds],
+      depth,
+      mode,
+      ...(targetBodyId ? { target_body_id: targetBodyId } : {}),
+      ...(parameters ? { parameters } : {}),
     },
   };
 }
@@ -771,6 +795,7 @@ export function makeExtrudeFaceCommand(
   depth: number,
   mode: ExtrudeMode = "new_body",
   targetBodyId: string | null = null,
+  parameters: Partial<ExtrudeAdvancedParameters> | null = null,
 ): CoreCommand {
   return {
     id: crypto.randomUUID(),
@@ -780,6 +805,7 @@ export function makeExtrudeFaceCommand(
       depth,
       mode,
       ...(targetBodyId ? { target_body_id: targetBodyId } : {}),
+      ...(parameters ? { parameters } : {}),
     },
   };
 }
@@ -808,6 +834,20 @@ export function makeUpdateExtrudeTargetBodyCommand(
     payload: {
       feature_id: featureId,
       ...(targetBodyId ? { target_body_id: targetBodyId } : {}),
+    },
+  };
+}
+
+export function makeUpdateExtrudeParametersCommand(
+  featureId: string,
+  parameters: ExtrudeFeatureParameters,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_extrude_parameters",
+    payload: {
+      feature_id: featureId,
+      parameters,
     },
   };
 }

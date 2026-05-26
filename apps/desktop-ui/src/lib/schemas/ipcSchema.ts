@@ -70,6 +70,7 @@ const documentStateSchema = z.object({
           sketch_feature_id: z.string(),
           profile_id: z.string(),
           profile_ids: z.array(z.string()).default([]),
+          open_entity_ids: z.array(z.string()).default([]),
           plane_id: z.string(),
           plane_frame: z
             .object({
@@ -79,7 +80,7 @@ const documentStateSchema = z.object({
               normal: z.object({ x: z.number(), y: z.number(), z: z.number() }),
             })
             .nullable(),
-          profile_kind: z.enum(["rectangle", "circle", "polygon"]),
+          profile_kind: z.enum(["rectangle", "circle", "polygon", "open_chain"]),
           start_x: z.number(),
           start_y: z.number(),
           width: z.number(),
@@ -103,7 +104,54 @@ const documentStateSchema = z.object({
             )
             .default([]),
           depth: z.number(),
-          mode: z.enum(["new_body", "join", "cut"]).default("new_body"),
+          extent_mode: z
+            .enum(["one_side", "symmetric", "two_sides"])
+            .default("one_side"),
+          side1: z
+            .object({
+              extent_type: z
+                .enum(["distance", "through_all", "to_object", "to_next"])
+                .default("distance"),
+              distance: z.number().default(10),
+              start_offset: z.number().default(0),
+              taper_angle_degrees: z.number().default(0),
+              target_reference_id: z.string().nullable().default(null),
+            })
+            .default({
+              extent_type: "distance",
+              distance: 10,
+              start_offset: 0,
+              taper_angle_degrees: 0,
+              target_reference_id: null,
+            }),
+          side2: z
+            .object({
+              extent_type: z
+                .enum(["distance", "through_all", "to_object", "to_next"])
+                .default("distance"),
+              distance: z.number().default(10),
+              start_offset: z.number().default(0),
+              taper_angle_degrees: z.number().default(0),
+              target_reference_id: z.string().nullable().default(null),
+            })
+            .nullable()
+            .default(null),
+          thin: z
+            .object({
+              enabled: z.boolean().default(false),
+              thickness: z.number().default(1),
+              placement: z.enum(["center", "inside", "outside"]).default("center"),
+            })
+            .default({ enabled: false, thickness: 1, placement: "center" }),
+          mode: z
+            .enum(["new_body", "join", "cut", "intersect"])
+            .default("new_body"),
+          operation: z
+            .enum(["auto", "new_body", "join", "cut", "intersect"])
+            .default("new_body"),
+          intersect_result: z
+            .enum(["replace_target", "new_body"])
+            .default("replace_target"),
           target_body_id: z.string().nullable().default(null),
         })
         .nullable(),

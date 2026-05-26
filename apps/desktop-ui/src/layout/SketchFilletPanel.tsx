@@ -112,9 +112,8 @@ export function SketchFilletPanel({
 
   return (
     <section className="pointer-events-auto cad-floating-panel px-5 py-5">
-      <p className="cad-kicker">{t("common.action")}</p>
-      <h2 className="cad-title mt-2">{t("panels.sketchFillet.title")}</h2>
-      <p className="mt-1 text-xs text-on-surface-muted">
+      <p className="cad-kicker">{t("panels.sketchFillet.title")}</p>
+      <p className="mt-3 text-xs text-on-surface-muted">
         {count === 0
           ? t("panels.sketchFillet.clickCorner")
           : t("panels.sketchFillet.addAnother", {

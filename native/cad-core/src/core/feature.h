@@ -38,9 +38,34 @@ struct PlaneFrame {
 };
 
 struct ExtrudeFeatureParameters {
+  struct SideParameters {
+    // "distance", "through_all", "to_object", or "to_next".
+    std::string extent_type = "distance";
+    // Resolved side distance. For dynamic extents this stores the latest
+    // solved distance so older readers and the shape builder still have a
+    // concrete prism length.
+    double distance = 10.0;
+    // Positive distance from the profile plane along this side's direction
+    // before material starts.
+    double start_offset = 0.0;
+    double taper_angle_degrees = 0.0;
+    // Face id or body id used by to_object / through_all.
+    std::optional<std::string> target_reference_id;
+  };
+
+  struct ThinParameters {
+    bool enabled = false;
+    double thickness = 1.0;
+    // "center", "inside", or "outside".
+    std::string placement = "center";
+  };
+
   std::string sketch_feature_id;
   std::string profile_id;
   std::vector<std::string> profile_ids;
+  // For thin extrudes from open sketch chains. Empty for closed-profile
+  // and planar-face extrudes.
+  std::vector<std::string> open_entity_ids;
   std::string plane_id;
   std::optional<PlaneFrame> plane_frame;
   std::string profile_kind;
@@ -54,11 +79,23 @@ struct ExtrudeFeatureParameters {
   std::vector<std::vector<SketchProfilePoint>> additional_profile_points;
   std::vector<std::vector<std::vector<SketchProfilePoint>>> additional_inner_loops;
   double depth;
+  // "one_side", "symmetric", or "two_sides". Legacy files omit this and
+  // load as one_side using `depth`.
+  std::string extent_mode = "one_side";
+  SideParameters side1{};
+  std::optional<SideParameters> side2;
+  ThinParameters thin{};
   // "new_body" (default): produces an independent solid body.
   // "join": fuses the extrude with `target_body_id` if set, else the
   //         most recent existing body.
   // "cut":  subtracts the extrude from the same target choice as "join".
+  // "intersect": keeps only the volume common to the target and extrusion.
   std::string mode = "new_body";
+  // "auto", "new_body", "join", "cut", or "intersect". `mode` stores the
+  // current effective operation so old consumers keep working.
+  std::string operation = "new_body";
+  // "replace_target" or "new_body" for intersect mode.
+  std::string intersect_result = "replace_target";
   // Optional explicit target body for boolean modes. Stored as the root
   // feature id of the target body (the same id reported in
   // `viewport_state.bodies`). Empty / unset means "most recent body" so

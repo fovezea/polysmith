@@ -266,26 +266,35 @@ const commandPayloadSchemas = {
     .object({
       profile_id: stringField.optional(),
       profile_ids: stringArray.optional(),
+      open_entity_ids: stringArray.optional(),
       depth: numberField,
-      mode: z.enum(["new_body", "join", "cut"]).optional(),
+      mode: z.enum(["new_body", "join", "cut", "intersect"]).optional(),
       target_body_id: stringField.optional(),
+      parameters: z.record(z.string(), z.unknown()).optional(),
     })
     .strict()
-    .refine((payload) => payload.profile_id || payload.profile_ids?.length, {
-      message: "extrude_profile requires profile_id or profile_ids",
+    .refine((payload) => payload.profile_id || payload.profile_ids?.length || payload.open_entity_ids?.length, {
+      message: "extrude_profile requires profile_id, profile_ids, or open_entity_ids",
     }),
   extrude_face: z
     .object({
       face_id: stringField,
       depth: numberField,
-      mode: z.enum(["new_body", "join", "cut"]).optional(),
+      mode: z.enum(["new_body", "join", "cut", "intersect"]).optional(),
       target_body_id: stringField.optional(),
+      parameters: z.record(z.string(), z.unknown()).optional(),
     })
     .strict(),
   update_extrude_mode: z
     .object({
       feature_id: stringField,
-      mode: z.enum(["new_body", "join", "cut"]),
+      mode: z.enum(["new_body", "join", "cut", "intersect"]),
+    })
+    .strict(),
+  update_extrude_parameters: z
+    .object({
+      feature_id: stringField,
+      parameters: z.record(z.string(), z.unknown()),
     })
     .strict(),
   update_extrude_target_body: z

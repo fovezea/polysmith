@@ -1,5 +1,6 @@
 #include "protocol/serialization.h"
 
+#include <cmath>
 #include <stdexcept>
 
 #include "core/dof_counter.h"
@@ -55,6 +56,30 @@ std::optional<std::string> read_optional_string(const json& payload,
   return payload.at(key).get<std::string>();
 }
 
+double read_optional_number(const json& payload,
+                            const char* key,
+                            double fallback) {
+  if (!payload.is_object() || !payload.contains(key) || payload.at(key).is_null()) {
+    return fallback;
+  }
+  if (!payload.at(key).is_number()) {
+    throw std::runtime_error(std::string("Field is not a number: ") + key);
+  }
+  return payload.at(key).get<double>();
+}
+
+std::string read_optional_string_value(const json& payload,
+                                       const char* key,
+                                       const std::string& fallback) {
+  if (!payload.is_object() || !payload.contains(key) || payload.at(key).is_null()) {
+    return fallback;
+  }
+  if (!payload.at(key).is_string()) {
+    throw std::runtime_error(std::string("Field is not a string: ") + key);
+  }
+  return payload.at(key).get<std::string>();
+}
+
 polysmith::core::PlaneFrame plane_frame_from_payload(const json& payload) {
   polysmith::core::PlaneFrame frame{};
   frame.origin_x = require(payload, "origin").at("x").get<double>();
@@ -70,6 +95,41 @@ polysmith::core::PlaneFrame plane_frame_from_payload(const json& payload) {
   frame.normal_y = require(payload, "normal").at("y").get<double>();
   frame.normal_z = require(payload, "normal").at("z").get<double>();
   return frame;
+}
+
+polysmith::core::ExtrudeFeatureParameters::SideParameters
+extrude_side_from_payload(
+    const json& payload,
+    const polysmith::core::ExtrudeFeatureParameters::SideParameters& fallback) {
+  polysmith::core::ExtrudeFeatureParameters::SideParameters side = fallback;
+  if (!payload.is_object()) {
+    return side;
+  }
+  side.extent_type =
+      read_optional_string_value(payload, "extent_type", side.extent_type);
+  side.distance = read_optional_number(payload, "distance", side.distance);
+  side.start_offset =
+      read_optional_number(payload, "start_offset", side.start_offset);
+  side.taper_angle_degrees =
+      read_optional_number(payload,
+                           "taper_angle_degrees",
+                           side.taper_angle_degrees);
+  side.target_reference_id = read_optional_string(payload, "target_reference_id");
+  return side;
+}
+
+json extrude_side_to_payload(
+    const polysmith::core::ExtrudeFeatureParameters::SideParameters& side) {
+  return json{
+      {"extent_type", side.extent_type},
+      {"distance", side.distance},
+      {"start_offset", side.start_offset},
+      {"taper_angle_degrees", side.taper_angle_degrees},
+      {"target_reference_id",
+       side.target_reference_id.has_value()
+           ? json(side.target_reference_id.value())
+           : json(nullptr)},
+  };
 }
 
 polysmith::core::SketchFeatureParameters::SketchPlaneFrame
@@ -122,7 +182,7 @@ json viewport_sketch_plane_frame_to_payload(
 }
 
 polysmith::core::ExtrudeFeatureParameters
-extrude_parameters_from_payload(const json& payload) {
+parse_extrude_parameters_from_payload(const json& payload) {
   polysmith::core::ExtrudeFeatureParameters params{};
   params.sketch_feature_id = read_string(payload, "sketch_feature_id");
   params.profile_id = read_string(payload, "profile_id");
@@ -132,6 +192,12 @@ extrude_parameters_from_payload(const json& payload) {
     }
   } else if (!params.profile_id.empty()) {
     params.profile_ids.push_back(params.profile_id);
+  }
+  if (payload.contains("open_entity_ids") &&
+      payload.at("open_entity_ids").is_array()) {
+    for (const auto& id_value : payload.at("open_entity_ids")) {
+      params.open_entity_ids.push_back(id_value.get<std::string>());
+    }
   }
   params.plane_id = read_string(payload, "plane_id");
   if (payload.contains("plane_frame") && !payload.at("plane_frame").is_null()) {
@@ -194,9 +260,35 @@ extrude_parameters_from_payload(const json& payload) {
     }
   }
   params.depth = read_number(payload, "depth");
+  params.extent_mode =
+      read_optional_string_value(payload, "extent_mode", params.extent_mode);
+  params.side1.distance = std::abs(params.depth);
+  if (payload.contains("side1") && payload.at("side1").is_object()) {
+    params.side1 = extrude_side_from_payload(payload.at("side1"), params.side1);
+  }
+  if (payload.contains("side2") && payload.at("side2").is_object()) {
+    params.side2 =
+        extrude_side_from_payload(payload.at("side2"), params.side1);
+  }
+  if (payload.contains("thin") && payload.at("thin").is_object()) {
+    const auto& thin = payload.at("thin");
+    if (thin.contains("enabled") && thin.at("enabled").is_boolean()) {
+      params.thin.enabled = thin.at("enabled").get<bool>();
+    }
+    params.thin.thickness =
+        read_optional_number(thin, "thickness", params.thin.thickness);
+    params.thin.placement =
+        read_optional_string_value(thin, "placement", params.thin.placement);
+  }
   if (payload.contains("mode") && payload.at("mode").is_string()) {
     params.mode = payload.at("mode").get<std::string>();
   }
+  params.operation =
+      read_optional_string_value(payload, "operation", params.mode);
+  params.intersect_result =
+      read_optional_string_value(payload,
+                                 "intersect_result",
+                                 params.intersect_result);
   if (payload.contains("target_body_id") &&
       payload.at("target_body_id").is_string()) {
     params.target_body_id = payload.at("target_body_id").get<std::string>();
@@ -677,6 +769,11 @@ sketch_parameters_from_payload(const json& payload) {
 
 }  // namespace
 
+polysmith::core::ExtrudeFeatureParameters
+extrude_parameters_from_payload(const json& payload) {
+  return parse_extrude_parameters_from_payload(payload);
+}
+
 json plane_frame_to_payload(const polysmith::core::PlaneFrame& frame) {
   return {
       {"origin",
@@ -754,6 +851,15 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                   [&feature]() {
                     json ids = json::array();
                     for (const auto& id : feature.extrude_parameters->profile_ids) {
+                      ids.push_back(id);
+                    }
+                    return ids;
+                  }()},
+                 {"open_entity_ids",
+                  [&feature]() {
+                    json ids = json::array();
+                    for (const auto& id :
+                         feature.extrude_parameters->open_entity_ids) {
                       ids.push_back(id);
                     }
                     return ids;
@@ -848,9 +954,26 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                       profiles.push_back(loops);
                     }
                     return profiles;
-                  }()},
+                 }()},
                  {"depth", feature.extrude_parameters->depth},
+                 {"extent_mode", feature.extrude_parameters->extent_mode},
+                 {"side1",
+                  extrude_side_to_payload(feature.extrude_parameters->side1)},
+                 {"side2",
+                  feature.extrude_parameters->side2.has_value()
+                      ? extrude_side_to_payload(
+                            feature.extrude_parameters->side2.value())
+                      : json(nullptr)},
+                 {"thin",
+                  {
+                      {"enabled", feature.extrude_parameters->thin.enabled},
+                      {"thickness", feature.extrude_parameters->thin.thickness},
+                      {"placement", feature.extrude_parameters->thin.placement},
+                  }},
                  {"mode", feature.extrude_parameters->mode},
+                 {"operation", feature.extrude_parameters->operation},
+                 {"intersect_result",
+                  feature.extrude_parameters->intersect_result},
                  {"target_body_id",
                   feature.extrude_parameters->target_body_id.has_value()
                       ? json(feature.extrude_parameters->target_body_id.value())
@@ -2251,7 +2374,7 @@ polysmith::core::FeatureEntry feature_entry_from_payload(const json& payload) {
   if (payload.contains("extrude_parameters") &&
       !payload.at("extrude_parameters").is_null()) {
     feature.extrude_parameters =
-        extrude_parameters_from_payload(payload.at("extrude_parameters"));
+        parse_extrude_parameters_from_payload(payload.at("extrude_parameters"));
   }
 
   if (payload.contains("loft_parameters") &&
