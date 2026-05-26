@@ -10,6 +10,7 @@ export * from "./MessageLog";
 export * from "./ExtrudePreviewPanel";
 export * from "./LoftPreviewPanel";
 export * from "./RevolvePreviewPanel";
+export * from "./SweepPreviewPanel";
 export * from "./EdgeOpPreviewPanel";
 export * from "./ShellPreviewPanel";
 export * from "./OffsetPlanePanel";

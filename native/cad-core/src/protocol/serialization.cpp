@@ -373,6 +373,49 @@ revolve_parameters_from_payload(const json& payload) {
   return params;
 }
 
+polysmith::core::SweepFeatureParameters
+sweep_parameters_from_payload(const json& payload) {
+  polysmith::core::SweepFeatureParameters params{};
+  params.sketch_feature_id = read_string(payload, "sketch_feature_id");
+  params.profile_id = read_string(payload, "profile_id");
+  params.plane_id = read_string(payload, "plane_id");
+  if (payload.contains("plane_frame") && !payload.at("plane_frame").is_null()) {
+    params.plane_frame = plane_frame_from_payload(payload.at("plane_frame"));
+  }
+  params.profile_kind = read_string(payload, "profile_kind");
+  if (payload.contains("profile_points") &&
+      payload.at("profile_points").is_array()) {
+    for (const auto& point_payload : payload.at("profile_points")) {
+      params.profile_points.push_back(polysmith::core::SketchProfilePoint{
+          .x = point_payload.at("x").get<double>(),
+          .y = point_payload.at("y").get<double>(),
+      });
+    }
+  }
+  if (payload.contains("inner_loops") && payload.at("inner_loops").is_array()) {
+    for (const auto& loop_payload : payload.at("inner_loops")) {
+      std::vector<polysmith::core::SketchProfilePoint> loop;
+      for (const auto& point_payload : loop_payload) {
+        loop.push_back(polysmith::core::SketchProfilePoint{
+            .x = point_payload.at("x").get<double>(),
+            .y = point_payload.at("y").get<double>(),
+        });
+      }
+      params.inner_loops.push_back(std::move(loop));
+    }
+  }
+  params.path_sketch_feature_id =
+      read_string(payload, "path_sketch_feature_id");
+  params.path_entity_id = read_string(payload, "path_entity_id");
+  params.path_start_x = read_number(payload, "path_start_x");
+  params.path_start_y = read_number(payload, "path_start_y");
+  params.path_start_z = read_number(payload, "path_start_z");
+  params.path_end_x = read_number(payload, "path_end_x");
+  params.path_end_y = read_number(payload, "path_end_y");
+  params.path_end_z = read_number(payload, "path_end_z");
+  return params;
+}
+
 polysmith::core::SketchFeatureParameters
 sketch_parameters_from_payload(const json& payload) {
   polysmith::core::SketchFeatureParameters params{};
@@ -1042,6 +1085,43 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                  {"axis_end_z", feature.revolve_parameters->axis_end_z},
                  {"angle_degrees",
                   feature.revolve_parameters->angle_degrees},
+             }
+           : json(nullptr)},
+      {"sweep_parameters",
+       feature.sweep_parameters.has_value()
+           ? json{
+                 {"sketch_feature_id",
+                  feature.sweep_parameters->sketch_feature_id},
+                 {"profile_id", feature.sweep_parameters->profile_id},
+                 {"plane_id", feature.sweep_parameters->plane_id},
+                 {"plane_frame",
+                  feature.sweep_parameters->plane_frame.has_value()
+                      ? plane_frame_to_payload(
+                            feature.sweep_parameters->plane_frame.value())
+                      : json(nullptr)},
+                 {"profile_kind", feature.sweep_parameters->profile_kind},
+                 {"profile_points",
+                  profile_points_to_payload(
+                      feature.sweep_parameters->profile_points)},
+                 {"inner_loops",
+                  [&feature]() {
+                    json loops = json::array();
+                    for (const auto& loop :
+                         feature.sweep_parameters->inner_loops) {
+                      loops.push_back(profile_points_to_payload(loop));
+                    }
+                    return loops;
+                  }()},
+                 {"path_sketch_feature_id",
+                  feature.sweep_parameters->path_sketch_feature_id},
+                 {"path_entity_id",
+                  feature.sweep_parameters->path_entity_id},
+                 {"path_start_x", feature.sweep_parameters->path_start_x},
+                 {"path_start_y", feature.sweep_parameters->path_start_y},
+                 {"path_start_z", feature.sweep_parameters->path_start_z},
+                 {"path_end_x", feature.sweep_parameters->path_end_x},
+                 {"path_end_y", feature.sweep_parameters->path_end_y},
+                 {"path_end_z", feature.sweep_parameters->path_end_z},
              }
            : json(nullptr)},
       {"sketch_parameters",
@@ -2405,6 +2485,12 @@ polysmith::core::FeatureEntry feature_entry_from_payload(const json& payload) {
       !payload.at("revolve_parameters").is_null()) {
     feature.revolve_parameters =
         revolve_parameters_from_payload(payload.at("revolve_parameters"));
+  }
+
+  if (payload.contains("sweep_parameters") &&
+      !payload.at("sweep_parameters").is_null()) {
+    feature.sweep_parameters =
+        sweep_parameters_from_payload(payload.at("sweep_parameters"));
   }
 
   if (payload.contains("sketch_parameters") &&

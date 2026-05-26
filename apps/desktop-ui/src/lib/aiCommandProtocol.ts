@@ -357,6 +357,15 @@ const commandPayloadSchemas = {
   update_revolve_angle: z
     .object({ feature_id: stringField, angle_degrees: numberField })
     .strict(),
+  sweep_profile: z
+    .object({ profile_id: stringField, path_entity_id: stringField })
+    .strict(),
+  update_sweep_profile: z
+    .object({ feature_id: stringField, profile_id: stringField })
+    .strict(),
+  update_sweep_path: z
+    .object({ feature_id: stringField, path_entity_id: stringField })
+    .strict(),
   select_sketch_entity: z
     .object({ entity_id: stringField, additive: booleanField })
     .strict(),
@@ -564,7 +573,9 @@ export function validateAiCommandBatchForState(
 
     if (
       command.type === "revolve_profile" ||
-      command.type === "update_revolve_profile"
+      command.type === "update_revolve_profile" ||
+      command.type === "sweep_profile" ||
+      command.type === "update_sweep_profile"
     ) {
       if (!knownProfileIds.has(command.payload.profile_id)) {
         throw new Error(
@@ -749,6 +760,18 @@ function buildMissingActiveSketchRepair(
     if (command.type === "finish_sketch") {
       hasActiveSketch = false;
     }
+    if (
+      command.type === "sweep_profile" ||
+      command.type === "update_sweep_path"
+    ) {
+      const knownSketchLineIds = collectKnownSketchLineIds(document);
+      if (!knownSketchLineIds.has(command.payload.path_entity_id)) {
+        throw new Error(
+          `${command.type} references unknown path line "${command.payload.path_entity_id}". Use a sketch line id from current state.`,
+        );
+      }
+      hasActiveSketch = false;
+    }
   }
 
   return null;
@@ -764,7 +787,8 @@ function findUnknownProfileExtrudeIndex(
     if (
       command.type !== "extrude_profile" &&
       command.type !== "loft_profiles" &&
-      command.type !== "revolve_profile"
+      command.type !== "revolve_profile" &&
+      command.type !== "sweep_profile"
     ) {
       return false;
     }

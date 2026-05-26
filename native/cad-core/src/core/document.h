@@ -14,6 +14,7 @@
 #include "core/revolve_feature.h"
 #include "core/sketch_profile.h"
 #include "core/sketch_feature.h"
+#include "core/sweep_feature.h"
 
 namespace polysmith::core {
 
@@ -103,6 +104,12 @@ class DocumentManager {
                                     const std::string& axis_entity_id);
   DocumentState update_revolve_angle(const std::string& feature_id,
                                      double angle_degrees);
+  DocumentState sweep_profile(const std::string& profile_id,
+                              const std::string& path_entity_id);
+  DocumentState update_sweep_profile(const std::string& feature_id,
+                                     const std::string& profile_id);
+  DocumentState update_sweep_path(const std::string& feature_id,
+                                  const std::string& path_entity_id);
   DocumentState rename_feature(const std::string& feature_id,
                                const std::string& name);
   // Toggle a feature's suppressed flag. Suppressed features are

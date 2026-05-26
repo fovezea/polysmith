@@ -382,6 +382,7 @@ interface ViewportPanelProps {
   // instead of the normal selection / armed-constraint paths.
   mirrorFocusedSlot: "objects" | "axis" | null;
   inactiveSketchEntityPickEnabled?: boolean;
+  onPickInactiveSketchLine?: (lineId: string) => void | Promise<void>;
   onMirrorEntityPick: (
     entityId: string,
     entityKind: "line" | "circle",
@@ -999,6 +1000,7 @@ export function ViewportPanel({
   armedSketchConstraint,
   mirrorFocusedSlot,
   inactiveSketchEntityPickEnabled = false,
+  onPickInactiveSketchLine,
   onMirrorEntityPick,
   onCancelSketchConstraint,
   onClearSketchConstraint,
@@ -1263,6 +1265,10 @@ const currentGridSpacingRef = useRef(10);
   const rectSecondPointRef = useRef<[number, number] | null>(null);
   const circleSecondPointRef = useRef<[number, number] | null>(null);
   const selectSketchEntityRef = useRef(onSelectSketchEntity);
+  const pickInactiveSketchLineRef = useRef(onPickInactiveSketchLine);
+  const inactiveSketchEntityPickEnabledRef = useRef(
+    inactiveSketchEntityPickEnabled,
+  );
   const pickSketchPointRef = useRef(onPickSketchPoint);
   const selectSketchDimensionRef = useRef(onSelectSketchDimension);
   const updateSketchDimensionRef = useRef(onUpdateSketchDimension);
@@ -4295,6 +4301,9 @@ const currentGridSpacingRef = useRef(10);
     addSketchPolygonRef.current = onAddSketchPolygon;
     addSketchFilletRef.current = onAddSketchFillet;
     selectSketchEntityRef.current = onSelectSketchEntity;
+    pickInactiveSketchLineRef.current = onPickInactiveSketchLine;
+    inactiveSketchEntityPickEnabledRef.current =
+      inactiveSketchEntityPickEnabled;
     pickSketchPointRef.current = onPickSketchPoint;
     selectSketchDimensionRef.current = onSelectSketchDimension;
     updateSketchDimensionRef.current = onUpdateSketchDimension;
@@ -4331,6 +4340,8 @@ const currentGridSpacingRef = useRef(10);
     onAddSketchPolygon,
     onAddSketchFillet,
     onSelectSketchEntity,
+    onPickInactiveSketchLine,
+    inactiveSketchEntityPickEnabled,
     onPickSketchPoint,
     onSelectSketchDimension,
     onUpdateSketchDimension,
@@ -5639,6 +5650,73 @@ const currentGridSpacingRef = useRef(10);
       renderer.autoClear = oldAutoClear;
     }
 
+    function pickVisibleSketchLineScreenSpace(
+      event: PointerEvent,
+      maxDistancePx = 16,
+    ) {
+      const lines = sceneDataRef.current?.sketchLines ?? [];
+      const rect = renderer.domElement.getBoundingClientRect();
+      const pointerPx = {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top,
+      };
+      const toScreen = (point: readonly [number, number, number]) => {
+        const projected = new THREE.Vector3(...point).project(camera);
+        if (
+          projected.z < -1 ||
+          projected.z > 1 ||
+          !Number.isFinite(projected.x) ||
+          !Number.isFinite(projected.y)
+        ) {
+          return null;
+        }
+        return {
+          x: ((projected.x + 1) * 0.5) * rect.width,
+          y: ((-projected.y + 1) * 0.5) * rect.height,
+        };
+      };
+      const pointSegmentDistance = (
+        point: { x: number; y: number },
+        start: { x: number; y: number },
+        end: { x: number; y: number },
+      ) => {
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        const lengthSq = dx * dx + dy * dy;
+        if (lengthSq <= 1.0e-9) {
+          return Math.hypot(point.x - start.x, point.y - start.y);
+        }
+        const t = Math.max(
+          0,
+          Math.min(
+            1,
+            ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSq,
+          ),
+        );
+        return Math.hypot(
+          point.x - (start.x + dx * t),
+          point.y - (start.y + dy * t),
+        );
+      };
+
+      let best: { lineId: string; distance: number } | null = null;
+      for (const line of lines) {
+        if (line.isPreview) {
+          continue;
+        }
+        const start = toScreen(line.start);
+        const end = toScreen(line.end);
+        if (!start || !end) {
+          continue;
+        }
+        const distance = pointSegmentDistance(pointerPx, start, end);
+        if (distance <= maxDistancePx && (!best || distance < best.distance)) {
+          best = { lineId: line.lineId, distance };
+        }
+      }
+      return best?.lineId ?? null;
+    }
+
     function intersectSceneTargets(event: PointerEvent) {
       const rect = renderer.domElement.getBoundingClientRect();
       pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -5905,7 +5983,17 @@ const currentGridSpacingRef = useRef(10);
       // this", not "select the underlying face". Profiles whose owning
       // sketch was hidden (e.g. auto-hide-after-extrude) won't have a
       // mesh in the ref array, so they naturally drop out of the pick.
-      if (inactiveSketchEntityPickEnabled) {
+      if (inactiveSketchEntityPickEnabledRef.current) {
+        const sketchLineId = pickVisibleSketchLineScreenSpace(event, 16);
+        if (sketchLineId) {
+          return {
+            kind: "sketch_entity" as const,
+            id: sketchLineId,
+            entityKind: "line",
+            isProjected: false,
+            worldPoint: [0, 0, 0] as const,
+          };
+        }
         const [sketchEntityHit] = raycaster.intersectObjects(
           sketchEntityObjectsRef.current,
           false,
@@ -5937,7 +6025,7 @@ const currentGridSpacingRef = useRef(10);
         }
       }
 
-      if (inactiveSketchEntityPickEnabled) {
+      if (inactiveSketchEntityPickEnabledRef.current) {
         const [sketchEntityHit] = raycaster.intersectObjects(
           sketchEntityObjectsRef.current,
           false,
@@ -7637,7 +7725,7 @@ const currentGridSpacingRef = useRef(10);
           }
 
           if (
-            inactiveSketchEntityPickEnabled &&
+            inactiveSketchEntityPickEnabledRef.current &&
             hit?.kind === "sketch_entity" &&
             hit.entityKind === "line"
           ) {
@@ -8429,18 +8517,29 @@ const currentGridSpacingRef = useRef(10);
           scheduleDimensionDeletion("line", oldSession);
         }
         void addSketchLineRef.current(
-	          startX,
-	          startY,
-	          committedEnd[0],
-	          committedEnd[1],
-	          sketchToolConstructionRef.current,
-	        );
+          startX,
+          startY,
+          committedEnd[0],
+          committedEnd[1],
+          sketchToolConstructionRef.current,
+        );
         return;
+      }
+
+      if (
+        inactiveSketchEntityPickEnabledRef.current &&
+        pickInactiveSketchLineRef.current
+      ) {
+        const sketchLineId = pickVisibleSketchLineScreenSpace(event, 16);
+        if (sketchLineId) {
+          void pickInactiveSketchLineRef.current(sketchLineId);
+          return;
+        }
       }
 
       const hit = intersectSceneTargets(event);
       if (
-        inactiveSketchEntityPickEnabled &&
+        inactiveSketchEntityPickEnabledRef.current &&
         hit?.kind === "sketch_entity" &&
         hit.entityKind === "line"
       ) {

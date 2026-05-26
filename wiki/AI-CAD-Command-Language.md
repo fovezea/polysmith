@@ -1832,6 +1832,56 @@ Payload:
 }
 ```
 
+### Profile Sweep
+
+#### `sweep_profile`
+
+Creates a new body by sweeping one closed sketch profile along a sketch line
+path. This command does not require an active sketch.
+
+Payload:
+
+```ts
+{
+  profile_id: string;
+  path_entity_id: string;
+}
+```
+
+Rules:
+
+- Use a profile ID from `feature_history[].sketch_parameters.profiles[]` or
+  `viewport_state.sketch_profiles[]`.
+- Use a sketch line ID for `path_entity_id`; the path may come from a different
+  sketch than the profile.
+- Sweep v1 supports straight sketch-line paths and always creates a new body.
+
+#### `update_sweep_profile`
+
+Replaces the source profile for an existing sweep while preserving its path.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+  profile_id: string;
+}
+```
+
+#### `update_sweep_path`
+
+Replaces the path line for an existing sweep while preserving its profile.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+  path_entity_id: string;
+}
+```
+
 ### Body Fillets and Chamfers
 
 These commands operate on body edges from `viewport_state.edges[]`. Edge IDs
@@ -2082,6 +2132,7 @@ Parameter fields:
 - `extrude_parameters: ExtrudeFeatureParameters | null`
 - `loft_parameters: { ruled, sections[] } | null`
 - `revolve_parameters: { sketch_feature_id, profile_id, axis_sketch_feature_id, axis_entity_id, axis_start_x, axis_start_y, axis_start_z, axis_end_x, axis_end_y, axis_end_z, angle_degrees } | null`
+- `sweep_parameters: { sketch_feature_id, profile_id, path_sketch_feature_id, path_entity_id, path_start_x, path_start_y, path_start_z, path_end_x, path_end_y, path_end_z } | null`
 - `fillet_parameters: { target_body_id, edge_ids, radius, is_pending } | null`
 - `chamfer_parameters: { target_body_id, edge_ids, distance, is_pending } | null`
 - `shell_parameters: { target_body_id, removed_face_ids, thickness, is_pending } | null`
@@ -2466,6 +2517,9 @@ this:
   `revolve_profile { profile_id, axis_entity_id, angle_degrees? }`; update
   revolves with `update_revolve_profile`, `update_revolve_axis`, and
   `update_revolve_angle`.
+- Sweep one sketch profile along one sketch line with
+  `sweep_profile { profile_id, path_entity_id }`; update sweeps with
+  `update_sweep_profile` and `update_sweep_path`.
 - Read `viewport_state.bodies[]` for boolean targets.
 - Read `viewport_state.solid_faces[]` for face sketches and copy `plane_frame`.
 - Read `viewport_state.edges[]` for body fillet/chamfer.

@@ -4,6 +4,7 @@ import type {
   ExtrudeFeatureParameters,
   LoftFeatureParameters,
   RevolveFeatureParameters,
+  SweepFeatureParameters,
   Shape2D,
   Vector3,
 } from "@/types";
@@ -337,6 +338,7 @@ export interface FeatureEntry {
   extrude_parameters: ExtrudeFeatureParameters | null;
   loft_parameters: LoftFeatureParameters | null;
   revolve_parameters: RevolveFeatureParameters | null;
+  sweep_parameters: SweepFeatureParameters | null;
   sketch_parameters: SketchFeatureParameters | null;
   fillet_parameters: FilletFeatureParameters | null;
   chamfer_parameters: ChamferFeatureParameters | null;

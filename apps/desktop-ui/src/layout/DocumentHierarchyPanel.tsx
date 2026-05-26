@@ -49,6 +49,7 @@ const BODY_KINDS = new Set([
   "extrude",
   "loft",
   "revolve",
+  "sweep",
 ]);
 
 function EyeIcon({ open }: { open: boolean }) {

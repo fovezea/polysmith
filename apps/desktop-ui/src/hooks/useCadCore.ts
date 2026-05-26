@@ -115,6 +115,9 @@ import {
   makeUpdateRevolveAngleCommand,
   makeUpdateRevolveAxisCommand,
   makeUpdateRevolveProfileCommand,
+  makeSweepProfileCommand,
+  makeUpdateSweepPathCommand,
+  makeUpdateSweepProfileCommand,
   makeUpdateLoftProfilesCommand,
   makeUpdateLoftRuledCommand,
   parseCoreMessage,
@@ -987,6 +990,21 @@ export function useCadCore() {
       await sendCoreCommand(
         makeUpdateRevolveAngleCommand(featureId, angleDegrees),
       );
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    sweepProfile: async (profileId: string, pathEntityId: string) => {
+      await sendCoreCommand(makeSweepProfileCommand(profileId, pathEntityId));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateSweepProfile: async (featureId: string, profileId: string) => {
+      await sendCoreCommand(makeUpdateSweepProfileCommand(featureId, profileId));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateSweepPath: async (featureId: string, pathEntityId: string) => {
+      await sendCoreCommand(makeUpdateSweepPathCommand(featureId, pathEntityId));
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());
     },

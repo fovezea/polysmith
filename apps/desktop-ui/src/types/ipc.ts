@@ -1260,6 +1260,33 @@ export interface UpdateRevolveAngleCommand {
   };
 }
 
+export interface SweepProfileCommand {
+  id: string;
+  type: "sweep_profile";
+  payload: {
+    profile_id: string;
+    path_entity_id: string;
+  };
+}
+
+export interface UpdateSweepProfileCommand {
+  id: string;
+  type: "update_sweep_profile";
+  payload: {
+    feature_id: string;
+    profile_id: string;
+  };
+}
+
+export interface UpdateSweepPathCommand {
+  id: string;
+  type: "update_sweep_path";
+  payload: {
+    feature_id: string;
+    path_entity_id: string;
+  };
+}
+
 export interface SelectSketchEntityCommand {
   id: string;
   type: "select_sketch_entity";
@@ -1341,6 +1368,9 @@ export type CoreCommand =
   | UpdateRevolveProfileCommand
   | UpdateRevolveAxisCommand
   | UpdateRevolveAngleCommand
+  | SweepProfileCommand
+  | UpdateSweepProfileCommand
+  | UpdateSweepPathCommand
   | RenameFeatureCommand
   | SetFeatureSuppressedCommand
   | DeleteFeatureCommand

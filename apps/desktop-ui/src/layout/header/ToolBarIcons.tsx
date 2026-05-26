@@ -644,6 +644,24 @@ export const ShellIcon = () => (
   </svg>
 );
 
+// Profile swept along a path — a face moving along a guide curve.
+export const SweepIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-7 w-7"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M5 16c4-8 10-8 14-3" />
+    <path d="M6 7h5l2 4-3 4H5l-2-4Z" />
+    <path d="m16 12 3 1 1-3" />
+  </svg>
+);
+
 // Four-direction move gizmo. Disabled placeholder for the Modify
 // ribbon's "Move" tool.
 export const MoveIcon = () => (
@@ -718,6 +736,8 @@ export function FeatureKindIcon({ kind }: { kind: string }) {
       return <LoftIcon />;
     case "revolve":
       return <RevolveIcon />;
+    case "sweep":
+      return <SweepIcon />;
     case "pattern":
       return <PatternIcon />;
     case "sketch":

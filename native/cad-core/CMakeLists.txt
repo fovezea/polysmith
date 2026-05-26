@@ -37,6 +37,7 @@ add_executable(cad_core
   src/core/sketch_feature.cpp
   src/core/sketch_profile.cpp
   src/core/snap_engine.cpp
+  src/core/sweep_feature.cpp
   src/core/trim_engine.cpp
   src/core/viewport.cpp
   src/protocol/ipc.cpp

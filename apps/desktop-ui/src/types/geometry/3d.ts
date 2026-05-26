@@ -79,3 +79,21 @@ export interface RevolveFeatureParameters {
   axis_end_z: number;
   angle_degrees: number;
 }
+
+export interface SweepFeatureParameters {
+  sketch_feature_id: string;
+  profile_id: string;
+  plane_id: string;
+  plane_frame: PlaneFrame | null;
+  profile_kind: Shape2D;
+  profile_points: SketchProfilePoint[];
+  inner_loops: SketchProfilePoint[][];
+  path_sketch_feature_id: string;
+  path_entity_id: string;
+  path_start_x: number;
+  path_start_y: number;
+  path_start_z: number;
+  path_end_x: number;
+  path_end_y: number;
+  path_end_z: number;
+}

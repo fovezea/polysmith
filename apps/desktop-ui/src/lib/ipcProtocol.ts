@@ -1056,6 +1056,48 @@ export function makeUpdateRevolveAngleCommand(
   };
 }
 
+export function makeSweepProfileCommand(
+  profileId: string,
+  pathEntityId: string,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "sweep_profile",
+    payload: {
+      profile_id: profileId,
+      path_entity_id: pathEntityId,
+    },
+  };
+}
+
+export function makeUpdateSweepProfileCommand(
+  featureId: string,
+  profileId: string,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_sweep_profile",
+    payload: {
+      feature_id: featureId,
+      profile_id: profileId,
+    },
+  };
+}
+
+export function makeUpdateSweepPathCommand(
+  featureId: string,
+  pathEntityId: string,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_sweep_path",
+    payload: {
+      feature_id: featureId,
+      path_entity_id: pathEntityId,
+    },
+  };
+}
+
 export function makeAddSketchLineCommand(
   startX: number,
   startY: number,

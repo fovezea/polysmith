@@ -737,6 +737,11 @@ const SketchProfileRegion* find_equivalent_profile(
   return candidates.size() == 1 ? candidates.front() : nullptr;
 }
 
+SweepFeatureParameters make_sweep_parameters(
+    std::vector<FeatureEntry>& features,
+    const std::string& profile_id,
+    const std::string& path_entity_id);
+
 void refresh_linked_extrudes(DocumentState& document,
                              const FeatureEntry& sketch_feature) {
   if (!sketch_feature.sketch_parameters.has_value()) {
@@ -1031,6 +1036,48 @@ void refresh_linked_extrudes(DocumentState& document,
     feature.parameters_summary =
         feature.revolve_parameters->profile_id + " · " +
         std::to_string(feature.revolve_parameters->angle_degrees) + " deg";
+  }
+
+  const auto mark_sweep_warning = [](FeatureEntry& feature,
+                                     const std::string& message) {
+    feature.status = "warning";
+    feature.parameters_summary = "Source profile or path unavailable";
+    feature.dependency_broken = true;
+    feature.dependency_warning = message;
+  };
+
+  for (auto& feature : document.feature_history) {
+    if (feature.kind != "sweep" || !feature.sweep_parameters.has_value()) {
+      continue;
+    }
+    const bool references_profile_sketch =
+        feature.sweep_parameters->sketch_feature_id == sketch_feature.id;
+    const bool references_path_sketch =
+        feature.sweep_parameters->path_sketch_feature_id == sketch_feature.id;
+    if (!references_profile_sketch && !references_path_sketch) {
+      continue;
+    }
+
+    try {
+      const SweepFeatureParameters rebuilt =
+          make_sweep_parameters(document.feature_history,
+                                feature.sweep_parameters->profile_id,
+                                feature.sweep_parameters->path_entity_id);
+      const TopoDS_Shape next_shape = build_sweep_shape(rebuilt);
+      if (next_shape.IsNull()) {
+        throw std::runtime_error("Sweep rebuild produced an empty shape");
+      }
+      feature.sweep_parameters = rebuilt;
+      feature.status = "healthy";
+      feature.dependency_broken = false;
+      feature.dependency_warning.clear();
+      feature.parameters_summary = "Profile · path";
+    } catch (const std::exception&) {
+      mark_sweep_warning(
+          feature,
+          "Sweep could not rebuild from the updated profile or path. Edit the "
+          "source sketch or recreate the sweep.");
+    }
   }
 }
 
@@ -3439,6 +3486,74 @@ RevolveFeatureParameters make_revolve_parameters(
   return parameters.value();
 }
 
+SweepFeatureParameters make_sweep_parameters(
+    std::vector<FeatureEntry>& features,
+    const std::string& profile_id,
+    const std::string& path_entity_id) {
+  const auto profile_sketch_it =
+      find_sketch_feature_owning_profile(features, profile_id);
+  if (profile_sketch_it == features.end()) {
+    throw std::runtime_error("Sketch profile not found: " + profile_id);
+  }
+  const auto& profile_sketch = profile_sketch_it->sketch_parameters.value();
+  const auto profile_it = std::find_if(
+      profile_sketch.profiles.begin(),
+      profile_sketch.profiles.end(),
+      [&](const SketchProfileRegion& profile) { return profile.id == profile_id; });
+  if (profile_it == profile_sketch.profiles.end()) {
+    throw std::runtime_error("Sketch profile not found: " + profile_id);
+  }
+
+  const auto path_sketch_it =
+      find_sketch_feature_owning_line(features, path_entity_id);
+  if (path_sketch_it == features.end()) {
+    throw std::runtime_error("Sweep path line not found: " + path_entity_id);
+  }
+  const SketchLine* path_line =
+      find_line_by_id(path_sketch_it->sketch_parameters.value(), path_entity_id);
+  if (path_line == nullptr) {
+    throw std::runtime_error("Sweep path line not found: " + path_entity_id);
+  }
+
+  const std::string plane_id =
+      profile_sketch.plane_frame.has_value()
+          ? plane_id_from_frame(profile_sketch.plane_frame.value())
+          : profile_sketch.plane_id;
+  const std::optional<PlaneFrame> plane_frame =
+      profile_sketch.plane_frame.has_value()
+          ? std::optional<PlaneFrame>(
+                make_plane_frame(profile_sketch.plane_frame.value()))
+          : std::nullopt;
+  const auto path_start = revolve_sketch_local_to_world(
+      path_sketch_it->sketch_parameters.value(),
+      path_line->start_x,
+      path_line->start_y);
+  const auto path_end = revolve_sketch_local_to_world(
+      path_sketch_it->sketch_parameters.value(),
+      path_line->end_x,
+      path_line->end_y);
+
+  return SweepFeatureParameters{
+      .sketch_feature_id = profile_sketch_it->id,
+      .profile_id = profile_it->id,
+      .plane_id = plane_id,
+      .plane_frame = plane_frame,
+      .profile_kind = profile_it->kind,
+      .profile_points = profile_it->kind == "circle"
+                            ? sample_circle_profile_points(*profile_it)
+                            : profile_it->points,
+      .inner_loops = profile_it->inner_loops,
+      .path_sketch_feature_id = path_sketch_it->id,
+      .path_entity_id = path_line->id,
+      .path_start_x = path_start[0],
+      .path_start_y = path_start[1],
+      .path_start_z = path_start[2],
+      .path_end_x = path_end[0],
+      .path_end_y = path_end[1],
+      .path_end_z = path_end[2],
+  };
+}
+
 }  // namespace
 
 DocumentState DocumentManager::select_sketch_profile(const std::string& profile_id,
@@ -4174,6 +4289,98 @@ DocumentState DocumentManager::update_revolve_angle(
   }
 
   polysmith::core::update_revolve_angle(*feature_it, angle_degrees);
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::sweep_profile(
+    const std::string& profile_id,
+    const std::string& path_entity_id) {
+  require_document();
+  const SweepFeatureParameters parameters =
+      make_sweep_parameters(document_->feature_history, profile_id, path_entity_id);
+
+  push_undo_state();
+  clear_redo_stack();
+  document_->feature_history.push_back(
+      create_sweep_feature(next_feature_id_++, parameters));
+  document_->selected_feature_id = document_->feature_history.back().id;
+  document_->selected_reference_id = std::nullopt;
+  document_->selected_face_id = std::nullopt;
+  document_->selected_edge_ids.clear();
+  document_->selected_vertex_ids.clear();
+  document_->active_sketch_plane_id = std::nullopt;
+  document_->active_sketch_feature_id = std::nullopt;
+  document_->active_sketch_tool = std::nullopt;
+  document_->selected_sketch_point_id = std::nullopt;
+  document_->selected_sketch_entity_id = std::nullopt;
+  document_->selected_sketch_dimension_id = std::nullopt;
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::update_sweep_profile(
+    const std::string& feature_id,
+    const std::string& profile_id) {
+  require_document();
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Feature not found: " + feature_id);
+  }
+  if (feature_it->kind != "sweep" || !feature_it->sweep_parameters.has_value()) {
+    throw std::runtime_error(
+        "update_sweep_profile requires a sweep feature: " + feature_id);
+  }
+
+  const SweepFeatureParameters next_parameters =
+      make_sweep_parameters(document_->feature_history,
+                            profile_id,
+                            feature_it->sweep_parameters->path_entity_id);
+  const TopoDS_Shape next_shape = build_sweep_shape(next_parameters);
+  if (next_shape.IsNull()) {
+    throw std::runtime_error("Sweep update produced an empty shape");
+  }
+  feature_it->sweep_parameters = next_parameters;
+  feature_it->parameters_summary = "Profile · path";
+  feature_it->status = "healthy";
+  feature_it->dependency_broken = false;
+  feature_it->dependency_warning.clear();
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::update_sweep_path(
+    const std::string& feature_id,
+    const std::string& path_entity_id) {
+  require_document();
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Feature not found: " + feature_id);
+  }
+  if (feature_it->kind != "sweep" || !feature_it->sweep_parameters.has_value()) {
+    throw std::runtime_error(
+        "update_sweep_path requires a sweep feature: " + feature_id);
+  }
+
+  const SweepFeatureParameters next_parameters =
+      make_sweep_parameters(document_->feature_history,
+                            feature_it->sweep_parameters->profile_id,
+                            path_entity_id);
+  const TopoDS_Shape next_shape = build_sweep_shape(next_parameters);
+  if (next_shape.IsNull()) {
+    throw std::runtime_error("Sweep update produced an empty shape");
+  }
+  feature_it->sweep_parameters = next_parameters;
+  feature_it->parameters_summary = "Profile · path";
+  feature_it->status = "healthy";
+  feature_it->dependency_broken = false;
+  feature_it->dependency_warning.clear();
   bump_geometry_revision();
   return document_.value();
 }

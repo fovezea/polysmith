@@ -198,6 +198,28 @@ const documentStateSchema = z.object({
         })
         .nullable()
         .default(null),
+      sweep_parameters: z
+        .object({
+          sketch_feature_id: z.string(),
+          profile_id: z.string(),
+          plane_id: z.string(),
+          plane_frame: planeFrameSchema.nullable(),
+          profile_kind: z.string(),
+          profile_points: z.array(z.object({ x: z.number(), y: z.number() })),
+          inner_loops: z
+            .array(z.array(z.object({ x: z.number(), y: z.number() })))
+            .default([]),
+          path_sketch_feature_id: z.string(),
+          path_entity_id: z.string(),
+          path_start_x: z.number(),
+          path_start_y: z.number(),
+          path_start_z: z.number(),
+          path_end_x: z.number(),
+          path_end_y: z.number(),
+          path_end_z: z.number(),
+        })
+        .nullable()
+        .default(null),
       fillet_parameters: z
         .object({
           target_body_id: z.string(),

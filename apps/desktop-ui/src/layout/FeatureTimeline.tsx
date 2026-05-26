@@ -53,6 +53,7 @@ const EDITABLE_KINDS = new Set([
   "extrude",
   "loft",
   "revolve",
+  "sweep",
   "sketch",
 ]);
 

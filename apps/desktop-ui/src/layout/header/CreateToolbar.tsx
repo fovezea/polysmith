@@ -6,6 +6,7 @@ import {
   ExtrudeIcon,
   LoftIcon,
   RevolveIcon,
+  SweepIcon,
 } from "./ToolBarIcons";
 import { formatHotkey, useAppConfig } from "@/config";
 import { useTranslation } from "react-i18next";
@@ -29,6 +30,8 @@ export interface CreateToolbarProps {
   onLoft: () => Promise<void>;
   canRevolve: boolean;
   onRevolve: () => Promise<void>;
+  canSweep: boolean;
+  onSweep: () => Promise<void>;
 }
 
 // Flat icon-only button shared by every action in the Create ribbon.
@@ -52,6 +55,8 @@ export function CreateToolbar({
   onLoft,
   canRevolve,
   onRevolve,
+  canSweep,
+  onSweep,
 }: CreateToolbarProps) {
   const { config } = useAppConfig();
   const { t } = useTranslation();
@@ -116,6 +121,17 @@ export function CreateToolbar({
           disabled={disabled || !canRevolve}
         >
           <RevolveIcon />
+        </button>
+        <button
+          className={ICON_BUTTON_BASE}
+          data-tooltip={t("toolbar.sweep")}
+          aria-label={t("toolbar.sweep")}
+          onClick={() => {
+            void onSweep();
+          }}
+          disabled={disabled || !canSweep}
+        >
+          <SweepIcon />
         </button>
         {openMenu === "box" ? (
           <div className="cad-toolbar-popover absolute left-0 top-[calc(100%+0.75rem)] w-[360px]">

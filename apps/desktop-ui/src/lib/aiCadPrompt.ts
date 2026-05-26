@@ -26,6 +26,8 @@ with extrude_face using face_id, depth, mode, and optional target_body_id. Read
 multiple profile IDs in section order for loft_profiles { profile_ids, ruled? }.
 Revolve one profile around a sketch line axis with revolve_profile
 { profile_id, axis_entity_id, angle_degrees? }.
+Sweep one closed profile along a sketch line path with sweep_profile
+{ profile_id, path_entity_id }.
 viewport_state.bodies for boolean targets. Read viewport_state.edges for body
 fillet/chamfer. Read sketch lines, circles, arcs, points, profiles, and dimensions from
 feature_history[].sketch_parameters. Use create_fillet/create_chamfer for body
@@ -55,6 +57,9 @@ Common command payloads:
 - update_revolve_profile { feature_id, profile_id }
 - update_revolve_axis { feature_id, axis_entity_id }
 - update_revolve_angle { feature_id, angle_degrees }
+- sweep_profile { profile_id, path_entity_id }
+- update_sweep_profile { feature_id, profile_id }
+- update_sweep_path { feature_id, path_entity_id }
 - update_extrude_depth { feature_id, depth }
 - update_extrude_mode { feature_id, mode }
 - update_extrude_target_body { feature_id, target_body_id? }

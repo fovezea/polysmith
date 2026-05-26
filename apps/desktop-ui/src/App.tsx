@@ -49,6 +49,7 @@ import {
   AnglePlanePanel,
   LoftPreviewPanel,
   RevolvePreviewPanel,
+  SweepPreviewPanel,
   OffsetPlanePanel,
   SketchFilletPanel,
   MirrorToolPanel,
@@ -121,6 +122,7 @@ const BODY_KINDS = new Set([
   "extrude",
   "loft",
   "revolve",
+  "sweep",
 ]);
 
 function documentHasSolidBody(documentState: DocumentState | null) {
@@ -191,6 +193,17 @@ interface ActiveRevolveAction {
     profileId: string;
     axisEntityId: string;
     angleDegrees: number;
+  } | null;
+}
+
+interface ActiveSweepAction {
+  phase: "pending" | "active";
+  featureId: string | null;
+  profileId: string | null;
+  pathEntityId: string | null;
+  originalSnapshot: {
+    profileId: string;
+    pathEntityId: string;
   } | null;
 }
 
@@ -268,6 +281,9 @@ function App() {
     useState<ActiveRevolveAction | null>(null);
   const revolveCreateInFlightRef = useRef(false);
   const lastRevolveInputsRef = useRef("");
+  const [sweepAction, setSweepAction] = useState<ActiveSweepAction | null>(null);
+  const sweepCreateInFlightRef = useRef(false);
+  const lastSweepInputsRef = useRef("");
   // Arc tool creation mode. Defaults to three-point (common CAD workflow's default
   // and the most ergonomic for shaping curves on the fly). The
   // SketchToolbar exposes a segmented control to toggle to
@@ -670,6 +686,9 @@ function App() {
     updateRevolveProfile,
     updateRevolveAxis,
     updateRevolveAngle,
+    sweepProfile,
+    updateSweepProfile,
+    updateSweepPath,
     addSketchLine,
     setSketchMidpointAnchor,
     setSketchPointLineAnchor,
@@ -1507,6 +1526,96 @@ function App() {
     });
   }, [revolveAction, updateRevolveAxis, updateRevolveProfile]);
 
+  async function createSweepFromInputs(
+    profileId: string,
+    pathEntityId: string,
+  ) {
+    if (sweepCreateInFlightRef.current) {
+      return;
+    }
+    sweepCreateInFlightRef.current = true;
+
+    const documentPromise = awaitDocumentChange((next, previous) => {
+      if (!next.selected_feature_id) {
+        return false;
+      }
+      const previousLength = previous?.feature_history.length ?? 0;
+      if (next.feature_history.length <= previousLength) {
+        return false;
+      }
+      const lastFeature = next.feature_history[next.feature_history.length - 1];
+      return (
+        lastFeature.feature_id === next.selected_feature_id &&
+        lastFeature.kind === "sweep"
+      );
+    });
+
+    await runAction(async () => {
+      try {
+        await sweepProfile(profileId, pathEntityId);
+        const nextDocument = await documentPromise;
+        const newFeatureId = nextDocument.selected_feature_id ?? null;
+        if (!newFeatureId) {
+          return;
+        }
+        lastSweepInputsRef.current = `${profileId}|${pathEntityId}`;
+        setSweepAction({
+          phase: "active",
+          featureId: newFeatureId,
+          profileId,
+          pathEntityId,
+          originalSnapshot: null,
+        });
+      } catch (error) {
+        addMessage(`sweep action error: ${String(error)}`);
+      } finally {
+        sweepCreateInFlightRef.current = false;
+      }
+    });
+  }
+
+  async function triggerSweepAction() {
+    if (sweepAction) {
+      return;
+    }
+    const profileId = selectedSketchProfileIds[0] ?? null;
+    const selectedLineId =
+      document?.selected_sketch_entity_id &&
+      sketchLineLabelById.has(document.selected_sketch_entity_id)
+        ? document.selected_sketch_entity_id
+        : null;
+    lastSweepInputsRef.current = "";
+    setSweepAction({
+      phase: "pending",
+      featureId: null,
+      profileId,
+      pathEntityId: selectedLineId,
+      originalSnapshot: null,
+    });
+  }
+
+  useEffect(() => {
+    if (!sweepAction?.profileId || !sweepAction.pathEntityId) {
+      return;
+    }
+    const key = `${sweepAction.profileId}|${sweepAction.pathEntityId}`;
+    if (lastSweepInputsRef.current === key) {
+      return;
+    }
+    lastSweepInputsRef.current = key;
+    if (sweepAction.phase === "pending") {
+      void createSweepFromInputs(sweepAction.profileId, sweepAction.pathEntityId);
+      return;
+    }
+    if (!sweepAction.featureId) {
+      return;
+    }
+    void runAction(async () => {
+      await updateSweepProfile(sweepAction.featureId!, sweepAction.profileId!);
+      await updateSweepPath(sweepAction.featureId!, sweepAction.pathEntityId!);
+    });
+  }, [sweepAction, updateSweepPath, updateSweepProfile]);
+
   // Latest typed value while in the "pending" phase. The panel debounces
   // its onPreviewValue callback, so a click that lands mid-typing must
   // read the freshest value via this ref rather than from React state.
@@ -1569,6 +1678,7 @@ function App() {
       extrudeAction ||
       loftAction ||
       revolveAction ||
+      sweepAction ||
       edgeOpAction ||
       shellAction ||
       offsetPlaneAction ||
@@ -1812,6 +1922,7 @@ function App() {
       extrudeAction ||
       loftAction ||
       revolveAction ||
+      sweepAction ||
       edgeOpAction ||
       shellAction ||
       offsetPlaneAction ||
@@ -1831,6 +1942,7 @@ function App() {
       extrudeAction ||
       loftAction ||
       revolveAction ||
+      sweepAction ||
       edgeOpAction ||
       shellAction ||
       offsetPlaneAction ||
@@ -1854,6 +1966,7 @@ function App() {
       extrudeAction ||
       loftAction ||
       revolveAction ||
+      sweepAction ||
       edgeOpAction ||
       shellAction ||
       offsetPlaneAction ||
@@ -1895,6 +2008,7 @@ function App() {
       extrudeAction ||
       loftAction ||
       revolveAction ||
+      sweepAction ||
       edgeOpAction ||
       shellAction ||
       offsetPlaneAction ||
@@ -2019,6 +2133,7 @@ function App() {
       extrudeAction ||
       loftAction ||
       revolveAction ||
+      sweepAction ||
       edgeOpAction ||
       shellAction ||
       offsetPlaneAction ||
@@ -2076,6 +2191,7 @@ function App() {
         !extrudeAction &&
         !loftAction &&
         !revolveAction &&
+        !sweepAction &&
         !edgeOpAction &&
         !shellAction &&
         document &&
@@ -3220,6 +3336,7 @@ function App() {
           canExtrude={
             !loftAction &&
             !revolveAction &&
+            !sweepAction &&
             !shellAction &&
             (!extrudeAction || extrudeAction.phase === "pending")
           }
@@ -3229,6 +3346,7 @@ function App() {
             !extrudeAction &&
             !loftAction &&
             !revolveAction &&
+            !sweepAction &&
             !edgeOpAction &&
             !shellAction &&
             !offsetPlaneAction &&
@@ -3242,6 +3360,7 @@ function App() {
             !extrudeAction &&
             !loftAction &&
             !revolveAction &&
+            !sweepAction &&
             !edgeOpAction &&
             !shellAction &&
             !offsetPlaneAction &&
@@ -3250,6 +3369,20 @@ function App() {
             !anglePlaneAction
           }
           onRevolve={triggerRevolveAction}
+          canSweep={
+            !activeSketchPlaneId &&
+            !extrudeAction &&
+            !loftAction &&
+            !revolveAction &&
+            !sweepAction &&
+            !edgeOpAction &&
+            !shellAction &&
+            !offsetPlaneAction &&
+            !midplaneAction &&
+            !tangentPlaneAction &&
+            !anglePlaneAction
+          }
+          onSweep={triggerSweepAction}
           // Modify ribbon: Fillet / Chamfer can be invoked at any
           // time outside a sketch / other floating action. Edge
           // selection is *not* required — the panel opens in
@@ -3260,6 +3393,7 @@ function App() {
             !extrudeAction &&
             !loftAction &&
             !revolveAction &&
+            !sweepAction &&
             !edgeOpAction &&
             !shellAction &&
             !offsetPlaneAction &&
@@ -3278,6 +3412,7 @@ function App() {
             !extrudeAction &&
             !loftAction &&
             !revolveAction &&
+            !sweepAction &&
             !edgeOpAction &&
             !shellAction &&
             !offsetPlaneAction &&
@@ -3293,6 +3428,7 @@ function App() {
             !extrudeAction &&
             !loftAction &&
             !revolveAction &&
+            !sweepAction &&
             !edgeOpAction &&
             !shellAction &&
             !offsetPlaneAction &&
@@ -3308,6 +3444,7 @@ function App() {
             !extrudeAction &&
             !loftAction &&
             !revolveAction &&
+            !sweepAction &&
             !edgeOpAction &&
             !shellAction &&
             !offsetPlaneAction &&
@@ -3320,6 +3457,7 @@ function App() {
             !extrudeAction &&
             !loftAction &&
             !revolveAction &&
+            !sweepAction &&
             !edgeOpAction &&
             !shellAction &&
             !offsetPlaneAction &&
@@ -3332,6 +3470,7 @@ function App() {
             !extrudeAction &&
             !loftAction &&
             !revolveAction &&
+            !sweepAction &&
             !edgeOpAction &&
             !shellAction &&
             !offsetPlaneAction &&
@@ -3637,7 +3776,22 @@ function App() {
               status={status}
               document={document}
               viewport={viewport}
-              inactiveSketchEntityPickEnabled={revolveAction !== null}
+              inactiveSketchEntityPickEnabled={
+                revolveAction !== null || sweepAction !== null
+              }
+              onPickInactiveSketchLine={async (lineId) => {
+                if (revolveAction) {
+                  setRevolveAction((current) =>
+                    current ? {...current, axisEntityId: lineId} : current,
+                  );
+                  return;
+                }
+                if (sweepAction) {
+                  setSweepAction((current) =>
+                    current ? {...current, pathEntityId: lineId} : current,
+                  );
+                }
+              }}
               onSnapshotCaptureReady={(capture) => {
                 snapshotCaptureRef.current = capture;
               }}
@@ -4136,6 +4290,12 @@ function App() {
                   );
                   return;
                 }
+                if (sweepAction) {
+                  setSweepAction((current) =>
+                    current ? {...current, pathEntityId: entityId} : current,
+                  );
+                  return;
+                }
                 if (
                   anglePlaneAction?.phase === "pick_axis" &&
                   sketchLineLabelById.has(entityId)
@@ -4299,6 +4459,15 @@ function App() {
                     await selectSketchProfile(profileId, false);
                   });
                   setRevolveAction((current) =>
+                    current ? {...current, profileId} : current,
+                  );
+                  return;
+                }
+                if (sweepAction) {
+                  await runAction(async () => {
+                    await selectSketchProfile(profileId, false);
+                  });
+                  setSweepAction((current) =>
                     current ? {...current, profileId} : current,
                   );
                   return;
@@ -4822,6 +4991,77 @@ function App() {
                       });
                     }
                     setRevolveAction(null);
+                    await restoreTimelineCursorAfterEdit();
+                  }}
+                />
+              ) : null}
+              {sweepAction ? (
+                <SweepPreviewPanel
+                  phase={sweepAction.phase}
+                  profileLabel={
+                    sweepAction.profileId
+                      ? sketchProfileLabelById.get(sweepAction.profileId) ??
+                        "Profile"
+                      : null
+                  }
+                  pathLabel={
+                    sweepAction.pathEntityId
+                      ? sketchLineLabelById.get(sweepAction.pathEntityId) ??
+                        "Line"
+                      : null
+                  }
+                  disabled={status !== "connected"}
+                  canConfirm={
+                    sweepAction.phase === "active" &&
+                    Boolean(sweepAction.profileId) &&
+                    Boolean(sweepAction.pathEntityId)
+                  }
+                  onConfirm={async () => {
+                    if (
+                      sweepAction.phase !== "active" ||
+                      !sweepAction.featureId
+                    ) {
+                      return;
+                    }
+                    const confirmedFeature =
+                      document?.feature_history.find(
+                        (entry) => entry.feature_id === sweepAction.featureId,
+                      ) ?? null;
+                    const sourceSketchIds = [
+                      confirmedFeature?.sweep_parameters?.sketch_feature_id,
+                      confirmedFeature?.sweep_parameters?.path_sketch_feature_id,
+                    ].filter((id): id is string => Boolean(id));
+                    if (sourceSketchIds.length > 0) {
+                      setHiddenFeatureIds((current) => {
+                        const next = new Set(current);
+                        for (const featureId of sourceSketchIds) {
+                          next.add(featureId);
+                        }
+                        return next;
+                      });
+                    }
+                    setSweepAction(null);
+                    await restoreTimelineCursorAfterEdit();
+                  }}
+                  onCancel={async () => {
+                    const snapshot = sweepAction.originalSnapshot;
+                    if (snapshot && sweepAction.featureId) {
+                      await runAction(async () => {
+                        await updateSweepProfile(
+                          sweepAction.featureId!,
+                          snapshot.profileId,
+                        );
+                        await updateSweepPath(
+                          sweepAction.featureId!,
+                          snapshot.pathEntityId,
+                        );
+                      });
+                    } else if (sweepAction.phase === "active") {
+                      await runAction(async () => {
+                        await undo();
+                      });
+                    }
+                    setSweepAction(null);
                     await restoreTimelineCursorAfterEdit();
                   }}
                 />
@@ -5379,7 +5619,13 @@ function App() {
               return;
             }
             if (feature.kind === "extrude" && feature.extrude_parameters) {
-              if (extrudeAction || loftAction || revolveAction || edgeOpAction) {
+              if (
+                extrudeAction ||
+                loftAction ||
+                revolveAction ||
+                sweepAction ||
+                edgeOpAction
+              ) {
                 return;
               }
               const params = feature.extrude_parameters;
@@ -5405,7 +5651,13 @@ function App() {
               });
             }
             if (feature.kind === "loft" && feature.loft_parameters) {
-              if (extrudeAction || loftAction || revolveAction || edgeOpAction) {
+              if (
+                extrudeAction ||
+                loftAction ||
+                revolveAction ||
+                sweepAction ||
+                edgeOpAction
+              ) {
                 return;
               }
               const params = feature.loft_parameters;
@@ -5424,7 +5676,13 @@ function App() {
               });
             }
             if (feature.kind === "revolve" && feature.revolve_parameters) {
-              if (extrudeAction || loftAction || revolveAction || edgeOpAction) {
+              if (
+                extrudeAction ||
+                loftAction ||
+                revolveAction ||
+                sweepAction ||
+                edgeOpAction
+              ) {
                 return;
               }
               const params = feature.revolve_parameters;
@@ -5440,6 +5698,30 @@ function App() {
                   profileId: params.profile_id,
                   axisEntityId: params.axis_entity_id,
                   angleDegrees: params.angle_degrees,
+                },
+              });
+            }
+            if (feature.kind === "sweep" && feature.sweep_parameters) {
+              if (
+                extrudeAction ||
+                loftAction ||
+                revolveAction ||
+                sweepAction ||
+                edgeOpAction
+              ) {
+                return;
+              }
+              const params = feature.sweep_parameters;
+              beginTimelineEditSession(featureId, feature.kind);
+              lastSweepInputsRef.current = `${params.profile_id}|${params.path_entity_id}`;
+              setSweepAction({
+                phase: "active",
+                featureId,
+                profileId: params.profile_id,
+                pathEntityId: params.path_entity_id,
+                originalSnapshot: {
+                  profileId: params.profile_id,
+                  pathEntityId: params.path_entity_id,
                 },
               });
             }

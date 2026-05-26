@@ -1086,6 +1086,89 @@ void refresh_history_dependencies(DocumentState& document) {
       feature.dependency_broken = false;
       feature.dependency_warning.clear();
     }
+
+    if (feature.kind == "sweep" && feature.sweep_parameters.has_value()) {
+      if (feature.status == "warning" && feature.dependency_broken) {
+        continue;
+      }
+
+      auto& parameters = feature.sweep_parameters.value();
+      const FeatureEntry* profile_sketch =
+          find_feature(document, parameters.sketch_feature_id);
+      const FeatureEntry* path_sketch =
+          find_feature(document, parameters.path_sketch_feature_id);
+
+      if (profile_sketch == nullptr ||
+          !profile_sketch->sketch_parameters.has_value()) {
+        feature.dependency_broken = true;
+        feature.dependency_warning =
+            "Sweep depends on a profile sketch that no longer exists.";
+        continue;
+      }
+      if (path_sketch == nullptr || !path_sketch->sketch_parameters.has_value()) {
+        feature.dependency_broken = true;
+        feature.dependency_warning =
+            "Sweep depends on a path sketch that no longer exists.";
+        continue;
+      }
+      if (profile_sketch->dependency_broken) {
+        feature.dependency_broken = true;
+        feature.dependency_warning =
+            "Sweep depends on sketch '" + profile_sketch->id +
+            "', whose plane reference is broken.";
+        continue;
+      }
+      if (path_sketch->dependency_broken) {
+        feature.dependency_broken = true;
+        feature.dependency_warning =
+            "Sweep depends on sketch '" + path_sketch->id +
+            "', whose plane reference is broken.";
+        continue;
+      }
+      if (profile_sketch->sketch_parameters->plane_frame.has_value()) {
+        parameters.plane_frame = from_sketch_plane_frame(
+            profile_sketch->sketch_parameters->plane_frame.value());
+      }
+      const SketchLine* path_line = nullptr;
+      for (const auto& line : path_sketch->sketch_parameters->lines) {
+        if (line.id == parameters.path_entity_id) {
+          path_line = &line;
+          break;
+        }
+      }
+      if (path_line == nullptr) {
+        feature.dependency_broken = true;
+        feature.dependency_warning =
+            "Sweep depends on a path line that no longer exists.";
+        continue;
+      }
+      std::optional<PlaneFrame> path_frame;
+      if (path_sketch->sketch_parameters->plane_frame.has_value()) {
+        path_frame = from_sketch_plane_frame(
+            path_sketch->sketch_parameters->plane_frame.value());
+      } else {
+        path_frame = origin_plane_frame(path_sketch->sketch_parameters->plane_id);
+      }
+      if (!path_frame.has_value()) {
+        feature.dependency_broken = true;
+        feature.dependency_warning =
+            "Sweep could not resolve the path sketch plane.";
+        continue;
+      }
+      const auto path_start = sketch_local_to_world(
+          path_frame.value(), path_line->start_x, path_line->start_y);
+      const auto path_end = sketch_local_to_world(
+          path_frame.value(), path_line->end_x, path_line->end_y);
+      parameters.path_start_x = path_start[0];
+      parameters.path_start_y = path_start[1];
+      parameters.path_start_z = path_start[2];
+      parameters.path_end_x = path_end[0];
+      parameters.path_end_y = path_end[1];
+      parameters.path_end_z = path_end[2];
+
+      feature.dependency_broken = false;
+      feature.dependency_warning.clear();
+    }
   }
 }
 
