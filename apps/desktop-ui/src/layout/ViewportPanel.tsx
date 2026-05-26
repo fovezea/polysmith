@@ -851,11 +851,15 @@ function applyDraftDimensionFieldValue(
   const signY = dy < 0 ? -1 : 1;
   let current = session.current;
   if (field === "angle") {
-    // Angle is in degrees; convert to radians. Negate so positive
-    // angles go CCW on screen (matches draftSessionValues convention).
+    // Angle is in degrees; convert to radians. Preserve the sign from
+    // the current draft direction (atan2 of dy/dx) so the line keeps
+    // its original orientation — the user types an unsigned value and
+    // the core infers ± from cursor position.
     // Preserve the current length (or locked length) and rotate the
     // endpoint around the start.
-    const radians = -numeric * (Math.PI / 180);
+    const currentRad = Math.atan2(dy, dx);
+    const sign = currentRad >= 0 ? 1 : -1;
+    const radians = sign * numeric * (Math.PI / 180);
     const currentLength = Math.hypot(dx, dy) || 1;
     const lockedLength = session.lockedFields.length
       ? Number(session.values.length)
@@ -5206,33 +5210,17 @@ const currentGridSpacingRef = useRef(10);
         // Preserves angle magnitude, just flips the sweep direction.
         // Arc sweeps the natural shorter direction (CCW for positive angles).
 
-        // --- Dotted cursor extension (from cursor outward) ---
-        const extLen = Math.max(12, lineLen * 0.35);
-        const extEndLocalX = ex + (dx / lineLen) * extLen;
-        const extEndLocalY = ey + (dy / lineLen) * extLen;
-        {
-          const esw = toWorldPoint(planeId, [ex, ey], planeFrame);
-          const eew = toWorldPoint(planeId, [extEndLocalX, extEndLocalY], planeFrame);
-          const extGeom = new THREE.BufferGeometry().setFromPoints([
-            new THREE.Vector3(esw[0], esw[1], esw[2]),
-            new THREE.Vector3(eew[0], eew[1], eew[2]),
-          ]);
-          const extMat = new THREE.LineDashedMaterial({
-            color: new THREE.Color(0x8feaf7), transparent: true,
-            opacity: 0.45, dashSize: 2, gapSize: 1.5, depthTest: false,
-          });
-          const extLine = new THREE.Line(extGeom, extMat);
-          extLine.computeLineDistances();
-          extLine.renderOrder = 7;
-          group.add(extLine);
-        }
+        // --- Angle arc centered at line start, sweeping refAngle → angleRad ---
+        // Zoom-aware cap so the arc stays ~480 px on screen.
+        const zoomCap = Math.max(20, 480 * viewH / vpH);
+        const arcRadius = Math.max(8, Math.min(lineLen, zoomCap));
 
         // --- Dotted reference line from start point along reference angle ---
-        const refLineLen = Math.max(12, lineLen * 0.28);
+        // Extend to the arc radius so it meets the dimension arc exactly.
         {
           const rsw = toWorldPoint(planeId, [sx, sy], planeFrame);
-          const rex = sx + refLineLen * Math.cos(refAngle);
-          const rey = sy + refLineLen * Math.sin(refAngle);
+          const rex = sx + arcRadius * Math.cos(refAngle);
+          const rey = sy + arcRadius * Math.sin(refAngle);
           const rew = toWorldPoint(planeId, [rex, rey], planeFrame);
           const refGeom = new THREE.BufferGeometry().setFromPoints([
             new THREE.Vector3(rsw[0], rsw[1], rsw[2]),
@@ -5247,11 +5235,6 @@ const currentGridSpacingRef = useRef(10);
           refLine.renderOrder = 7;
           group.add(refLine);
         }
-
-        // --- Angle arc centered at line start, sweeping refAngle → angleRad ---
-        // Zoom-aware cap so the arc stays ~480 px on screen.
-        const zoomCap = Math.max(20, 480 * viewH / vpH);
-        const arcRadius = Math.max(8, Math.min(lineLen, zoomCap));
         const arcSweep = displayAngle;
         const arcSegments = 24;
         let prevArc: THREE.Vector3 | null = null;
@@ -5283,10 +5266,34 @@ const currentGridSpacingRef = useRef(10);
         addArcArrow(arcEndWorldPt, angleRad);
 
         // Arc midpoint for label positioning
-        arcMidWorldLabel = toWorldPoint(planeId, [
-          sx + arcRadius * Math.cos(refAngle + arcSweep / 2),
-          sy + arcRadius * Math.sin(refAngle + arcSweep / 2),
-        ], planeFrame);
+        const labelAngle = refAngle + arcSweep / 2;
+        // For near-horizontal lines (|displayAngle| < 20°), a label that
+        // rides in front of the rubber band can trap the mouse pointer —
+        // the cursor lands on the HTML input instead of the canvas,
+        // tracking stops, and both line and label freeze.  Always offset
+        // perpendicular (above/below) to the line in this case, like
+        // other CAD tools do.
+        const angleDeg = Math.abs(displayAngle) * 180 / Math.PI;
+        let labelOnPerp = angleDeg < 20 && lineLen > 0.001;
+        if (labelOnPerp) {
+          const lineUx = dx / lineLen;
+          const lineUy = dy / lineLen;
+          // Place the angle window on the opposite side from the
+          // length dimension.  For a downward line the length dim
+          // already sits below, so angle goes above.
+          const perpFlip = dy >= 0 ? -1 : 1;
+          const perpUx = -lineUy * perpFlip;
+          const perpUy = lineUx * perpFlip;
+          arcMidWorldLabel = toWorldPoint(planeId, [
+            sx + arcRadius * lineUx + perpUx * 2.0 * zoomDimOffset,
+            sy + arcRadius * lineUy + perpUy * 2.0 * zoomDimOffset,
+          ], planeFrame);
+        } else {
+          arcMidWorldLabel = toWorldPoint(planeId, [
+            sx + arcRadius * Math.cos(labelAngle),
+            sy + arcRadius * Math.sin(labelAngle),
+          ], planeFrame);
+        }
       }
 
       // (diagnostic line removed)
@@ -9590,10 +9597,11 @@ const currentGridSpacingRef = useRef(10);
     }
     const next = applyDraftDimensionField(session, field, mmValue);
     draftDimensionSessionRef.current = next;
-    // Clear render-loop position so fallback computes fresh position now,
-    // avoiding a one-frame lag where the stale value positions the label
-    // at the previous (shorter) line's midpoint.
-    delete draftDimScreenPositionsRef.current[field];
+    // Clear all render-loop positions so both fields get fresh
+    // fallback positions.  Changing the length also moves the angle
+    // arc endpoint — clearing only the changed field leaves the
+    // other stuck at its old screen position until the next frame.
+    draftDimScreenPositionsRef.current = {};
     setDraftDimensionSession(next);
     setDraftSuggestionState({ field, index: 0 });
   }
@@ -9943,6 +9951,7 @@ const currentGridSpacingRef = useRef(10);
                     left: position.x,
                     top: position.y,
                     transform: "translate(-50%, -50%)",
+                    opacity: 0.65,
                     background: "var(--cad-dimension-editor-bg)",
                     borderColor: "var(--cad-dimension-editor-border)",
                     boxShadow:
