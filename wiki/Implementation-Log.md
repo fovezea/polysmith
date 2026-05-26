@@ -2,6 +2,111 @@
 
 This document tracks concrete implementation milestones as they land in the codebase.
 
+## 2026-05-27
+
+### Snap Engine Completion & Wiring
+
+**C++ snap engine (`snap_engine.cpp`):**
+- added `collect_intersection_candidates` — line-line and line-arc intersection detection with segment clamping
+- added `collect_quadrant_candidates` — 0°, 90°, 180°, 270° points on circles
+- added `collect_perpendicular_candidates` — cursor-to-line foot projection, clamped to segment
+- added `collect_tangent_candidates` — two tangent points per circle, cursor-outside-circle guard
+- added `collect_grid_candidates` — nearest grid-intersection snap (1.0-unit grid spacing)
+- wired all five new collectors into `resolve_snap()`, gated by the corresponding `SelectionFilter` flags
+
+**C++ wiring (`viewport.h`, `viewport.cpp`, `serialization.cpp`):**
+- added `std::vector<SnapCandidate> snap_candidates` to `ViewportState`
+- `build_viewport_state()` now pre-computes all position-independent snap targets (endpoints, midpoints, centers) from the active sketch, gated by the document's `SelectionFilter`
+- serialized `snap_candidates` as a JSON array in the viewport state payload, mirroring the `SnapCandidate` struct (kind, entity_id, point_id, local_x, local_y, label)
+
+**TypeScript (`ViewportPanel.tsx`, `types/ipc.ts`, `ipcSchema.ts`):**
+- added `SnapCandidateEntry` interface and updated `ViewportState` type
+- added `snap_candidates` to the Zod schema for viewport state validation
+- `sketchSnapCandidates` useMemo now prefers `viewport.snap_candidates` from the core when available; falls back to the legacy TS-side entity-walk builder when the core hasn't emitted candidates
+- candidates carry `endpointHostLineId` (endpoints) and `hostLineId` + `tValue` (midpoints) from the core's `entity_id` field, preserving the existing perpendicular-foot and midpoint-anchor tooling
+
+**Architecture impact:**
+- snap target enumeration is now owned by the C++ core and gated by the document's `SelectionFilter`
+- the TS panel's checkboxes reach the core through `update_selection_filter`; the core echoes the filter in `viewport_state.snap_candidates` and pre-filters candidates
+- dynamic position-dependent snaps (tangent, perpendicular, axis lock) remain in TS, gated by the same filter read from `localStorage`
+
+### Snap completeness — missing types added
+
+**SelectionFilter extended (`feature.h`):**
+- added `snap_grid_line` (lock to nearest grid line axis) and `snap_polar` (lock to polar angle increments)
+- added `polar_angle_degrees` (default 15°) to the filter struct
+
+**Pre-computed snap_candidates (`viewport.cpp`):**
+- added `quadrant` — 4 fixed points per circle (0°, 90°, 180°, 270°)
+- added `intersection` — all line-line and line-arc intersection points
+- added `grid_line` — grid-axis anchors for axis-lock snapping
+
+**Dynamic snap collectors (`snap_engine.cpp`):**
+- added `collect_grid_line_candidates` — locks cursor to nearest vertical or horizontal grid line
+- added `collect_polar_candidates` — locks cursor to nearest polar angle from a start point
+- updated `resolve_snap()` signature with optional `start_x`/`start_y` for polar snap computation
+
+**IPC + serialization (`app.cpp`, `serialization.cpp`):**
+- wired `snap_grid_line`, `snap_polar`, `polar_angle_degrees` through `update_selection_filter` command handler
+- serialized/deserialized new fields in document state and viewport state JSON
+
+**UI (`SelectionFilterPanel.tsx`):**
+- added Grid Line and Polar checkboxes with angle input (5°–90°, step 5°)
+- updated `SelectionFilter` interface with new fields
+
+### Dimension tool: point-to-point semantics
+
+**TS (`ViewportPanel.tsx`):**
+- clicking a line endpoint now stages the point and waits; clicking the
+  *other* endpoint of the same line creates a line-length dimension
+  (consistent with clicking the line body)
+- clicking a point then a different entity creates a point-to-point
+  distance: point→circle-center and point→polygon-center use the target's
+  center point; point→other-point uses point_distance
+- point→line-body still falls through to entity-to-entity (line_line_distance
+  or angle), since line midpoints don't have persistent point IDs
+- circle: first click stages the center point (no radius dimension created);
+  re-click the same circle to create its radius dimension; click a different
+  entity for two-entity distance
+- same-line endpoint clicks now work even when the second click hits the
+  line body rather than the endpoint sphere
+
+### Trim arc point-ID continuity fix
+
+**C++ (`sketch_feature.cpp`):**
+- fixed circle trim: the arc created from a trimmed circle now calls
+  `find_coincident_endpoint()` for both start and end positions, reusing
+  existing point IDs from touching lines/arcs instead of always generating
+  fresh IDs. This lets the profile loop detector chain arc edges with
+  their neighbouring lines, so 2-lines-1-arc closed shapes (common after
+  tangent-line + circle trim) are detected as extrudable profiles.
+
+### Circle-nearest snap
+
+**TS (`ViewportPanel.tsx`):**
+- added circle-nearest snap in `resolveSnappedSketchPoint()`: projects the cursor
+  radially onto the nearest circle's circumference. The nearest point is the
+  intersection of the center→cursor ray with the circle edge. Gated by
+  `snap_nearest` in the effective filter.
+
+**C++ (`snap_engine.cpp`):**
+- added `collect_circle_nearest_candidates` — same radial projection logic,
+  wired into `resolve_snap()` under the `snap_nearest` gate
+
+**i18n (`en.json`):**
+- added `snap.onCircle` = "On circle" label
+
+### Parallel snap + Alt-key object snap override
+
+**Parallel snap (`ViewportPanel.tsx`):**
+- added parallel-direction lock in `resolveSnappedSketchPoint()`: when
+  `snap_parallel` is on and a line draft is in progress, finds the nearest
+  existing line by angle and projects the cursor onto the parallel ray
+
+**Object Snap Override (`ViewportPanel.tsx`):**
+- Alt key inverts all snap toggles while held — disabled snap types become
+  active and enabled ones become inactive
+
 ## 2026-05-26
 
 ### Sweep v1

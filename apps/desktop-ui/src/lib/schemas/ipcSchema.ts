@@ -1006,6 +1006,16 @@ const viewportStateSchema = z.object({
       status: z.enum(["under", "full", "over"]),
     }),
   ),
+  snap_candidates: z.array(
+    z.object({
+      kind: z.string(),
+      entity_id: z.string(),
+      point_id: z.string(),
+      local_x: z.number(),
+      local_y: z.number(),
+      label: z.string(),
+    }),
+  ),
   selection_filter: z.object({
     select_curves: z.boolean(),
     select_points: z.boolean(),
@@ -1021,6 +1031,9 @@ const viewportStateSchema = z.object({
     snap_parallel: z.boolean(),
     snap_tangent: z.boolean(),
     snap_grid: z.boolean(),
+    snap_grid_line: z.boolean(),
+    snap_polar: z.boolean(),
+    polar_angle_degrees: z.number(),
     magnetic_pull: z.boolean(),
     tolerance_px: z.number(),
   }),

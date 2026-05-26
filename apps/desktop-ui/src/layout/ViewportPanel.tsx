@@ -1404,6 +1404,10 @@ const currentGridSpacingRef = useRef(10);
   );
   const setSketchLineConstraintRef = useRef(onSetSketchLineConstraint);
   const setSketchTangentConstraintRef = useRef(onSetSketchTangentConstraint);
+  // Track Alt key for object snap override (invert all snap toggles
+  // while held). Updated by keydown/keyup listeners below.
+  const altHeldRef = useRef(false);
+
   // Captured at click-time when the resolved sketch point indicates
   // the line's end snapped to a circle tangent. The post-add effect
   // dispatches `set_sketch_tangent_constraint` so the relation
@@ -2148,18 +2152,13 @@ const currentGridSpacingRef = useRef(10);
   }, [document?.selected_sketch_entity_id, viewport?.dof_statuses]);
 
   const sketchSnapCandidates = useMemo(() => {
+    // When the C++ core emits snap_candidates, build from those.
+    // Otherwise fall back to the legacy TS-side build.
+    const coreCandidates = viewport?.snap_candidates;
     if (!sketchFeature?.sketch_parameters) {
       return [];
     }
 
-    // Endpoint candidates carry an optional `endpointHostLineId` so
-    // the line tool can recognize when a draft started at an existing
-    // line's endpoint and arm perpendicular-snap from that line.
-    // Midpoint candidates carry `hostLineId` and `tValue` for the
-    // post-commit anchor IPC. `tValue` is 0.5 for a clean whole-line
-    // midpoint; sub-segment midpoints (when the host has been split
-    // by anchored points) carry whatever fractional t the snap
-    // resolver should bind the new point to.
     type Candidate = {
       local: [number, number];
       label: string;
@@ -2168,8 +2167,44 @@ const currentGridSpacingRef = useRef(10);
       tValue?: number;
       endpointHostLineId?: string;
     };
-    const candidates: Candidate[] = [{ local: [0, 0], label: translate("snap.origin") }];
     const params = sketchFeature.sketch_parameters;
+    const candidates: Candidate[] = [{ local: [0, 0], label: translate("snap.origin") }];
+
+    if (coreCandidates && coreCandidates.length > 0) {
+      // Build from C++ snap_candidates, gated by the core's SelectionFilter.
+      for (const sc of coreCandidates) {
+        switch (sc.kind) {
+          case "endpoint":
+            candidates.push({
+              local: [sc.local_x, sc.local_y],
+              label: sc.label,
+              kind: "endpoint",
+              endpointHostLineId: sc.entity_id || undefined,
+            });
+            break;
+          case "midpoint":
+            candidates.push({
+              local: [sc.local_x, sc.local_y],
+              label: sc.label,
+              kind: "midpoint",
+              hostLineId: sc.entity_id || undefined,
+              tValue: 0.5,
+            });
+            break;
+          case "center":
+          default:
+            candidates.push({
+              local: [sc.local_x, sc.local_y],
+              label: sc.label,
+            });
+            break;
+        }
+      }
+      return candidates;
+    }
+
+    // Legacy fallback: build candidates from raw sketch entities.
+    // (preserved for when the core hasn't been rebuilt yet)
     for (const line of params.lines) {
       candidates.push({
         local: [line.start_x, line.start_y],
@@ -2246,7 +2281,7 @@ const currentGridSpacingRef = useRef(10);
       });
     }
     return candidates;
-  }, [sketchFeature, translate]);
+  }, [sketchFeature, translate, viewport?.snap_candidates]);
   const activeSketchPlaneIdRef = useRef(activeSketchPlaneId);
   const activeSketchPlaneFrameRef = useRef(activeSketchPlaneFrame);
   const showViewportGridRef = useRef(showViewportGrid);
@@ -2297,6 +2332,22 @@ const currentGridSpacingRef = useRef(10);
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [config.hotkeys.viewport.toggleGrid]);
+
+  // Track Alt key for object snap override.
+  useEffect(() => {
+    function handleAltDown(e: KeyboardEvent) {
+      if (e.key === "Alt") altHeldRef.current = true;
+    }
+    function handleAltUp(e: KeyboardEvent) {
+      if (e.key === "Alt") altHeldRef.current = false;
+    }
+    window.addEventListener("keydown", handleAltDown);
+    window.addEventListener("keyup", handleAltUp);
+    return () => {
+      window.removeEventListener("keydown", handleAltDown);
+      window.removeEventListener("keyup", handleAltUp);
+    };
+  }, []);
 
   useEffect(() => {
     const scene = sceneRef.current;
@@ -3570,8 +3621,31 @@ const currentGridSpacingRef = useRef(10);
   }) {
     // Read filter from localStorage (instant, no IPC round trip).
     const localFilter = readLocalFilter();
-    const gridSnapEnabled = localFilter ? localFilter.snap_grid : true;
-    const perpEnabled = localFilter ? localFilter.snap_perpendicular : true;
+    const effectiveFilter: typeof localFilter = localFilter && altHeldRef.current
+      ? {
+          ...localFilter,
+          select_curves: !localFilter.select_curves,
+          select_points: !localFilter.select_points,
+          select_construction: !localFilter.select_construction,
+          select_constraints: !localFilter.select_constraints,
+          snap_endpoint: !localFilter.snap_endpoint,
+          snap_midpoint: !localFilter.snap_midpoint,
+          snap_center: !localFilter.snap_center,
+          snap_intersection: !localFilter.snap_intersection,
+          snap_nearest: !localFilter.snap_nearest,
+          snap_quadrant: !localFilter.snap_quadrant,
+          snap_perpendicular: !localFilter.snap_perpendicular,
+          snap_parallel: !localFilter.snap_parallel,
+          snap_tangent: !localFilter.snap_tangent,
+          snap_grid: !localFilter.snap_grid,
+          snap_grid_line: !localFilter.snap_grid_line,
+          snap_polar: !localFilter.snap_polar,
+          magnetic_pull: !localFilter.magnetic_pull,
+        }
+      : localFilter;
+
+    const gridSnapEnabled = effectiveFilter ? effectiveFilter.snap_grid : true;
+    const perpEnabled = effectiveFilter ? effectiveFilter.snap_perpendicular : true;
 
     // Apply grid snap first — all subsequent geometric snaps resolve
     // against grid-aligned coordinates so the user gets both.
@@ -3594,14 +3668,14 @@ const currentGridSpacingRef = useRef(10);
 
     for (const candidate of sketchSnapCandidatesRef.current) {
       // Gate on the selection filter when available.
-      if (localFilter) {
+      if (effectiveFilter) {
         const allowed = (
-          (candidate.kind === "endpoint" && localFilter.snap_endpoint) ||
-          (candidate.kind === "midpoint" && localFilter.snap_midpoint) ||
-          (candidate.kind === "center" && localFilter.snap_center) ||
-          (candidate.kind === "intersection" && localFilter.snap_intersection) ||
-          (candidate.kind === "nearest" && localFilter.snap_nearest) ||
-          (candidate.kind === "tangent" && localFilter.snap_tangent) ||
+          (candidate.kind === "endpoint" && effectiveFilter.snap_endpoint) ||
+          (candidate.kind === "midpoint" && effectiveFilter.snap_midpoint) ||
+          (candidate.kind === "center" && effectiveFilter.snap_center) ||
+          (candidate.kind === "intersection" && effectiveFilter.snap_intersection) ||
+          (candidate.kind === "nearest" && effectiveFilter.snap_nearest) ||
+          (candidate.kind === "tangent" && effectiveFilter.snap_tangent) ||
           (!candidate.kind) // unknown kinds pass unfiltered
         );
         if (!allowed) continue;
@@ -3613,30 +3687,37 @@ const currentGridSpacingRef = useRef(10);
       }
     }
 
-    // Endpoint snap (or any other static candidate) wins by default.
+    // Endpoint / midpoint candidates win immediately (high priority).
+    // Center, quadrant, intersection, and unknown kinds yield to
+    // dynamic snaps (tangent, perpendicular, parallel) below.
     if (closestCandidate && closestDistance <= SKETCH_SNAP_DISTANCE) {
-      return {
-        local: closestCandidate.local,
-        world: toWorldPoint(
-          activeSketchPlaneId ?? "ref-plane-xy",
-          closestCandidate.local,
-          activeSketchPlaneFrame,
-        ),
-        snapLabel: closestCandidate.label,
-        snapMidpointHostLineId:
-          closestCandidate.kind === "midpoint"
-            ? (closestCandidate.hostLineId ?? null)
-            : null,
-        snapMidpointT:
-          closestCandidate.kind === "midpoint"
-            ? (closestCandidate.tValue ?? null)
-            : null,
-        snapPerpendicularHostLineId: null,
-        snapEndpointHostLineId:
-          closestCandidate.kind === "endpoint"
-            ? (closestCandidate.endpointHostLineId ?? null)
-            : null,
-      } satisfies SketchPreviewPoint;
+      if (closestCandidate.kind === "endpoint" ||
+          closestCandidate.kind === "midpoint") {
+        return {
+          local: closestCandidate.local,
+          world: toWorldPoint(
+            activeSketchPlaneId ?? "ref-plane-xy",
+            closestCandidate.local,
+            activeSketchPlaneFrame,
+          ),
+          snapLabel: closestCandidate.label,
+          snapMidpointHostLineId:
+            closestCandidate.kind === "midpoint"
+              ? (closestCandidate.hostLineId ?? null)
+              : null,
+          snapMidpointT:
+            closestCandidate.kind === "midpoint"
+              ? (closestCandidate.tValue ?? null)
+              : null,
+          snapPerpendicularHostLineId: null,
+          snapEndpointHostLineId:
+            closestCandidate.kind === "endpoint"
+              ? (closestCandidate.endpointHostLineId ?? null)
+              : null,
+        } satisfies SketchPreviewPoint;
+      }
+      // Non-endpoint/midpoint candidates: don't return yet —
+      // let dynamic snaps (tangent, perpendicular) compete.
     }
 
     const startPoint = lineDraftStartRef.current;
@@ -3694,7 +3775,7 @@ const currentGridSpacingRef = useRef(10);
     // the ray rooted at the start, normal to the host line. If the
     // cursor is within snap distance of that ray, snap to the foot.
     const perpHostId = draftStartEndpointHostRef.current;
-    if (localFilter?.snap_perpendicular && startPoint && perpHostId && params) {
+    if (effectiveFilter?.snap_perpendicular && startPoint && perpHostId && params) {
       const hostLine = params.lines.find((line) => line.line_id === perpHostId);
       if (hostLine) {
         const dx = hostLine.end_x - hostLine.start_x;
@@ -3741,7 +3822,7 @@ const currentGridSpacingRef = useRef(10);
     // the start lies inside or on the circle (no real tangent
     // exists). Higher priority than axis-lock so an explicit
     // "draw to this circle" gesture wins over a passive axis hint.
-    if (startPoint && params) {
+    if (effectiveFilter?.snap_tangent !== false && startPoint && params) {
       let bestTangentSnap: {
         local: [number, number];
         distance: number;
@@ -3942,6 +4023,81 @@ const currentGridSpacingRef = useRef(10);
       }
     }
 
+    // Parallel snap: when `snap_parallel` is on and a start point
+    // exists, lock the cursor to the nearest existing line's
+    // direction. Finds the line whose angle is closest to the
+    // cursor ray from the start, then projects the cursor onto
+    // that direction. Allows both forward and reverse parallel
+    // (0 and 180 degrees relative).
+    if (effectiveFilter?.snap_parallel && startPoint && params) {
+      const cursorDx = rawPoint.local[0] - startPoint[0];
+      const cursorDy = rawPoint.local[1] - startPoint[1];
+      const cursorDist = Math.hypot(cursorDx, cursorDy);
+      if (cursorDist > SKETCH_SNAP_DISTANCE * 1.5) {
+        const cursorAngle = Math.atan2(cursorDy, cursorDx);
+        const threshold = Math.PI / 18;
+        let bestParallel: {
+          local: [number, number];
+          distance: number;
+        } | null = null;
+        for (const line of params.lines) {
+          if (line.is_construction) continue;
+          const lineAngle = Math.atan2(
+            line.end_y - line.start_y,
+            line.end_x - line.start_x,
+          );
+          for (const dir of [lineAngle, lineAngle + Math.PI]) {
+            let angleDiff = Math.abs(cursorAngle - dir);
+            if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+            if (angleDiff > threshold) continue;
+            const cosA = Math.cos(dir);
+            const sinA = Math.sin(dir);
+            const t = cursorDx * cosA + cursorDy * sinA;
+            const px = startPoint[0] + t * cosA;
+            const py = startPoint[1] + t * sinA;
+            const d = Math.hypot(rawPoint.local[0] - px, rawPoint.local[1] - py);
+            if (d <= SKETCH_SNAP_DISTANCE) {
+              if (!bestParallel || d < bestParallel.distance) {
+                bestParallel = { local: [px, py], distance: d };
+              }
+            }
+          }
+        }
+        if (bestParallel) {
+          return {
+            local: bestParallel.local,
+            world: toWorldPoint(
+              activeSketchPlaneId ?? "ref-plane-xy",
+              bestParallel.local,
+              activeSketchPlaneFrame,
+            ),
+            snapLabel: translate("snap.parallel"),
+            snapMidpointHostLineId: null,
+            snapPerpendicularHostLineId: null,
+            snapEndpointHostLineId: null,
+          } satisfies SketchPreviewPoint;
+        }
+      }
+    }
+
+    // Fallback: if a lower-priority static candidate (center, quadrant,
+    // intersection, etc.) matched but dynamic snaps didn't fire, return
+    // the static candidate now.
+    if (closestCandidate && closestDistance <= SKETCH_SNAP_DISTANCE) {
+      return {
+        local: closestCandidate.local,
+        world: toWorldPoint(
+          activeSketchPlaneId ?? "ref-plane-xy",
+          closestCandidate.local,
+          activeSketchPlaneFrame,
+        ),
+        snapLabel: closestCandidate.label,
+        snapMidpointHostLineId: null,
+        snapPerpendicularHostLineId: null,
+        snapEndpointHostLineId: null,
+      } satisfies SketchPreviewPoint;
+    }
+
     // Line-body snap: when no point candidate matched, project the
     // cursor onto the closest sketch line segment (clamped to the
     // segment's interior). This lets the user start or end a draft
@@ -4007,6 +4163,45 @@ const currentGridSpacingRef = useRef(10);
           snapEndpointHostLineId: null,
           snapLineBodyHostLineId: bestLineSnap.lineId,
           snapLineBodyT: bestLineSnap.t,
+        } satisfies SketchPreviewPoint;
+      }
+    }
+
+    // Circle-nearest snap: project cursor onto the nearest circle's
+    // circumference. The nearest point on the circle is the radial
+    // projection of the cursor onto the circle edge. Distance check:
+    // |dist(cursor, center) - radius| <= SKETCH_SNAP_DISTANCE.
+    if (effectiveFilter?.snap_nearest !== false && params) {
+      let bestCircleSnap: {
+        local: [number, number];
+        distance: number;
+        circleId: string;
+      } | null = null;
+      for (const circle of params.circles) {
+        const dx = rawPoint.local[0] - circle.center_x;
+        const dy = rawPoint.local[1] - circle.center_y;
+        const distToCenter = Math.hypot(dx, dy);
+        if (distToCenter < 1e-9) continue;
+        const nx = circle.center_x + (dx / distToCenter) * circle.radius;
+        const ny = circle.center_y + (dy / distToCenter) * circle.radius;
+        const d = Math.hypot(rawPoint.local[0] - nx, rawPoint.local[1] - ny);
+        if (d > SKETCH_SNAP_DISTANCE) continue;
+        if (!bestCircleSnap || d < bestCircleSnap.distance) {
+          bestCircleSnap = { local: [nx, ny], distance: d, circleId: circle.circle_id };
+        }
+      }
+      if (bestCircleSnap) {
+        return {
+          local: bestCircleSnap.local,
+          world: toWorldPoint(
+            activeSketchPlaneId ?? "ref-plane-xy",
+            bestCircleSnap.local,
+            activeSketchPlaneFrame,
+          ),
+          snapLabel: translate("snap.onCircle"),
+          snapMidpointHostLineId: null,
+          snapPerpendicularHostLineId: null,
+          snapEndpointHostLineId: null,
         } satisfies SketchPreviewPoint;
       }
     }
@@ -5553,6 +5748,42 @@ const currentGridSpacingRef = useRef(10);
           } else {
             if (boxesIntersect(bx1, by1, bx2, by2, rect.x1, rect.y1, rect.x2, rect.y2))
               selected.push(c.circleId);
+          }
+        }
+      }
+
+      // Test arcs
+      if (sketchArcs) {
+        for (const arc of sketchArcs) {
+          if (arc.isConstruction) continue;
+          const start = projectWorldPointToViewport(
+            [arc.start[0], arc.start[1], arc.start[2]], camera, renderer);
+          const end = projectWorldPointToViewport(
+            [arc.end[0], arc.end[1], arc.end[2]], camera, renderer);
+          if (!start || !end) continue;
+          // Bounding box: start, end + 4 quadrant extremes of parent circle
+          const cx = arc.center[0], cy = arc.center[1];
+          const r = Math.hypot(arc.start[0] - cx, arc.start[1] - cy);
+          const extremes: Array<[number, number]> = [
+            [cx + r, cy], [cx - r, cy], [cx, cy + r], [cx, cy - r]];
+          let bx1 = Math.min(start.x, end.x), by1 = Math.min(start.y, end.y);
+          let bx2 = Math.max(start.x, end.x), by2 = Math.max(start.y, end.y);
+          for (const [wx, wy] of extremes) {
+            const p = projectWorldPointToViewport(
+              [wx, wy, arc.start[2]], camera, renderer);
+            if (p) {
+              bx1 = Math.min(bx1, p.x); by1 = Math.min(by1, p.y);
+              bx2 = Math.max(bx2, p.x); by2 = Math.max(by2, p.y);
+            }
+          }
+          if (isWindow) {
+            if (insideRect(start.x, start.y) && insideRect(end.x, end.y))
+              selected.push(arc.arcId);
+          } else {
+            if (insideRect(start.x, start.y) || insideRect(end.x, end.y) ||
+                boxesIntersect(bx1, by1, bx2, by2,
+                  rect.x1, rect.y1, rect.x2, rect.y2))
+              selected.push(arc.arcId);
           }
         }
       }
@@ -7854,13 +8085,62 @@ const currentGridSpacingRef = useRef(10);
               return;
             }
             const firstEntityId = dimensionToolFirstLineRef.current;
+            const firstPoint = dimensionToolFirstPointRef.current;
             if (firstEntityId && firstEntityId !== hit.id) {
               dimensionToolFirstLineRef.current = null;
               setDimensionToolFirstLine(null);
+              // When the first pick was a point (line endpoint, circle
+              // center, etc.), create a point-to-point distance to the
+              // second entity's reference point instead of an
+              // entity-to-entity distance.
+              if (firstPoint) {
+                dimensionToolFirstPointRef.current = null;
+                if (hit.entityKind === "circle") {
+                  dimCreatePointDistance(
+                      firstPoint.id, `point-circle-${hit.id}-center`);
+                  return;
+                }
+                if (hit.entityKind === "polygon") {
+                  dimCreatePointDistance(
+                      firstPoint.id, `point-polygon-${hit.id}-center`);
+                  return;
+                }
+                // For line bodies, fall through to entity-to-entity
+                // (e.g. line_line_distance or angle).
+              }
               dimCreateAngleOrDistance(firstEntityId, hit.id);
               return;
             }
             // First click on this entity (or re-click on the staged one).
+            // When a point was staged from the same line (user clicked
+            // one endpoint, now re-clicks the line body), treat it as a
+            // line-length dimension instead of creating a duplicate.
+            if (firstPoint && hit.entityKind === "line") {
+              const m = firstPoint.id.match(/^point-(line-\d+)/);
+              if (m && m[1] === hit.id) {
+                dimensionToolFirstLineRef.current = null;
+                setDimensionToolFirstLine(null);
+                dimensionToolFirstPointRef.current = null;
+                dimCreateLine(hit.id);
+                return;
+              }
+            }
+            // Re-click on a staged circle with no radius dimension yet:
+            // create the radius dimension now.
+            if (firstPoint && firstEntityId === hit.id &&
+                hit.entityKind === "circle") {
+              const exists =
+                sketchLinesRef.current?.dimensions.some(
+                  (d) => d.dimension_id === `dim-circle-${hit.id}`,
+                ) ?? false;
+              if (!exists) {
+                dimensionToolFirstLineRef.current = null;
+                setDimensionToolFirstLine(null);
+                dimensionToolFirstPointRef.current = null;
+                dimCreateCircle(hit.id, "");
+                return;
+              }
+            }
             // Create or select the unary dimension, stage for two-entity flow.
             if (hit.entityKind === "circle") {
               const exists =
@@ -7868,9 +8148,20 @@ const currentGridSpacingRef = useRef(10);
                   (d) => d.dimension_id === `dim-circle-${hit.id}`,
                 ) ?? false;
               if (exists) {
+                // Already has a radius dimension — select it and
+                // stage for two-entity flow.
                 dimSelectCircle(hit.id);
               } else {
-                dimCreateCircle(hit.id, "");
+                // No radius dimension yet. Stage the circle center
+                // point so the next click can create either a radius
+                // dimension (re-click same circle) or a two-entity
+                // distance. Don't create a radius dimension yet so
+                // point-to-circle-center two-pick works.
+                dimensionToolFirstPointRef.current = {
+                  id: `point-circle-${hit.id}-center`, x: 0, y: 0,
+                };
+                dimensionToolFirstLineRef.current = hit.id;
+                setDimensionToolFirstLine(hit.id);
               }
               return;
             }
@@ -7907,7 +8198,22 @@ const currentGridSpacingRef = useRef(10);
           if (hit?.kind === "sketch_point") {
             const firstPoint = dimensionToolFirstPointRef.current;
             if (firstPoint && firstPoint.id !== hit.id) {
-              // Two-point flow: create point_distance dimension.
+              // Two-point flow. If both points belong to the same
+              // line (user clicked both endpoints), create a
+              // line-length dimension. Otherwise point-to-point.
+              const resolveLine = (pid: string) => {
+                const m = pid.match(/^point-(line-\d+)/);
+                return m ? m[1] : null;
+              };
+              const lineA = resolveLine(firstPoint.id);
+              const lineB = resolveLine(hit.id);
+              if (lineA && lineA === lineB) {
+                dimensionToolFirstLineRef.current = null;
+                setDimensionToolFirstLine(null);
+                dimensionToolFirstPointRef.current = null;
+                dimCreateLine(lineA);
+                return;
+              }
               dimensionToolFirstLineRef.current = null;
               setDimensionToolFirstLine(null);
               dimensionToolFirstPointRef.current = null;

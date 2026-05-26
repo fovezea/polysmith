@@ -5,6 +5,7 @@
 
 #include "core/dof_counter.h"
 #include "core/document.h"
+#include "core/snap_engine.h"
 
 namespace polysmith::core {
 
@@ -440,6 +441,10 @@ struct ViewportState {
   double scene_height;
   double scene_depth;
   ViewportSceneBounds scene_bounds;
+  // Pre-computed snap targets for the active sketch, gated by the
+  // document's SelectionFilter. The TS side checks distance against
+  // these on each mouse move instead of computing locally.
+  std::vector<SnapCandidate> snap_candidates;
   // Echo of the document's current selection filter so the UI can gate
   // snap / selection / highlight behavior without an extra IPC round-trip.
   SelectionFilter selection_filter;

@@ -186,6 +186,78 @@ center, quadrant, intersection, nearest, perpendicular, parallel, tangent,
 polar. To enable live snaps, the entity type must be enabled in the
 selection filter.
 
+### Snap Types
+
+PolySmith supports the following snap behaviors, each toggleable in the
+Selection and Snap Filter panel:
+
+**Endpoint Snap** — pulls cursor to the start or end point of a sketch
+line or arc.
+
+**Midpoint Snap** — pulls cursor to the exact middle of a sketch line
+segment. Sub-segment midpoints (when a line is split by anchored points)
+are also supported.
+
+**Center Snap** — pulls cursor to the center point of a circle, arc, or
+polygon.
+
+**Grid Snap** — pulls cursor to the nearest grid intersection point.
+
+**Grid Line Snap** — locks cursor to the nearest horizontal or vertical
+grid line axis. Unlike Grid Snap which snaps to intersections, this snaps
+to the line itself (one coordinate locked, the other free).
+
+**Intersection Snap** — pulls cursor to points where two sketch entities
+cross (line-line, line-arc).
+
+**Nearest Snap** — pulls cursor to the closest point on a sketch line
+segment (projection clamped to the segment interior).
+
+**Quadrant Snap** — pulls cursor to the 0, 90, 180, and 270 degree
+cardinal points on a circle.
+
+**Perpendicular Snap** — projects the cursor onto the perpendicular
+foot from an existing line.
+
+**Parallel Snap** — while drawing a line, locks the cursor to the
+direction of the nearest existing line.
+
+**Tangent Snap** — while drawing a line from outside a circle, pulls
+the cursor to the nearest tangent point on that circle.
+
+**Polar Snap** — locks the cursor to polar angle increments (default 15
+degrees) from the draft start point. Angle step is configurable (5 to 90
+degrees).
+
+### Object Snap Override
+A modifier-key mechanism that temporarily inverts all snap toggles. Hold
+Alt while sketching to reverse every snap checkbox: disabled types become
+active, enabled types become inactive. Release Alt to restore the panel
+settings.
+
+### Object Snap Tracking (Planned)
+A drawing assistant that projects guide lines from existing geometry
+endpoints. The user briefly hovers over an existing point to "acquire"
+it, then moves the cursor away. A temporary dotted guide line extends
+horizontally and/or vertically from the acquired point. When the active
+draft (rubber-band line) crosses this guide, the cursor snaps to the
+intersection of the guide line and the rubber-band direction.
+
+Example: an existing vertical line A has its top endpoint at Y=5. The
+user starts a new vertical line B at X=3, hovers near A's top endpoint
+(acquiring it), then drags upward. A horizontal dotted guide extends
+from Y=5. Line B snaps to end at exactly Y=5, matching line A's height
+without an explicit dimension.
+
+Implementation:
+- Acquire: detect hover near existing endpoints/centers while drafting.
+  Store the point in a transient tracked-point list.
+- Render: draw dashed guide lines from tracked points along cardinal
+  axes using a dedicated Three.js line material.
+- Snap: compute the intersection of the active rubber-band direction
+  with each guide line. Closest intersection within tolerance wins.
+- Cleanup: clear tracked points when the draft commits or cancels.
+
 ### Dimension
 A displayed measurement on a sketch entity. Dimensions can be driving
 (control the geometry) or driven (report the current value). Dimensions

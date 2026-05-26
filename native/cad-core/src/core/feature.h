@@ -476,9 +476,12 @@ struct SelectionFilter {
     bool snap_parallel        = false;
     bool snap_tangent         = true;
     bool snap_grid            = true;
+    bool snap_grid_line       = false;
+    bool snap_polar           = false;
 
     // Global settings
     int tolerance_px           = 10;
+    int polar_angle_degrees    = 15;
     std::vector<std::string> snap_priority;
     bool magnetic_pull         = true;
 };

@@ -4427,10 +4427,19 @@ void trim_sketch_entity(FeatureEntry& feature,
       auto [ex, ey] = pt_at_angle(kept.param_end < 2.0 * M_PI
                                       ? kept.param_end
                                       : kept.param_end - 2.0 * M_PI);
+      // Reuse existing endpoint ids when arc endpoints land on a point
+      // another entity already owns — mirrors add_sketch_arc so the
+      // profile loop detector can chain arcs with lines.
+      const auto shared_start = find_coincident_endpoint(params, "", sx, sy);
+      const auto shared_end   = find_coincident_endpoint(params, "", ex, ey);
       params.arcs.push_back(SketchArc{
           .id = "arc-" + std::to_string(arc_index),
-          .start_point_id = "point-trim-" + std::to_string(start_pt_idx) + "-start",
-          .end_point_id   = "point-trim-" + std::to_string(end_pt_idx) + "-end",
+          .start_point_id = shared_start.has_value()
+              ? std::get<0>(shared_start.value())
+              : "point-trim-" + std::to_string(start_pt_idx) + "-start",
+          .end_point_id   = shared_end.has_value()
+              ? std::get<0>(shared_end.value())
+              : "point-trim-" + std::to_string(end_pt_idx) + "-end",
           .center_x = cx, .center_y = cy, .radius = r,
           .start_x = sx, .start_y = sy,
           .end_x = ex, .end_y = ey,
@@ -4446,10 +4455,17 @@ void trim_sketch_entity(FeatureEntry& feature,
       if (a_end <= a_start) a_end += 2.0 * M_PI;
       auto [sx, sy] = pt_at_angle(a_start);
       auto [ex, ey] = pt_at_angle(segments[clicked_index].param_start);
+      // Reuse existing endpoint ids for profile loop connectivity.
+      const auto shared_start = find_coincident_endpoint(params, "", sx, sy);
+      const auto shared_end   = find_coincident_endpoint(params, "", ex, ey);
       params.arcs.push_back(SketchArc{
           .id = "arc-" + std::to_string(arc_index),
-          .start_point_id = "point-trim-" + std::to_string(start_pt_idx) + "-start",
-          .end_point_id   = "point-trim-" + std::to_string(end_pt_idx) + "-end",
+          .start_point_id = shared_start.has_value()
+              ? std::get<0>(shared_start.value())
+              : "point-trim-" + std::to_string(start_pt_idx) + "-start",
+          .end_point_id   = shared_end.has_value()
+              ? std::get<0>(shared_end.value())
+              : "point-trim-" + std::to_string(end_pt_idx) + "-end",
           .center_x = cx, .center_y = cy, .radius = r,
           .start_x = sx, .start_y = sy,
           .end_x = ex, .end_y = ey,
