@@ -106,6 +106,7 @@
     "finishSketch": "Finish Sketch",
     "horizontal": "Horizontal",
     "line": "Line",
+    "loft": "Loft",
     "midplane": "Midplane",
     "mirror": "Mirror",
     "move": "Move",
@@ -160,6 +161,19 @@
       "operation": "Operation",
       "targetBody": "Target body",
       "title": "Extrude"
+    },
+    "loft": {
+      "emptyProfiles": "Click profiles in the viewport to add sections.",
+      "moveProfileDown": "Move profile down",
+      "moveProfileUp": "Move profile up",
+      "pickProfiles": "Select at least 2 profiles",
+      "profileOrder": "Profiles",
+      "removeProfile": "Remove profile",
+      "ruled": "Ruled",
+      "sectionsSelected": "{{count}} sections selected",
+      "smooth": "Smooth",
+      "title": "Loft",
+      "transition": "Transition"
     },
     "mirror": {
       "axis": "Mirror line",

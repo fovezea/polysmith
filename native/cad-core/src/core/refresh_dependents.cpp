@@ -697,6 +697,42 @@ void refresh_history_dependencies(DocumentState& document) {
         feature.dependency_warning.clear();
       }
     }
+
+    if (feature.kind == "loft" && feature.loft_parameters.has_value()) {
+      if (feature.status == "warning" && feature.dependency_broken) {
+        continue;
+      }
+
+      bool broken = false;
+      std::string warning;
+      for (auto& section : feature.loft_parameters->sections) {
+        const FeatureEntry* sketch = find_feature(document, section.sketch_feature_id);
+        if (sketch == nullptr || !sketch->sketch_parameters.has_value()) {
+          broken = true;
+          warning = "Loft depends on a sketch that no longer exists.";
+          break;
+        }
+        if (sketch->dependency_broken) {
+          broken = true;
+          warning = "Loft depends on sketch '" + sketch->id +
+                    "', whose plane reference is broken.";
+          break;
+        }
+        if (sketch->sketch_parameters->plane_frame.has_value()) {
+          section.plane_frame =
+              from_sketch_plane_frame(
+                  sketch->sketch_parameters->plane_frame.value());
+        }
+      }
+
+      if (broken) {
+        feature.dependency_broken = true;
+        feature.dependency_warning = warning;
+      } else {
+        feature.dependency_broken = false;
+        feature.dependency_warning.clear();
+      }
+    }
   }
 }
 

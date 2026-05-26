@@ -47,7 +47,7 @@ interface ContextMenuState {
 // extrude preview panel for depth / mode / target-body editing; `sketch`
 // re-enters the sketch (same as the hierarchy panel's pencil icon).
 // The actual dispatch lives in App.tsx's `onEditFeature`.
-const EDITABLE_KINDS = new Set(["box", "cylinder", "extrude", "sketch"]);
+const EDITABLE_KINDS = new Set(["box", "cylinder", "extrude", "loft", "sketch"]);
 
 export function FeatureTimeline({
   document,

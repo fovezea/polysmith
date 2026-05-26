@@ -107,6 +107,26 @@ const documentStateSchema = z.object({
           target_body_id: z.string().nullable().default(null),
         })
         .nullable(),
+      loft_parameters: z
+        .object({
+          ruled: z.boolean().default(false),
+          sections: z.array(
+            z.object({
+              sketch_feature_id: z.string(),
+              profile_id: z.string(),
+              plane_id: z.string(),
+              plane_frame: planeFrameSchema.nullable(),
+              profile_points: z.array(
+                z.object({
+                  x: z.number(),
+                  y: z.number(),
+                }),
+              ),
+            }),
+          ),
+        })
+        .nullable()
+        .default(null),
       fillet_parameters: z
         .object({
           target_body_id: z.string(),

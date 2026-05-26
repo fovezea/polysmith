@@ -310,6 +310,36 @@ std::optional<ExtrudeFeatureParameters> make_extrude_parameters_for_profile(
   return std::nullopt;
 }
 
+std::optional<LoftSectionParameters> make_loft_section_for_profile(
+    const FeatureEntry& sketch_feature,
+    const SketchProfileRegion& profile) {
+  if (!sketch_feature.sketch_parameters.has_value()) {
+    return std::nullopt;
+  }
+  if (!profile.inner_loops.empty()) {
+    return std::nullopt;
+  }
+
+  const auto& sketch = sketch_feature.sketch_parameters.value();
+  const std::string plane_id = sketch.plane_frame.has_value()
+                                   ? plane_id_from_frame(sketch.plane_frame.value())
+                                   : sketch.plane_id;
+  const std::optional<PlaneFrame> plane_frame =
+      sketch.plane_frame.has_value()
+          ? std::optional<PlaneFrame>(make_plane_frame(sketch.plane_frame.value()))
+          : std::nullopt;
+
+  return LoftSectionParameters{
+      .sketch_feature_id = sketch_feature.id,
+      .profile_id = profile.id,
+      .plane_id = plane_id,
+      .plane_frame = plane_frame,
+      .profile_points = profile.kind == "circle"
+                            ? sample_circle_profile_points(profile)
+                            : profile.points,
+  };
+}
+
 bool profile_id_mentions_entity(const std::string& profile_id,
                                 const std::string& entity_id) {
   const std::string needle = "-" + entity_id;
@@ -473,6 +503,85 @@ void refresh_linked_extrudes(DocumentState& document,
     feature.parameters_summary =
         feature.extrude_parameters->profile_id + " · " +
         std::to_string(feature.extrude_parameters->depth) + " mm";
+  }
+
+  const auto mark_loft_profile_warning = [](FeatureEntry& feature,
+                                            const std::string& message) {
+    feature.status = "warning";
+    feature.parameters_summary = "Source profile unavailable";
+    feature.dependency_broken = true;
+    feature.dependency_warning = message;
+  };
+
+  for (auto& feature : document.feature_history) {
+    if (feature.kind != "loft" || !feature.loft_parameters.has_value()) {
+      continue;
+    }
+
+    bool references_sketch = false;
+    for (const auto& section : feature.loft_parameters->sections) {
+      if (section.sketch_feature_id == sketch_feature.id) {
+        references_sketch = true;
+        break;
+      }
+    }
+    if (!references_sketch) {
+      continue;
+    }
+
+    const auto& sketch = sketch_feature.sketch_parameters.value();
+    LoftFeatureParameters next_parameters = feature.loft_parameters.value();
+    bool failed = false;
+    for (auto& section : next_parameters.sections) {
+      if (section.sketch_feature_id != sketch_feature.id) {
+        continue;
+      }
+      const SketchProfileRegion* profile =
+          find_equivalent_profile(sketch.profiles, section.profile_id);
+      if (profile == nullptr) {
+        mark_loft_profile_warning(
+            feature,
+            "Loft source profile no longer exists. Edit the source sketch "
+            "or recreate the loft.");
+        failed = true;
+        break;
+      }
+      const auto next_section =
+          make_loft_section_for_profile(sketch_feature, *profile);
+      if (!next_section.has_value()) {
+        mark_loft_profile_warning(
+            feature,
+            "Loft source profile now contains unsupported holes. Edit the "
+            "source sketch or recreate the loft.");
+        failed = true;
+        break;
+      }
+      section = next_section.value();
+    }
+    if (failed) {
+      continue;
+    }
+
+    try {
+      const TopoDS_Shape next_shape = build_loft_shape(next_parameters);
+      if (next_shape.IsNull()) {
+        throw std::runtime_error("Loft rebuild produced an empty shape");
+      }
+    } catch (const std::exception&) {
+      mark_loft_profile_warning(
+          feature,
+          "Loft could not rebuild from the updated profile shape. Edit the "
+          "source sketch or recreate the loft.");
+      continue;
+    }
+
+    feature.loft_parameters = next_parameters;
+    feature.status = "healthy";
+    feature.dependency_broken = false;
+    feature.dependency_warning.clear();
+    feature.parameters_summary =
+        std::to_string(feature.loft_parameters->sections.size()) +
+        " sections" + (feature.loft_parameters->ruled ? " · ruled" : "");
   }
 }
 
@@ -2600,6 +2709,41 @@ std::vector<FeatureEntry>::iterator find_sketch_feature_owning_profile(
       });
 }
 
+LoftFeatureParameters make_loft_parameters_for_profiles(
+    std::vector<FeatureEntry>& features,
+    const std::vector<std::string>& profile_ids,
+    bool ruled) {
+  if (profile_ids.size() < 2) {
+    throw std::runtime_error("Loft requires at least two sketch profiles");
+  }
+
+  LoftFeatureParameters parameters{};
+  parameters.ruled = ruled;
+  for (const auto& profile_id : profile_ids) {
+    const auto sketch_it = find_sketch_feature_owning_profile(features, profile_id);
+    if (sketch_it == features.end()) {
+      throw std::runtime_error("Sketch profile not found: " + profile_id);
+    }
+    const auto& sketch = sketch_it->sketch_parameters.value();
+    const auto profile_it = std::find_if(
+        sketch.profiles.begin(), sketch.profiles.end(),
+        [&](const SketchProfileRegion& profile) { return profile.id == profile_id; });
+    if (profile_it == sketch.profiles.end()) {
+      throw std::runtime_error("Sketch profile not found: " + profile_id);
+    }
+    if (!profile_it->inner_loops.empty()) {
+      throw std::runtime_error("Loft does not support profiles with holes yet");
+    }
+    const auto section = make_loft_section_for_profile(*sketch_it, *profile_it);
+    if (!section.has_value()) {
+      throw std::runtime_error("Selected profile is not supported for loft");
+    }
+    parameters.sections.push_back(section.value());
+  }
+
+  return parameters;
+}
+
 }  // namespace
 
 DocumentState DocumentManager::select_sketch_profile(const std::string& profile_id,
@@ -2829,8 +2973,6 @@ DocumentState DocumentManager::extrude_face(
   document_->selected_sketch_point_id = std::nullopt;
   document_->selected_sketch_entity_id = std::nullopt;
   document_->selected_sketch_dimension_id = std::nullopt;
-  document_->selected_sketch_profile_id = std::nullopt;
-  document_->selected_sketch_profile_ids.clear();
   bump_geometry_revision();
   return document_.value();
 }
@@ -2938,6 +3080,86 @@ DocumentState DocumentManager::update_extrude_profiles(
   extrude_it->parameters_summary =
       extrude_it->extrude_parameters->profile_id + " · " +
       std::to_string(extrude_it->extrude_parameters->depth) + " mm";
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::loft_profiles(
+    const std::vector<std::string>& profile_ids,
+    bool ruled) {
+  require_document();
+  const LoftFeatureParameters parameters =
+      make_loft_parameters_for_profiles(document_->feature_history,
+                                        profile_ids,
+                                        ruled);
+
+  push_undo_state();
+  clear_redo_stack();
+  document_->feature_history.push_back(
+      create_loft_feature(next_feature_id_++, parameters));
+  document_->selected_feature_id = document_->feature_history.back().id;
+  document_->selected_reference_id = std::nullopt;
+  document_->selected_face_id = std::nullopt;
+  document_->selected_edge_ids.clear();
+  document_->selected_vertex_ids.clear();
+  document_->active_sketch_plane_id = std::nullopt;
+  document_->active_sketch_feature_id = std::nullopt;
+  document_->active_sketch_tool = std::nullopt;
+  document_->selected_sketch_point_id = std::nullopt;
+  document_->selected_sketch_entity_id = std::nullopt;
+  document_->selected_sketch_dimension_id = std::nullopt;
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::update_loft_profiles(
+    const std::string& feature_id,
+    const std::vector<std::string>& profile_ids) {
+  require_document();
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Feature not found: " + feature_id);
+  }
+  if (feature_it->kind != "loft" || !feature_it->loft_parameters.has_value()) {
+    throw std::runtime_error(
+        "update_loft_profiles requires a loft feature: " + feature_id);
+  }
+
+  const bool ruled = feature_it->loft_parameters->ruled;
+  const LoftFeatureParameters next_parameters =
+      make_loft_parameters_for_profiles(document_->feature_history,
+                                        profile_ids,
+                                        ruled);
+  const TopoDS_Shape next_shape = build_loft_shape(next_parameters);
+  if (next_shape.IsNull()) {
+    throw std::runtime_error("Loft update produced an empty shape");
+  }
+  feature_it->loft_parameters = next_parameters;
+  feature_it->parameters_summary =
+      std::to_string(feature_it->loft_parameters->sections.size()) +
+      " sections" + (feature_it->loft_parameters->ruled ? " · ruled" : "");
+  feature_it->status = "healthy";
+  feature_it->dependency_broken = false;
+  feature_it->dependency_warning.clear();
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::update_loft_ruled(const std::string& feature_id,
+                                                 bool ruled) {
+  require_document();
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Feature not found: " + feature_id);
+  }
+
+  polysmith::core::update_loft_ruled(*feature_it, ruled);
   bump_geometry_revision();
   return document_.value();
 }

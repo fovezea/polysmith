@@ -9,6 +9,7 @@
 #include "core/export.h"
 #include "core/extrude_feature.h"
 #include "core/feature.h"
+#include "core/loft_feature.h"
 #include "core/parameter.h"
 #include "core/sketch_profile.h"
 #include "core/sketch_feature.h"
@@ -83,6 +84,12 @@ class DocumentManager {
   DocumentState update_extrude_profiles(
       const std::string& feature_id,
       const std::vector<std::string>& profile_ids);
+  DocumentState loft_profiles(const std::vector<std::string>& profile_ids,
+                              bool ruled = false);
+  DocumentState update_loft_profiles(
+      const std::string& feature_id,
+      const std::vector<std::string>& profile_ids);
+  DocumentState update_loft_ruled(const std::string& feature_id, bool ruled);
   DocumentState rename_feature(const std::string& feature_id,
                                const std::string& name);
   // Toggle a feature's suppressed flag. Suppressed features are

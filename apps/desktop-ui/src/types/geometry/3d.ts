@@ -36,3 +36,16 @@ export interface ExtrudeFeatureParameters {
   mode: ExtrudeMode;
   target_body_id: string | null;
 }
+
+export interface LoftSectionParameters {
+  sketch_feature_id: string;
+  profile_id: string;
+  plane_id: string;
+  plane_frame: PlaneFrame | null;
+  profile_points: SketchProfilePoint[];
+}
+
+export interface LoftFeatureParameters {
+  sections: LoftSectionParameters[];
+  ruled: boolean;
+}

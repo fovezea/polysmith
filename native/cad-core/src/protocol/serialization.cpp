@@ -204,6 +204,39 @@ extrude_parameters_from_payload(const json& payload) {
   return params;
 }
 
+polysmith::core::LoftFeatureParameters
+loft_parameters_from_payload(const json& payload) {
+  polysmith::core::LoftFeatureParameters params{};
+  if (payload.contains("ruled") && payload.at("ruled").is_boolean()) {
+    params.ruled = payload.at("ruled").get<bool>();
+  }
+  if (payload.contains("sections") && payload.at("sections").is_array()) {
+    for (const auto& section_payload : payload.at("sections")) {
+      polysmith::core::LoftSectionParameters section{};
+      section.sketch_feature_id =
+          read_string(section_payload, "sketch_feature_id");
+      section.profile_id = read_string(section_payload, "profile_id");
+      section.plane_id = read_string(section_payload, "plane_id");
+      if (section_payload.contains("plane_frame") &&
+          !section_payload.at("plane_frame").is_null()) {
+        section.plane_frame =
+            plane_frame_from_payload(section_payload.at("plane_frame"));
+      }
+      if (section_payload.contains("profile_points") &&
+          section_payload.at("profile_points").is_array()) {
+        for (const auto& point_payload : section_payload.at("profile_points")) {
+          section.profile_points.push_back(polysmith::core::SketchProfilePoint{
+              .x = point_payload.at("x").get<double>(),
+              .y = point_payload.at("y").get<double>(),
+          });
+        }
+      }
+      params.sections.push_back(std::move(section));
+    }
+  }
+  return params;
+}
+
 polysmith::core::SketchFeatureParameters
 sketch_parameters_from_payload(const json& payload) {
   polysmith::core::SketchFeatureParameters params{};
@@ -600,6 +633,44 @@ sketch_parameters_from_payload(const json& payload) {
 
 }  // namespace
 
+json plane_frame_to_payload(const polysmith::core::PlaneFrame& frame) {
+  return {
+      {"origin",
+       {
+           {"x", frame.origin_x},
+           {"y", frame.origin_y},
+           {"z", frame.origin_z},
+       }},
+      {"x_axis",
+       {
+           {"x", frame.x_axis_x},
+           {"y", frame.x_axis_y},
+           {"z", frame.x_axis_z},
+       }},
+      {"y_axis",
+       {
+           {"x", frame.y_axis_x},
+           {"y", frame.y_axis_y},
+           {"z", frame.y_axis_z},
+       }},
+      {"normal",
+       {
+           {"x", frame.normal_x},
+           {"y", frame.normal_y},
+           {"z", frame.normal_z},
+       }},
+  };
+}
+
+json profile_points_to_payload(
+    const std::vector<polysmith::core::SketchProfilePoint>& points) {
+  json payload = json::array();
+  for (const auto& point : points) {
+    payload.push_back({{"x", point.x}, {"y", point.y}});
+  }
+  return payload;
+}
+
 json to_payload(const polysmith::core::FeatureEntry& feature) {
   return {
       {"feature_id", feature.id},
@@ -740,6 +811,31 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                   feature.extrude_parameters->target_body_id.has_value()
                       ? json(feature.extrude_parameters->target_body_id.value())
                       : json(nullptr)},
+             }
+           : json(nullptr)},
+      {"loft_parameters",
+       feature.loft_parameters.has_value()
+           ? json{
+                 {"ruled", feature.loft_parameters->ruled},
+                 {"sections",
+                  [&feature]() {
+                    json sections = json::array();
+                    for (const auto& section :
+                         feature.loft_parameters->sections) {
+                      sections.push_back({
+                          {"sketch_feature_id", section.sketch_feature_id},
+                          {"profile_id", section.profile_id},
+                          {"plane_id", section.plane_id},
+                          {"plane_frame",
+                           section.plane_frame.has_value()
+                               ? plane_frame_to_payload(section.plane_frame.value())
+                               : json(nullptr)},
+                          {"profile_points",
+                           profile_points_to_payload(section.profile_points)},
+                      });
+                    }
+                    return sections;
+                  }()},
              }
            : json(nullptr)},
       {"sketch_parameters",
@@ -2073,6 +2169,12 @@ polysmith::core::FeatureEntry feature_entry_from_payload(const json& payload) {
       !payload.at("extrude_parameters").is_null()) {
     feature.extrude_parameters =
         extrude_parameters_from_payload(payload.at("extrude_parameters"));
+  }
+
+  if (payload.contains("loft_parameters") &&
+      !payload.at("loft_parameters").is_null()) {
+    feature.loft_parameters =
+        loft_parameters_from_payload(payload.at("loft_parameters"));
   }
 
   if (payload.contains("sketch_parameters") &&

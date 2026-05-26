@@ -101,6 +101,9 @@ import {
   makeUpdateExtrudeModeCommand,
   makeUpdateExtrudeProfilesCommand,
   makeUpdateExtrudeTargetBodyCommand,
+  makeLoftProfilesCommand,
+  makeUpdateLoftProfilesCommand,
+  makeUpdateLoftRuledCommand,
   parseCoreMessage,
   makeUiLogEntry,
   writeLogToConsole,
@@ -839,6 +842,24 @@ export function useCadCore() {
       await sendCoreCommand(
         makeUpdateExtrudeProfilesCommand(featureId, profileIds),
       );
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    loftProfiles: async (profileIds: readonly string[], ruled = false) => {
+      await sendCoreCommand(makeLoftProfilesCommand(profileIds, ruled));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateLoftProfiles: async (
+      featureId: string,
+      profileIds: readonly string[],
+    ) => {
+      await sendCoreCommand(makeUpdateLoftProfilesCommand(featureId, profileIds));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateLoftRuled: async (featureId: string, ruled: boolean) => {
+      await sendCoreCommand(makeUpdateLoftRuledCommand(featureId, ruled));
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());
     },

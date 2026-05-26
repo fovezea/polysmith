@@ -9,6 +9,7 @@
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRep_Builder.hxx>
+#include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
@@ -57,6 +58,15 @@ gp_Pnt to_world_point(const ExtrudeFeatureParameters& parameters,
   return to_world_point(parameters.plane_id, local_x, local_y);
 }
 
+gp_Pnt to_world_point(const LoftSectionParameters& section,
+                      double local_x,
+                      double local_y) {
+  if (section.plane_frame.has_value()) {
+    return to_world_point(section.plane_frame.value(), local_x, local_y);
+  }
+  return to_world_point(section.plane_id, local_x, local_y);
+}
+
 gp_Dir plane_normal(const ExtrudeFeatureParameters& parameters) {
   if (parameters.plane_frame.has_value()) {
     const auto& frame = parameters.plane_frame.value();
@@ -73,6 +83,30 @@ gp_Dir plane_normal(const ExtrudeFeatureParameters& parameters) {
   }
   throw std::runtime_error("Unsupported sketch plane for shape: " +
                            parameters.plane_id);
+}
+
+gp_Dir profile_wire_normal(const LoftSectionParameters& section) {
+  if (section.plane_frame.has_value()) {
+    const auto& frame = section.plane_frame.value();
+    const double x = frame.x_axis_y * frame.y_axis_z -
+                     frame.x_axis_z * frame.y_axis_y;
+    const double y = frame.x_axis_z * frame.y_axis_x -
+                     frame.x_axis_x * frame.y_axis_z;
+    const double z = frame.x_axis_x * frame.y_axis_y -
+                     frame.x_axis_y * frame.y_axis_x;
+    return gp_Dir(x, y, z);
+  }
+  if (section.plane_id == "ref-plane-xy") {
+    return gp_Dir(0.0, -1.0, 0.0);
+  }
+  if (section.plane_id == "ref-plane-yz") {
+    return gp_Dir(1.0, 0.0, 0.0);
+  }
+  if (section.plane_id == "ref-plane-xz") {
+    return gp_Dir(0.0, 0.0, 1.0);
+  }
+  throw std::runtime_error("Unsupported sketch plane for loft: " +
+                           section.plane_id);
 }
 
 gp_Dir profile_wire_normal(const ExtrudeFeatureParameters& parameters) {
@@ -205,6 +239,35 @@ TopoDS_Wire make_profile_wire(
 
   if (!polygon_builder.IsDone()) {
     throw std::runtime_error("Failed to build polygon wire");
+  }
+  return polygon_builder.Wire();
+}
+
+TopoDS_Wire make_profile_wire(
+    const LoftSectionParameters& section,
+    const std::vector<SketchProfilePoint>& points) {
+  if (const auto circle = detect_circle_loop(points)) {
+    const gp_Pnt center =
+        to_world_point(section, circle->center_x, circle->center_y);
+    const gp_Circ curve(gp_Ax2(center, profile_wire_normal(section)),
+                        circle->radius);
+    BRepBuilderAPI_MakeEdge edge_builder(curve);
+    if (edge_builder.IsDone()) {
+      BRepBuilderAPI_MakeWire wire_builder(edge_builder.Edge());
+      if (wire_builder.IsDone()) {
+        return wire_builder.Wire();
+      }
+    }
+  }
+
+  BRepBuilderAPI_MakePolygon polygon_builder;
+  for (const auto& point : points) {
+    polygon_builder.Add(to_world_point(section, point.x, point.y));
+  }
+  polygon_builder.Close();
+
+  if (!polygon_builder.IsDone()) {
+    throw std::runtime_error("Failed to build loft profile wire");
   }
   return polygon_builder.Wire();
 }
@@ -360,6 +423,36 @@ TopoDS_Shape build_extrude_shape(const ExtrudeFeatureParameters& parameters) {
                            parameters.profile_kind);
 }
 
+TopoDS_Shape build_loft_shape(const LoftFeatureParameters& parameters) {
+  if (parameters.sections.size() < 2) {
+    throw std::runtime_error("Loft requires at least two profile sections");
+  }
+
+  BRepOffsetAPI_ThruSections loft_builder(
+      /*isSolid=*/true,
+      /*ruled=*/parameters.ruled,
+      /*pres3d=*/1.0e-6);
+  loft_builder.CheckCompatibility(true);
+
+  for (const auto& section : parameters.sections) {
+    if (section.profile_points.size() < 3) {
+      throw std::runtime_error("Loft profile section requires at least three points");
+    }
+    loft_builder.AddWire(make_profile_wire(section, section.profile_points));
+  }
+
+  loft_builder.Build();
+  if (!loft_builder.IsDone()) {
+    throw std::runtime_error("Failed to build loft");
+  }
+
+  const TopoDS_Shape shape = loft_builder.Shape();
+  if (shape.IsNull()) {
+    throw std::runtime_error("Failed to build loft shape");
+  }
+  return shape;
+}
+
 TopoDS_Shape build_feature_shape(const FeatureEntry& feature) {
   if (feature.kind == "box" && feature.box_parameters.has_value()) {
     return build_box_shape(feature.box_parameters.value());
@@ -369,6 +462,9 @@ TopoDS_Shape build_feature_shape(const FeatureEntry& feature) {
   }
   if (feature.kind == "extrude" && feature.extrude_parameters.has_value()) {
     return build_extrude_shape(feature.extrude_parameters.value());
+  }
+  if (feature.kind == "loft" && feature.loft_parameters.has_value()) {
+    return build_loft_shape(feature.loft_parameters.value());
   }
   return TopoDS_Shape{};
 }

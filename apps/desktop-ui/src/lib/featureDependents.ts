@@ -8,6 +8,7 @@ import type { DocumentState, FeatureEntry } from "@/types";
 // Reference rules (matched against the C++ shape builders):
 //   - extrude.sketch_feature_id  → its source sketch
 //   - extrude.target_body_id     → join/cut target
+//   - loft.sections[].sketch_feature_id → source sketches
 //   - fillet.target_body_id      → body being filleted
 //   - chamfer.target_body_id     → body being chamfered
 //   - sketch.plane_id            → plane / construction plane / face
@@ -31,6 +32,9 @@ export function findDependents(
     if (
       feature.extrude_parameters?.sketch_feature_id === featureId ||
       feature.extrude_parameters?.target_body_id === featureId ||
+      feature.loft_parameters?.sections.some(
+        (section) => section.sketch_feature_id === featureId,
+      ) ||
       feature.fillet_parameters?.target_body_id === featureId ||
       feature.chamfer_parameters?.target_body_id === featureId ||
       sketchPlaneId === featureId ||

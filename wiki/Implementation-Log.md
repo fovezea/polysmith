@@ -2,6 +2,17 @@
 
 This document tracks concrete implementation milestones as they land in the codebase.
 
+## 2026-05-26
+
+### Loft v1
+
+- added a core-owned `loft` feature with `LoftFeatureParameters { sections[], ruled }`; sections store the source sketch/profile ids, plane frame, and sampled closed-loop profile points
+- implemented `loft_profiles`, `update_loft_profiles`, and `update_loft_ruled` IPC commands; v1 supports two or more closed sketch profiles without holes, creates a new body, and uses smooth transitions by default with a ruled toggle
+- wired loft solids through the native body compiler using OCCT `BRepOffsetAPI_ThruSections`, so viewport meshes and exports use the same compiled body path as other modeled solids
+- extended sketch dependency refresh so dimension edits on source sketches re-resolve loft section profiles where possible; when a source profile disappears, gains unsupported holes, or cannot rebuild, the loft is marked `dependency_broken` with a warning instead of silently producing stale geometry
+- added the Create > Loft toolbar action, floating contextual Loft panel, live smooth/ruled preview, timeline edit support, IPC builders/hooks/types/schemas, AI command validation, and English UI strings
+- updated `IPC-Protocol` and `AI-CAD-Command-Language` with the new loft commands and serialized feature parameters
+
 ## 2026-05-20
 
 ### Parametric Parameters & Dimension Formulas

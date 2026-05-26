@@ -66,6 +66,19 @@ struct ExtrudeFeatureParameters {
   std::optional<std::string> target_body_id;
 };
 
+struct LoftSectionParameters {
+  std::string sketch_feature_id;
+  std::string profile_id;
+  std::string plane_id;
+  std::optional<PlaneFrame> plane_frame;
+  std::vector<SketchProfilePoint> profile_points;
+};
+
+struct LoftFeatureParameters {
+  std::vector<LoftSectionParameters> sections;
+  bool ruled = false;
+};
+
 // Edge-modifying body operation. `target_body_id` is the body root feature
 // id whose edges are being filleted/chamfered. `edge_ids` mirrors the
 // `<body_id>:edge:<index>` strings emitted by viewport_state.edges so the
@@ -541,6 +554,7 @@ struct FeatureEntry {
   std::optional<FilletFeatureParameters> fillet_parameters;
   std::optional<ChamferFeatureParameters> chamfer_parameters;
   std::optional<ConstructionPlaneFeatureParameters> construction_plane_parameters;
+  std::optional<LoftFeatureParameters> loft_parameters;
 };
 
 }  // namespace polysmith::core

@@ -826,6 +826,48 @@ export function makeUpdateExtrudeProfilesCommand(
   };
 }
 
+export function makeLoftProfilesCommand(
+  profileIds: readonly string[],
+  ruled = false,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "loft_profiles",
+    payload: {
+      profile_ids: [...profileIds],
+      ruled,
+    },
+  };
+}
+
+export function makeUpdateLoftProfilesCommand(
+  featureId: string,
+  profileIds: readonly string[],
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_loft_profiles",
+    payload: {
+      feature_id: featureId,
+      profile_ids: [...profileIds],
+    },
+  };
+}
+
+export function makeUpdateLoftRuledCommand(
+  featureId: string,
+  ruled: boolean,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_loft_ruled",
+    payload: {
+      feature_id: featureId,
+      ruled,
+    },
+  };
+}
+
 export function makeAddSketchLineCommand(
   startX: number,
   startY: number,

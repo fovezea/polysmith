@@ -30,6 +30,7 @@ add_executable(cad_core
   src/core/feature_shape.cpp
   src/core/formula_eval.cpp
   src/core/inference_engine.cpp
+  src/core/loft_feature.cpp
   src/core/logger.cpp
   src/core/refresh_dependents.cpp
   src/core/sketch_feature.cpp

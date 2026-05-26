@@ -1091,6 +1091,33 @@ export interface UpdateExtrudeProfilesCommand {
   };
 }
 
+export interface LoftProfilesCommand {
+  id: string;
+  type: "loft_profiles";
+  payload: {
+    profile_ids: string[];
+    ruled?: boolean;
+  };
+}
+
+export interface UpdateLoftProfilesCommand {
+  id: string;
+  type: "update_loft_profiles";
+  payload: {
+    feature_id: string;
+    profile_ids: string[];
+  };
+}
+
+export interface UpdateLoftRuledCommand {
+  id: string;
+  type: "update_loft_ruled";
+  payload: {
+    feature_id: string;
+    ruled: boolean;
+  };
+}
+
 export interface SelectSketchEntityCommand {
   id: string;
   type: "select_sketch_entity";
@@ -1164,6 +1191,9 @@ export type CoreCommand =
   | UpdateExtrudeModeCommand
   | UpdateExtrudeTargetBodyCommand
   | UpdateExtrudeProfilesCommand
+  | LoftProfilesCommand
+  | UpdateLoftProfilesCommand
+  | UpdateLoftRuledCommand
   | RenameFeatureCommand
   | SetFeatureSuppressedCommand
   | DeleteFeatureCommand

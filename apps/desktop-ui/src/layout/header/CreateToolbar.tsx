@@ -1,6 +1,6 @@
 import { BoxFeatureForm } from "../BoxFeatureForm";
 import { CylinderFeatureForm } from "../CylinderFeatureForm";
-import { BoxIcon, CylinderIcon, ExtrudeIcon } from "./ToolBarIcons";
+import { BoxIcon, CylinderIcon, ExtrudeIcon, LoftIcon } from "./ToolBarIcons";
 import { formatHotkey, useAppConfig } from "@/config";
 import { useTranslation } from "react-i18next";
 
@@ -19,6 +19,8 @@ export interface CreateToolbarProps {
   // picking first.
   canExtrude: boolean;
   onExtrude: () => Promise<void>;
+  canLoft: boolean;
+  onLoft: () => Promise<void>;
 }
 
 // Flat icon-only button shared by every action in the Create ribbon.
@@ -38,6 +40,8 @@ export function CreateToolbar({
   onAddCylinderFeature,
   canExtrude,
   onExtrude,
+  canLoft,
+  onLoft,
 }: CreateToolbarProps) {
   const { config } = useAppConfig();
   const { t } = useTranslation();
@@ -80,6 +84,17 @@ export function CreateToolbar({
           disabled={disabled || !canExtrude}
         >
           <ExtrudeIcon />
+        </button>
+        <button
+          className={ICON_BUTTON_BASE}
+          data-tooltip={t("toolbar.loft")}
+          aria-label={t("toolbar.loft")}
+          onClick={() => {
+            void onLoft();
+          }}
+          disabled={disabled || !canLoft}
+        >
+          <LoftIcon />
         </button>
         {openMenu === "box" ? (
           <div className="cad-toolbar-popover absolute left-0 top-[calc(100%+0.75rem)] w-[360px]">

@@ -23,6 +23,7 @@ use "is_construction": false. Closed non-construction geometry creates sketch
 profiles. Extrude profiles with extrude_profile using profile_ids, depth, mode
 (new_body, join, cut), and optional target_body_id. Extrude planar body faces
 with extrude_face using face_id, depth, mode, and optional target_body_id. Read
+multiple profile IDs in section order for loft_profiles { profile_ids, ruled? }.
 viewport_state.bodies for boolean targets. Read viewport_state.edges for body
 fillet/chamfer. Read sketch lines, circles, arcs, points, profiles, and dimensions from
 feature_history[].sketch_parameters. Use create_fillet/create_chamfer for body
@@ -45,6 +46,9 @@ Common command payloads:
 - select_sketch_profile { profile_id, additive? }
 - extrude_profile { profile_ids, depth, mode?, target_body_id? }
 - extrude_face { face_id, depth, mode?, target_body_id? }
+- loft_profiles { profile_ids, ruled? }
+- update_loft_profiles { feature_id, profile_ids }
+- update_loft_ruled { feature_id, ruled }
 - update_extrude_depth { feature_id, depth }
 - update_extrude_mode { feature_id, mode }
 - update_extrude_target_body { feature_id, target_body_id? }

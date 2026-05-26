@@ -42,7 +42,13 @@ interface ContextMenuState {
   suppressed: boolean;
 }
 
-const BODY_KINDS = new Set(["box", "cylinder", "polygon_extrude", "extrude"]);
+const BODY_KINDS = new Set([
+  "box",
+  "cylinder",
+  "polygon_extrude",
+  "extrude",
+  "loft",
+]);
 
 function EyeIcon({ open }: { open: boolean }) {
   if (open) {

@@ -200,6 +200,7 @@ kinds currently include:
 - `cylinder`
 - `sketch`
 - `extrude`
+- `loft`
 - `fillet`
 - `chamfer`
 - `construction_plane`
@@ -1608,6 +1609,60 @@ Payload:
 }
 ```
 
+### Profile Loft
+
+#### `loft_profiles`
+
+Creates a new body by lofting through two or more sketch profiles in the
+provided order. This command does not require an active sketch.
+
+Payload:
+
+```ts
+{
+  profile_ids: string[];
+  ruled?: boolean;
+}
+```
+
+Rules:
+
+- Use two or more IDs from `feature_history[].sketch_parameters.profiles[]` or
+  `viewport_state.sketch_profiles[]`.
+- Profile order controls section order.
+- `ruled` defaults to `false` for a smooth transition; `true` creates straight
+  section-to-section transitions.
+- v1 supports closed profiles without holes. Profiles with `inner_loops[]` are
+  rejected so the core does not create ambiguous solids.
+- Loft always creates a new body; boolean join/cut is not supported yet.
+
+#### `update_loft_profiles`
+
+Replaces the source profile list for an existing loft while preserving its
+smooth/ruled setting.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+  profile_ids: string[];
+}
+```
+
+#### `update_loft_ruled`
+
+Changes an existing loft between smooth and ruled transitions.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+  ruled: boolean;
+}
+```
+
 ### Body Fillets and Chamfers
 
 These commands operate on body edges from `viewport_state.edges[]`. Edge IDs
@@ -1814,6 +1869,7 @@ Parameter fields:
 - `box_parameters: { width, height, depth } | null`
 - `cylinder_parameters: { radius, height } | null`
 - `extrude_parameters: ExtrudeFeatureParameters | null`
+- `loft_parameters: { ruled, sections[] } | null`
 - `fillet_parameters: { target_body_id, edge_ids, radius } | null`
 - `chamfer_parameters: { target_body_id, edge_ids, distance } | null`
 - `construction_plane_parameters: { source_plane_id, offset, plane_frame } | null`
@@ -2191,6 +2247,8 @@ this:
   `new_body`, `join`, or `cut`.
 - Update extrudes with `update_extrude_depth`, `update_extrude_mode`,
   `update_extrude_target_body`, and `update_extrude_profiles`.
+- Loft sketch profiles with `loft_profiles { profile_ids, ruled? }`; update
+  lofts with `update_loft_profiles` and `update_loft_ruled`.
 - Read `viewport_state.bodies[]` for boolean targets.
 - Read `viewport_state.solid_faces[]` for face sketches and copy `plane_frame`.
 - Read `viewport_state.edges[]` for body fillet/chamfer.

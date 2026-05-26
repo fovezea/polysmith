@@ -2,6 +2,7 @@ import type {
   BoxFeatureParameters,
   CylinderFeatureParameters,
   ExtrudeFeatureParameters,
+  LoftFeatureParameters,
   Shape2D,
   Vector3,
 } from "@/types";
@@ -322,6 +323,7 @@ export interface FeatureEntry {
   box_parameters: BoxFeatureParameters | null;
   cylinder_parameters: CylinderFeatureParameters | null;
   extrude_parameters: ExtrudeFeatureParameters | null;
+  loft_parameters: LoftFeatureParameters | null;
   sketch_parameters: SketchFeatureParameters | null;
   fillet_parameters: FilletFeatureParameters | null;
   chamfer_parameters: ChamferFeatureParameters | null;
@@ -358,5 +360,4 @@ export type CircleToolMode =
 
 /** Polygon creation modes for the split tool button. */
 export type PolygonToolMode = "circumscribed" | "inscribed" | "edge";
-
 

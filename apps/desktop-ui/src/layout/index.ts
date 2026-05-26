@@ -8,6 +8,7 @@ export * from "./FeatureTimeline";
 export * from "./LogsWindow";
 export * from "./MessageLog";
 export * from "./ExtrudePreviewPanel";
+export * from "./LoftPreviewPanel";
 export * from "./EdgeOpPreviewPanel";
 export * from "./OffsetPlanePanel";
 export * from "./SettingsModal";

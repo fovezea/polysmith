@@ -45,6 +45,7 @@ import {
   DocumentHierarchyPanel,
   EdgeOpPreviewPanel,
   ExtrudePreviewPanel,
+  LoftPreviewPanel,
   OffsetPlanePanel,
   SketchFilletPanel,
   MirrorToolPanel,
@@ -104,7 +105,13 @@ const STANDALONE_SLICER_BOUNDS: SlicerViewportBounds = {
   height: 1,
   scaleFactor: 1,
 };
-const BODY_KINDS = new Set(["box", "cylinder", "polygon_extrude", "extrude"]);
+const BODY_KINDS = new Set([
+  "box",
+  "cylinder",
+  "polygon_extrude",
+  "extrude",
+  "loft",
+]);
 
 function documentHasSolidBody(documentState: DocumentState | null) {
   return (documentState?.feature_history ?? []).some(
@@ -148,6 +155,17 @@ interface ActiveExtrudeAction {
     depth: number;
     mode: ExtrudeMode;
     targetBodyId: string | null;
+  } | null;
+}
+
+interface ActiveLoftAction {
+  phase: "pending" | "active";
+  featureId: string | null;
+  initialRuled: boolean;
+  profileIds: string[];
+  originalSnapshot: {
+    profileIds: string[];
+    ruled: boolean;
   } | null;
 }
 
@@ -218,6 +236,9 @@ function App() {
     useState<ActiveExtrudeAction | null>(null);
   const extrudeCreateInFlightRef = useRef(false);
   const lastExtrudeProfileUpdateRef = useRef("");
+  const [loftAction, setLoftAction] = useState<ActiveLoftAction | null>(null);
+  const loftCreateInFlightRef = useRef(false);
+  const lastLoftProfileUpdateRef = useRef("");
   // Arc tool creation mode. Defaults to three-point (common CAD workflow's default
   // and the most ergonomic for shaping curves on the fly). The
   // SketchToolbar exposes a segmented control to toggle to
@@ -376,6 +397,18 @@ function App() {
       (profile) => profile.profile_id,
     );
   const selectedSketchProfileIdsKey = selectedSketchProfileIds.join("|");
+  const sketchProfileLabelById = new Map<string, string>();
+  for (const feature of document?.feature_history ?? []) {
+    if (feature.kind !== "sketch" || !feature.sketch_parameters) {
+      continue;
+    }
+    feature.sketch_parameters.profiles.forEach((profile, index) => {
+      sketchProfileLabelById.set(
+        profile.profile_id,
+        `${feature.name || "Sketch"} · Profile ${index + 1}`,
+      );
+    });
+  }
   const selectedExtrudableFaceId =
     selectedSketchProfileIds.length === 0
       ? selectedSketchableFace?.face_id ?? null
@@ -544,6 +577,9 @@ function App() {
     updateExtrudeMode,
     updateExtrudeProfiles,
     updateExtrudeTargetBody,
+    loftProfiles,
+    updateLoftProfiles,
+    updateLoftRuled,
     addSketchLine,
     setSketchMidpointAnchor,
     setSketchPointLineAnchor,
@@ -923,7 +959,7 @@ function App() {
     mode: ExtrudeMode,
     targetBodyId: string | null,
   ) {
-    const profileIds = selectedSketchProfileIds;
+    const profileIds = [...selectedSketchProfileIds];
     if (profileIds.length === 0) {
       return;
     }
@@ -1121,6 +1157,98 @@ function App() {
     });
   }, [extrudeAction, selectedSketchProfileIdsKey, selectedExtrudableFaceId]);
 
+  async function createLoftFromProfiles(
+    profileIds: readonly string[],
+    ruled: boolean,
+  ) {
+    if (profileIds.length < 2) {
+      return;
+    }
+    if (loftCreateInFlightRef.current) {
+      return;
+    }
+    loftCreateInFlightRef.current = true;
+
+    const documentPromise = awaitDocumentChange((next, previous) => {
+      if (!next.selected_feature_id) {
+        return false;
+      }
+      const previousLength = previous?.feature_history.length ?? 0;
+      if (next.feature_history.length <= previousLength) {
+        return false;
+      }
+      const lastFeature = next.feature_history[next.feature_history.length - 1];
+      return (
+        lastFeature.feature_id === next.selected_feature_id &&
+        lastFeature.kind === "loft"
+      );
+    });
+
+    await runAction(async () => {
+      try {
+        await loftProfiles(profileIds, ruled);
+        const nextDocument = await documentPromise;
+        const newFeatureId = nextDocument.selected_feature_id ?? null;
+        if (!newFeatureId) {
+          return;
+        }
+        lastLoftProfileUpdateRef.current = profileIds.join("|");
+        const createdFeature = nextDocument.feature_history.find(
+          (entry) => entry.feature_id === newFeatureId,
+        );
+        setLoftAction({
+          phase: "active",
+          featureId: newFeatureId,
+          initialRuled: createdFeature?.loft_parameters?.ruled ?? ruled,
+          profileIds: [...profileIds],
+          originalSnapshot: null,
+        });
+      } catch (error) {
+        addMessage(`loft action error: ${String(error)}`);
+      } finally {
+        loftCreateInFlightRef.current = false;
+      }
+    });
+  }
+
+  async function triggerLoftAction() {
+    if (loftAction) {
+      return;
+    }
+    const profileIds = [...selectedSketchProfileIds];
+    lastLoftProfileUpdateRef.current =
+      profileIds.length >= 2 ? "" : profileIds.join("|");
+    setLoftAction({
+      phase: "pending",
+      featureId: null,
+      initialRuled: false,
+      profileIds,
+      originalSnapshot: null,
+    });
+  }
+
+  useEffect(() => {
+    if (!loftAction || loftAction.profileIds.length < 2) {
+      return;
+    }
+    const profileKey = loftAction.profileIds.join("|");
+    if (lastLoftProfileUpdateRef.current === profileKey) {
+      return;
+    }
+
+    lastLoftProfileUpdateRef.current = profileKey;
+    if (loftAction.phase === "pending") {
+      void createLoftFromProfiles(loftAction.profileIds, loftAction.initialRuled);
+      return;
+    }
+    if (!loftAction.featureId) {
+      return;
+    }
+    void runAction(async () => {
+      await updateLoftProfiles(loftAction.featureId!, loftAction.profileIds);
+    });
+  }, [loftAction, updateLoftProfiles]);
+
   // Latest typed value while in the "pending" phase. The panel debounces
   // its onPreviewValue callback, so a click that lands mid-typing must
   // read the freshest value via this ref rather than from React state.
@@ -1177,6 +1305,7 @@ function App() {
   async function triggerOffsetPlaneAction() {
     if (
       extrudeAction ||
+      loftAction ||
       edgeOpAction ||
       offsetPlaneAction ||
       activeSketchPlaneId
@@ -1249,7 +1378,7 @@ function App() {
   }
 
   async function triggerEdgeOpAction(kind: "fillet" | "chamfer") {
-    if (extrudeAction || edgeOpAction || activeSketchPlaneId) {
+    if (extrudeAction || loftAction || edgeOpAction || activeSketchPlaneId) {
       return;
     }
     const initialValue =
@@ -1357,6 +1486,7 @@ function App() {
         event.code === "Escape" &&
         !activeSketchPlaneId &&
         !extrudeAction &&
+        !loftAction &&
         !edgeOpAction &&
         document &&
         (document.selected_feature_id ||
@@ -1449,6 +1579,7 @@ function App() {
   }, [
     selectedSketchProfile,
     extrudeAction,
+    loftAction,
     edgeOpAction,
     activeSketchPlaneId,
     activeSketchTool,
@@ -2495,14 +2626,26 @@ function App() {
               await addCylinderFeature(radius, height);
             });
           }}
-          canExtrude={!extrudeAction || extrudeAction.phase === "pending"}
+          canExtrude={
+            !loftAction && (!extrudeAction || extrudeAction.phase === "pending")
+          }
           onExtrude={triggerExtrudeAction}
+          canLoft={
+            !activeSketchPlaneId &&
+            !extrudeAction &&
+            !loftAction &&
+            !edgeOpAction &&
+            !offsetPlaneAction
+          }
+          onLoft={triggerLoftAction}
           // Modify ribbon: Fillet / Chamfer can be invoked at any
           // time outside a sketch / other floating action. Edge
           // selection is *not* required — the panel opens in
           // "pending" mode and waits for the user to click edges in
           // the viewport.
-          canEdgeOp={!activeSketchPlaneId && !extrudeAction && !edgeOpAction}
+          canEdgeOp={
+            !activeSketchPlaneId && !extrudeAction && !loftAction && !edgeOpAction
+          }
           onFillet={async () => {
             await triggerEdgeOpAction("fillet");
           }}
@@ -2512,6 +2655,7 @@ function App() {
           canOffsetPlane={
             !activeSketchPlaneId &&
             !extrudeAction &&
+            !loftAction &&
             !edgeOpAction &&
             !offsetPlaneAction
           }
@@ -3350,6 +3494,23 @@ function App() {
                   });
                   return;
                 }
+                if (loftAction) {
+                  const alreadySelected = loftAction.profileIds.includes(profileId);
+                  if (!alreadySelected) {
+                    await runAction(async () => {
+                      await selectSketchProfile(profileId, true);
+                    });
+                    setLoftAction((current) =>
+                      current
+                        ? {
+                            ...current,
+                            profileIds: [...current.profileIds, profileId],
+                          }
+                        : current,
+                    );
+                  }
+                  return;
+                }
                 await runAction(async () => {
                   await selectSketchProfile(
                     profileId,
@@ -3603,6 +3764,117 @@ function App() {
                     );
                   })()
                 : null}
+              {loftAction ? (
+                <LoftPreviewPanel
+                  initialRuled={loftAction.initialRuled}
+                  profiles={loftAction.profileIds.map((profileId, index) => ({
+                    profileId,
+                    label:
+                      sketchProfileLabelById.get(profileId) ??
+                      `Profile ${index + 1}`,
+                  }))}
+                  disabled={status !== "connected"}
+                  canConfirm={
+                    loftAction.phase === "active" &&
+                    loftAction.profileIds.length >= 2
+                  }
+                  onPreviewRuled={async (ruled) => {
+                    if (loftAction.phase === "active" && loftAction.featureId) {
+                      await runAction(async () => {
+                        await updateLoftRuled(loftAction.featureId!, ruled);
+                      });
+                    }
+                    setLoftAction((current) =>
+                      current?.featureId === loftAction.featureId
+                        ? {...current, initialRuled: ruled}
+                        : current,
+                    );
+                  }}
+                  onMoveProfile={(profileId, direction) => {
+                    setLoftAction((current) => {
+                      if (!current) {
+                        return current;
+                      }
+                      const fromIndex = current.profileIds.indexOf(profileId);
+                      const toIndex = fromIndex + direction;
+                      if (
+                        fromIndex < 0 ||
+                        toIndex < 0 ||
+                        toIndex >= current.profileIds.length
+                      ) {
+                        return current;
+                      }
+                      const nextProfileIds = [...current.profileIds];
+                      const [moved] = nextProfileIds.splice(fromIndex, 1);
+                      nextProfileIds.splice(toIndex, 0, moved);
+                      return {...current, profileIds: nextProfileIds};
+                    });
+                  }}
+                  onRemoveProfile={async (profileId) => {
+                    setLoftAction((current) =>
+                      current
+                        ? {
+                            ...current,
+                            profileIds: current.profileIds.filter(
+                              (id) => id !== profileId,
+                            ),
+                          }
+                        : current,
+                    );
+                    if (selectedSketchProfileIds.includes(profileId)) {
+                      await runAction(async () => {
+                        await selectSketchProfile(profileId, true);
+                      });
+                    }
+                  }}
+                  onConfirm={async () => {
+                    if (loftAction.phase !== "active" || !loftAction.featureId) {
+                      return;
+                    }
+                    const confirmedFeature =
+                      document?.feature_history.find(
+                        (entry) => entry.feature_id === loftAction.featureId,
+                      ) ?? null;
+                    const sketchFeatureIds = new Set(
+                      confirmedFeature?.loft_parameters?.sections.map(
+                        (section) => section.sketch_feature_id,
+                      ) ?? [],
+                    );
+                    if (sketchFeatureIds.size > 0) {
+                      setHiddenFeatureIds((current) => {
+                        const next = new Set(current);
+                        for (const featureId of sketchFeatureIds) {
+                          next.add(featureId);
+                        }
+                        return next;
+                      });
+                    }
+                    setLoftAction(null);
+                    await restoreTimelineCursorAfterEdit();
+                  }}
+                  onCancel={async () => {
+                    const snapshot = loftAction.originalSnapshot;
+                    if (snapshot && loftAction.featureId) {
+                      await runAction(async () => {
+                        await updateLoftProfiles(
+                          loftAction.featureId!,
+                          snapshot.profileIds,
+                        );
+                        await updateLoftRuled(
+                          loftAction.featureId!,
+                          snapshot.ruled,
+                        );
+                      });
+                    } else if (loftAction.phase === "active") {
+                      await runAction(async () => {
+                        await undo();
+                      });
+                    }
+                    setLoftAction(null);
+                    await restoreTimelineCursorAfterEdit();
+                  }}
+                />
+              ) : null}
               {editingFeatureId
                 ? (() => {
                     // Resolve the feature being edited from the live
@@ -4036,7 +4308,7 @@ function App() {
               return;
             }
             if (feature.kind === "extrude" && feature.extrude_parameters) {
-              if (extrudeAction || edgeOpAction) {
+              if (extrudeAction || loftAction || edgeOpAction) {
                 return;
               }
               const params = feature.extrude_parameters;
@@ -4056,6 +4328,25 @@ function App() {
                   depth: params.depth,
                   mode: params.mode,
                   targetBodyId: params.target_body_id ?? null,
+                },
+              });
+            }
+            if (feature.kind === "loft" && feature.loft_parameters) {
+              if (extrudeAction || loftAction || edgeOpAction) {
+                return;
+              }
+              const params = feature.loft_parameters;
+              const profileIds = params.sections.map((section) => section.profile_id);
+              beginTimelineEditSession(featureId, feature.kind);
+              lastLoftProfileUpdateRef.current = profileIds.join("|");
+              setLoftAction({
+                phase: "active",
+                featureId,
+                initialRuled: params.ruled,
+                profileIds,
+                originalSnapshot: {
+                  profileIds,
+                  ruled: params.ruled,
                 },
               });
             }

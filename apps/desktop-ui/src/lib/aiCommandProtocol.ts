@@ -294,6 +294,21 @@ const commandPayloadSchemas = {
   update_extrude_profiles: z
     .object({ feature_id: stringField, profile_ids: stringArray })
     .strict(),
+  loft_profiles: z
+    .object({ profile_ids: stringArray, ruled: booleanField.optional() })
+    .strict()
+    .refine((payload) => payload.profile_ids.length >= 2, {
+      message: "loft_profiles requires at least two profile_ids",
+    }),
+  update_loft_profiles: z
+    .object({ feature_id: stringField, profile_ids: stringArray })
+    .strict()
+    .refine((payload) => payload.profile_ids.length >= 2, {
+      message: "update_loft_profiles requires at least two profile_ids",
+    }),
+  update_loft_ruled: z
+    .object({ feature_id: stringField, ruled: booleanField })
+    .strict(),
   select_sketch_entity: z
     .object({ entity_id: stringField, additive: booleanField })
     .strict(),
@@ -486,6 +501,19 @@ export function validateAiCommandBatchForState(
       }
     }
 
+    if (
+      command.type === "loft_profiles" ||
+      command.type === "update_loft_profiles"
+    ) {
+      for (const profileId of command.payload.profile_ids) {
+        if (!knownProfileIds.has(profileId)) {
+          throw new Error(
+            `${command.type} references unknown profile "${profileId}". Draw geometry first, refresh state, then use the real profile_id.`,
+          );
+        }
+      }
+    }
+
     if (command.type === "project_profile_into_sketch") {
       if (!knownProfileIds.has(command.payload.profile_id)) {
         throw new Error(
@@ -662,12 +690,14 @@ function findUnknownProfileExtrudeIndex(
 ) {
   const knownProfileIds = collectKnownProfileIds(document, viewport);
   return commands.findIndex((command) => {
-    if (command.type !== "extrude_profile") {
+    if (command.type !== "extrude_profile" && command.type !== "loft_profiles") {
       return false;
     }
     const profileIds =
-      command.payload.profile_ids ??
-      (command.payload.profile_id ? [command.payload.profile_id] : []);
+      command.type === "extrude_profile"
+        ? command.payload.profile_ids ??
+          (command.payload.profile_id ? [command.payload.profile_id] : [])
+        : command.payload.profile_ids;
     return profileIds.some((profileId) => !knownProfileIds.has(profileId));
   });
 }

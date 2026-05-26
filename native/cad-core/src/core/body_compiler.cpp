@@ -338,6 +338,10 @@ CompiledBodies compile_bodies(const DocumentState& document) {
       any_boolean = true;
       break;
     }
+    if (feature.kind == "loft") {
+      any_boolean = true;
+      break;
+    }
   }
 
   for (const auto& feature : document.feature_history) {
