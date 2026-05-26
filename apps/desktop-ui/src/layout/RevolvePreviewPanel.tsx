@@ -127,6 +127,7 @@ export function RevolvePreviewPanel({
       </div>
       <form
         className="mt-4 space-y-4"
+        noValidate
         onSubmit={(event) => {
           event.preventDefault();
           void handleConfirm();
@@ -140,7 +141,7 @@ export function RevolvePreviewPanel({
             type="number"
             min="0.01"
             max="360"
-            step="1"
+            step="any"
             value={angle}
             disabled={disabled}
             onChange={(event) => handleAngleChange(event.target.value)}
