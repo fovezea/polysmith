@@ -1,5 +1,6 @@
 #include "core/refresh_dependents.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <optional>
@@ -138,6 +139,91 @@ std::optional<PlaneFrame> resolve_face_frame(const DocumentState& document,
   return std::nullopt;
 }
 
+std::optional<PlaneFrame> frame_from_tangent_face(const TopoDS_Face& face) {
+  if (face.IsNull()) {
+    return std::nullopt;
+  }
+  try {
+    BRepAdaptor_Surface surface(face);
+    const double u_mid =
+        0.5 * (surface.FirstUParameter() + surface.LastUParameter());
+    const double v_mid =
+        0.5 * (surface.FirstVParameter() + surface.LastVParameter());
+
+    BRepGProp_Face prop(face);
+    gp_Pnt center;
+    gp_Vec normal;
+    prop.Normal(u_mid, v_mid, center, normal);
+    if (normal.Magnitude() <= 0.0) {
+      return std::nullopt;
+    }
+    normal.Normalize();
+    if (face.Orientation() == TopAbs_REVERSED) {
+      normal.Reverse();
+    }
+
+    gp_Vec arbitrary = std::abs(normal.X()) < 0.9
+                           ? gp_Vec(1.0, 0.0, 0.0)
+                           : gp_Vec(0.0, 1.0, 0.0);
+    gp_Vec x_axis = arbitrary.Crossed(normal);
+    if (x_axis.Magnitude() <= 0.0) {
+      return std::nullopt;
+    }
+    x_axis.Normalize();
+    gp_Vec y_axis = normal.Crossed(x_axis);
+    if (y_axis.Magnitude() <= 0.0) {
+      return std::nullopt;
+    }
+    y_axis.Normalize();
+
+    return PlaneFrame{
+        .origin_x = center.X(),
+        .origin_y = center.Y(),
+        .origin_z = center.Z(),
+        .x_axis_x = x_axis.X(),
+        .x_axis_y = x_axis.Y(),
+        .x_axis_z = x_axis.Z(),
+        .y_axis_x = y_axis.X(),
+        .y_axis_y = y_axis.Y(),
+        .y_axis_z = y_axis.Z(),
+        .normal_x = normal.X(),
+        .normal_y = normal.Y(),
+        .normal_z = normal.Z(),
+    };
+  } catch (const std::exception&) {
+    return std::nullopt;
+  }
+}
+
+std::optional<PlaneFrame> resolve_body_face_frame(
+    const DocumentState& document,
+    const std::string& body_id,
+    int face_index,
+    bool require_planar) {
+  if (face_index < 0) {
+    return std::nullopt;
+  }
+  const CompiledBodies compiled = compile_bodies(document);
+  for (const auto& body : compiled.bodies) {
+    if (body.id != body_id || body.shape.IsNull()) {
+      continue;
+    }
+    TopTools_IndexedMapOfShape face_map;
+    TopExp::MapShapes(body.shape, TopAbs_FACE, face_map);
+    const int one_based = face_index + 1;
+    if (one_based < 1 || one_based > face_map.Extent()) {
+      return std::nullopt;
+    }
+    const TopoDS_Face face = TopoDS::Face(face_map(one_based));
+    if (face.IsNull()) {
+      return std::nullopt;
+    }
+    return require_planar ? frame_from_planar_face(face)
+                          : frame_from_tangent_face(face);
+  }
+  return std::nullopt;
+}
+
 SketchFeatureParameters::SketchPlaneFrame to_sketch_plane_frame(
     const PlaneFrame& frame) {
   return SketchFeatureParameters::SketchPlaneFrame{
@@ -223,6 +309,62 @@ std::optional<PlaneFrame> origin_plane_frame(const std::string& reference_id) {
   return std::nullopt;
 }
 
+std::array<double, 3> sketch_local_to_world(const PlaneFrame& frame,
+                                            double local_x,
+                                            double local_y);
+
+std::optional<PlaneFrame> resolve_sketch_profile_frame(
+    const DocumentState& document,
+    const std::string& profile_id) {
+  for (const auto& feature : document.feature_history) {
+    if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+      continue;
+    }
+    const auto& sketch = feature.sketch_parameters.value();
+    const auto profile_it = std::find_if(
+        sketch.profiles.begin(), sketch.profiles.end(),
+        [&](const SketchProfileRegion& profile) {
+          return profile.id == profile_id;
+        });
+    if (profile_it == sketch.profiles.end()) {
+      continue;
+    }
+
+    std::optional<PlaneFrame> frame =
+        sketch.plane_frame.has_value()
+            ? std::optional<PlaneFrame>(
+                  from_sketch_plane_frame(sketch.plane_frame.value()))
+            : origin_plane_frame(sketch.plane_id);
+    if (!frame.has_value()) {
+      return std::nullopt;
+    }
+
+    double local_x = profile_it->center_x;
+    double local_y = profile_it->center_y;
+    if (profile_it->kind != "circle") {
+      if (profile_it->points.empty()) {
+        return std::nullopt;
+      }
+      local_x = 0.0;
+      local_y = 0.0;
+      for (const auto& point : profile_it->points) {
+        local_x += point.x;
+        local_y += point.y;
+      }
+      local_x /= static_cast<double>(profile_it->points.size());
+      local_y /= static_cast<double>(profile_it->points.size());
+    }
+
+    const auto origin = sketch_local_to_world(frame.value(), local_x, local_y);
+    frame->origin_x = origin[0];
+    frame->origin_y = origin[1];
+    frame->origin_z = origin[2];
+    return frame;
+  }
+
+  return std::nullopt;
+}
+
 }  // namespace
 
 std::optional<PlaneFrame> resolve_plane_source_frame(
@@ -238,6 +380,13 @@ std::optional<PlaneFrame> resolve_plane_source_frame(
     return resolve_face_frame(document, target->body_id, target->face_index);
   }
 
+  // Sketch profile — use the owning sketch plane, centered on the
+  // profile region so the offset plane appears where the user picked.
+  if (auto frame = resolve_sketch_profile_frame(document, source_id);
+      frame.has_value()) {
+    return frame;
+  }
+
   // Construction-plane feature id — read its cached frame. The
   // topological walk in `refresh_history_dependencies` runs each
   // construction plane in feature_history order, so by the time a
@@ -248,6 +397,74 @@ std::optional<PlaneFrame> resolve_plane_source_frame(
       feature->kind == "construction_plane" &&
       feature->construction_plane_parameters.has_value()) {
     return feature->construction_plane_parameters->plane_frame;
+  }
+
+  return std::nullopt;
+}
+
+std::optional<PlaneFrame> resolve_tangent_plane_source_frame(
+    const DocumentState& document,
+    const std::string& source_id) {
+  const auto target = parse_face_target(source_id);
+  if (!target.has_value()) {
+    return std::nullopt;
+  }
+  return resolve_body_face_frame(document,
+                                 target->body_id,
+                                 target->face_index,
+                                 false);
+}
+
+std::optional<ConstructionAxisFrame> resolve_angle_plane_axis(
+    const DocumentState& document,
+    const std::string& source_id) {
+  if (source_id.find(":edge:") != std::string::npos) {
+    const auto edge = compute_edge_geometry(document, source_id);
+    if (!edge.has_value() || edge->kind != "line") {
+      return std::nullopt;
+    }
+    return ConstructionAxisFrame{
+        .start_x = edge->start.x,
+        .start_y = edge->start.y,
+        .start_z = edge->start.z,
+        .end_x = edge->end.x,
+        .end_y = edge->end.y,
+        .end_z = edge->end.z,
+    };
+  }
+
+  for (const auto& feature : document.feature_history) {
+    if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+      continue;
+    }
+    const auto& sketch = feature.sketch_parameters.value();
+    const auto line_it = std::find_if(
+        sketch.lines.begin(), sketch.lines.end(),
+        [&](const SketchLine& line) { return line.id == source_id; });
+    if (line_it == sketch.lines.end()) {
+      continue;
+    }
+    const std::optional<PlaneFrame> frame =
+        sketch.plane_frame.has_value()
+            ? std::optional<PlaneFrame>(
+                  from_sketch_plane_frame(sketch.plane_frame.value()))
+            : origin_plane_frame(sketch.plane_id);
+    if (!frame.has_value()) {
+      return std::nullopt;
+    }
+
+    const auto start =
+        sketch_local_to_world(frame.value(), line_it->start_x, line_it->start_y);
+    const auto end =
+        sketch_local_to_world(frame.value(), line_it->end_x, line_it->end_y);
+    return ConstructionAxisFrame{
+        .start_x = start[0],
+        .start_y = start[1],
+        .start_z = start[2],
+        .end_x = end[0],
+        .end_y = end[1],
+        .end_z = end[2],
+    };
   }
 
   return std::nullopt;
@@ -573,12 +790,49 @@ void refresh_history_dependencies(DocumentState& document) {
       const auto& params = feature.construction_plane_parameters.value();
       DocumentState prefix = document;
       prefix.feature_history.resize(i);
-      const std::optional<PlaneFrame> source_frame =
-          resolve_plane_source_frame(prefix, params.source_plane_id);
-      if (source_frame.has_value()) {
+      std::optional<PlaneFrame> next_frame;
+      if (params.plane_type == "midplane") {
+        if (params.source_plane_ids.size() >= 2) {
+          const auto first_frame =
+              resolve_plane_source_frame(prefix, params.source_plane_ids[0]);
+          const auto second_frame =
+              resolve_plane_source_frame(prefix, params.source_plane_ids[1]);
+          if (first_frame.has_value() && second_frame.has_value()) {
+            try {
+              next_frame =
+                  derive_midplane_frame(first_frame.value(), second_frame.value());
+            } catch (const std::exception&) {
+              next_frame = std::nullopt;
+            }
+          }
+        }
+      } else if (params.plane_type == "tangent") {
+        next_frame =
+            resolve_tangent_plane_source_frame(prefix, params.source_plane_id);
+      } else if (params.plane_type == "angle") {
+        const auto source_frame =
+            resolve_plane_source_frame(prefix, params.source_plane_id);
+        const auto axis =
+            resolve_angle_plane_axis(prefix, params.source_axis_id);
+        if (source_frame.has_value() && axis.has_value()) {
+          try {
+            next_frame = derive_angle_plane_frame(
+                source_frame.value(), axis.value(), params.angle_degrees);
+          } catch (const std::exception&) {
+            next_frame = std::nullopt;
+          }
+        }
+      } else {
+        const auto source_frame =
+            resolve_plane_source_frame(prefix, params.source_plane_id);
+        if (source_frame.has_value()) {
+          next_frame = derive_offset_frame(source_frame.value(), params.offset);
+        }
+      }
+
+      if (next_frame.has_value()) {
         ConstructionPlaneFeatureParameters next = params;
-        next.plane_frame =
-            derive_offset_frame(source_frame.value(), params.offset);
+        next.plane_frame = next_frame.value();
         feature.construction_plane_parameters = next;
         feature.dependency_broken = false;
         feature.dependency_warning.clear();
@@ -587,8 +841,12 @@ void refresh_history_dependencies(DocumentState& document) {
         // still render the plane somewhere; the warning surfaces
         // via dependency_broken.
         feature.dependency_broken = true;
+        const std::string source_summary =
+            params.plane_type == "angle"
+                ? params.source_plane_id + "' / '" + params.source_axis_id
+                : params.source_plane_id;
         feature.dependency_warning =
-            "Construction plane references '" + params.source_plane_id +
+            "Construction plane references '" + source_summary +
             "', which is no longer available. Edit upstream features to "
             "restore it.";
       }

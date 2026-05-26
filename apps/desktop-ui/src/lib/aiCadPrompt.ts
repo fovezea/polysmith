@@ -62,6 +62,10 @@ Common command payloads:
 - create_fillet { edge_ids, radius }
 - create_chamfer { edge_ids, distance }
 - create_offset_plane { source_plane_id, offset }
+- create_midplane { source_plane_ids }
+- create_tangent_plane { source_face_id }
+- create_angle_plane { source_plane_id, source_axis_id, angle_degrees }
+- update_angle_plane { feature_id, angle_degrees }
 - project_face_into_sketch { face_id }
 - project_profile_into_sketch { profile_id }
 - project_edge_into_sketch { edge_id }

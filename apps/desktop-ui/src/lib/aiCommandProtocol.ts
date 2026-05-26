@@ -106,8 +106,24 @@ const commandPayloadSchemas = {
   create_offset_plane: z
     .object({ source_plane_id: stringField, offset: numberField })
     .strict(),
+  create_midplane: z
+    .object({ source_plane_ids: z.tuple([stringField, stringField]) })
+    .strict(),
+  create_tangent_plane: z
+    .object({ source_face_id: stringField })
+    .strict(),
+  create_angle_plane: z
+    .object({
+      source_plane_id: stringField,
+      source_axis_id: stringField,
+      angle_degrees: numberField,
+    })
+    .strict(),
   update_offset_plane: z
     .object({ feature_id: stringField, offset: numberField })
+    .strict(),
+  update_angle_plane: z
+    .object({ feature_id: stringField, angle_degrees: numberField })
     .strict(),
   start_sketch_on_plane: z.object({ reference_id: stringField }).strict(),
   start_sketch_on_face: z

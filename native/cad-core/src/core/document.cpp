@@ -5801,12 +5801,12 @@ DocumentState DocumentManager::create_offset_plane(
 
   // The source must be a real plane that exists in the current
   // document. We allow the three origin planes, any earlier
-  // construction plane, and any planar body face id (face ids of the
-  // form "<body_id>:face:<index>"). The face validity check is
-  // intentionally lighter than `select_face`'s — `resolve_plane_source_frame`
-  // returns nullopt for unknown / non-planar / missing faces, so the
-  // `frame.has_value()` guard below catches every failure mode in one
-  // place.
+  // construction plane, any sketch profile id, and any planar body
+  // face id (face ids of the form "<body_id>:face:<index>"). The
+  // validity check is intentionally lighter than `select_face`'s —
+  // `resolve_plane_source_frame` returns nullopt for unknown /
+  // non-planar / missing sources, so the `frame.has_value()` guard
+  // below catches every failure mode in one place.
   const auto frame =
       resolve_plane_source_frame(*document_, source_plane_id);
   if (!frame.has_value()) {
@@ -5841,6 +5841,118 @@ DocumentState DocumentManager::create_offset_plane(
   return document_.value();
 }
 
+DocumentState DocumentManager::create_midplane(
+    const std::string& first_source_id,
+    const std::string& second_source_id) {
+  require_document();
+  const auto first_frame =
+      resolve_plane_source_frame(*document_, first_source_id);
+  const auto second_frame =
+      resolve_plane_source_frame(*document_, second_source_id);
+  if (!first_frame.has_value() || !second_frame.has_value()) {
+    throw std::runtime_error("Midplane source not found");
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+
+  document_->feature_history.push_back(create_midplane_feature(
+      next_feature_id_++,
+      first_source_id,
+      second_source_id,
+      first_frame.value(),
+      second_frame.value()));
+  const std::string feature_id = document_->feature_history.back().id;
+  document_->selected_feature_id = feature_id;
+  document_->selected_reference_id = feature_id;
+  document_->selected_face_id = std::nullopt;
+  document_->selected_edge_ids.clear();
+  document_->selected_vertex_ids.clear();
+  document_->selected_sketch_point_id = std::nullopt;
+  document_->selected_sketch_entity_id = std::nullopt;
+  document_->selected_sketch_dimension_id = std::nullopt;
+  document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::create_tangent_plane(
+    const std::string& source_face_id) {
+  require_document();
+  const auto tangent_frame =
+      resolve_tangent_plane_source_frame(*document_, source_face_id);
+  if (!tangent_frame.has_value()) {
+    throw std::runtime_error("Tangent plane source face not found");
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+
+  document_->feature_history.push_back(create_tangent_plane_feature(
+      next_feature_id_++, source_face_id, tangent_frame.value()));
+  const std::string feature_id = document_->feature_history.back().id;
+  document_->selected_feature_id = feature_id;
+  document_->selected_reference_id = feature_id;
+  document_->selected_face_id = std::nullopt;
+  document_->selected_edge_ids.clear();
+  document_->selected_vertex_ids.clear();
+  document_->selected_sketch_point_id = std::nullopt;
+  document_->selected_sketch_entity_id = std::nullopt;
+  document_->selected_sketch_dimension_id = std::nullopt;
+  document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::create_angle_plane(
+    const std::string& source_plane_id,
+    const std::string& source_axis_id,
+    double angle_degrees) {
+  require_document();
+  const auto source_frame =
+      resolve_plane_source_frame(*document_, source_plane_id);
+  const auto axis =
+      resolve_angle_plane_axis(*document_, source_axis_id);
+  if (!source_frame.has_value()) {
+    throw std::runtime_error("Angle plane source not found");
+  }
+  if (!axis.has_value()) {
+    throw std::runtime_error("Angle plane axis not found or not linear");
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+
+  document_->feature_history.push_back(create_angle_plane_feature(
+      next_feature_id_++,
+      source_plane_id,
+      source_axis_id,
+      angle_degrees,
+      source_frame.value(),
+      axis.value()));
+  const std::string feature_id = document_->feature_history.back().id;
+  document_->selected_feature_id = feature_id;
+  document_->selected_reference_id = feature_id;
+  document_->selected_face_id = std::nullopt;
+  document_->selected_edge_ids.clear();
+  document_->selected_vertex_ids.clear();
+  document_->selected_sketch_point_id = std::nullopt;
+  document_->selected_sketch_entity_id = std::nullopt;
+  document_->selected_sketch_dimension_id = std::nullopt;
+  document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
+  bump_geometry_revision();
+  return document_.value();
+}
+
 DocumentState DocumentManager::update_offset_plane(
     const std::string& feature_id, double offset) {
   require_document();
@@ -5856,6 +5968,11 @@ DocumentState DocumentManager::update_offset_plane(
       !feature_it->construction_plane_parameters.has_value()) {
     throw std::runtime_error(
         "update_offset_plane requires a construction_plane feature: " +
+        feature_id);
+  }
+  if (feature_it->construction_plane_parameters->plane_type != "offset") {
+    throw std::runtime_error(
+        "update_offset_plane requires an offset construction plane: " +
         feature_id);
   }
 
@@ -5880,6 +5997,50 @@ DocumentState DocumentManager::update_offset_plane(
   // `update_fillet_edges` / `update_fillet_radius`.
   clear_redo_stack();
   polysmith::core::update_construction_plane(*feature_it, offset, frame.value());
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::update_angle_plane(
+    const std::string& feature_id, double angle_degrees) {
+  require_document();
+
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Feature not found: " + feature_id);
+  }
+  if (feature_it->kind != "construction_plane" ||
+      !feature_it->construction_plane_parameters.has_value()) {
+    throw std::runtime_error(
+        "update_angle_plane requires a construction_plane feature: " +
+        feature_id);
+  }
+  if (feature_it->construction_plane_parameters->plane_type != "angle") {
+    throw std::runtime_error(
+        "update_angle_plane requires an angle construction plane: " +
+        feature_id);
+  }
+
+  const auto& params = feature_it->construction_plane_parameters.value();
+  const auto source_frame =
+      resolve_plane_source_frame(*document_, params.source_plane_id);
+  const auto axis =
+      resolve_angle_plane_axis(*document_, params.source_axis_id);
+  if (!source_frame.has_value()) {
+    throw std::runtime_error(
+        "Angle plane source could not be resolved: " + params.source_plane_id);
+  }
+  if (!axis.has_value()) {
+    throw std::runtime_error(
+        "Angle plane axis could not be resolved: " + params.source_axis_id);
+  }
+
+  clear_redo_stack();
+  polysmith::core::update_angle_plane(
+      *feature_it, angle_degrees, source_frame.value(), axis.value());
   bump_geometry_revision();
   return document_.value();
 }

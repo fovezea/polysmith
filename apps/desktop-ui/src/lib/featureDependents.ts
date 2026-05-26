@@ -14,7 +14,8 @@ import type { DocumentState, FeatureEntry } from "@/types";
 //   - chamfer.target_body_id     → body being chamfered
 //   - sketch.plane_id            → plane / construction plane / face
 //                                  the sketch was placed on
-//   - construction_plane.source_plane_id → construction plane chain
+//   - construction_plane.source_plane_id / source_plane_ids / source_axis_id
+//     → construction plane chain
 //
 // We intentionally return the dependents in `feature_history` order
 // (newest last) so the UI can render a stable list.
@@ -23,6 +24,9 @@ export function findDependents(
   featureId: string,
 ): FeatureEntry[] {
   const dependents: FeatureEntry[] = [];
+  const targetFeature = document.feature_history.find(
+    (feature) => feature.feature_id === featureId,
+  );
   for (const feature of document.feature_history) {
     if (feature.feature_id === featureId) {
       continue;
@@ -30,6 +34,16 @@ export function findDependents(
     const sketchPlaneId = feature.sketch_parameters?.plane_id ?? null;
     const constructionSourceId =
       feature.construction_plane_parameters?.source_plane_id ?? null;
+    const constructionSourceIds =
+      feature.construction_plane_parameters?.source_plane_ids ?? [];
+    const constructionAxisId =
+      feature.construction_plane_parameters?.source_axis_id ?? null;
+    const constructionAxisOwnedByTarget =
+      constructionAxisId != null &&
+      (targetFeature?.sketch_parameters?.lines.some(
+        (line) => line.line_id === constructionAxisId,
+      ) ??
+        false);
     if (
       feature.extrude_parameters?.sketch_feature_id === featureId ||
       feature.extrude_parameters?.target_body_id === featureId ||
@@ -41,7 +55,10 @@ export function findDependents(
       feature.fillet_parameters?.target_body_id === featureId ||
       feature.chamfer_parameters?.target_body_id === featureId ||
       sketchPlaneId === featureId ||
-      constructionSourceId === featureId
+      constructionSourceId === featureId ||
+      constructionAxisId === featureId ||
+      constructionAxisOwnedByTarget ||
+      constructionSourceIds.includes(featureId)
     ) {
       dependents.push(feature);
     }

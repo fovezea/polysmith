@@ -1445,9 +1445,17 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
       {"construction_plane_parameters",
        feature.construction_plane_parameters.has_value()
            ? json{
+                 {"plane_type",
+                  feature.construction_plane_parameters->plane_type},
                  {"source_plane_id",
-                  feature.construction_plane_parameters->source_plane_id},
+                 feature.construction_plane_parameters->source_plane_id},
+                 {"source_plane_ids",
+                  feature.construction_plane_parameters->source_plane_ids},
+                 {"source_axis_id",
+                  feature.construction_plane_parameters->source_axis_id},
                  {"offset", feature.construction_plane_parameters->offset},
+                 {"angle_degrees",
+                  feature.construction_plane_parameters->angle_degrees},
                  {"plane_frame",
                   {
                       {"origin",
@@ -2436,8 +2444,27 @@ polysmith::core::FeatureEntry feature_entry_from_payload(const json& payload) {
       !payload.at("construction_plane_parameters").is_null()) {
     const json& cpp = payload.at("construction_plane_parameters");
     polysmith::core::ConstructionPlaneFeatureParameters params{};
+    if (cpp.contains("plane_type") && cpp.at("plane_type").is_string()) {
+      params.plane_type = cpp.at("plane_type").get<std::string>();
+    }
     params.source_plane_id = read_string(cpp, "source_plane_id");
+    if (cpp.contains("source_plane_ids") && cpp.at("source_plane_ids").is_array()) {
+      for (const auto& id : cpp.at("source_plane_ids")) {
+        if (id.is_string()) {
+          params.source_plane_ids.push_back(id.get<std::string>());
+        }
+      }
+    }
+    if (params.source_plane_ids.empty() && !params.source_plane_id.empty()) {
+      params.source_plane_ids.push_back(params.source_plane_id);
+    }
+    if (cpp.contains("source_axis_id") && cpp.at("source_axis_id").is_string()) {
+      params.source_axis_id = cpp.at("source_axis_id").get<std::string>();
+    }
     params.offset = read_number(cpp, "offset");
+    if (cpp.contains("angle_degrees") && cpp.at("angle_degrees").is_number()) {
+      params.angle_degrees = cpp.at("angle_degrees").get<double>();
+    }
     if (cpp.contains("plane_frame") && cpp.at("plane_frame").is_object()) {
       params.plane_frame = plane_frame_from_payload(cpp.at("plane_frame"));
     }

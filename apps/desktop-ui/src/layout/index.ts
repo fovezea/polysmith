@@ -12,6 +12,7 @@ export * from "./LoftPreviewPanel";
 export * from "./RevolvePreviewPanel";
 export * from "./EdgeOpPreviewPanel";
 export * from "./OffsetPlanePanel";
+export * from "./AnglePlanePanel";
 export * from "./SettingsModal";
 export * from "./SketchFilletPanel";
 export * from "./MirrorToolPanel";

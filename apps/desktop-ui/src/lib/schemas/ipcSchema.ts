@@ -219,8 +219,14 @@ const documentStateSchema = z.object({
       // pre-construction-plane core) round-trip cleanly.
       construction_plane_parameters: z
         .object({
+          plane_type: z
+            .enum(["offset", "midplane", "tangent", "angle"])
+            .default("offset"),
           source_plane_id: z.string(),
+          source_plane_ids: z.array(z.string()).default([]),
+          source_axis_id: z.string().default(""),
           offset: z.number(),
+          angle_degrees: z.number().default(0),
           plane_frame: z.object({
             origin: z.object({ x: z.number(), y: z.number(), z: z.number() }),
             x_axis: z.object({ x: z.number(), y: z.number(), z: z.number() }),

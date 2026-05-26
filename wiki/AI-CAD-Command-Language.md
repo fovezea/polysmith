@@ -683,9 +683,61 @@ Payload:
 - `ref-plane-yz`
 - `ref-plane-xz`
 - an existing construction plane feature ID
+- a sketch profile ID
 - a planar body face ID from `viewport_state.solid_faces[]`
 
-The offset is signed along the source plane normal.
+The offset is signed along the source plane normal. For sketch profiles, the
+source frame is the owning sketch plane centered on the profile region.
+
+#### `create_midplane`
+
+Creates a construction plane halfway between two parallel plane-like sources.
+
+Payload:
+
+```ts
+{
+  source_plane_ids: [string, string];
+}
+```
+
+Each source id follows the same rules as `create_offset_plane`. The two
+resolved frames must be parallel.
+
+#### `create_tangent_plane`
+
+Creates a construction plane tangent to a body face.
+
+Payload:
+
+```ts
+{
+  source_face_id: string;
+}
+```
+
+Use a face id from `viewport_state.solid_faces[]`. Curved faces are sampled at
+their representative midpoint; planar faces produce a coincident tangent plane.
+
+#### `create_angle_plane`
+
+Creates a construction plane rotated around a linear axis from a plane-like
+source.
+
+Payload:
+
+```ts
+{
+  source_plane_id: string;
+  source_axis_id: string;
+  angle_degrees: number;
+}
+```
+
+`source_plane_id` follows the same rules as `create_offset_plane`.
+`source_axis_id` may be a sketch line id or a linear body edge id from
+`viewport_state.edges[]`. The axis must be parallel to the source plane so the
+resulting construction plane can pivot around it.
 
 #### `update_offset_plane`
 
@@ -697,6 +749,19 @@ Payload:
 {
   feature_id: string;
   offset: number;
+}
+```
+
+#### `update_angle_plane`
+
+Updates the angle of an existing angle construction plane.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+  angle_degrees: number;
 }
 ```
 
@@ -1977,7 +2042,7 @@ Parameter fields:
 - `revolve_parameters: { sketch_feature_id, profile_id, axis_sketch_feature_id, axis_entity_id, axis_start_x, axis_start_y, axis_start_z, axis_end_x, axis_end_y, axis_end_z, angle_degrees } | null`
 - `fillet_parameters: { target_body_id, edge_ids, radius } | null`
 - `chamfer_parameters: { target_body_id, edge_ids, distance } | null`
-- `construction_plane_parameters: { source_plane_id, offset, plane_frame } | null`
+- `construction_plane_parameters: { plane_type, source_plane_id, source_plane_ids, source_axis_id, offset, angle_degrees, plane_frame } | null`
 - `sketch_parameters: SketchFeatureParameters | null`
 
 ### Sketch Parameters

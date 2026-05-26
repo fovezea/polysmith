@@ -82,6 +82,7 @@
     "arcThreePoint": "3-point",
     "arcThreePointTitle": "3 Point",
     "arcThreePointTooltip": "Three-point arc: click start, end, then a point on the arc",
+    "anglePlane": "Plane at Angle",
     "axis": "Axis",
     "box": "Box",
     "chamfer": "Chamfer",
@@ -115,6 +116,7 @@
     "parallel": "Parallel",
     "perpendicular": "Perpendicular",
     "polygon": "Polygon",
+    "tangentPlane": "Tangent Plane",
     "polygonCircumscribed": "Circumscribed Polygon",
     "polygonInscribed": "Inscribed Polygon",
     "polygonEdge": "Edge Polygon",
@@ -142,6 +144,7 @@
     "editCylinderFeature": "Edit Cylinder Feature",
     "editFeature": "Edit Feature",
     "height": "Height",
+    "angleDegrees": "Angle (deg)",
     "offsetMm": "Offset (mm)",
     "radius": "Radius",
     "radiusMm": "Radius (mm)",
@@ -224,6 +227,22 @@
       "fromSource": "From {{source}}",
       "pickSource": "Click a plane or planar face in the viewport",
       "title": "Offset Plane"
+    },
+    "anglePlane": {
+      "fromSource": "From {{source}} around {{axis}}",
+      "pickAxis": "From {{source}} · click a sketch line or linear body edge",
+      "pickSource": "Click a plane, planar face, or sketch profile",
+      "title": "Plane at Angle"
+    },
+    "midplane": {
+      "pickFirst": "Click the first plane, planar face, or sketch profile",
+      "pickSecond": "Click the second plane, planar face, or sketch profile",
+      "selected": "{{count}} of 2 sources selected",
+      "title": "Midplane"
+    },
+    "tangentPlane": {
+      "pickSource": "Click a curved face in the viewport",
+      "title": "Tangent Plane"
     },
     "shortcutHint": {
       "apply": "Enter to apply · Esc to cancel",
@@ -435,6 +454,7 @@
   },
   "geometry": {
     "ownerFace": "{{owner}} face",
+    "selectedAxis": "selected axis",
     "selectedPlane": "selected plane",
     "xyPlane": "XY plane",
     "xzPlane": "XZ plane",

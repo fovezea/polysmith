@@ -572,13 +572,40 @@ export interface ConfirmChamferCommand {
 
 // Create a parametric offset construction plane. `source_plane_id`
 // must resolve to a plane the core knows about (origin plane,
-// existing construction plane, or "<body_id>:face:<index>" face id).
+// existing construction plane, sketch profile id, or
+// "<body_id>:face:<index>" face id).
 export interface CreateOffsetPlaneCommand {
   id: string;
   type: "create_offset_plane";
   payload: {
     source_plane_id: string;
     offset: number;
+  };
+}
+
+export interface CreateMidplaneCommand {
+  id: string;
+  type: "create_midplane";
+  payload: {
+    source_plane_ids: [string, string];
+  };
+}
+
+export interface CreateTangentPlaneCommand {
+  id: string;
+  type: "create_tangent_plane";
+  payload: {
+    source_face_id: string;
+  };
+}
+
+export interface CreateAnglePlaneCommand {
+  id: string;
+  type: "create_angle_plane";
+  payload: {
+    source_plane_id: string;
+    source_axis_id: string;
+    angle_degrees: number;
   };
 }
 
@@ -591,6 +618,15 @@ export interface UpdateOffsetPlaneCommand {
   payload: {
     feature_id: string;
     offset: number;
+  };
+}
+
+export interface UpdateAnglePlaneCommand {
+  id: string;
+  type: "update_angle_plane";
+  payload: {
+    feature_id: string;
+    angle_degrees: number;
   };
 }
 
@@ -1299,7 +1335,11 @@ export type CoreCommand =
   | UpdateChamferEdgesCommand
   | ConfirmChamferCommand
   | CreateOffsetPlaneCommand
+  | CreateMidplaneCommand
+  | CreateTangentPlaneCommand
+  | CreateAnglePlaneCommand
   | UpdateOffsetPlaneCommand
+  | UpdateAnglePlaneCommand
   | StartSketchOnPlaneCommand
   | StartSketchOnFaceCommand
   | SetSketchToolCommand

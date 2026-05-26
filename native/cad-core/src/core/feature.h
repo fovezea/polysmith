@@ -168,13 +168,21 @@ struct ChamferFeatureParameters {
 
 // Parametric offset construction plane.
 //
-// `source_plane_id` identifies the plane the offset is measured from.
-// Accepted values mirror what the rest of the codebase calls a
+// `plane_type` identifies the construction-plane recipe:
+//   * "offset" — offset from `source_plane_id`.
+//   * "midplane" — halfway between `source_plane_ids[0]` and
+//     `source_plane_ids[1]`.
+//   * "tangent" — tangent to `source_plane_id`, which is expected to
+//     be a body face id.
+//
+// Source ids mirror what the rest of the codebase calls a
 // "selectable plane":
 //   * "ref-plane-xy", "ref-plane-yz", "ref-plane-xz" — origin planes.
 //   * Another construction-plane feature id ("feature-N") — chained
 //     offsets work for free, since each construction plane resolves
 //     into a real `PlaneFrame` during recompute.
+//   * A sketch profile id — resolves to its owning sketch plane,
+//     centered on the profile region.
 //   * A planar body face id of the form "<body_id>:face:<index>" —
 //     the dependency walker re-resolves the face frame against the
 //     compiled body before re-deriving this plane.
@@ -188,8 +196,12 @@ struct ChamferFeatureParameters {
 // `refresh_history_dependencies` after every geometry edit, so it's
 // always coherent with the current document state.
 struct ConstructionPlaneFeatureParameters {
+  std::string plane_type = "offset";
   std::string source_plane_id;
+  std::vector<std::string> source_plane_ids;
+  std::string source_axis_id;
   double offset;
+  double angle_degrees = 0.0;
   PlaneFrame plane_frame;
 };
 

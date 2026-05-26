@@ -537,6 +537,41 @@ export const MidplaneIcon = () => (
   </svg>
 );
 
+export const TangentPlaneIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-7 w-7"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M4 16c2.4-5.8 8.6-8 16-6" />
+    <path d="M5 11h14l-2 7H3Z" />
+    <path d="M13 5v4" />
+  </svg>
+);
+
+export const AnglePlaneIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-7 w-7"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M4 17h11l-2-7H2Z" />
+    <path d="M8 16 18 6" />
+    <path d="M12.5 11.5a4 4 0 0 1 3 3" />
+    <path d="m15.5 14.5 1.2-1.8" />
+  </svg>
+);
+
 // Construction axis: thin line with arrow tips. Distinguishable from
 // the origin XYZ trihedron at this scale.
 export const ConstructAxisIcon = () => (

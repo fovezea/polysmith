@@ -463,6 +463,46 @@ export function makeCreateOffsetPlaneCommand(
   };
 }
 
+export function makeCreateMidplaneCommand(
+  sourcePlaneIds: [string, string],
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "create_midplane",
+    payload: {
+      source_plane_ids: sourcePlaneIds,
+    },
+  };
+}
+
+export function makeCreateTangentPlaneCommand(
+  sourceFaceId: string,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "create_tangent_plane",
+    payload: {
+      source_face_id: sourceFaceId,
+    },
+  };
+}
+
+export function makeCreateAnglePlaneCommand(
+  sourcePlaneId: string,
+  sourceAxisId: string,
+  angleDegrees: number,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "create_angle_plane",
+    payload: {
+      source_plane_id: sourcePlaneId,
+      source_axis_id: sourceAxisId,
+      angle_degrees: angleDegrees,
+    },
+  };
+}
+
 export function makeUpdateOffsetPlaneCommand(
   featureId: string,
   offset: number,
@@ -473,6 +513,20 @@ export function makeUpdateOffsetPlaneCommand(
     payload: {
       feature_id: featureId,
       offset,
+    },
+  };
+}
+
+export function makeUpdateAnglePlaneCommand(
+  featureId: string,
+  angleDegrees: number,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_angle_plane",
+    payload: {
+      feature_id: featureId,
+      angle_degrees: angleDegrees,
     },
   };
 }

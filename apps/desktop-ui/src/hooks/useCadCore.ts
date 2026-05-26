@@ -72,7 +72,11 @@ import {
   makeConfirmFilletCommand,
   makeConfirmChamferCommand,
   makeCreateOffsetPlaneCommand,
+  makeCreateMidplaneCommand,
+  makeCreateTangentPlaneCommand,
+  makeCreateAnglePlaneCommand,
   makeUpdateOffsetPlaneCommand,
+  makeUpdateAnglePlaneCommand,
   makeSetSketchCoincidentConstraintCommand,
   makeSetSketchEqualLengthConstraintCommand,
   makeSetSketchParallelConstraintCommand,
@@ -421,8 +425,36 @@ export function useCadCore() {
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());
     },
+    createMidplane: async (sourcePlaneIds: [string, string]) => {
+      await sendCoreCommand(makeCreateMidplaneCommand(sourcePlaneIds));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    createTangentPlane: async (sourceFaceId: string) => {
+      await sendCoreCommand(makeCreateTangentPlaneCommand(sourceFaceId));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    createAnglePlane: async (
+      sourcePlaneId: string,
+      sourceAxisId: string,
+      angleDegrees: number,
+    ) => {
+      await sendCoreCommand(
+        makeCreateAnglePlaneCommand(sourcePlaneId, sourceAxisId, angleDegrees),
+      );
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
     updateOffsetPlane: async (featureId: string, offset: number) => {
       await sendCoreCommand(makeUpdateOffsetPlaneCommand(featureId, offset));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateAnglePlane: async (featureId: string, angleDegrees: number) => {
+      await sendCoreCommand(
+        makeUpdateAnglePlaneCommand(featureId, angleDegrees),
+      );
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());
     },

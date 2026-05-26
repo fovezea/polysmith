@@ -3,6 +3,7 @@
 #include <optional>
 #include <string>
 
+#include "core/construction_plane_feature.h"
 #include "core/feature.h"
 
 namespace polysmith::core {
@@ -23,11 +24,29 @@ struct DocumentState;
 //   * "<body_id>:face:<index>" — a planar face on a body. We compile
 //     the bodies from `document` and pull the face's plane out of
 //     OCCT, mirroring the path face-based sketches use.
+//   * sketch profile ids — the owning sketch plane, with the frame
+//     origin centered on the profile region.
 //
-// Returns nullopt when the id doesn't match any of the three forms,
+// Returns nullopt when the id doesn't match any supported form,
 // when the upstream feature / face is missing, or when the resolved
 // face is non-planar.
 std::optional<PlaneFrame> resolve_plane_source_frame(
+    const DocumentState& document,
+    const std::string& source_id);
+
+// Resolve a tangent frame for a body face id. Unlike
+// `resolve_plane_source_frame`, this intentionally accepts non-planar
+// faces and samples a representative point/normal from the surface.
+std::optional<PlaneFrame> resolve_tangent_plane_source_frame(
+    const DocumentState& document,
+    const std::string& source_id);
+
+// Resolve a linear axis for tools such as Plane at Angle. Supported
+// sources are body line edges (`<body_id>:edge:<index>`) and sketch
+// line ids. Both are re-resolved from the current document state so
+// downstream construction planes degrade instead of holding stale
+// topology when upstream geometry changes.
+std::optional<ConstructionAxisFrame> resolve_angle_plane_axis(
     const DocumentState& document,
     const std::string& source_id);
 

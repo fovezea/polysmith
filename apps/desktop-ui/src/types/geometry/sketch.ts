@@ -288,13 +288,17 @@ export interface ChamferFeatureParameters {
   is_pending: boolean;
 }
 
-// Parametric offset construction plane parameters. The cached
+// Parametric construction plane parameters. The cached
 // `plane_frame` is the world-space frame the core re-derives on
 // every recompute, so the UI can read it without having to invert
-// the source-+offset relationship itself.
+// the source relationship itself.
 export interface ConstructionPlaneFeatureParameters {
+  plane_type: "offset" | "midplane" | "tangent" | "angle";
   source_plane_id: string;
+  source_plane_ids: string[];
+  source_axis_id: string;
   offset: number;
+  angle_degrees: number;
   plane_frame: {
     origin: Vector3;
     x_axis: Vector3;

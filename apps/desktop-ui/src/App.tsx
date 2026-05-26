@@ -45,6 +45,7 @@ import {
   DocumentHierarchyPanel,
   EdgeOpPreviewPanel,
   ExtrudePreviewPanel,
+  AnglePlanePanel,
   LoftPreviewPanel,
   RevolvePreviewPanel,
   OffsetPlanePanel,
@@ -75,6 +76,7 @@ const DEFAULT_CHAMFER_DISTANCE = 1;
 // frame (sitting on top of the source) but gives no visible preview;
 // 10 mm matches common CAD workflow's "show me something" default.
 const DEFAULT_OFFSET_PLANE_DISTANCE = 10;
+const DEFAULT_ANGLE_PLANE_DEGREES = 45;
 
 // The Core Messages debug panel is hidden by default. Set
 // `VITE_SHOW_DEBUG_MESSAGE_LOG=true` in `.env.local` (or your shell when
@@ -337,6 +339,35 @@ function App() {
   const [offsetPlaneAction, setOffsetPlaneAction] =
     useState<OffsetPlaneAction | null>(null);
   const pendingOffsetRef = useRef<number>(DEFAULT_OFFSET_PLANE_DISTANCE);
+  const [midplaneAction, setMidplaneAction] = useState<{
+    sourceIds: string[];
+  } | null>(null);
+  const [tangentPlaneAction, setTangentPlaneAction] = useState<{
+    isPending: true;
+  } | null>(null);
+  type AnglePlaneAction =
+    | {
+        phase: "pick_plane";
+        initialAngle: number;
+      }
+    | {
+        phase: "pick_axis";
+        sourcePlaneId: string;
+        sourceSummary: string;
+        initialAngle: number;
+      }
+    | {
+        phase: "active";
+        featureId: string;
+        sourcePlaneId: string;
+        sourceSummary: string;
+        axisId: string;
+        axisSummary: string;
+        initialAngle: number;
+      };
+  const [anglePlaneAction, setAnglePlaneAction] =
+    useState<AnglePlaneAction | null>(null);
+  const pendingAngleRef = useRef<number>(DEFAULT_ANGLE_PLANE_DEGREES);
   // Identifies which feature (if any) is being edited via the floating
   // edit panel. The panel itself reads the feature's parameters
   // directly from `document.feature_history`, so we only need the id
@@ -587,7 +618,11 @@ function App() {
     confirmFillet,
     confirmChamfer,
     createOffsetPlane,
+    createMidplane,
+    createTangentPlane,
+    createAnglePlane,
     updateOffsetPlane,
+    updateAnglePlane,
     startSketchOnPlane,
     startSketchOnFace,
     setSketchTool,
@@ -1493,6 +1528,10 @@ function App() {
     if (feature) {
       return feature.name || feature.kind;
     }
+    const profileLabel = sketchProfileLabelById.get(referenceId);
+    if (profileLabel) {
+      return profileLabel;
+    }
     // Face id "<body_id>:face:<index>" — pull the face's label /
     // owning body label off the viewport snapshot if we can.
     const face = viewport?.solid_faces.find(
@@ -1516,6 +1555,9 @@ function App() {
       revolveAction ||
       edgeOpAction ||
       offsetPlaneAction ||
+      midplaneAction ||
+      tangentPlaneAction ||
+      anglePlaneAction ||
       activeSketchPlaneId
     ) {
       return;
@@ -1525,6 +1567,10 @@ function App() {
     // Already-selected plane? Use it immediately.
     const preselectedReference = document?.selected_reference_id ?? null;
     const preselectedFaceId = document?.selected_face_id ?? null;
+    const preselectedProfileId =
+      document?.selected_sketch_profile_id ??
+      selectedSketchProfileIds[selectedSketchProfileIds.length - 1] ??
+      null;
     const preselectedFace = preselectedFaceId
       ? (viewport?.solid_faces.find(
           (entry) => entry.face_id === preselectedFaceId,
@@ -1534,7 +1580,8 @@ function App() {
       preselectedReference ??
       (preselectedFace && preselectedFace.sketchability === "planar"
         ? preselectedFaceId
-        : null);
+        : null) ??
+      preselectedProfileId;
     if (sourceId) {
       await createOffsetPlaneFeature(sourceId, DEFAULT_OFFSET_PLANE_DISTANCE);
       return;
@@ -1585,12 +1632,254 @@ function App() {
     });
   }
 
+  function currentPlaneLikeSourceId(): string | null {
+    const preselectedReference = document?.selected_reference_id ?? null;
+    const preselectedFaceId = document?.selected_face_id ?? null;
+    const preselectedFace = preselectedFaceId
+      ? (viewport?.solid_faces.find(
+          (entry) => entry.face_id === preselectedFaceId,
+        ) ?? null)
+      : null;
+    const preselectedProfileId =
+      document?.selected_sketch_profile_id ??
+      selectedSketchProfileIds[selectedSketchProfileIds.length - 1] ??
+      null;
+    return (
+      preselectedReference ??
+      (preselectedFace && preselectedFace.sketchability === "planar"
+        ? preselectedFaceId
+        : null) ??
+      preselectedProfileId
+    );
+  }
+
+  function currentFaceSourceId(): string | null {
+    return document?.selected_face_id ?? null;
+  }
+
+  function currentAxisSourceId(): string | null {
+    const selectedEdgeId = document?.selected_edge_ids[0] ?? null;
+    if (selectedEdgeId) {
+      return selectedEdgeId;
+    }
+    const selectedSketchEntityId = document?.selected_sketch_entity_id ?? null;
+    if (
+      selectedSketchEntityId &&
+      sketchLineLabelById.has(selectedSketchEntityId)
+    ) {
+      return selectedSketchEntityId;
+    }
+    return null;
+  }
+
+  function describeAxisSource(axisId: string): string {
+    return sketchLineLabelById.get(axisId) ?? t("geometry.selectedAxis");
+  }
+
+  async function createMidplaneFeature(sourceIds: [string, string]) {
+    const documentPromise = awaitDocumentChange((next, previous) => {
+      if (!next.selected_feature_id) {
+        return false;
+      }
+      const previousLength = previous?.feature_history.length ?? 0;
+      if (next.feature_history.length <= previousLength) {
+        return false;
+      }
+      const lastFeature = next.feature_history[next.feature_history.length - 1];
+      return (
+        lastFeature.feature_id === next.selected_feature_id &&
+        lastFeature.kind === "construction_plane"
+      );
+    });
+
+    await runAction(async () => {
+      await createMidplane(sourceIds);
+      try {
+        await documentPromise;
+      } catch (error) {
+        addMessage(`midplane error: ${String(error)}`);
+      }
+    });
+  }
+
+  async function createTangentPlaneFeature(sourceFaceId: string) {
+    const documentPromise = awaitDocumentChange((next, previous) => {
+      if (!next.selected_feature_id) {
+        return false;
+      }
+      const previousLength = previous?.feature_history.length ?? 0;
+      if (next.feature_history.length <= previousLength) {
+        return false;
+      }
+      const lastFeature = next.feature_history[next.feature_history.length - 1];
+      return (
+        lastFeature.feature_id === next.selected_feature_id &&
+        lastFeature.kind === "construction_plane"
+      );
+    });
+
+    await runAction(async () => {
+      await createTangentPlane(sourceFaceId);
+      try {
+        await documentPromise;
+      } catch (error) {
+        addMessage(`tangent plane error: ${String(error)}`);
+      }
+    });
+  }
+
+  async function createAnglePlaneFeature(
+    sourcePlaneId: string,
+    sourceAxisId: string,
+    angleDegrees: number,
+  ) {
+    const documentPromise = awaitDocumentChange((next, previous) => {
+      if (!next.selected_feature_id) {
+        return false;
+      }
+      const previousLength = previous?.feature_history.length ?? 0;
+      if (next.feature_history.length <= previousLength) {
+        return false;
+      }
+      const lastFeature = next.feature_history[next.feature_history.length - 1];
+      return (
+        lastFeature.feature_id === next.selected_feature_id &&
+        lastFeature.kind === "construction_plane"
+      );
+    });
+
+    await runAction(async () => {
+      await createAnglePlane(sourcePlaneId, sourceAxisId, angleDegrees);
+      try {
+        const nextDocument = await documentPromise;
+        const newFeatureId = nextDocument.selected_feature_id ?? null;
+        if (!newFeatureId) {
+          return;
+        }
+        setAnglePlaneAction({
+          phase: "active",
+          featureId: newFeatureId,
+          sourcePlaneId,
+          sourceSummary: describePlaneSource(sourcePlaneId),
+          axisId: sourceAxisId,
+          axisSummary: describeAxisSource(sourceAxisId),
+          initialAngle: angleDegrees,
+        });
+      } catch (error) {
+        addMessage(`angle plane error: ${String(error)}`);
+      }
+    });
+  }
+
+  async function addMidplaneSource(sourceId: string) {
+    if (!midplaneAction) {
+      return;
+    }
+    if (midplaneAction.sourceIds.includes(sourceId)) {
+      setMidplaneAction({
+        sourceIds: midplaneAction.sourceIds.filter((id) => id !== sourceId),
+      });
+      return;
+    }
+    const next = [...midplaneAction.sourceIds, sourceId];
+    if (next.length >= 2) {
+      setMidplaneAction(null);
+      await createMidplaneFeature([next[0], next[1]]);
+      return;
+    }
+    setMidplaneAction({ sourceIds: next });
+  }
+
+  async function triggerMidplaneAction() {
+    if (
+      extrudeAction ||
+      loftAction ||
+      revolveAction ||
+      edgeOpAction ||
+      offsetPlaneAction ||
+      midplaneAction ||
+      tangentPlaneAction ||
+      anglePlaneAction ||
+      activeSketchPlaneId
+    ) {
+      return;
+    }
+    const firstSourceId = currentPlaneLikeSourceId();
+    setMidplaneAction({ sourceIds: firstSourceId ? [firstSourceId] : [] });
+  }
+
+  async function triggerTangentPlaneAction() {
+    if (
+      extrudeAction ||
+      loftAction ||
+      revolveAction ||
+      edgeOpAction ||
+      offsetPlaneAction ||
+      midplaneAction ||
+      tangentPlaneAction ||
+      anglePlaneAction ||
+      activeSketchPlaneId
+    ) {
+      return;
+    }
+    const sourceFaceId = currentFaceSourceId();
+    if (sourceFaceId) {
+      await createTangentPlaneFeature(sourceFaceId);
+      return;
+    }
+    setTangentPlaneAction({ isPending: true });
+  }
+
+  async function triggerAnglePlaneAction() {
+    if (
+      extrudeAction ||
+      loftAction ||
+      revolveAction ||
+      edgeOpAction ||
+      offsetPlaneAction ||
+      midplaneAction ||
+      tangentPlaneAction ||
+      anglePlaneAction ||
+      activeSketchPlaneId
+    ) {
+      return;
+    }
+    pendingAngleRef.current = DEFAULT_ANGLE_PLANE_DEGREES;
+    const sourcePlaneId = currentPlaneLikeSourceId();
+    const sourceAxisId = currentAxisSourceId();
+    if (sourcePlaneId && sourceAxisId) {
+      await createAnglePlaneFeature(
+        sourcePlaneId,
+        sourceAxisId,
+        DEFAULT_ANGLE_PLANE_DEGREES,
+      );
+      return;
+    }
+    if (sourcePlaneId) {
+      setAnglePlaneAction({
+        phase: "pick_axis",
+        sourcePlaneId,
+        sourceSummary: describePlaneSource(sourcePlaneId),
+        initialAngle: DEFAULT_ANGLE_PLANE_DEGREES,
+      });
+      return;
+    }
+    setAnglePlaneAction({
+      phase: "pick_plane",
+      initialAngle: DEFAULT_ANGLE_PLANE_DEGREES,
+    });
+  }
+
   async function triggerEdgeOpAction(kind: "fillet" | "chamfer") {
     if (
       extrudeAction ||
       loftAction ||
       revolveAction ||
       edgeOpAction ||
+      offsetPlaneAction ||
+      midplaneAction ||
+      tangentPlaneAction ||
+      anglePlaneAction ||
       activeSketchPlaneId
     ) {
       return;
@@ -2854,7 +3143,10 @@ function App() {
             !loftAction &&
             !revolveAction &&
             !edgeOpAction &&
-            !offsetPlaneAction
+            !offsetPlaneAction &&
+            !midplaneAction &&
+            !tangentPlaneAction &&
+            !anglePlaneAction
           }
           onLoft={triggerLoftAction}
           canRevolve={
@@ -2863,7 +3155,10 @@ function App() {
             !loftAction &&
             !revolveAction &&
             !edgeOpAction &&
-            !offsetPlaneAction
+            !offsetPlaneAction &&
+            !midplaneAction &&
+            !tangentPlaneAction &&
+            !anglePlaneAction
           }
           onRevolve={triggerRevolveAction}
           // Modify ribbon: Fillet / Chamfer can be invoked at any
@@ -2876,7 +3171,11 @@ function App() {
             !extrudeAction &&
             !loftAction &&
             !revolveAction &&
-            !edgeOpAction
+            !edgeOpAction &&
+            !offsetPlaneAction &&
+            !midplaneAction &&
+            !tangentPlaneAction &&
+            !anglePlaneAction
           }
           onFillet={async () => {
             await triggerEdgeOpAction("fillet");
@@ -2890,10 +3189,55 @@ function App() {
             !loftAction &&
             !revolveAction &&
             !edgeOpAction &&
-            !offsetPlaneAction
+            !offsetPlaneAction &&
+            !midplaneAction &&
+            !tangentPlaneAction &&
+            !anglePlaneAction
           }
           onOffsetPlane={() => {
             void triggerOffsetPlaneAction();
+          }}
+          canMidplane={
+            !activeSketchPlaneId &&
+            !extrudeAction &&
+            !loftAction &&
+            !revolveAction &&
+            !edgeOpAction &&
+            !offsetPlaneAction &&
+            !midplaneAction &&
+            !tangentPlaneAction &&
+            !anglePlaneAction
+          }
+          canTangentPlane={
+            !activeSketchPlaneId &&
+            !extrudeAction &&
+            !loftAction &&
+            !revolveAction &&
+            !edgeOpAction &&
+            !offsetPlaneAction &&
+            !midplaneAction &&
+            !tangentPlaneAction &&
+            !anglePlaneAction
+          }
+          canAnglePlane={
+            !activeSketchPlaneId &&
+            !extrudeAction &&
+            !loftAction &&
+            !revolveAction &&
+            !edgeOpAction &&
+            !offsetPlaneAction &&
+            !midplaneAction &&
+            !tangentPlaneAction &&
+            !anglePlaneAction
+          }
+          onMidplane={() => {
+            void triggerMidplaneAction();
+          }}
+          onTangentPlane={() => {
+            void triggerTangentPlaneAction();
+          }}
+          onAnglePlane={() => {
+            void triggerAnglePlaneAction();
           }}
           onStartSketch={triggerCreateSketchAction}
           onFinishSketch={async () => {
@@ -3210,6 +3554,19 @@ function App() {
                   );
                   return;
                 }
+                if (midplaneAction) {
+                  await addMidplaneSource(referenceId);
+                  return;
+                }
+                if (anglePlaneAction?.phase === "pick_plane") {
+                  setAnglePlaneAction({
+                    phase: "pick_axis",
+                    sourcePlaneId: referenceId,
+                    sourceSummary: describePlaneSource(referenceId),
+                    initialAngle: pendingAngleRef.current,
+                  });
+                  return;
+                }
                 await runAction(async () => {
                   await selectReference(referenceId);
                 });
@@ -3235,6 +3592,34 @@ function App() {
                   // Non-planar face: ignore the click, leave the
                   // panel in pending phase so the user can pick
                   // somewhere else.
+                  return;
+                }
+                if (midplaneAction) {
+                  const face = viewport?.solid_faces.find(
+                    (entry) => entry.face_id === faceId,
+                  );
+                  if (face && face.sketchability === "planar") {
+                    await addMidplaneSource(faceId);
+                  }
+                  return;
+                }
+                if (anglePlaneAction?.phase === "pick_plane") {
+                  const face = viewport?.solid_faces.find(
+                    (entry) => entry.face_id === faceId,
+                  );
+                  if (face && face.sketchability === "planar") {
+                    setAnglePlaneAction({
+                      phase: "pick_axis",
+                      sourcePlaneId: faceId,
+                      sourceSummary: describePlaneSource(faceId),
+                      initialAngle: pendingAngleRef.current,
+                    });
+                  }
+                  return;
+                }
+                if (tangentPlaneAction) {
+                  setTangentPlaneAction(null);
+                  await createTangentPlaneFeature(faceId);
                   return;
                 }
                 // Modal Project tool: a face click while it's active
@@ -3305,6 +3690,14 @@ function App() {
                       );
                     }
                   });
+                  return;
+                }
+                if (anglePlaneAction?.phase === "pick_axis") {
+                  await createAnglePlaneFeature(
+                    anglePlaneAction.sourcePlaneId,
+                    edgeId,
+                    pendingAngleRef.current,
+                  );
                   return;
                 }
                 // While a fillet / chamfer floating panel is open the
@@ -3627,6 +4020,17 @@ function App() {
                   );
                   return;
                 }
+                if (
+                  anglePlaneAction?.phase === "pick_axis" &&
+                  sketchLineLabelById.has(entityId)
+                ) {
+                  await createAnglePlaneFeature(
+                    anglePlaneAction.sourcePlaneId,
+                    entityId,
+                    pendingAngleRef.current,
+                  );
+                  return;
+                }
                 await runAction(async () => {
                   await handleSketchConstraintLinePick(entityId, additive);
                 });
@@ -3722,6 +4126,29 @@ function App() {
                 });
               }}
               onSelectSketchProfile={async (profileId, additive) => {
+                if (
+                  offsetPlaneAction &&
+                  offsetPlaneAction.phase === "pending"
+                ) {
+                  await createOffsetPlaneFeature(
+                    profileId,
+                    pendingOffsetRef.current,
+                  );
+                  return;
+                }
+                if (midplaneAction) {
+                  await addMidplaneSource(profileId);
+                  return;
+                }
+                if (anglePlaneAction?.phase === "pick_plane") {
+                  setAnglePlaneAction({
+                    phase: "pick_axis",
+                    sourcePlaneId: profileId,
+                    sourceSummary: describePlaneSource(profileId),
+                    initialAngle: pendingAngleRef.current,
+                  });
+                  return;
+                }
                 if (activeSketchPlaneId && activeSketchTool === "project") {
                   await runAction(async () => {
                     try {
@@ -4525,6 +4952,85 @@ function App() {
                     setOffsetPlaneAction(null);
                   }}
                 />
+              ) : null}
+              {anglePlaneAction ? (
+                <AnglePlanePanel
+                  phase={anglePlaneAction.phase}
+                  initialAngle={anglePlaneAction.initialAngle}
+                  sourceSummary={
+                    anglePlaneAction.phase === "pick_plane"
+                      ? ""
+                      : anglePlaneAction.sourceSummary
+                  }
+                  axisSummary={
+                    anglePlaneAction.phase === "active"
+                      ? anglePlaneAction.axisSummary
+                      : ""
+                  }
+                  disabled={status !== "connected"}
+                  onPreviewAngle={async (angleDegrees) => {
+                    if (anglePlaneAction.phase !== "active") {
+                      pendingAngleRef.current = angleDegrees;
+                      return;
+                    }
+                    await runAction(async () => {
+                      await updateAnglePlane(
+                        anglePlaneAction.featureId,
+                        angleDegrees,
+                      );
+                    });
+                  }}
+                  onConfirm={async () => {
+                    setAnglePlaneAction(null);
+                  }}
+                  onCancel={async () => {
+                    if (anglePlaneAction.phase === "active") {
+                      await runAction(async () => {
+                        await undo();
+                      });
+                    }
+                    setAnglePlaneAction(null);
+                  }}
+                />
+              ) : null}
+              {midplaneAction ? (
+                <section className="pointer-events-auto cad-floating-panel px-5 py-5">
+                  <p className="cad-kicker">{t("panels.midplane.title")}</p>
+                  <p className="mt-3 text-xs text-on-surface-muted">
+                    {midplaneAction.sourceIds.length === 0
+                      ? t("panels.midplane.pickFirst")
+                      : t("panels.midplane.pickSecond")}
+                  </p>
+                  <p className="mt-3 text-xs uppercase tracking-[0.16em] text-on-surface-dim">
+                    {t("panels.midplane.selected", {
+                      count: midplaneAction.sourceIds.length,
+                    })}
+                  </p>
+                  <button
+                    type="button"
+                    className="cad-action-ghost mt-4 w-full"
+                    disabled={status !== "connected"}
+                    onClick={() => setMidplaneAction(null)}
+                  >
+                    {t("common.cancel")}
+                  </button>
+                </section>
+              ) : null}
+              {tangentPlaneAction ? (
+                <section className="pointer-events-auto cad-floating-panel px-5 py-5">
+                  <p className="cad-kicker">{t("panels.tangentPlane.title")}</p>
+                  <p className="mt-3 text-xs text-on-surface-muted">
+                    {t("panels.tangentPlane.pickSource")}
+                  </p>
+                  <button
+                    type="button"
+                    className="cad-action-ghost mt-4 w-full"
+                    disabled={status !== "connected"}
+                    onClick={() => setTangentPlaneAction(null)}
+                  >
+                    {t("common.cancel")}
+                  </button>
+                </section>
               ) : null}
               {sketchFilletAction ? (
                 <SketchFilletPanel

@@ -270,10 +270,16 @@ interface AppHeaderProps {
   canEdgeOp: boolean;
   onFillet: () => Promise<void>;
   onChamfer: () => Promise<void>;
-  // Construct ribbon (Offset Plane). The parent gates the button on
+  // Construct ribbon. The parent gates the buttons on
   // "no other floating action is open" — same shape as canEdgeOp.
   canOffsetPlane: boolean;
+  canMidplane: boolean;
+  canTangentPlane: boolean;
+  canAnglePlane: boolean;
   onOffsetPlane: () => void;
+  onMidplane: () => void;
+  onTangentPlane: () => void;
+  onAnglePlane: () => void;
   onStartSketch: () => Promise<void>;
   onFinishSketch: () => Promise<void>;
   onSetSketchTool: (tool: SketchTool) => Promise<void>;
@@ -357,7 +363,13 @@ export function AppHeader({
   onFillet,
   onChamfer,
   canOffsetPlane,
+  canMidplane,
+  canTangentPlane,
+  canAnglePlane,
   onOffsetPlane,
+  onMidplane,
+  onTangentPlane,
+  onAnglePlane,
   onStartSketch,
   onFinishSketch,
   onSetSketchTool,
@@ -647,7 +659,13 @@ export function AppHeader({
               <ConstructToolbar
                 disabled={disabled}
                 canOffsetPlane={canOffsetPlane}
+                canMidplane={canMidplane}
+                canTangentPlane={canTangentPlane}
+                canAnglePlane={canAnglePlane}
                 onOffsetPlane={onOffsetPlane}
+                onMidplane={onMidplane}
+                onTangentPlane={onTangentPlane}
+                onAnglePlane={onAnglePlane}
               />
             ) : null}
 
