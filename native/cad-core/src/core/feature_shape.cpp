@@ -14,6 +14,7 @@
 #include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
 #include <BRepOffsetAPI_DraftAngle.hxx>
+#include <BRepOffsetAPI_MakePipe.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
@@ -28,10 +29,12 @@
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
 #include <Geom_Plane.hxx>
+#include <GC_MakeArcOfCircle.hxx>
 #include <Standard_Failure.hxx>
 #include <TopAbs.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS_Compound.hxx>
+#include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Wire.hxx>
@@ -982,17 +985,65 @@ TopoDS_Shape build_sweep_shape(const SweepFeatureParameters& parameters) {
   if (parameters.profile_points.size() < 3) {
     throw std::runtime_error("Sweep requires a closed profile");
   }
-  const double dx = parameters.path_end_x - parameters.path_start_x;
-  const double dy = parameters.path_end_y - parameters.path_start_y;
-  const double dz = parameters.path_end_z - parameters.path_start_z;
-  if (std::sqrt(dx * dx + dy * dy + dz * dz) <= 1.0e-9) {
+  const auto& segments = parameters.path_segments;
+  if (segments.empty()) {
     throw std::runtime_error("Sweep path must have non-zero length");
   }
 
   const TopoDS_Shape face = make_profile_face(
       parameters, parameters.profile_points, parameters.inner_loops);
-  const TopoDS_Shape shape =
-      BRepPrimAPI_MakePrism(face, gp_Vec(dx, dy, dz)).Shape();
+
+  if (segments.size() == 1 && segments.front().kind == "line") {
+    const auto& segment = segments.front();
+    const double dx = segment.end_x - segment.start_x;
+    const double dy = segment.end_y - segment.start_y;
+    const double dz = segment.end_z - segment.start_z;
+    if (std::sqrt(dx * dx + dy * dy + dz * dz) <= 1.0e-9) {
+      throw std::runtime_error("Sweep path must have non-zero length");
+    }
+    const TopoDS_Shape shape =
+        BRepPrimAPI_MakePrism(face, gp_Vec(dx, dy, dz)).Shape();
+    if (shape.IsNull()) {
+      throw std::runtime_error("Failed to build sweep shape");
+    }
+    return shape;
+  }
+
+  BRepBuilderAPI_MakeWire spine_builder;
+  for (const auto& segment : segments) {
+    const gp_Pnt start(segment.start_x, segment.start_y, segment.start_z);
+    const gp_Pnt end(segment.end_x, segment.end_y, segment.end_z);
+    if (start.Distance(end) <= 1.0e-9) {
+      continue;
+    }
+    TopoDS_Edge edge;
+    if (segment.kind == "arc") {
+      const gp_Pnt mid(segment.mid_x, segment.mid_y, segment.mid_z);
+      if (start.Distance(mid) <= 1.0e-9 || mid.Distance(end) <= 1.0e-9) {
+        throw std::runtime_error("Sweep arc path segment is degenerate");
+      }
+      GC_MakeArcOfCircle arc(start, mid, end);
+      if (!arc.IsDone()) {
+        throw std::runtime_error("Failed to build sweep arc path segment");
+      }
+      edge = BRepBuilderAPI_MakeEdge(arc.Value()).Edge();
+    } else {
+      edge = BRepBuilderAPI_MakeEdge(start, end).Edge();
+    }
+    if (edge.IsNull()) {
+      throw std::runtime_error("Failed to build sweep path segment");
+    }
+    spine_builder.Add(edge);
+  }
+  if (!spine_builder.IsDone()) {
+    throw std::runtime_error("Failed to build sweep path wire");
+  }
+  BRepOffsetAPI_MakePipe pipe(spine_builder.Wire(), face);
+  pipe.Build();
+  if (!pipe.IsDone()) {
+    throw std::runtime_error("Failed to build swept shape along path");
+  }
+  const TopoDS_Shape shape = pipe.Shape();
   if (shape.IsNull()) {
     throw std::runtime_error("Failed to build sweep shape");
   }

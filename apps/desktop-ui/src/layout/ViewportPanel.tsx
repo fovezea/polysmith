@@ -7727,7 +7727,7 @@ const currentGridSpacingRef = useRef(10);
           if (
             inactiveSketchEntityPickEnabledRef.current &&
             hit?.kind === "sketch_entity" &&
-            hit.entityKind === "line"
+            (hit.entityKind === "line" || hit.entityKind === "arc")
           ) {
             void selectSketchEntityRef.current(hit.id, false);
             return;
@@ -8541,7 +8541,7 @@ const currentGridSpacingRef = useRef(10);
       if (
         inactiveSketchEntityPickEnabledRef.current &&
         hit?.kind === "sketch_entity" &&
-        hit.entityKind === "line"
+        (hit.entityKind === "line" || hit.entityKind === "arc")
       ) {
         void selectSketchEntityRef.current(hit.id, false);
         return;

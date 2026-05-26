@@ -764,10 +764,10 @@ function buildMissingActiveSketchRepair(
       command.type === "sweep_profile" ||
       command.type === "update_sweep_path"
     ) {
-      const knownSketchLineIds = collectKnownSketchLineIds(document);
-      if (!knownSketchLineIds.has(command.payload.path_entity_id)) {
+      const knownSketchPathEntityIds = collectKnownSketchPathEntityIds(document);
+      if (!knownSketchPathEntityIds.has(command.payload.path_entity_id)) {
         throw new Error(
-          `${command.type} references unknown path line "${command.payload.path_entity_id}". Use a sketch line id from current state.`,
+          `${command.type} references unknown path entity "${command.payload.path_entity_id}". Use a sketch line or arc id from current state.`,
         );
       }
       hasActiveSketch = false;
@@ -827,6 +827,16 @@ function collectKnownSketchLineIds(document: DocumentState | null) {
     }
   }
   return knownLineIds;
+}
+
+function collectKnownSketchPathEntityIds(document: DocumentState | null) {
+  const knownEntityIds = collectKnownSketchLineIds(document);
+  for (const feature of document?.feature_history ?? []) {
+    for (const arc of feature.sketch_parameters?.arcs ?? []) {
+      knownEntityIds.add(arc.arc_id);
+    }
+  }
+  return knownEntityIds;
 }
 
 export function buildAiWorkingReferences(

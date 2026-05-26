@@ -1836,8 +1836,8 @@ Payload:
 
 #### `sweep_profile`
 
-Creates a new body by sweeping one closed sketch profile along a sketch line
-path. This command does not require an active sketch.
+Creates a new body by sweeping one closed sketch profile along a sketch path.
+This command does not require an active sketch.
 
 Payload:
 
@@ -1852,9 +1852,11 @@ Rules:
 
 - Use a profile ID from `feature_history[].sketch_parameters.profiles[]` or
   `viewport_state.sketch_profiles[]`.
-- Use a sketch line ID for `path_entity_id`; the path may come from a different
-  sketch than the profile.
-- Sweep v1 supports straight sketch-line paths and always creates a new body.
+- Use a sketch line or arc ID for `path_entity_id`; the path may come from a
+  different sketch than the profile.
+- The core resolves the connected non-construction line/arc chain containing
+  `path_entity_id`. Branched or disconnected paths are rejected.
+- Sweep always creates a new body.
 
 #### `update_sweep_profile`
 
@@ -1871,7 +1873,8 @@ Payload:
 
 #### `update_sweep_path`
 
-Replaces the path line for an existing sweep while preserving its profile.
+Replaces the path seed entity for an existing sweep while preserving its
+profile. The same connected-chain resolution rules apply.
 
 Payload:
 
@@ -2132,7 +2135,7 @@ Parameter fields:
 - `extrude_parameters: ExtrudeFeatureParameters | null`
 - `loft_parameters: { ruled, sections[] } | null`
 - `revolve_parameters: { sketch_feature_id, profile_id, axis_sketch_feature_id, axis_entity_id, axis_start_x, axis_start_y, axis_start_z, axis_end_x, axis_end_y, axis_end_z, angle_degrees } | null`
-- `sweep_parameters: { sketch_feature_id, profile_id, path_sketch_feature_id, path_entity_id, path_start_x, path_start_y, path_start_z, path_end_x, path_end_y, path_end_z } | null`
+- `sweep_parameters: { sketch_feature_id, profile_id, path_sketch_feature_id, path_entity_id, path_start_x, path_start_y, path_start_z, path_end_x, path_end_y, path_end_z, path_segments[] } | null`
 - `fillet_parameters: { target_body_id, edge_ids, radius, is_pending } | null`
 - `chamfer_parameters: { target_body_id, edge_ids, distance, is_pending } | null`
 - `shell_parameters: { target_body_id, removed_face_ids, thickness, is_pending } | null`

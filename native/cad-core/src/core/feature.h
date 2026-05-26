@@ -136,6 +136,25 @@ struct RevolveFeatureParameters {
 };
 
 struct SweepFeatureParameters {
+  struct PathSegment {
+    std::string entity_id;
+    std::string kind;  // "line" | "arc"
+    double start_x = 0.0;
+    double start_y = 0.0;
+    double start_z = 0.0;
+    double end_x = 0.0;
+    double end_y = 0.0;
+    double end_z = 0.0;
+    double center_x = 0.0;
+    double center_y = 0.0;
+    double center_z = 0.0;
+    double mid_x = 0.0;
+    double mid_y = 0.0;
+    double mid_z = 0.0;
+    double radius = 0.0;
+    bool ccw = true;
+  };
+
   std::string sketch_feature_id;
   std::string profile_id;
   std::string plane_id;
@@ -151,6 +170,7 @@ struct SweepFeatureParameters {
   double path_end_x;
   double path_end_y;
   double path_end_z;
+  std::vector<PathSegment> path_segments;
 };
 
 // Edge-modifying body operation. `target_body_id` is the body root feature

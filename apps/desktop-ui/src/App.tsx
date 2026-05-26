@@ -485,6 +485,7 @@ function App() {
   const selectedSketchProfileIdsKey = selectedSketchProfileIds.join("|");
   const sketchProfileLabelById = new Map<string, string>();
   const sketchLineLabelById = new Map<string, string>();
+  const sketchPathEntityLabelById = new Map<string, string>();
   for (const feature of document?.feature_history ?? []) {
     if (feature.kind !== "sketch" || !feature.sketch_parameters) {
       continue;
@@ -496,9 +497,14 @@ function App() {
       );
     });
     feature.sketch_parameters.lines.forEach((line, index) => {
-      sketchLineLabelById.set(
-        line.line_id,
-        `${feature.name || "Sketch"} · Line ${index + 1}`,
+      const label = `${feature.name || "Sketch"} · Line ${index + 1}`;
+      sketchLineLabelById.set(line.line_id, label);
+      sketchPathEntityLabelById.set(line.line_id, label);
+    });
+    feature.sketch_parameters.arcs.forEach((arc, index) => {
+      sketchPathEntityLabelById.set(
+        arc.arc_id,
+        `${feature.name || "Sketch"} · Arc ${index + 1}`,
       );
     });
   }
@@ -1579,9 +1585,9 @@ function App() {
       return;
     }
     const profileId = selectedSketchProfileIds[0] ?? null;
-    const selectedLineId =
+    const selectedPathEntityId =
       document?.selected_sketch_entity_id &&
-      sketchLineLabelById.has(document.selected_sketch_entity_id)
+      sketchPathEntityLabelById.has(document.selected_sketch_entity_id)
         ? document.selected_sketch_entity_id
         : null;
     lastSweepInputsRef.current = "";
@@ -1589,7 +1595,7 @@ function App() {
       phase: "pending",
       featureId: null,
       profileId,
-      pathEntityId: selectedLineId,
+      pathEntityId: selectedPathEntityId,
       originalSnapshot: null,
     });
   }
@@ -5006,7 +5012,7 @@ function App() {
                   }
                   pathLabel={
                     sweepAction.pathEntityId
-                      ? sketchLineLabelById.get(sweepAction.pathEntityId) ??
+                      ? sketchPathEntityLabelById.get(sweepAction.pathEntityId) ??
                         "Line"
                       : null
                   }

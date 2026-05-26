@@ -6,8 +6,9 @@ This document tracks concrete implementation milestones as they land in the code
 
 ### Sweep v1
 
-- added a core-owned `sweep` feature with `SweepFeatureParameters` storing the source profile, source path line, cached path world coordinates, sampled profile loops, and source sketch ids
-- implemented `sweep_profile`, `update_sweep_profile`, and `update_sweep_path` IPC commands for real OCCT preview geometry; v1 supports one closed profile swept along one straight sketch-line path
+- enhanced Sweep to resolve the selected path entity into a connected non-construction sketch line/arc chain, serialize ordered world-space path segments, and build curved/multi-segment sweeps with an OCCT pipe while preserving the existing straight-line prism path for legacy/simple sweeps
+- added a core-owned `sweep` feature with `SweepFeatureParameters` storing the source profile, source path entity, cached path world coordinates, sampled profile loops, and source sketch ids
+- implemented `sweep_profile`, `update_sweep_profile`, and `update_sweep_path` IPC commands for real OCCT preview geometry
 - wired swept solids through the body compiler and viewport mesh path, plus serialization, IPC builders/hooks/types/schemas, AI command validation, and English UI strings
 - added the Create > Sweep toolbar action, contextual Sweep panel, profile/path picking, timeline edit support, and dependency refresh that marks broken profile/path references with warnings instead of crashing
 - updated `IPC-Protocol` and `AI-CAD-Command-Language` with the new sweep commands and serialized feature parameters

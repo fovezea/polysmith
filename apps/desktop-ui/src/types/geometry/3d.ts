@@ -81,6 +81,24 @@ export interface RevolveFeatureParameters {
 }
 
 export interface SweepFeatureParameters {
+  path_segments?: Array<{
+    entity_id: string;
+    kind: "line" | "arc";
+    start_x: number;
+    start_y: number;
+    start_z: number;
+    end_x: number;
+    end_y: number;
+    end_z: number;
+    center_x: number;
+    center_y: number;
+    center_z: number;
+    mid_x: number;
+    mid_y: number;
+    mid_z: number;
+    radius: number;
+    ccw: boolean;
+  }>;
   sketch_feature_id: string;
   profile_id: string;
   plane_id: string;

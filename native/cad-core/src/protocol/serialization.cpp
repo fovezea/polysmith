@@ -413,6 +413,45 @@ sweep_parameters_from_payload(const json& payload) {
   params.path_end_x = read_number(payload, "path_end_x");
   params.path_end_y = read_number(payload, "path_end_y");
   params.path_end_z = read_number(payload, "path_end_z");
+  if (payload.contains("path_segments") &&
+      payload.at("path_segments").is_array()) {
+    for (const auto& segment_payload : payload.at("path_segments")) {
+      polysmith::core::SweepFeatureParameters::PathSegment segment{};
+      segment.entity_id = read_string(segment_payload, "entity_id");
+      segment.kind = read_string(segment_payload, "kind");
+      segment.start_x = read_number(segment_payload, "start_x");
+      segment.start_y = read_number(segment_payload, "start_y");
+      segment.start_z = read_number(segment_payload, "start_z");
+      segment.end_x = read_number(segment_payload, "end_x");
+      segment.end_y = read_number(segment_payload, "end_y");
+      segment.end_z = read_number(segment_payload, "end_z");
+      segment.center_x = read_number(segment_payload, "center_x");
+      segment.center_y = read_number(segment_payload, "center_y");
+      segment.center_z = read_number(segment_payload, "center_z");
+      segment.mid_x = read_number(segment_payload, "mid_x");
+      segment.mid_y = read_number(segment_payload, "mid_y");
+      segment.mid_z = read_number(segment_payload, "mid_z");
+      segment.radius = read_number(segment_payload, "radius");
+      segment.ccw = segment_payload.contains("ccw") &&
+                    segment_payload.at("ccw").is_boolean()
+                        ? segment_payload.at("ccw").get<bool>()
+                        : true;
+      params.path_segments.push_back(segment);
+    }
+  }
+  if (params.path_segments.empty()) {
+    params.path_segments.push_back(
+        polysmith::core::SweepFeatureParameters::PathSegment{
+            .entity_id = params.path_entity_id,
+            .kind = "line",
+            .start_x = params.path_start_x,
+            .start_y = params.path_start_y,
+            .start_z = params.path_start_z,
+            .end_x = params.path_end_x,
+            .end_y = params.path_end_y,
+            .end_z = params.path_end_z,
+        });
+  }
   return params;
 }
 
@@ -1122,6 +1161,31 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                  {"path_end_x", feature.sweep_parameters->path_end_x},
                  {"path_end_y", feature.sweep_parameters->path_end_y},
                  {"path_end_z", feature.sweep_parameters->path_end_z},
+                 {"path_segments",
+                  [&feature]() {
+                    json segments = json::array();
+                    for (const auto& segment :
+                         feature.sweep_parameters->path_segments) {
+                      segments.push_back(
+                          json{{"entity_id", segment.entity_id},
+                               {"kind", segment.kind},
+                               {"start_x", segment.start_x},
+                               {"start_y", segment.start_y},
+                               {"start_z", segment.start_z},
+                               {"end_x", segment.end_x},
+                               {"end_y", segment.end_y},
+                               {"end_z", segment.end_z},
+                               {"center_x", segment.center_x},
+                               {"center_y", segment.center_y},
+                               {"center_z", segment.center_z},
+                               {"mid_x", segment.mid_x},
+                               {"mid_y", segment.mid_y},
+                               {"mid_z", segment.mid_z},
+                               {"radius", segment.radius},
+                               {"ccw", segment.ccw}});
+                    }
+                    return segments;
+                  }()},
              }
            : json(nullptr)},
       {"sketch_parameters",

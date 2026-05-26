@@ -217,6 +217,28 @@ const documentStateSchema = z.object({
           path_end_x: z.number(),
           path_end_y: z.number(),
           path_end_z: z.number(),
+          path_segments: z
+            .array(
+              z.object({
+                entity_id: z.string(),
+                kind: z.enum(["line", "arc"]),
+                start_x: z.number(),
+                start_y: z.number(),
+                start_z: z.number(),
+                end_x: z.number(),
+                end_y: z.number(),
+                end_z: z.number(),
+                center_x: z.number(),
+                center_y: z.number(),
+                center_z: z.number(),
+                mid_x: z.number(),
+                mid_y: z.number(),
+                mid_z: z.number(),
+                radius: z.number(),
+                ccw: z.boolean(),
+              }),
+            )
+            .default([]),
         })
         .nullable()
         .default(null),

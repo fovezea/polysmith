@@ -215,7 +215,7 @@
     },
     "sweep": {
       "path": "Path",
-      "pickHint": "Click one profile and one sketch line path",
+      "pickHint": "Click one profile and one sketch line or arc path",
       "pickPath": "Pick path",
       "pickProfile": "Pick profile",
       "profile": "Profile",
