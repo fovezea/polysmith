@@ -127,6 +127,29 @@ const documentStateSchema = z.object({
         })
         .nullable()
         .default(null),
+      revolve_parameters: z
+        .object({
+          sketch_feature_id: z.string(),
+          profile_id: z.string(),
+          plane_id: z.string(),
+          plane_frame: planeFrameSchema.nullable(),
+          profile_kind: z.string(),
+          profile_points: z.array(z.object({ x: z.number(), y: z.number() })),
+          inner_loops: z
+            .array(z.array(z.object({ x: z.number(), y: z.number() })))
+            .default([]),
+          axis_sketch_feature_id: z.string(),
+          axis_entity_id: z.string(),
+          axis_start_x: z.number(),
+          axis_start_y: z.number(),
+          axis_start_z: z.number(),
+          axis_end_x: z.number(),
+          axis_end_y: z.number(),
+          axis_end_z: z.number(),
+          angle_degrees: z.number(),
+        })
+        .nullable()
+        .default(null),
       fillet_parameters: z
         .object({
           target_body_id: z.string(),

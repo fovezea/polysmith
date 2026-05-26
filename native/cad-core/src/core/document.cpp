@@ -340,6 +340,84 @@ std::optional<LoftSectionParameters> make_loft_section_for_profile(
   };
 }
 
+std::array<double, 3> revolve_sketch_local_to_world(
+    const SketchFeatureParameters& sketch,
+    double local_x,
+    double local_y) {
+  if (sketch.plane_frame.has_value()) {
+    const auto& frame = sketch.plane_frame.value();
+    return {
+        frame.origin_x + frame.x_axis_x * local_x + frame.y_axis_x * local_y,
+        frame.origin_y + frame.x_axis_y * local_x + frame.y_axis_y * local_y,
+        frame.origin_z + frame.x_axis_z * local_x + frame.y_axis_z * local_y,
+    };
+  }
+  if (sketch.plane_id == "ref-plane-xy") {
+    return {local_x, 0.0, local_y};
+  }
+  if (sketch.plane_id == "ref-plane-yz") {
+    return {0.0, local_x, local_y};
+  }
+  if (sketch.plane_id == "ref-plane-xz") {
+    return {local_x, local_y, 0.0};
+  }
+  throw std::runtime_error("Unsupported sketch plane: " + sketch.plane_id);
+}
+
+SketchLine* find_line_by_id(SketchFeatureParameters& sketch,
+                            const std::string& line_id);
+const SketchLine* find_line_by_id(const SketchFeatureParameters& sketch,
+                                  const std::string& line_id);
+
+std::optional<RevolveFeatureParameters> make_revolve_parameters_for_profile(
+    const FeatureEntry& profile_sketch_feature,
+    const SketchProfileRegion& profile,
+    const FeatureEntry& axis_sketch_feature,
+    const SketchLine& axis_line,
+    double angle_degrees) {
+  if (!profile_sketch_feature.sketch_parameters.has_value() ||
+      !axis_sketch_feature.sketch_parameters.has_value()) {
+    return std::nullopt;
+  }
+
+  const auto& profile_sketch = profile_sketch_feature.sketch_parameters.value();
+  const auto& axis_sketch = axis_sketch_feature.sketch_parameters.value();
+  const std::string plane_id =
+      profile_sketch.plane_frame.has_value()
+          ? plane_id_from_frame(profile_sketch.plane_frame.value())
+          : profile_sketch.plane_id;
+  const std::optional<PlaneFrame> plane_frame =
+      profile_sketch.plane_frame.has_value()
+          ? std::optional<PlaneFrame>(
+                make_plane_frame(profile_sketch.plane_frame.value()))
+          : std::nullopt;
+  const auto axis_start = revolve_sketch_local_to_world(
+      axis_sketch, axis_line.start_x, axis_line.start_y);
+  const auto axis_end = revolve_sketch_local_to_world(
+      axis_sketch, axis_line.end_x, axis_line.end_y);
+
+  return RevolveFeatureParameters{
+      .sketch_feature_id = profile_sketch_feature.id,
+      .profile_id = profile.id,
+      .plane_id = plane_id,
+      .plane_frame = plane_frame,
+      .profile_kind = profile.kind,
+      .profile_points = profile.kind == "circle"
+                            ? sample_circle_profile_points(profile)
+                            : profile.points,
+      .inner_loops = profile.inner_loops,
+      .axis_sketch_feature_id = axis_sketch_feature.id,
+      .axis_entity_id = axis_line.id,
+      .axis_start_x = axis_start[0],
+      .axis_start_y = axis_start[1],
+      .axis_start_z = axis_start[2],
+      .axis_end_x = axis_end[0],
+      .axis_end_y = axis_end[1],
+      .axis_end_z = axis_end[2],
+      .angle_degrees = angle_degrees,
+  };
+}
+
 bool profile_id_mentions_entity(const std::string& profile_id,
                                 const std::string& entity_id) {
   const std::string needle = "-" + entity_id;
@@ -582,6 +660,115 @@ void refresh_linked_extrudes(DocumentState& document,
     feature.parameters_summary =
         std::to_string(feature.loft_parameters->sections.size()) +
         " sections" + (feature.loft_parameters->ruled ? " · ruled" : "");
+  }
+
+  const auto mark_revolve_warning = [](FeatureEntry& feature,
+                                       const std::string& message) {
+    feature.status = "warning";
+    feature.parameters_summary = "Source profile or axis unavailable";
+    feature.dependency_broken = true;
+    feature.dependency_warning = message;
+  };
+
+  for (auto& feature : document.feature_history) {
+    if (feature.kind != "revolve" ||
+        !feature.revolve_parameters.has_value()) {
+      continue;
+    }
+    const bool references_profile_sketch =
+        feature.revolve_parameters->sketch_feature_id == sketch_feature.id;
+    const bool references_axis_sketch =
+        feature.revolve_parameters->axis_sketch_feature_id == sketch_feature.id;
+    if (!references_profile_sketch && !references_axis_sketch) {
+      continue;
+    }
+
+    RevolveFeatureParameters next_parameters =
+        feature.revolve_parameters.value();
+    const FeatureEntry* profile_sketch_feature = nullptr;
+    const FeatureEntry* axis_sketch_feature = nullptr;
+    const SketchProfileRegion* profile = nullptr;
+    const SketchLine* axis_line = nullptr;
+
+    for (const auto& candidate : document.feature_history) {
+      if (candidate.id == next_parameters.sketch_feature_id) {
+        profile_sketch_feature = &candidate;
+      }
+      if (candidate.id == next_parameters.axis_sketch_feature_id) {
+        axis_sketch_feature = &candidate;
+      }
+    }
+    if (profile_sketch_feature == nullptr ||
+        !profile_sketch_feature->sketch_parameters.has_value()) {
+      mark_revolve_warning(
+          feature,
+          "Revolve source profile sketch no longer exists. Edit the source "
+          "sketch or recreate the revolve.");
+      continue;
+    }
+    if (axis_sketch_feature == nullptr ||
+        !axis_sketch_feature->sketch_parameters.has_value()) {
+      mark_revolve_warning(
+          feature,
+          "Revolve axis sketch no longer exists. Edit the source sketch "
+          "or recreate the revolve.");
+      continue;
+    }
+
+    profile = find_equivalent_profile(
+        profile_sketch_feature->sketch_parameters->profiles,
+        next_parameters.profile_id);
+    axis_line = find_line_by_id(axis_sketch_feature->sketch_parameters.value(),
+                                next_parameters.axis_entity_id);
+    if (profile == nullptr) {
+      mark_revolve_warning(
+          feature,
+          "Revolve source profile no longer exists. Edit the source sketch "
+          "or recreate the revolve.");
+      continue;
+    }
+    if (axis_line == nullptr) {
+      mark_revolve_warning(
+          feature,
+          "Revolve axis line no longer exists. Edit the source sketch "
+          "or recreate the revolve.");
+      continue;
+    }
+
+    const auto rebuilt =
+        make_revolve_parameters_for_profile(*profile_sketch_feature,
+                                            *profile,
+                                            *axis_sketch_feature,
+                                            *axis_line,
+                                            next_parameters.angle_degrees);
+    if (!rebuilt.has_value()) {
+      mark_revolve_warning(
+          feature,
+          "Revolve source profile or axis is no longer supported after "
+          "the sketch edit.");
+      continue;
+    }
+
+    try {
+      const TopoDS_Shape next_shape = build_revolve_shape(rebuilt.value());
+      if (next_shape.IsNull()) {
+        throw std::runtime_error("Revolve rebuild produced an empty shape");
+      }
+    } catch (const std::exception&) {
+      mark_revolve_warning(
+          feature,
+          "Revolve could not rebuild from the updated profile or axis. "
+          "Edit the source sketch or recreate the revolve.");
+      continue;
+    }
+
+    feature.revolve_parameters = rebuilt.value();
+    feature.status = "healthy";
+    feature.dependency_broken = false;
+    feature.dependency_warning.clear();
+    feature.parameters_summary =
+        feature.revolve_parameters->profile_id + " · " +
+        std::to_string(feature.revolve_parameters->angle_degrees) + " deg";
   }
 }
 
@@ -2709,6 +2896,38 @@ std::vector<FeatureEntry>::iterator find_sketch_feature_owning_profile(
       });
 }
 
+std::vector<FeatureEntry>::iterator find_sketch_feature_owning_line(
+    std::vector<FeatureEntry>& features, const std::string& line_id) {
+  return std::find_if(
+      features.begin(), features.end(), [&](const FeatureEntry& feature) {
+        if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+          return false;
+        }
+        const auto& lines = feature.sketch_parameters->lines;
+        return std::any_of(
+            lines.begin(), lines.end(),
+            [&](const SketchLine& line) { return line.id == line_id; });
+      });
+}
+
+SketchLine* find_line_by_id(SketchFeatureParameters& sketch,
+                            const std::string& line_id) {
+  const auto line_it = std::find_if(
+      sketch.lines.begin(),
+      sketch.lines.end(),
+      [&](const SketchLine& line) { return line.id == line_id; });
+  return line_it == sketch.lines.end() ? nullptr : &(*line_it);
+}
+
+const SketchLine* find_line_by_id(const SketchFeatureParameters& sketch,
+                                  const std::string& line_id) {
+  const auto line_it = std::find_if(
+      sketch.lines.begin(),
+      sketch.lines.end(),
+      [&](const SketchLine& line) { return line.id == line_id; });
+  return line_it == sketch.lines.end() ? nullptr : &(*line_it);
+}
+
 LoftFeatureParameters make_loft_parameters_for_profiles(
     std::vector<FeatureEntry>& features,
     const std::vector<std::string>& profile_ids,
@@ -2742,6 +2961,48 @@ LoftFeatureParameters make_loft_parameters_for_profiles(
   }
 
   return parameters;
+}
+
+RevolveFeatureParameters make_revolve_parameters(
+    std::vector<FeatureEntry>& features,
+    const std::string& profile_id,
+    const std::string& axis_entity_id,
+    double angle_degrees) {
+  const auto profile_sketch_it =
+      find_sketch_feature_owning_profile(features, profile_id);
+  if (profile_sketch_it == features.end()) {
+    throw std::runtime_error("Sketch profile not found: " + profile_id);
+  }
+  auto& profile_sketch = profile_sketch_it->sketch_parameters.value();
+  const auto profile_it = std::find_if(
+      profile_sketch.profiles.begin(),
+      profile_sketch.profiles.end(),
+      [&](const SketchProfileRegion& profile) { return profile.id == profile_id; });
+  if (profile_it == profile_sketch.profiles.end()) {
+    throw std::runtime_error("Sketch profile not found: " + profile_id);
+  }
+
+  const auto axis_sketch_it =
+      find_sketch_feature_owning_line(features, axis_entity_id);
+  if (axis_sketch_it == features.end()) {
+    throw std::runtime_error("Revolve axis line not found: " + axis_entity_id);
+  }
+  const SketchLine* axis_line =
+      find_line_by_id(axis_sketch_it->sketch_parameters.value(), axis_entity_id);
+  if (axis_line == nullptr) {
+    throw std::runtime_error("Revolve axis line not found: " + axis_entity_id);
+  }
+
+  const auto parameters =
+      make_revolve_parameters_for_profile(*profile_sketch_it,
+                                          *profile_it,
+                                          *axis_sketch_it,
+                                          *axis_line,
+                                          angle_degrees);
+  if (!parameters.has_value()) {
+    throw std::runtime_error("Selected profile or axis is not supported for revolve");
+  }
+  return parameters.value();
 }
 
 }  // namespace
@@ -3160,6 +3421,127 @@ DocumentState DocumentManager::update_loft_ruled(const std::string& feature_id,
   }
 
   polysmith::core::update_loft_ruled(*feature_it, ruled);
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::revolve_profile(
+    const std::string& profile_id,
+    const std::string& axis_entity_id,
+    double angle_degrees) {
+  require_document();
+  const RevolveFeatureParameters parameters =
+      make_revolve_parameters(document_->feature_history,
+                              profile_id,
+                              axis_entity_id,
+                              angle_degrees);
+
+  push_undo_state();
+  clear_redo_stack();
+  document_->feature_history.push_back(
+      create_revolve_feature(next_feature_id_++, parameters));
+  document_->selected_feature_id = document_->feature_history.back().id;
+  document_->selected_reference_id = std::nullopt;
+  document_->selected_face_id = std::nullopt;
+  document_->selected_edge_ids.clear();
+  document_->selected_vertex_ids.clear();
+  document_->active_sketch_plane_id = std::nullopt;
+  document_->active_sketch_feature_id = std::nullopt;
+  document_->active_sketch_tool = std::nullopt;
+  document_->selected_sketch_point_id = std::nullopt;
+  document_->selected_sketch_entity_id = std::nullopt;
+  document_->selected_sketch_dimension_id = std::nullopt;
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::update_revolve_profile(
+    const std::string& feature_id,
+    const std::string& profile_id) {
+  require_document();
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Feature not found: " + feature_id);
+  }
+  if (feature_it->kind != "revolve" ||
+      !feature_it->revolve_parameters.has_value()) {
+    throw std::runtime_error(
+        "update_revolve_profile requires a revolve feature: " + feature_id);
+  }
+
+  const RevolveFeatureParameters next_parameters =
+      make_revolve_parameters(document_->feature_history,
+                              profile_id,
+                              feature_it->revolve_parameters->axis_entity_id,
+                              feature_it->revolve_parameters->angle_degrees);
+  const TopoDS_Shape next_shape = build_revolve_shape(next_parameters);
+  if (next_shape.IsNull()) {
+    throw std::runtime_error("Revolve update produced an empty shape");
+  }
+  feature_it->revolve_parameters = next_parameters;
+  feature_it->parameters_summary =
+      next_parameters.profile_id + " · " +
+      std::to_string(next_parameters.angle_degrees) + " deg";
+  feature_it->status = "healthy";
+  feature_it->dependency_broken = false;
+  feature_it->dependency_warning.clear();
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::update_revolve_axis(
+    const std::string& feature_id,
+    const std::string& axis_entity_id) {
+  require_document();
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Feature not found: " + feature_id);
+  }
+  if (feature_it->kind != "revolve" ||
+      !feature_it->revolve_parameters.has_value()) {
+    throw std::runtime_error(
+        "update_revolve_axis requires a revolve feature: " + feature_id);
+  }
+
+  const RevolveFeatureParameters next_parameters =
+      make_revolve_parameters(document_->feature_history,
+                              feature_it->revolve_parameters->profile_id,
+                              axis_entity_id,
+                              feature_it->revolve_parameters->angle_degrees);
+  const TopoDS_Shape next_shape = build_revolve_shape(next_parameters);
+  if (next_shape.IsNull()) {
+    throw std::runtime_error("Revolve update produced an empty shape");
+  }
+  feature_it->revolve_parameters = next_parameters;
+  feature_it->parameters_summary =
+      next_parameters.profile_id + " · " +
+      std::to_string(next_parameters.angle_degrees) + " deg";
+  feature_it->status = "healthy";
+  feature_it->dependency_broken = false;
+  feature_it->dependency_warning.clear();
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::update_revolve_angle(
+    const std::string& feature_id,
+    double angle_degrees) {
+  require_document();
+  const auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+  if (feature_it == document_->feature_history.end()) {
+    throw std::runtime_error("Feature not found: " + feature_id);
+  }
+
+  polysmith::core::update_revolve_angle(*feature_it, angle_degrees);
   bump_geometry_revision();
   return document_.value();
 }

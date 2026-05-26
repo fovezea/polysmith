@@ -49,3 +49,22 @@ export interface LoftFeatureParameters {
   sections: LoftSectionParameters[];
   ruled: boolean;
 }
+
+export interface RevolveFeatureParameters {
+  sketch_feature_id: string;
+  profile_id: string;
+  plane_id: string;
+  plane_frame: PlaneFrame | null;
+  profile_kind: Shape2D;
+  profile_points: SketchProfilePoint[];
+  inner_loops: SketchProfilePoint[][];
+  axis_sketch_feature_id: string;
+  axis_entity_id: string;
+  axis_start_x: number;
+  axis_start_y: number;
+  axis_start_z: number;
+  axis_end_x: number;
+  axis_end_y: number;
+  axis_end_z: number;
+  angle_degrees: number;
+}

@@ -79,6 +79,25 @@ struct LoftFeatureParameters {
   bool ruled = false;
 };
 
+struct RevolveFeatureParameters {
+  std::string sketch_feature_id;
+  std::string profile_id;
+  std::string plane_id;
+  std::optional<PlaneFrame> plane_frame;
+  std::string profile_kind;
+  std::vector<SketchProfilePoint> profile_points;
+  std::vector<std::vector<SketchProfilePoint>> inner_loops;
+  std::string axis_sketch_feature_id;
+  std::string axis_entity_id;
+  double axis_start_x;
+  double axis_start_y;
+  double axis_start_z;
+  double axis_end_x;
+  double axis_end_y;
+  double axis_end_z;
+  double angle_degrees = 360.0;
+};
+
 // Edge-modifying body operation. `target_body_id` is the body root feature
 // id whose edges are being filleted/chamfered. `edge_ids` mirrors the
 // `<body_id>:edge:<index>` strings emitted by viewport_state.edges so the
@@ -555,6 +574,7 @@ struct FeatureEntry {
   std::optional<ChamferFeatureParameters> chamfer_parameters;
   std::optional<ConstructionPlaneFeatureParameters> construction_plane_parameters;
   std::optional<LoftFeatureParameters> loft_parameters;
+  std::optional<RevolveFeatureParameters> revolve_parameters;
 };
 
 }  // namespace polysmith::core

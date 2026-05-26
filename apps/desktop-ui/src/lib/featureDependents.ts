@@ -9,6 +9,7 @@ import type { DocumentState, FeatureEntry } from "@/types";
 //   - extrude.sketch_feature_id  → its source sketch
 //   - extrude.target_body_id     → join/cut target
 //   - loft.sections[].sketch_feature_id → source sketches
+//   - revolve.sketch_feature_id / axis_sketch_feature_id → source sketches
 //   - fillet.target_body_id      → body being filleted
 //   - chamfer.target_body_id     → body being chamfered
 //   - sketch.plane_id            → plane / construction plane / face
@@ -35,6 +36,8 @@ export function findDependents(
       feature.loft_parameters?.sections.some(
         (section) => section.sketch_feature_id === featureId,
       ) ||
+      feature.revolve_parameters?.sketch_feature_id === featureId ||
+      feature.revolve_parameters?.axis_sketch_feature_id === featureId ||
       feature.fillet_parameters?.target_body_id === featureId ||
       feature.chamfer_parameters?.target_body_id === featureId ||
       sketchPlaneId === featureId ||

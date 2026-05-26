@@ -1118,6 +1118,43 @@ export interface UpdateLoftRuledCommand {
   };
 }
 
+export interface RevolveProfileCommand {
+  id: string;
+  type: "revolve_profile";
+  payload: {
+    profile_id: string;
+    axis_entity_id: string;
+    angle_degrees?: number;
+  };
+}
+
+export interface UpdateRevolveProfileCommand {
+  id: string;
+  type: "update_revolve_profile";
+  payload: {
+    feature_id: string;
+    profile_id: string;
+  };
+}
+
+export interface UpdateRevolveAxisCommand {
+  id: string;
+  type: "update_revolve_axis";
+  payload: {
+    feature_id: string;
+    axis_entity_id: string;
+  };
+}
+
+export interface UpdateRevolveAngleCommand {
+  id: string;
+  type: "update_revolve_angle";
+  payload: {
+    feature_id: string;
+    angle_degrees: number;
+  };
+}
+
 export interface SelectSketchEntityCommand {
   id: string;
   type: "select_sketch_entity";
@@ -1194,6 +1231,10 @@ export type CoreCommand =
   | LoftProfilesCommand
   | UpdateLoftProfilesCommand
   | UpdateLoftRuledCommand
+  | RevolveProfileCommand
+  | UpdateRevolveProfileCommand
+  | UpdateRevolveAxisCommand
+  | UpdateRevolveAngleCommand
   | RenameFeatureCommand
   | SetFeatureSuppressedCommand
   | DeleteFeatureCommand

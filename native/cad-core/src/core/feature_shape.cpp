@@ -13,6 +13,8 @@
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
+#include <BRepPrimAPI_MakeRevol.hxx>
+#include <gp_Ax1.hxx>
 #include <gp_Ax2.hxx>
 #include <gp_Circ.hxx>
 #include <gp_Dir.hxx>
@@ -23,6 +25,8 @@
 
 namespace polysmith::core {
 namespace {
+
+constexpr double kPi = 3.14159265358979323846;
 
 gp_Pnt to_world_point(const std::string& plane_id, double local_x, double local_y) {
   if (plane_id == "ref-plane-xy") {
@@ -65,6 +69,15 @@ gp_Pnt to_world_point(const LoftSectionParameters& section,
     return to_world_point(section.plane_frame.value(), local_x, local_y);
   }
   return to_world_point(section.plane_id, local_x, local_y);
+}
+
+gp_Pnt to_world_point(const RevolveFeatureParameters& parameters,
+                      double local_x,
+                      double local_y) {
+  if (parameters.plane_frame.has_value()) {
+    return to_world_point(parameters.plane_frame.value(), local_x, local_y);
+  }
+  return to_world_point(parameters.plane_id, local_x, local_y);
 }
 
 gp_Dir plane_normal(const ExtrudeFeatureParameters& parameters) {
@@ -134,6 +147,30 @@ gp_Dir profile_wire_normal(const ExtrudeFeatureParameters& parameters) {
     return gp_Dir(0.0, 0.0, 1.0);
   }
   throw std::runtime_error("Unsupported sketch plane for shape: " +
+                           parameters.plane_id);
+}
+
+gp_Dir profile_wire_normal(const RevolveFeatureParameters& parameters) {
+  if (parameters.plane_frame.has_value()) {
+    const auto& frame = parameters.plane_frame.value();
+    const double x = frame.x_axis_y * frame.y_axis_z -
+                     frame.x_axis_z * frame.y_axis_y;
+    const double y = frame.x_axis_z * frame.y_axis_x -
+                     frame.x_axis_x * frame.y_axis_z;
+    const double z = frame.x_axis_x * frame.y_axis_y -
+                     frame.x_axis_y * frame.y_axis_x;
+    return gp_Dir(x, y, z);
+  }
+  if (parameters.plane_id == "ref-plane-xy") {
+    return gp_Dir(0.0, -1.0, 0.0);
+  }
+  if (parameters.plane_id == "ref-plane-yz") {
+    return gp_Dir(1.0, 0.0, 0.0);
+  }
+  if (parameters.plane_id == "ref-plane-xz") {
+    return gp_Dir(0.0, 0.0, 1.0);
+  }
+  throw std::runtime_error("Unsupported sketch plane for revolve: " +
                            parameters.plane_id);
 }
 
@@ -270,6 +307,57 @@ TopoDS_Wire make_profile_wire(
     throw std::runtime_error("Failed to build loft profile wire");
   }
   return polygon_builder.Wire();
+}
+
+TopoDS_Wire make_profile_wire(
+    const RevolveFeatureParameters& parameters,
+    const std::vector<SketchProfilePoint>& points) {
+  if (const auto circle = detect_circle_loop(points)) {
+    const gp_Pnt center =
+        to_world_point(parameters, circle->center_x, circle->center_y);
+    const gp_Circ curve(gp_Ax2(center, profile_wire_normal(parameters)),
+                        circle->radius);
+    BRepBuilderAPI_MakeEdge edge_builder(curve);
+    if (edge_builder.IsDone()) {
+      BRepBuilderAPI_MakeWire wire_builder(edge_builder.Edge());
+      if (wire_builder.IsDone()) {
+        return wire_builder.Wire();
+      }
+    }
+  }
+
+  BRepBuilderAPI_MakePolygon polygon_builder;
+  for (const auto& point : points) {
+    polygon_builder.Add(to_world_point(parameters, point.x, point.y));
+  }
+  polygon_builder.Close();
+
+  if (!polygon_builder.IsDone()) {
+    throw std::runtime_error("Failed to build revolve profile wire");
+  }
+  return polygon_builder.Wire();
+}
+
+TopoDS_Shape make_profile_face(
+    const RevolveFeatureParameters& parameters,
+    const std::vector<SketchProfilePoint>& outer_points,
+    const std::vector<std::vector<SketchProfilePoint>>& inner_loops) {
+  BRepBuilderAPI_MakeFace face_builder(
+      make_profile_wire(parameters, outer_points));
+  for (const auto& loop : inner_loops) {
+    if (loop.size() < 3) {
+      continue;
+    }
+    TopoDS_Wire hole_wire = make_profile_wire(parameters, loop);
+    hole_wire.Reverse();
+    face_builder.Add(hole_wire);
+  }
+
+  const TopoDS_Shape face = face_builder.Shape();
+  if (face.IsNull()) {
+    throw std::runtime_error("Failed to build revolve profile face");
+  }
+  return face;
 }
 
 TopoDS_Shape make_polygon_prism_shape(
@@ -453,6 +541,32 @@ TopoDS_Shape build_loft_shape(const LoftFeatureParameters& parameters) {
   return shape;
 }
 
+TopoDS_Shape build_revolve_shape(const RevolveFeatureParameters& parameters) {
+  if (parameters.profile_points.size() < 3) {
+    throw std::runtime_error("Revolve requires a closed profile");
+  }
+  const double dx = parameters.axis_end_x - parameters.axis_start_x;
+  const double dy = parameters.axis_end_y - parameters.axis_start_y;
+  const double dz = parameters.axis_end_z - parameters.axis_start_z;
+  if (std::sqrt(dx * dx + dy * dy + dz * dz) <= 1.0e-9) {
+    throw std::runtime_error("Revolve axis must have non-zero length");
+  }
+
+  const TopoDS_Shape face = make_profile_face(
+      parameters, parameters.profile_points, parameters.inner_loops);
+  const gp_Ax1 axis(gp_Pnt(parameters.axis_start_x,
+                           parameters.axis_start_y,
+                           parameters.axis_start_z),
+                    gp_Dir(dx, dy, dz));
+  const double angle_radians = parameters.angle_degrees * kPi / 180.0;
+  const TopoDS_Shape shape =
+      BRepPrimAPI_MakeRevol(face, axis, angle_radians).Shape();
+  if (shape.IsNull()) {
+    throw std::runtime_error("Failed to build revolve shape");
+  }
+  return shape;
+}
+
 TopoDS_Shape build_feature_shape(const FeatureEntry& feature) {
   if (feature.kind == "box" && feature.box_parameters.has_value()) {
     return build_box_shape(feature.box_parameters.value());
@@ -465,6 +579,9 @@ TopoDS_Shape build_feature_shape(const FeatureEntry& feature) {
   }
   if (feature.kind == "loft" && feature.loft_parameters.has_value()) {
     return build_loft_shape(feature.loft_parameters.value());
+  }
+  if (feature.kind == "revolve" && feature.revolve_parameters.has_value()) {
+    return build_revolve_shape(feature.revolve_parameters.value());
   }
   return TopoDS_Shape{};
 }

@@ -107,6 +107,7 @@
     "horizontal": "Horizontal",
     "line": "Line",
     "loft": "Loft",
+    "revolve": "Revolve",
     "midplane": "Midplane",
     "mirror": "Mirror",
     "move": "Move",
@@ -174,6 +175,15 @@
       "smooth": "Smooth",
       "title": "Loft",
       "transition": "Transition"
+    },
+    "revolve": {
+      "angle": "Angle (deg)",
+      "axis": "Axis",
+      "pickAxis": "Pick axis",
+      "pickHint": "Click one profile and one sketch line axis",
+      "pickProfile": "Pick profile",
+      "profile": "Profile",
+      "title": "Revolve"
     },
     "mirror": {
       "axis": "Mirror line",

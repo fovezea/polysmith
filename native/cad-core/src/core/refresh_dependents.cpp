@@ -1,5 +1,6 @@
 #include "core/refresh_dependents.h"
 
+#include <array>
 #include <cmath>
 #include <optional>
 #include <string>
@@ -269,6 +270,16 @@ std::pair<double, double> world_to_sketch_local(
   const double sy =
       dx * frame.y_axis_x + dy * frame.y_axis_y + dz * frame.y_axis_z;
   return {sx, sy};
+}
+
+std::array<double, 3> sketch_local_to_world(const PlaneFrame& frame,
+                                            double local_x,
+                                            double local_y) {
+  return {
+      frame.origin_x + local_x * frame.x_axis_x + local_y * frame.y_axis_x,
+      frame.origin_y + local_x * frame.x_axis_y + local_y * frame.y_axis_y,
+      frame.origin_z + local_x * frame.x_axis_z + local_y * frame.y_axis_z,
+  };
 }
 
 // Find a sketch line by id and patch its endpoint coords. The mutator
@@ -732,6 +743,90 @@ void refresh_history_dependencies(DocumentState& document) {
         feature.dependency_broken = false;
         feature.dependency_warning.clear();
       }
+    }
+
+    if (feature.kind == "revolve" && feature.revolve_parameters.has_value()) {
+      if (feature.status == "warning" && feature.dependency_broken) {
+        continue;
+      }
+
+      auto& parameters = feature.revolve_parameters.value();
+      const FeatureEntry* profile_sketch =
+          find_feature(document, parameters.sketch_feature_id);
+      const FeatureEntry* axis_sketch =
+          find_feature(document, parameters.axis_sketch_feature_id);
+
+      if (profile_sketch == nullptr ||
+          !profile_sketch->sketch_parameters.has_value()) {
+        feature.dependency_broken = true;
+        feature.dependency_warning =
+            "Revolve depends on a profile sketch that no longer exists.";
+        continue;
+      }
+      if (axis_sketch == nullptr ||
+          !axis_sketch->sketch_parameters.has_value()) {
+        feature.dependency_broken = true;
+        feature.dependency_warning =
+            "Revolve depends on an axis sketch that no longer exists.";
+        continue;
+      }
+      if (profile_sketch->dependency_broken) {
+        feature.dependency_broken = true;
+        feature.dependency_warning =
+            "Revolve depends on sketch '" + profile_sketch->id +
+            "', whose plane reference is broken.";
+        continue;
+      }
+      if (axis_sketch->dependency_broken) {
+        feature.dependency_broken = true;
+        feature.dependency_warning =
+            "Revolve depends on sketch '" + axis_sketch->id +
+            "', whose plane reference is broken.";
+        continue;
+      }
+      if (profile_sketch->sketch_parameters->plane_frame.has_value()) {
+        parameters.plane_frame = from_sketch_plane_frame(
+            profile_sketch->sketch_parameters->plane_frame.value());
+      }
+      const SketchLine* axis_line = nullptr;
+      for (const auto& line : axis_sketch->sketch_parameters->lines) {
+        if (line.id == parameters.axis_entity_id) {
+          axis_line = &line;
+          break;
+        }
+      }
+      if (axis_line == nullptr) {
+        feature.dependency_broken = true;
+        feature.dependency_warning =
+            "Revolve depends on an axis line that no longer exists.";
+        continue;
+      }
+      std::optional<PlaneFrame> axis_frame;
+      if (axis_sketch->sketch_parameters->plane_frame.has_value()) {
+        axis_frame = from_sketch_plane_frame(
+            axis_sketch->sketch_parameters->plane_frame.value());
+      } else {
+        axis_frame = origin_plane_frame(axis_sketch->sketch_parameters->plane_id);
+      }
+      if (!axis_frame.has_value()) {
+        feature.dependency_broken = true;
+        feature.dependency_warning =
+            "Revolve could not resolve the axis sketch plane.";
+        continue;
+      }
+      const auto axis_start = sketch_local_to_world(
+          axis_frame.value(), axis_line->start_x, axis_line->start_y);
+      const auto axis_end = sketch_local_to_world(
+          axis_frame.value(), axis_line->end_x, axis_line->end_y);
+      parameters.axis_start_x = axis_start[0];
+      parameters.axis_start_y = axis_start[1];
+      parameters.axis_start_z = axis_start[2];
+      parameters.axis_end_x = axis_end[0];
+      parameters.axis_end_y = axis_end[1];
+      parameters.axis_end_z = axis_end[2];
+
+      feature.dependency_broken = false;
+      feature.dependency_warning.clear();
     }
   }
 }

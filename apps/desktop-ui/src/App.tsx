@@ -46,6 +46,7 @@ import {
   EdgeOpPreviewPanel,
   ExtrudePreviewPanel,
   LoftPreviewPanel,
+  RevolvePreviewPanel,
   OffsetPlanePanel,
   SketchFilletPanel,
   MirrorToolPanel,
@@ -111,6 +112,7 @@ const BODY_KINDS = new Set([
   "polygon_extrude",
   "extrude",
   "loft",
+  "revolve",
 ]);
 
 function documentHasSolidBody(documentState: DocumentState | null) {
@@ -166,6 +168,19 @@ interface ActiveLoftAction {
   originalSnapshot: {
     profileIds: string[];
     ruled: boolean;
+  } | null;
+}
+
+interface ActiveRevolveAction {
+  phase: "pending" | "active";
+  featureId: string | null;
+  profileId: string | null;
+  axisEntityId: string | null;
+  initialAngle: number;
+  originalSnapshot: {
+    profileId: string;
+    axisEntityId: string;
+    angleDegrees: number;
   } | null;
 }
 
@@ -239,6 +254,10 @@ function App() {
   const [loftAction, setLoftAction] = useState<ActiveLoftAction | null>(null);
   const loftCreateInFlightRef = useRef(false);
   const lastLoftProfileUpdateRef = useRef("");
+  const [revolveAction, setRevolveAction] =
+    useState<ActiveRevolveAction | null>(null);
+  const revolveCreateInFlightRef = useRef(false);
+  const lastRevolveInputsRef = useRef("");
   // Arc tool creation mode. Defaults to three-point (common CAD workflow's default
   // and the most ergonomic for shaping curves on the fly). The
   // SketchToolbar exposes a segmented control to toggle to
@@ -398,6 +417,7 @@ function App() {
     );
   const selectedSketchProfileIdsKey = selectedSketchProfileIds.join("|");
   const sketchProfileLabelById = new Map<string, string>();
+  const sketchLineLabelById = new Map<string, string>();
   for (const feature of document?.feature_history ?? []) {
     if (feature.kind !== "sketch" || !feature.sketch_parameters) {
       continue;
@@ -406,6 +426,12 @@ function App() {
       sketchProfileLabelById.set(
         profile.profile_id,
         `${feature.name || "Sketch"} · Profile ${index + 1}`,
+      );
+    });
+    feature.sketch_parameters.lines.forEach((line, index) => {
+      sketchLineLabelById.set(
+        line.line_id,
+        `${feature.name || "Sketch"} · Line ${index + 1}`,
       );
     });
   }
@@ -580,6 +606,10 @@ function App() {
     loftProfiles,
     updateLoftProfiles,
     updateLoftRuled,
+    revolveProfile,
+    updateRevolveProfile,
+    updateRevolveAxis,
+    updateRevolveAngle,
     addSketchLine,
     setSketchMidpointAnchor,
     setSketchPointLineAnchor,
@@ -1249,6 +1279,102 @@ function App() {
     });
   }, [loftAction, updateLoftProfiles]);
 
+  async function createRevolveFromInputs(
+    profileId: string,
+    axisEntityId: string,
+    angleDegrees: number,
+  ) {
+    if (revolveCreateInFlightRef.current) {
+      return;
+    }
+    revolveCreateInFlightRef.current = true;
+
+    const documentPromise = awaitDocumentChange((next, previous) => {
+      if (!next.selected_feature_id) {
+        return false;
+      }
+      const previousLength = previous?.feature_history.length ?? 0;
+      if (next.feature_history.length <= previousLength) {
+        return false;
+      }
+      const lastFeature = next.feature_history[next.feature_history.length - 1];
+      return (
+        lastFeature.feature_id === next.selected_feature_id &&
+        lastFeature.kind === "revolve"
+      );
+    });
+
+    await runAction(async () => {
+      try {
+        await revolveProfile(profileId, axisEntityId, angleDegrees);
+        const nextDocument = await documentPromise;
+        const newFeatureId = nextDocument.selected_feature_id ?? null;
+        if (!newFeatureId) {
+          return;
+        }
+        lastRevolveInputsRef.current = `${profileId}|${axisEntityId}`;
+        const createdFeature = nextDocument.feature_history.find(
+          (entry) => entry.feature_id === newFeatureId,
+        );
+        setRevolveAction({
+          phase: "active",
+          featureId: newFeatureId,
+          profileId,
+          axisEntityId,
+          initialAngle:
+            createdFeature?.revolve_parameters?.angle_degrees ?? angleDegrees,
+          originalSnapshot: null,
+        });
+      } catch (error) {
+        addMessage(`revolve action error: ${String(error)}`);
+      } finally {
+        revolveCreateInFlightRef.current = false;
+      }
+    });
+  }
+
+  async function triggerRevolveAction() {
+    if (revolveAction) {
+      return;
+    }
+    const profileId = selectedSketchProfileIds[0] ?? null;
+    lastRevolveInputsRef.current = "";
+    setRevolveAction({
+      phase: "pending",
+      featureId: null,
+      profileId,
+      axisEntityId: null,
+      initialAngle: 360,
+      originalSnapshot: null,
+    });
+  }
+
+  useEffect(() => {
+    if (!revolveAction?.profileId || !revolveAction.axisEntityId) {
+      return;
+    }
+    const key = `${revolveAction.profileId}|${revolveAction.axisEntityId}`;
+    if (lastRevolveInputsRef.current === key) {
+      return;
+    }
+    lastRevolveInputsRef.current = key;
+    if (revolveAction.phase === "pending") {
+      void createRevolveFromInputs(
+        revolveAction.profileId,
+        revolveAction.axisEntityId,
+        revolveAction.initialAngle,
+      );
+      return;
+    }
+    if (!revolveAction.featureId) {
+      return;
+    }
+    void runAction(async () => {
+      await updateRevolveProfile(revolveAction.featureId!, revolveAction.profileId!);
+      await updateRevolveAxis(revolveAction.featureId!, revolveAction.axisEntityId!);
+    });
+  }, [revolveAction, updateRevolveAxis, updateRevolveProfile]);
+
   // Latest typed value while in the "pending" phase. The panel debounces
   // its onPreviewValue callback, so a click that lands mid-typing must
   // read the freshest value via this ref rather than from React state.
@@ -1306,6 +1432,7 @@ function App() {
     if (
       extrudeAction ||
       loftAction ||
+      revolveAction ||
       edgeOpAction ||
       offsetPlaneAction ||
       activeSketchPlaneId
@@ -1378,7 +1505,13 @@ function App() {
   }
 
   async function triggerEdgeOpAction(kind: "fillet" | "chamfer") {
-    if (extrudeAction || loftAction || edgeOpAction || activeSketchPlaneId) {
+    if (
+      extrudeAction ||
+      loftAction ||
+      revolveAction ||
+      edgeOpAction ||
+      activeSketchPlaneId
+    ) {
       return;
     }
     const initialValue =
@@ -1487,6 +1620,7 @@ function App() {
         !activeSketchPlaneId &&
         !extrudeAction &&
         !loftAction &&
+        !revolveAction &&
         !edgeOpAction &&
         document &&
         (document.selected_feature_id ||
@@ -1580,6 +1714,7 @@ function App() {
     selectedSketchProfile,
     extrudeAction,
     loftAction,
+    revolveAction,
     edgeOpAction,
     activeSketchPlaneId,
     activeSketchTool,
@@ -2627,24 +2762,40 @@ function App() {
             });
           }}
           canExtrude={
-            !loftAction && (!extrudeAction || extrudeAction.phase === "pending")
+            !loftAction &&
+            !revolveAction &&
+            (!extrudeAction || extrudeAction.phase === "pending")
           }
           onExtrude={triggerExtrudeAction}
           canLoft={
             !activeSketchPlaneId &&
             !extrudeAction &&
             !loftAction &&
+            !revolveAction &&
             !edgeOpAction &&
             !offsetPlaneAction
           }
           onLoft={triggerLoftAction}
+          canRevolve={
+            !activeSketchPlaneId &&
+            !extrudeAction &&
+            !loftAction &&
+            !revolveAction &&
+            !edgeOpAction &&
+            !offsetPlaneAction
+          }
+          onRevolve={triggerRevolveAction}
           // Modify ribbon: Fillet / Chamfer can be invoked at any
           // time outside a sketch / other floating action. Edge
           // selection is *not* required — the panel opens in
           // "pending" mode and waits for the user to click edges in
           // the viewport.
           canEdgeOp={
-            !activeSketchPlaneId && !extrudeAction && !loftAction && !edgeOpAction
+            !activeSketchPlaneId &&
+            !extrudeAction &&
+            !loftAction &&
+            !revolveAction &&
+            !edgeOpAction
           }
           onFillet={async () => {
             await triggerEdgeOpAction("fillet");
@@ -2656,6 +2807,7 @@ function App() {
             !activeSketchPlaneId &&
             !extrudeAction &&
             !loftAction &&
+            !revolveAction &&
             !edgeOpAction &&
             !offsetPlaneAction
           }
@@ -2951,6 +3103,7 @@ function App() {
               status={status}
               document={document}
               viewport={viewport}
+              inactiveSketchEntityPickEnabled={revolveAction !== null}
               onSnapshotCaptureReady={(capture) => {
                 snapshotCaptureRef.current = capture;
               }}
@@ -3387,6 +3540,12 @@ function App() {
                 }
               }}
               onSelectSketchEntity={async (entityId, additive) => {
+                if (revolveAction && sketchLineLabelById.has(entityId)) {
+                  setRevolveAction((current) =>
+                    current ? {...current, axisEntityId: entityId} : current,
+                  );
+                  return;
+                }
                 await runAction(async () => {
                   await handleSketchConstraintLinePick(entityId, additive);
                 });
@@ -3509,6 +3668,15 @@ function App() {
                         : current,
                     );
                   }
+                  return;
+                }
+                if (revolveAction) {
+                  await runAction(async () => {
+                    await selectSketchProfile(profileId, false);
+                  });
+                  setRevolveAction((current) =>
+                    current ? {...current, profileId} : current,
+                  );
                   return;
                 }
                 await runAction(async () => {
@@ -3871,6 +4039,106 @@ function App() {
                       });
                     }
                     setLoftAction(null);
+                    await restoreTimelineCursorAfterEdit();
+                  }}
+                />
+              ) : null}
+              {revolveAction ? (
+                <RevolvePreviewPanel
+                  phase={revolveAction.phase}
+                  initialAngle={revolveAction.initialAngle}
+                  profileLabel={
+                    revolveAction.profileId
+                      ? sketchProfileLabelById.get(revolveAction.profileId) ??
+                        "Profile"
+                      : null
+                  }
+                  axisLabel={
+                    revolveAction.axisEntityId
+                      ? sketchLineLabelById.get(revolveAction.axisEntityId) ??
+                        "Line"
+                      : null
+                  }
+                  disabled={status !== "connected"}
+                  canConfirm={
+                    revolveAction.phase === "active" &&
+                    Boolean(revolveAction.profileId) &&
+                    Boolean(revolveAction.axisEntityId)
+                  }
+                  onPreviewAngle={async (angleDegrees) => {
+                    if (
+                      revolveAction.phase === "active" &&
+                      revolveAction.featureId
+                    ) {
+                      await runAction(async () => {
+                        await updateRevolveAngle(
+                          revolveAction.featureId!,
+                          angleDegrees,
+                        );
+                      });
+                    }
+                    setRevolveAction((current) =>
+                      current?.featureId === revolveAction.featureId
+                        ? {...current, initialAngle: angleDegrees}
+                        : current,
+                    );
+                  }}
+                  onConfirm={async (angleDegrees) => {
+                    if (
+                      revolveAction.phase !== "active" ||
+                      !revolveAction.featureId
+                    ) {
+                      return;
+                    }
+                    await runAction(async () => {
+                      await updateRevolveAngle(
+                        revolveAction.featureId!,
+                        angleDegrees,
+                      );
+                    });
+                    const confirmedFeature =
+                      document?.feature_history.find(
+                        (entry) => entry.feature_id === revolveAction.featureId,
+                      ) ?? null;
+                    const sourceSketchIds = [
+                      confirmedFeature?.revolve_parameters?.sketch_feature_id,
+                      confirmedFeature?.revolve_parameters?.axis_sketch_feature_id,
+                    ].filter((id): id is string => Boolean(id));
+                    if (sourceSketchIds.length > 0) {
+                      setHiddenFeatureIds((current) => {
+                        const next = new Set(current);
+                        for (const featureId of sourceSketchIds) {
+                          next.add(featureId);
+                        }
+                        return next;
+                      });
+                    }
+                    setRevolveAction(null);
+                    await restoreTimelineCursorAfterEdit();
+                  }}
+                  onCancel={async () => {
+                    const snapshot = revolveAction.originalSnapshot;
+                    if (snapshot && revolveAction.featureId) {
+                      await runAction(async () => {
+                        await updateRevolveProfile(
+                          revolveAction.featureId!,
+                          snapshot.profileId,
+                        );
+                        await updateRevolveAxis(
+                          revolveAction.featureId!,
+                          snapshot.axisEntityId,
+                        );
+                        await updateRevolveAngle(
+                          revolveAction.featureId!,
+                          snapshot.angleDegrees,
+                        );
+                      });
+                    } else if (revolveAction.phase === "active") {
+                      await runAction(async () => {
+                        await undo();
+                      });
+                    }
+                    setRevolveAction(null);
                     await restoreTimelineCursorAfterEdit();
                   }}
                 />
@@ -4308,7 +4576,7 @@ function App() {
               return;
             }
             if (feature.kind === "extrude" && feature.extrude_parameters) {
-              if (extrudeAction || loftAction || edgeOpAction) {
+              if (extrudeAction || loftAction || revolveAction || edgeOpAction) {
                 return;
               }
               const params = feature.extrude_parameters;
@@ -4332,7 +4600,7 @@ function App() {
               });
             }
             if (feature.kind === "loft" && feature.loft_parameters) {
-              if (extrudeAction || loftAction || edgeOpAction) {
+              if (extrudeAction || loftAction || revolveAction || edgeOpAction) {
                 return;
               }
               const params = feature.loft_parameters;
@@ -4347,6 +4615,26 @@ function App() {
                 originalSnapshot: {
                   profileIds,
                   ruled: params.ruled,
+                },
+              });
+            }
+            if (feature.kind === "revolve" && feature.revolve_parameters) {
+              if (extrudeAction || loftAction || revolveAction || edgeOpAction) {
+                return;
+              }
+              const params = feature.revolve_parameters;
+              beginTimelineEditSession(featureId, feature.kind);
+              lastRevolveInputsRef.current = `${params.profile_id}|${params.axis_entity_id}`;
+              setRevolveAction({
+                phase: "active",
+                featureId,
+                profileId: params.profile_id,
+                axisEntityId: params.axis_entity_id,
+                initialAngle: params.angle_degrees,
+                originalSnapshot: {
+                  profileId: params.profile_id,
+                  axisEntityId: params.axis_entity_id,
+                  angleDegrees: params.angle_degrees,
                 },
               });
             }

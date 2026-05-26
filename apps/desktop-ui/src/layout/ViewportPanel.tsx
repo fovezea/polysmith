@@ -381,6 +381,7 @@ interface ViewportPanelProps {
   // on a sketch entity is routed through `onMirrorEntityPick`
   // instead of the normal selection / armed-constraint paths.
   mirrorFocusedSlot: "objects" | "axis" | null;
+  inactiveSketchEntityPickEnabled?: boolean;
   onMirrorEntityPick: (
     entityId: string,
     entityKind: "line" | "circle",
@@ -997,6 +998,7 @@ export function ViewportPanel({
   onPickSketchPoint,
   armedSketchConstraint,
   mirrorFocusedSlot,
+  inactiveSketchEntityPickEnabled = false,
   onMirrorEntityPick,
   onCancelSketchConstraint,
   onClearSketchConstraint,
@@ -5903,10 +5905,58 @@ const currentGridSpacingRef = useRef(10);
       // this", not "select the underlying face". Profiles whose owning
       // sketch was hidden (e.g. auto-hide-after-extrude) won't have a
       // mesh in the ref array, so they naturally drop out of the pick.
+      if (inactiveSketchEntityPickEnabled) {
+        const [sketchEntityHit] = raycaster.intersectObjects(
+          sketchEntityObjectsRef.current,
+          false,
+        );
+        const sketchEntityId = sketchEntityHit?.object.userData.sketchEntityId;
+        const sketchEntityKind =
+          sketchEntityHit?.object.userData.sketchEntityKind;
+        const sketchEntityIsProjected =
+          sketchEntityHit?.object.userData.sketchEntityIsProjected === true;
+        if (
+          typeof sketchEntityId === "string" &&
+          sketchEntityKind === "line"
+        ) {
+          const hitPoint = sketchEntityHit!.point;
+          return {
+            kind: "sketch_entity" as const,
+            id: sketchEntityId,
+            entityKind: "line",
+            isProjected: sketchEntityIsProjected,
+            worldPoint: [hitPoint.x, hitPoint.y, hitPoint.z] as const,
+          };
+        }
+      }
+
       {
         const profileId = pickSketchProfileId();
         if (profileId) {
           return { kind: "sketch_profile" as const, id: profileId };
+        }
+      }
+
+      if (inactiveSketchEntityPickEnabled) {
+        const [sketchEntityHit] = raycaster.intersectObjects(
+          sketchEntityObjectsRef.current,
+          false,
+        );
+        const sketchEntityId = sketchEntityHit?.object.userData.sketchEntityId;
+        const sketchEntityKind =
+          sketchEntityHit?.object.userData.sketchEntityKind;
+        const sketchEntityIsProjected =
+          sketchEntityHit?.object.userData.sketchEntityIsProjected === true;
+        if (typeof sketchEntityId === "string") {
+          const hitPoint = sketchEntityHit!.point;
+          return {
+            kind: "sketch_entity" as const,
+            id: sketchEntityId,
+            entityKind:
+              typeof sketchEntityKind === "string" ? sketchEntityKind : null,
+            isProjected: sketchEntityIsProjected,
+            worldPoint: [hitPoint.x, hitPoint.y, hitPoint.z] as const,
+          };
         }
       }
 
@@ -7586,6 +7636,15 @@ const currentGridSpacingRef = useRef(10);
             return;
           }
 
+          if (
+            inactiveSketchEntityPickEnabled &&
+            hit?.kind === "sketch_entity" &&
+            hit.entityKind === "line"
+          ) {
+            void selectSketchEntityRef.current(hit.id, false);
+            return;
+          }
+
           if (hit?.kind === "sketch_profile") {
             void selectSketchProfileRef.current(
               hit.id,
@@ -8380,6 +8439,14 @@ const currentGridSpacingRef = useRef(10);
       }
 
       const hit = intersectSceneTargets(event);
+      if (
+        inactiveSketchEntityPickEnabled &&
+        hit?.kind === "sketch_entity" &&
+        hit.entityKind === "line"
+      ) {
+        void selectSketchEntityRef.current(hit.id, false);
+        return;
+      }
       if (hit?.kind === "sketch_profile") {
         // Profiles are pickable outside sketch mode so the user can
         // run Extrude on a closed profile without re-entering its

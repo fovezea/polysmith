@@ -201,6 +201,7 @@ kinds currently include:
 - `sketch`
 - `extrude`
 - `loft`
+- `revolve`
 - `fillet`
 - `chamfer`
 - `construction_plane`
@@ -1663,6 +1664,74 @@ Payload:
 }
 ```
 
+### Profile Revolve
+
+#### `revolve_profile`
+
+Creates a new body by revolving one sketch profile around a sketch line axis.
+This command does not require an active sketch.
+
+Payload:
+
+```ts
+{
+  profile_id: string;
+  axis_entity_id: string;
+  angle_degrees?: number;
+}
+```
+
+Rules:
+
+- Use a profile ID from `feature_history[].sketch_parameters.profiles[]` or
+  `viewport_state.sketch_profiles[]`.
+- Use a sketch line ID for `axis_entity_id`; the axis may come from a different
+  sketch than the profile.
+- `angle_degrees` defaults to `360` and must be greater than `0` and no more
+  than `360`.
+- Revolve always creates a new body; boolean join/cut is not supported yet.
+
+#### `update_revolve_profile`
+
+Replaces the source profile for an existing revolve while preserving its axis
+and angle.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+  profile_id: string;
+}
+```
+
+#### `update_revolve_axis`
+
+Replaces the axis line for an existing revolve while preserving its profile and
+angle.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+  axis_entity_id: string;
+}
+```
+
+#### `update_revolve_angle`
+
+Changes an existing revolve angle in degrees for live preview or timeline edit.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+  angle_degrees: number;
+}
+```
+
 ### Body Fillets and Chamfers
 
 These commands operate on body edges from `viewport_state.edges[]`. Edge IDs
@@ -1870,6 +1939,7 @@ Parameter fields:
 - `cylinder_parameters: { radius, height } | null`
 - `extrude_parameters: ExtrudeFeatureParameters | null`
 - `loft_parameters: { ruled, sections[] } | null`
+- `revolve_parameters: { sketch_feature_id, profile_id, axis_sketch_feature_id, axis_entity_id, axis_start_x, axis_start_y, axis_start_z, axis_end_x, axis_end_y, axis_end_z, angle_degrees } | null`
 - `fillet_parameters: { target_body_id, edge_ids, radius } | null`
 - `chamfer_parameters: { target_body_id, edge_ids, distance } | null`
 - `construction_plane_parameters: { source_plane_id, offset, plane_frame } | null`
@@ -2249,6 +2319,10 @@ this:
   `update_extrude_target_body`, and `update_extrude_profiles`.
 - Loft sketch profiles with `loft_profiles { profile_ids, ruled? }`; update
   lofts with `update_loft_profiles` and `update_loft_ruled`.
+- Revolve one sketch profile around one sketch line with
+  `revolve_profile { profile_id, axis_entity_id, angle_degrees? }`; update
+  revolves with `update_revolve_profile`, `update_revolve_axis`, and
+  `update_revolve_angle`.
 - Read `viewport_state.bodies[]` for boolean targets.
 - Read `viewport_state.solid_faces[]` for face sketches and copy `plane_frame`.
 - Read `viewport_state.edges[]` for body fillet/chamfer.

@@ -868,6 +868,64 @@ export function makeUpdateLoftRuledCommand(
   };
 }
 
+export function makeRevolveProfileCommand(
+  profileId: string,
+  axisEntityId: string,
+  angleDegrees = 360,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "revolve_profile",
+    payload: {
+      profile_id: profileId,
+      axis_entity_id: axisEntityId,
+      angle_degrees: angleDegrees,
+    },
+  };
+}
+
+export function makeUpdateRevolveProfileCommand(
+  featureId: string,
+  profileId: string,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_revolve_profile",
+    payload: {
+      feature_id: featureId,
+      profile_id: profileId,
+    },
+  };
+}
+
+export function makeUpdateRevolveAxisCommand(
+  featureId: string,
+  axisEntityId: string,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_revolve_axis",
+    payload: {
+      feature_id: featureId,
+      axis_entity_id: axisEntityId,
+    },
+  };
+}
+
+export function makeUpdateRevolveAngleCommand(
+  featureId: string,
+  angleDegrees: number,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_revolve_angle",
+    payload: {
+      feature_id: featureId,
+      angle_degrees: angleDegrees,
+    },
+  };
+}
+
 export function makeAddSketchLineCommand(
   startX: number,
   startY: number,

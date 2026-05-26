@@ -263,6 +263,8 @@ interface AppHeaderProps {
   onExtrude: () => Promise<void>;
   canLoft: boolean;
   onLoft: () => Promise<void>;
+  canRevolve: boolean;
+  onRevolve: () => Promise<void>;
   // Modify ribbon (Fillet / Chamfer). Enabled state is owned by the
   // parent so it can match the F-hotkey gating exactly.
   canEdgeOp: boolean;
@@ -349,6 +351,8 @@ export function AppHeader({
   onExtrude,
   canLoft,
   onLoft,
+  canRevolve,
+  onRevolve,
   canEdgeOp,
   onFillet,
   onChamfer,
@@ -625,6 +629,8 @@ export function AppHeader({
                 onExtrude={onExtrude}
                 canLoft={canLoft}
                 onLoft={onLoft}
+                canRevolve={canRevolve}
+                onRevolve={onRevolve}
               />
             ) : null}
 

@@ -1,6 +1,12 @@
 import { BoxFeatureForm } from "../BoxFeatureForm";
 import { CylinderFeatureForm } from "../CylinderFeatureForm";
-import { BoxIcon, CylinderIcon, ExtrudeIcon, LoftIcon } from "./ToolBarIcons";
+import {
+  BoxIcon,
+  CylinderIcon,
+  ExtrudeIcon,
+  LoftIcon,
+  RevolveIcon,
+} from "./ToolBarIcons";
 import { formatHotkey, useAppConfig } from "@/config";
 import { useTranslation } from "react-i18next";
 
@@ -21,6 +27,8 @@ export interface CreateToolbarProps {
   onExtrude: () => Promise<void>;
   canLoft: boolean;
   onLoft: () => Promise<void>;
+  canRevolve: boolean;
+  onRevolve: () => Promise<void>;
 }
 
 // Flat icon-only button shared by every action in the Create ribbon.
@@ -42,6 +50,8 @@ export function CreateToolbar({
   onExtrude,
   canLoft,
   onLoft,
+  canRevolve,
+  onRevolve,
 }: CreateToolbarProps) {
   const { config } = useAppConfig();
   const { t } = useTranslation();
@@ -95,6 +105,17 @@ export function CreateToolbar({
           disabled={disabled || !canLoft}
         >
           <LoftIcon />
+        </button>
+        <button
+          className={ICON_BUTTON_BASE}
+          data-tooltip={t("toolbar.revolve")}
+          aria-label={t("toolbar.revolve")}
+          onClick={() => {
+            void onRevolve();
+          }}
+          disabled={disabled || !canRevolve}
+        >
+          <RevolveIcon />
         </button>
         {openMenu === "box" ? (
           <div className="cad-toolbar-popover absolute left-0 top-[calc(100%+0.75rem)] w-[360px]">

@@ -338,7 +338,7 @@ CompiledBodies compile_bodies(const DocumentState& document) {
       any_boolean = true;
       break;
     }
-    if (feature.kind == "loft") {
+    if (feature.kind == "loft" || feature.kind == "revolve") {
       any_boolean = true;
       break;
     }

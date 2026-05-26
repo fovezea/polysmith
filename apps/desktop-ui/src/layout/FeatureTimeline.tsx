@@ -43,11 +43,18 @@ interface ContextMenuState {
 // non-editable kinds so the user discovers what's coming, rather than
 // being silently ignored on click.
 // Kinds the parent can do *something* meaningful with on double-click.
-// `box` / `cylinder` open their parameter panels; `extrude` opens the
-// extrude preview panel for depth / mode / target-body editing; `sketch`
-// re-enters the sketch (same as the hierarchy panel's pencil icon).
+// `box` / `cylinder` open their parameter panels; profile-based features open
+// their preview panels for live edits; `sketch` re-enters the sketch (same as
+// the hierarchy panel's pencil icon).
 // The actual dispatch lives in App.tsx's `onEditFeature`.
-const EDITABLE_KINDS = new Set(["box", "cylinder", "extrude", "loft", "sketch"]);
+const EDITABLE_KINDS = new Set([
+  "box",
+  "cylinder",
+  "extrude",
+  "loft",
+  "revolve",
+  "sketch",
+]);
 
 export function FeatureTimeline({
   document,

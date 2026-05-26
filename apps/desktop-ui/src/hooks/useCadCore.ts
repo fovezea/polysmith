@@ -102,6 +102,10 @@ import {
   makeUpdateExtrudeProfilesCommand,
   makeUpdateExtrudeTargetBodyCommand,
   makeLoftProfilesCommand,
+  makeRevolveProfileCommand,
+  makeUpdateRevolveAngleCommand,
+  makeUpdateRevolveAxisCommand,
+  makeUpdateRevolveProfileCommand,
   makeUpdateLoftProfilesCommand,
   makeUpdateLoftRuledCommand,
   parseCoreMessage,
@@ -860,6 +864,34 @@ export function useCadCore() {
     },
     updateLoftRuled: async (featureId: string, ruled: boolean) => {
       await sendCoreCommand(makeUpdateLoftRuledCommand(featureId, ruled));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    revolveProfile: async (
+      profileId: string,
+      axisEntityId: string,
+      angleDegrees = 360,
+    ) => {
+      await sendCoreCommand(
+        makeRevolveProfileCommand(profileId, axisEntityId, angleDegrees),
+      );
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateRevolveProfile: async (featureId: string, profileId: string) => {
+      await sendCoreCommand(makeUpdateRevolveProfileCommand(featureId, profileId));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateRevolveAxis: async (featureId: string, axisEntityId: string) => {
+      await sendCoreCommand(makeUpdateRevolveAxisCommand(featureId, axisEntityId));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateRevolveAngle: async (featureId: string, angleDegrees: number) => {
+      await sendCoreCommand(
+        makeUpdateRevolveAngleCommand(featureId, angleDegrees),
+      );
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());
     },

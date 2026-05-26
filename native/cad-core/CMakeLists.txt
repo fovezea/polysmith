@@ -33,6 +33,7 @@ add_executable(cad_core
   src/core/loft_feature.cpp
   src/core/logger.cpp
   src/core/refresh_dependents.cpp
+  src/core/revolve_feature.cpp
   src/core/sketch_feature.cpp
   src/core/sketch_profile.cpp
   src/core/snap_engine.cpp

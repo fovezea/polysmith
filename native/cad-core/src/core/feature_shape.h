@@ -12,6 +12,7 @@ TopoDS_Shape build_box_shape(const BoxFeatureParameters& parameters);
 TopoDS_Shape build_cylinder_shape(const CylinderFeatureParameters& parameters);
 TopoDS_Shape build_extrude_shape(const ExtrudeFeatureParameters& parameters);
 TopoDS_Shape build_loft_shape(const LoftFeatureParameters& parameters);
+TopoDS_Shape build_revolve_shape(const RevolveFeatureParameters& parameters);
 
 // Convenience that dispatches on FeatureEntry::kind. Returns a null shape
 // for non-solid features (e.g. sketches) instead of throwing, so callers

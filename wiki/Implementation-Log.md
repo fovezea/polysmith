@@ -4,6 +4,15 @@ This document tracks concrete implementation milestones as they land in the code
 
 ## 2026-05-26
 
+### Revolve v1
+
+- added a core-owned `revolve` feature with `RevolveFeatureParameters` storing the source profile, source axis line, cached axis world coordinates, sampled profile loops, and angle
+- implemented `revolve_profile`, `update_revolve_profile`, `update_revolve_axis`, and `update_revolve_angle` IPC commands for real OCCT preview geometry
+- wired revolved solids through the body compiler and viewport mesh path so they behave like other timeline-created bodies
+- added the Create > Revolve toolbar action, contextual Revolve panel, profile/axis picking, live angle preview, timeline edit support, IPC builders/hooks/types/schemas, AI command validation, and English UI strings
+- extended dependency tracking so profile sketch or axis sketch edits re-resolve the revolve when possible and mark `dependency_broken` with a warning when the source profile or axis line can no longer be rebuilt
+- updated `IPC-Protocol` and `AI-CAD-Command-Language` with the new revolve commands and serialized feature parameters
+
 ### Loft v1
 
 - added a core-owned `loft` feature with `LoftFeatureParameters { sections[], ruled }`; sections store the source sketch/profile ids, plane frame, and sampled closed-loop profile points

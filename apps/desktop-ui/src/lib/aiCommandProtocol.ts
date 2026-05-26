@@ -309,6 +309,22 @@ const commandPayloadSchemas = {
   update_loft_ruled: z
     .object({ feature_id: stringField, ruled: booleanField })
     .strict(),
+  revolve_profile: z
+    .object({
+      profile_id: stringField,
+      axis_entity_id: stringField,
+      angle_degrees: numberField.optional(),
+    })
+    .strict(),
+  update_revolve_profile: z
+    .object({ feature_id: stringField, profile_id: stringField })
+    .strict(),
+  update_revolve_axis: z
+    .object({ feature_id: stringField, axis_entity_id: stringField })
+    .strict(),
+  update_revolve_angle: z
+    .object({ feature_id: stringField, angle_degrees: numberField })
+    .strict(),
   select_sketch_entity: z
     .object({ entity_id: stringField, additive: booleanField })
     .strict(),
@@ -514,6 +530,29 @@ export function validateAiCommandBatchForState(
       }
     }
 
+    if (
+      command.type === "revolve_profile" ||
+      command.type === "update_revolve_profile"
+    ) {
+      if (!knownProfileIds.has(command.payload.profile_id)) {
+        throw new Error(
+          `${command.type} references unknown profile "${command.payload.profile_id}". Draw geometry first, refresh state, then use the real profile_id.`,
+        );
+      }
+    }
+
+    if (
+      command.type === "revolve_profile" ||
+      command.type === "update_revolve_axis"
+    ) {
+      const knownSketchLineIds = collectKnownSketchLineIds(document);
+      if (!knownSketchLineIds.has(command.payload.axis_entity_id)) {
+        throw new Error(
+          `${command.type} references unknown axis line "${command.payload.axis_entity_id}". Use a sketch line id from current state.`,
+        );
+      }
+    }
+
     if (command.type === "project_profile_into_sketch") {
       if (!knownProfileIds.has(command.payload.profile_id)) {
         throw new Error(
@@ -690,14 +729,20 @@ function findUnknownProfileExtrudeIndex(
 ) {
   const knownProfileIds = collectKnownProfileIds(document, viewport);
   return commands.findIndex((command) => {
-    if (command.type !== "extrude_profile" && command.type !== "loft_profiles") {
+    if (
+      command.type !== "extrude_profile" &&
+      command.type !== "loft_profiles" &&
+      command.type !== "revolve_profile"
+    ) {
       return false;
     }
     const profileIds =
       command.type === "extrude_profile"
         ? command.payload.profile_ids ??
           (command.payload.profile_id ? [command.payload.profile_id] : [])
-        : command.payload.profile_ids;
+        : command.type === "loft_profiles"
+          ? command.payload.profile_ids
+          : [command.payload.profile_id];
     return profileIds.some((profileId) => !knownProfileIds.has(profileId));
   });
 }
@@ -716,6 +761,16 @@ function collectKnownProfileIds(
     knownProfileIds.add(profile.profile_id);
   }
   return knownProfileIds;
+}
+
+function collectKnownSketchLineIds(document: DocumentState | null) {
+  const knownLineIds = new Set<string>();
+  for (const feature of document?.feature_history ?? []) {
+    for (const line of feature.sketch_parameters?.lines ?? []) {
+      knownLineIds.add(line.line_id);
+    }
+  }
+  return knownLineIds;
 }
 
 export function buildAiWorkingReferences(

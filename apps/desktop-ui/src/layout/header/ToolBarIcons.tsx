@@ -391,6 +391,25 @@ export const LoftIcon = () => (
   </svg>
 );
 
+export const RevolveIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-7 w-7"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M7 18V6" />
+    <path d="M11 8.5c4.4.7 7 2.2 7 3.5s-2.6 2.8-7 3.5" />
+    <path d="M11 6v12" />
+    <path d="M11 6c2.4 1.4 3.8 3.4 3.8 6S13.4 16.6 11 18" />
+    <path d="m17 9 2 3-2 3" />
+  </svg>
+);
+
 export const PatternIcon = () => (
   <svg
     viewBox="0 0 24 24"
@@ -662,6 +681,8 @@ export function FeatureKindIcon({ kind }: { kind: string }) {
       return <SphereIcon />;
     case "loft":
       return <LoftIcon />;
+    case "revolve":
+      return <RevolveIcon />;
     case "pattern":
       return <PatternIcon />;
     case "sketch":

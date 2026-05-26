@@ -24,6 +24,8 @@ profiles. Extrude profiles with extrude_profile using profile_ids, depth, mode
 (new_body, join, cut), and optional target_body_id. Extrude planar body faces
 with extrude_face using face_id, depth, mode, and optional target_body_id. Read
 multiple profile IDs in section order for loft_profiles { profile_ids, ruled? }.
+Revolve one profile around a sketch line axis with revolve_profile
+{ profile_id, axis_entity_id, angle_degrees? }.
 viewport_state.bodies for boolean targets. Read viewport_state.edges for body
 fillet/chamfer. Read sketch lines, circles, arcs, points, profiles, and dimensions from
 feature_history[].sketch_parameters. Use create_fillet/create_chamfer for body
@@ -49,6 +51,10 @@ Common command payloads:
 - loft_profiles { profile_ids, ruled? }
 - update_loft_profiles { feature_id, profile_ids }
 - update_loft_ruled { feature_id, ruled }
+- revolve_profile { profile_id, axis_entity_id, angle_degrees? }
+- update_revolve_profile { feature_id, profile_id }
+- update_revolve_axis { feature_id, axis_entity_id }
+- update_revolve_angle { feature_id, angle_degrees }
 - update_extrude_depth { feature_id, depth }
 - update_extrude_mode { feature_id, mode }
 - update_extrude_target_body { feature_id, target_body_id? }
