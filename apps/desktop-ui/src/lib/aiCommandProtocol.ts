@@ -103,6 +103,13 @@ const commandPayloadSchemas = {
     .strict(),
   confirm_fillet: z.object({ feature_id: stringField }).strict(),
   confirm_chamfer: z.object({ feature_id: stringField }).strict(),
+  create_shell: z
+    .object({ face_id: stringField, thickness: numberField })
+    .strict(),
+  update_shell_thickness: z
+    .object({ feature_id: stringField, thickness: numberField })
+    .strict(),
+  confirm_shell: z.object({ feature_id: stringField }).strict(),
   create_offset_plane: z
     .object({ source_plane_id: stringField, offset: numberField })
     .strict(),

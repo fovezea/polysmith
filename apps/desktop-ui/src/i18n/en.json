@@ -148,6 +148,7 @@
     "offsetMm": "Offset (mm)",
     "radius": "Radius",
     "radiusMm": "Radius (mm)",
+    "thicknessMm": "Thickness (mm)",
     "width": "Width"
   },
   "panels": {
@@ -243,6 +244,12 @@
     "tangentPlane": {
       "pickSource": "Click a curved face in the viewport",
       "title": "Tangent Plane"
+    },
+    "shell": {
+      "adjustThickness": "Adjust thickness",
+      "fromFace": "Remove {{face}}",
+      "pickFace": "Click the face to remove",
+      "title": "Shell"
     },
     "shortcutHint": {
       "apply": "Enter to apply · Esc to cancel",

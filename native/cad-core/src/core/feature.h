@@ -166,6 +166,15 @@ struct ChamferFeatureParameters {
   bool is_pending = false;
 };
 
+struct ShellFeatureParameters {
+  std::string target_body_id;
+  std::vector<std::string> removed_face_ids;
+  double thickness;
+  // Same pending semantics as fillet/chamfer. While the panel is open
+  // the viewport can keep selection stable against the pre-shell body.
+  bool is_pending = false;
+};
+
 // Parametric offset construction plane.
 //
 // `plane_type` identifies the construction-plane recipe:
@@ -621,6 +630,7 @@ struct FeatureEntry {
   std::optional<SketchFeatureParameters> sketch_parameters;
   std::optional<FilletFeatureParameters> fillet_parameters;
   std::optional<ChamferFeatureParameters> chamfer_parameters;
+  std::optional<ShellFeatureParameters> shell_parameters;
   std::optional<ConstructionPlaneFeatureParameters> construction_plane_parameters;
   std::optional<LoftFeatureParameters> loft_parameters;
   std::optional<RevolveFeatureParameters> revolve_parameters;

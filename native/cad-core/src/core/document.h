@@ -165,6 +165,10 @@ class DocumentManager {
       const std::vector<std::string>& edge_ids);
   // See `confirm_fillet` for semantics.
   DocumentState confirm_chamfer(const std::string& feature_id);
+  DocumentState create_shell(const std::string& face_id, double thickness);
+  DocumentState update_shell_thickness(const std::string& feature_id,
+                                       double thickness);
+  DocumentState confirm_shell(const std::string& feature_id);
   // Create a parametric offset construction plane. The source must
   // resolve via `resolve_plane_source_frame` (origin plane,
   // construction plane feature id, or "<body_id>:face:<index>"

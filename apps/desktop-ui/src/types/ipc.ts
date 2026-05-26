@@ -570,6 +570,32 @@ export interface ConfirmChamferCommand {
   };
 }
 
+export interface CreateShellCommand {
+  id: string;
+  type: "create_shell";
+  payload: {
+    face_id: string;
+    thickness: number;
+  };
+}
+
+export interface UpdateShellThicknessCommand {
+  id: string;
+  type: "update_shell_thickness";
+  payload: {
+    feature_id: string;
+    thickness: number;
+  };
+}
+
+export interface ConfirmShellCommand {
+  id: string;
+  type: "confirm_shell";
+  payload: {
+    feature_id: string;
+  };
+}
+
 // Create a parametric offset construction plane. `source_plane_id`
 // must resolve to a plane the core knows about (origin plane,
 // existing construction plane, sketch profile id, or
@@ -1334,6 +1360,9 @@ export type CoreCommand =
   | UpdateChamferDistanceCommand
   | UpdateChamferEdgesCommand
   | ConfirmChamferCommand
+  | CreateShellCommand
+  | UpdateShellThicknessCommand
+  | ConfirmShellCommand
   | CreateOffsetPlaneCommand
   | CreateMidplaneCommand
   | CreateTangentPlaneCommand

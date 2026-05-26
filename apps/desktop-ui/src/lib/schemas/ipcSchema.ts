@@ -203,6 +203,7 @@ const documentStateSchema = z.object({
           target_body_id: z.string(),
           edge_ids: z.array(z.string()),
           radius: z.number(),
+          is_pending: z.boolean().default(false),
         })
         .nullable()
         .default(null),
@@ -211,6 +212,16 @@ const documentStateSchema = z.object({
           target_body_id: z.string(),
           edge_ids: z.array(z.string()),
           distance: z.number(),
+          is_pending: z.boolean().default(false),
+        })
+        .nullable()
+        .default(null),
+      shell_parameters: z
+        .object({
+          target_body_id: z.string(),
+          removed_face_ids: z.array(z.string()),
+          thickness: z.number(),
+          is_pending: z.boolean().default(false),
         })
         .nullable()
         .default(null),

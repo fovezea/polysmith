@@ -16,8 +16,10 @@ interface ModifyToolbarProps {
   // are clickable. The action handlers themselves are no-ops in
   // every other case, so this prop just controls visual affordance.
   canEdgeOp: boolean;
+  canShell: boolean;
   onFillet: () => void;
   onChamfer: () => void;
+  onShell: () => void;
 }
 
 // Match the Create ribbon's icon-button styling so the Modify ribbon
@@ -33,15 +35,16 @@ const placeholderTools: Array<{
   Icon: () => ReactElement;
 }> = [
   { labelKey: "toolbar.pressPull", Icon: PressPullIcon },
-  { labelKey: "toolbar.shell", Icon: ShellIcon },
   { labelKey: "toolbar.move", Icon: MoveIcon },
 ];
 
 export function ModifyToolbar({
   disabled,
   canEdgeOp,
+  canShell,
   onFillet,
   onChamfer,
+  onShell,
 }: ModifyToolbarProps) {
   const { config } = useAppConfig();
   const { t } = useTranslation();
@@ -67,6 +70,16 @@ export function ModifyToolbar({
         onClick={onChamfer}
       >
         <ChamferIcon />
+      </button>
+      <button
+        type="button"
+        className={ICON_BUTTON_BASE}
+        data-tooltip={t("toolbar.shell")}
+        aria-label={t("toolbar.shell")}
+        disabled={disabled || !canShell}
+        onClick={onShell}
+      >
+        <ShellIcon />
       </button>
       {placeholderTools.map(({ labelKey, Icon }) => (
         <button

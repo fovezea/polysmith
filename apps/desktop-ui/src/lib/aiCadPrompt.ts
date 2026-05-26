@@ -61,6 +61,9 @@ Common command payloads:
 - update_extrude_parameters { feature_id, parameters }
 - create_fillet { edge_ids, radius }
 - create_chamfer { edge_ids, distance }
+- create_shell { face_id, thickness }
+- update_shell_thickness { feature_id, thickness }
+- confirm_shell { feature_id }
 - create_offset_plane { source_plane_id, offset }
 - create_midplane { source_plane_ids }
 - create_tangent_plane { source_face_id }

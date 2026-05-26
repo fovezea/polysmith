@@ -1945,6 +1945,48 @@ Payload:
 }
 ```
 
+#### `create_shell`
+
+Creates a shell preview/feature from a selected body face. The selected face is
+removed as the shell opening.
+
+Payload:
+
+```ts
+{
+  face_id: string;
+  thickness: number;
+}
+```
+
+`face_id` must come from `viewport_state.solid_faces[]`. `thickness` must be
+positive and is applied inward.
+
+#### `update_shell_thickness`
+
+Changes a shell thickness.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+  thickness: number;
+}
+```
+
+#### `confirm_shell`
+
+Confirms a shell feature.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+}
+```
+
 ### Project Into Sketch
 
 Projection commands require an active sketch. They copy or live-link body
@@ -2040,8 +2082,9 @@ Parameter fields:
 - `extrude_parameters: ExtrudeFeatureParameters | null`
 - `loft_parameters: { ruled, sections[] } | null`
 - `revolve_parameters: { sketch_feature_id, profile_id, axis_sketch_feature_id, axis_entity_id, axis_start_x, axis_start_y, axis_start_z, axis_end_x, axis_end_y, axis_end_z, angle_degrees } | null`
-- `fillet_parameters: { target_body_id, edge_ids, radius } | null`
-- `chamfer_parameters: { target_body_id, edge_ids, distance } | null`
+- `fillet_parameters: { target_body_id, edge_ids, radius, is_pending } | null`
+- `chamfer_parameters: { target_body_id, edge_ids, distance, is_pending } | null`
+- `shell_parameters: { target_body_id, removed_face_ids, thickness, is_pending } | null`
 - `construction_plane_parameters: { plane_type, source_plane_id, source_plane_ids, source_axis_id, offset, angle_degrees, plane_frame } | null`
 - `sketch_parameters: SketchFeatureParameters | null`
 

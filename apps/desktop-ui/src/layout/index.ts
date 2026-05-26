@@ -11,6 +11,7 @@ export * from "./ExtrudePreviewPanel";
 export * from "./LoftPreviewPanel";
 export * from "./RevolvePreviewPanel";
 export * from "./EdgeOpPreviewPanel";
+export * from "./ShellPreviewPanel";
 export * from "./OffsetPlanePanel";
 export * from "./AnglePlanePanel";
 export * from "./SettingsModal";

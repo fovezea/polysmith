@@ -71,6 +71,9 @@ import {
   makeUpdateChamferDistanceCommand,
   makeConfirmFilletCommand,
   makeConfirmChamferCommand,
+  makeCreateShellCommand,
+  makeUpdateShellThicknessCommand,
+  makeConfirmShellCommand,
   makeCreateOffsetPlaneCommand,
   makeCreateMidplaneCommand,
   makeCreateTangentPlaneCommand,
@@ -415,6 +418,23 @@ export function useCadCore() {
     },
     confirmChamfer: async (featureId: string) => {
       await sendCoreCommand(makeConfirmChamferCommand(featureId));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    createShell: async (faceId: string, thickness: number) => {
+      await sendCoreCommand(makeCreateShellCommand(faceId, thickness));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateShellThickness: async (featureId: string, thickness: number) => {
+      await sendCoreCommand(
+        makeUpdateShellThicknessCommand(featureId, thickness),
+      );
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    confirmShell: async (featureId: string) => {
+      await sendCoreCommand(makeConfirmShellCommand(featureId));
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());
     },

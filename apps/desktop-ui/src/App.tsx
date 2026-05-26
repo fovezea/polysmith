@@ -44,6 +44,7 @@ import {
   CylinderFeatureForm,
   DocumentHierarchyPanel,
   EdgeOpPreviewPanel,
+  ShellPreviewPanel,
   ExtrudePreviewPanel,
   AnglePlanePanel,
   LoftPreviewPanel,
@@ -72,6 +73,7 @@ import type { RecentProject, RecentProjectsDocument } from "./lib";
 const DEFAULT_EXTRUDE_DEPTH = 20;
 const DEFAULT_FILLET_RADIUS = 1;
 const DEFAULT_CHAMFER_DISTANCE = 1;
+const DEFAULT_SHELL_THICKNESS = 2;
 // Default seed for the Offset Plane panel. Zero would be a valid
 // frame (sitting on top of the source) but gives no visible preview;
 // 10 mm matches common CAD workflow's "show me something" default.
@@ -318,6 +320,17 @@ function App() {
   const [edgeOpAction, setEdgeOpAction] = useState<ActiveEdgeOpAction | null>(
     null,
   );
+  type ShellAction =
+    | { phase: "pending"; initialThickness: number }
+    | {
+        phase: "active";
+        featureId: string;
+        faceId: string;
+        faceSummary: string;
+        initialThickness: number;
+      };
+  const [shellAction, setShellAction] = useState<ShellAction | null>(null);
+  const pendingShellThicknessRef = useRef<number>(DEFAULT_SHELL_THICKNESS);
   // In-progress offset plane session. Mirrors the fillet/chamfer
   // two-phase pattern:
   //   - "pending": panel is open but no construction_plane feature
@@ -617,6 +630,9 @@ function App() {
     updateChamferEdges,
     confirmFillet,
     confirmChamfer,
+    createShell,
+    updateShellThickness,
+    confirmShell,
     createOffsetPlane,
     createMidplane,
     createTangentPlane,
@@ -1554,6 +1570,7 @@ function App() {
       loftAction ||
       revolveAction ||
       edgeOpAction ||
+      shellAction ||
       offsetPlaneAction ||
       midplaneAction ||
       tangentPlaneAction ||
@@ -1796,6 +1813,7 @@ function App() {
       loftAction ||
       revolveAction ||
       edgeOpAction ||
+      shellAction ||
       offsetPlaneAction ||
       midplaneAction ||
       tangentPlaneAction ||
@@ -1814,6 +1832,7 @@ function App() {
       loftAction ||
       revolveAction ||
       edgeOpAction ||
+      shellAction ||
       offsetPlaneAction ||
       midplaneAction ||
       tangentPlaneAction ||
@@ -1836,6 +1855,7 @@ function App() {
       loftAction ||
       revolveAction ||
       edgeOpAction ||
+      shellAction ||
       offsetPlaneAction ||
       midplaneAction ||
       tangentPlaneAction ||
@@ -1876,6 +1896,7 @@ function App() {
       loftAction ||
       revolveAction ||
       edgeOpAction ||
+      shellAction ||
       offsetPlaneAction ||
       midplaneAction ||
       tangentPlaneAction ||
@@ -1956,6 +1977,70 @@ function App() {
     });
   }
 
+  async function createShellFeature(faceId: string, thickness: number) {
+    const documentPromise = awaitDocumentChange((next, previous) => {
+      if (!next.selected_feature_id) {
+        return false;
+      }
+      const previousLength = previous?.feature_history.length ?? 0;
+      if (next.feature_history.length <= previousLength) {
+        return false;
+      }
+      const lastFeature = next.feature_history[next.feature_history.length - 1];
+      return (
+        lastFeature.feature_id === next.selected_feature_id &&
+        lastFeature.kind === "shell"
+      );
+    });
+
+    await runAction(async () => {
+      await createShell(faceId, thickness);
+      try {
+        const nextDocument = await documentPromise;
+        const newFeatureId = nextDocument.selected_feature_id ?? null;
+        if (!newFeatureId) {
+          return;
+        }
+        setShellAction({
+          phase: "active",
+          featureId: newFeatureId,
+          faceId,
+          faceSummary: describePlaneSource(faceId),
+          initialThickness: thickness,
+        });
+      } catch (error) {
+        addMessage(`shell action error: ${String(error)}`);
+      }
+    });
+  }
+
+  async function triggerShellAction() {
+    if (
+      extrudeAction ||
+      loftAction ||
+      revolveAction ||
+      edgeOpAction ||
+      shellAction ||
+      offsetPlaneAction ||
+      midplaneAction ||
+      tangentPlaneAction ||
+      anglePlaneAction ||
+      activeSketchPlaneId
+    ) {
+      return;
+    }
+    pendingShellThicknessRef.current = DEFAULT_SHELL_THICKNESS;
+    const selectedFaceId = document?.selected_face_id ?? null;
+    if (selectedFaceId) {
+      await createShellFeature(selectedFaceId, DEFAULT_SHELL_THICKNESS);
+      return;
+    }
+    setShellAction({
+      phase: "pending",
+      initialThickness: DEFAULT_SHELL_THICKNESS,
+    });
+  }
+
   useEffect(() => {
     function isTypingTarget(target: EventTarget | null) {
       return (
@@ -1992,6 +2077,7 @@ function App() {
         !loftAction &&
         !revolveAction &&
         !edgeOpAction &&
+        !shellAction &&
         document &&
         (document.selected_feature_id ||
           document.selected_reference_id ||
@@ -3134,6 +3220,7 @@ function App() {
           canExtrude={
             !loftAction &&
             !revolveAction &&
+            !shellAction &&
             (!extrudeAction || extrudeAction.phase === "pending")
           }
           onExtrude={triggerExtrudeAction}
@@ -3143,6 +3230,7 @@ function App() {
             !loftAction &&
             !revolveAction &&
             !edgeOpAction &&
+            !shellAction &&
             !offsetPlaneAction &&
             !midplaneAction &&
             !tangentPlaneAction &&
@@ -3155,6 +3243,7 @@ function App() {
             !loftAction &&
             !revolveAction &&
             !edgeOpAction &&
+            !shellAction &&
             !offsetPlaneAction &&
             !midplaneAction &&
             !tangentPlaneAction &&
@@ -3172,6 +3261,7 @@ function App() {
             !loftAction &&
             !revolveAction &&
             !edgeOpAction &&
+            !shellAction &&
             !offsetPlaneAction &&
             !midplaneAction &&
             !tangentPlaneAction &&
@@ -3183,12 +3273,28 @@ function App() {
           onChamfer={async () => {
             await triggerEdgeOpAction("chamfer");
           }}
+          canShell={
+            !activeSketchPlaneId &&
+            !extrudeAction &&
+            !loftAction &&
+            !revolveAction &&
+            !edgeOpAction &&
+            !shellAction &&
+            !offsetPlaneAction &&
+            !midplaneAction &&
+            !tangentPlaneAction &&
+            !anglePlaneAction
+          }
+          onShell={async () => {
+            await triggerShellAction();
+          }}
           canOffsetPlane={
             !activeSketchPlaneId &&
             !extrudeAction &&
             !loftAction &&
             !revolveAction &&
             !edgeOpAction &&
+            !shellAction &&
             !offsetPlaneAction &&
             !midplaneAction &&
             !tangentPlaneAction &&
@@ -3203,6 +3309,7 @@ function App() {
             !loftAction &&
             !revolveAction &&
             !edgeOpAction &&
+            !shellAction &&
             !offsetPlaneAction &&
             !midplaneAction &&
             !tangentPlaneAction &&
@@ -3214,6 +3321,7 @@ function App() {
             !loftAction &&
             !revolveAction &&
             !edgeOpAction &&
+            !shellAction &&
             !offsetPlaneAction &&
             !midplaneAction &&
             !tangentPlaneAction &&
@@ -3225,6 +3333,7 @@ function App() {
             !loftAction &&
             !revolveAction &&
             !edgeOpAction &&
+            !shellAction &&
             !offsetPlaneAction &&
             !midplaneAction &&
             !tangentPlaneAction &&
@@ -3572,6 +3681,13 @@ function App() {
                 });
               }}
               onSelectFace={async (faceId) => {
+                if (shellAction?.phase === "pending") {
+                  await createShellFeature(
+                    faceId,
+                    pendingShellThicknessRef.current,
+                  );
+                  return;
+                }
                 // Same intercept as onSelectReference: a face click
                 // during the pending phase is a valid offset-plane
                 // source as long as the face is planar.
@@ -4902,6 +5018,47 @@ function App() {
                     }
                     activeEdgeIdsRef.current = [];
                     setEdgeOpAction(null);
+                  }}
+                />
+              ) : null}
+              {shellAction ? (
+                <ShellPreviewPanel
+                  isPending={shellAction.phase === "pending"}
+                  initialThickness={shellAction.initialThickness}
+                  faceSummary={
+                    shellAction.phase === "active"
+                      ? shellAction.faceSummary
+                      : ""
+                  }
+                  disabled={status !== "connected"}
+                  onPreviewThickness={async (thickness) => {
+                    if (shellAction.phase === "pending") {
+                      pendingShellThicknessRef.current = thickness;
+                      return;
+                    }
+                    await runAction(async () => {
+                      await updateShellThickness(
+                        shellAction.featureId,
+                        thickness,
+                      );
+                    });
+                  }}
+                  onConfirm={async () => {
+                    if (shellAction.phase === "active") {
+                      await runAction(async () => {
+                        await confirmShell(shellAction.featureId);
+                        await clearSelection();
+                      });
+                    }
+                    setShellAction(null);
+                  }}
+                  onCancel={async () => {
+                    if (shellAction.phase === "active") {
+                      await runAction(async () => {
+                        await undo();
+                      });
+                    }
+                    setShellAction(null);
                   }}
                 />
               ) : null}

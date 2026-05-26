@@ -443,6 +443,42 @@ export function makeConfirmChamferCommand(featureId: string): CoreCommand {
   };
 }
 
+export function makeCreateShellCommand(
+  faceId: string,
+  thickness: number,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "create_shell",
+    payload: {
+      face_id: faceId,
+      thickness,
+    },
+  };
+}
+
+export function makeUpdateShellThicknessCommand(
+  featureId: string,
+  thickness: number,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_shell_thickness",
+    payload: {
+      feature_id: featureId,
+      thickness,
+    },
+  };
+}
+
+export function makeConfirmShellCommand(featureId: string): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "confirm_shell",
+    payload: { feature_id: featureId },
+  };
+}
+
 // Create a parametric offset construction plane. The source plane id
 // can be one of the three origin planes ("ref-plane-xy/yz/xz"), an
 // existing construction plane's feature id, or a planar body face id

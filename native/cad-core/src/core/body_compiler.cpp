@@ -12,8 +12,12 @@
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
+#include <BRepOffsetAPI_MakeThickSolid.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRep_Tool.hxx>
+#include <BRepOffset_Mode.hxx>
+#include <GeomAbs_JoinType.hxx>
+#include <NCollection_List.hxx>
 #include <Poly_Triangulation.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <TopAbs_Orientation.hxx>
@@ -177,6 +181,19 @@ int parse_edge_index(const std::string& edge_id) {
   }
 }
 
+int parse_face_index(const std::string& face_id) {
+  const std::string marker = ":face:";
+  const auto pos = face_id.rfind(marker);
+  if (pos == std::string::npos) {
+    return -1;
+  }
+  try {
+    return std::stoi(face_id.substr(pos + marker.size()));
+  } catch (const std::exception&) {
+    return -1;
+  }
+}
+
 // Apply a fillet feature onto an existing body shape. Returns the new
 // shape on success, or `body_shape` unchanged on any failure (missing
 // edges, OCCT failure, etc.) so the document keeps rendering.
@@ -248,6 +265,54 @@ TopoDS_Shape apply_chamfer(const TopoDS_Shape& body_shape,
     if (!any_added) {
       return body_shape;
     }
+    maker.Build();
+    if (!maker.IsDone()) {
+      return body_shape;
+    }
+    const TopoDS_Shape result = maker.Shape();
+    if (result.IsNull()) {
+      return body_shape;
+    }
+    return result;
+  } catch (const std::exception&) {
+    return body_shape;
+  }
+}
+
+TopoDS_Shape apply_shell(const TopoDS_Shape& body_shape,
+                         const ShellFeatureParameters& params) {
+  if (body_shape.IsNull() || params.thickness <= 0.0 ||
+      params.removed_face_ids.empty()) {
+    return body_shape;
+  }
+
+  TopTools_IndexedMapOfShape face_map;
+  TopExp::MapShapes(body_shape, TopAbs_FACE, face_map);
+
+  try {
+    NCollection_List<TopoDS_Shape> closing_faces;
+    for (const std::string& face_id : params.removed_face_ids) {
+      const int zero_based = parse_face_index(face_id);
+      const int one_based = zero_based + 1;
+      if (zero_based < 0 || one_based < 1 || one_based > face_map.Extent()) {
+        continue;
+      }
+      closing_faces.Append(TopoDS::Face(face_map(one_based)));
+    }
+    if (closing_faces.IsEmpty()) {
+      return body_shape;
+    }
+
+    BRepOffsetAPI_MakeThickSolid maker;
+    maker.MakeThickSolidByJoin(body_shape,
+                               closing_faces,
+                               -std::abs(params.thickness),
+                               1.0e-3,
+                               BRepOffset_Skin,
+                               false,
+                               false,
+                               GeomAbs_Arc,
+                               true);
     maker.Build();
     if (!maker.IsDone()) {
       return body_shape;
@@ -342,8 +407,9 @@ CompiledBodies compile_bodies(const DocumentState& document) {
         break;
       }
     }
-    if (feature.kind == "fillet" || feature.kind == "chamfer") {
-      // Fillet & chamfer always produce a mesh body (they modify an
+    if (feature.kind == "fillet" || feature.kind == "chamfer" ||
+        feature.kind == "shell") {
+      // Body-modifying features always produce a mesh body (they modify an
       // existing OCCT shape in ways the legacy primitive renderers
       // can't replicate), so they always trigger the mesh path.
       any_boolean = true;
@@ -426,6 +492,37 @@ CompiledBodies compile_bodies(const DocumentState& document) {
       body_shapes[target_id] = next;
       // Same pending-shape logic as fillet — see the matching comment
       // a few lines above.
+      if (params.is_pending) {
+        body_pick_shapes[target_id] = pre_shape;
+      } else {
+        body_pick_shapes.erase(target_id);
+      }
+      result.consumed_feature_ids.insert(feature.id);
+      if (!body_order.empty() && body_order.back() != target_id) {
+        for (auto it = body_order.begin(); it != body_order.end(); ++it) {
+          if (*it == target_id) {
+            body_order.erase(it);
+            break;
+          }
+        }
+        body_order.push_back(target_id);
+      }
+      continue;
+    }
+    if (feature.kind == "shell" && feature.shell_parameters.has_value()) {
+      const auto& params = feature.shell_parameters.value();
+      std::string target_id;
+      if (!params.target_body_id.empty() &&
+          body_shapes.find(params.target_body_id) != body_shapes.end()) {
+        target_id = params.target_body_id;
+      } else if (!body_order.empty()) {
+        target_id = body_order.back();
+      } else {
+        continue;
+      }
+      const TopoDS_Shape pre_shape = body_shapes[target_id];
+      const TopoDS_Shape next = apply_shell(pre_shape, params);
+      body_shapes[target_id] = next;
       if (params.is_pending) {
         body_pick_shapes[target_id] = pre_shape;
       } else {

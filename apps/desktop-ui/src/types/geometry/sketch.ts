@@ -288,6 +288,13 @@ export interface ChamferFeatureParameters {
   is_pending: boolean;
 }
 
+export interface ShellFeatureParameters {
+  target_body_id: string;
+  removed_face_ids: string[];
+  thickness: number;
+  is_pending: boolean;
+}
+
 // Parametric construction plane parameters. The cached
 // `plane_frame` is the world-space frame the core re-derives on
 // every recompute, so the UI can read it without having to invert
@@ -333,6 +340,7 @@ export interface FeatureEntry {
   sketch_parameters: SketchFeatureParameters | null;
   fillet_parameters: FilletFeatureParameters | null;
   chamfer_parameters: ChamferFeatureParameters | null;
+  shell_parameters: ShellFeatureParameters | null;
   // Optional in serialized form so older `.polysmith` saves load
   // cleanly. Present on `construction_plane` features.
   construction_plane_parameters?: ConstructionPlaneFeatureParameters | null;

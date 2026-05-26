@@ -12,6 +12,7 @@ import type { DocumentState, FeatureEntry } from "@/types";
 //   - revolve.sketch_feature_id / axis_sketch_feature_id → source sketches
 //   - fillet.target_body_id      → body being filleted
 //   - chamfer.target_body_id     → body being chamfered
+//   - shell.target_body_id       → body being shelled
 //   - sketch.plane_id            → plane / construction plane / face
 //                                  the sketch was placed on
 //   - construction_plane.source_plane_id / source_plane_ids / source_axis_id
@@ -54,6 +55,7 @@ export function findDependents(
       feature.revolve_parameters?.axis_sketch_feature_id === featureId ||
       feature.fillet_parameters?.target_body_id === featureId ||
       feature.chamfer_parameters?.target_body_id === featureId ||
+      feature.shell_parameters?.target_body_id === featureId ||
       sketchPlaneId === featureId ||
       constructionSourceId === featureId ||
       constructionAxisId === featureId ||

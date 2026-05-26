@@ -1442,6 +1442,16 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                  {"is_pending", feature.chamfer_parameters->is_pending},
              }
            : json(nullptr)},
+      {"shell_parameters",
+       feature.shell_parameters.has_value()
+           ? json{
+                 {"target_body_id", feature.shell_parameters->target_body_id},
+                 {"removed_face_ids",
+                  feature.shell_parameters->removed_face_ids},
+                 {"thickness", feature.shell_parameters->thickness},
+                 {"is_pending", feature.shell_parameters->is_pending},
+             }
+           : json(nullptr)},
       {"construction_plane_parameters",
        feature.construction_plane_parameters.has_value()
            ? json{
@@ -2438,6 +2448,24 @@ polysmith::core::FeatureEntry feature_entry_from_payload(const json& payload) {
       params.is_pending = cp.at("is_pending").get<bool>();
     }
     feature.chamfer_parameters = params;
+  }
+
+  if (payload.contains("shell_parameters") &&
+      !payload.at("shell_parameters").is_null()) {
+    const json& sp = payload.at("shell_parameters");
+    polysmith::core::ShellFeatureParameters params{};
+    params.target_body_id = read_string(sp, "target_body_id");
+    if (sp.contains("removed_face_ids") &&
+        sp.at("removed_face_ids").is_array()) {
+      for (const auto& face : sp.at("removed_face_ids")) {
+        params.removed_face_ids.push_back(face.get<std::string>());
+      }
+    }
+    params.thickness = read_number(sp, "thickness");
+    if (sp.contains("is_pending") && sp.at("is_pending").is_boolean()) {
+      params.is_pending = sp.at("is_pending").get<bool>();
+    }
+    feature.shell_parameters = params;
   }
 
   if (payload.contains("construction_plane_parameters") &&
