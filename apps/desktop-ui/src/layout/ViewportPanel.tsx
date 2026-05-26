@@ -2238,6 +2238,7 @@ const currentGridSpacingRef = useRef(10);
   const activeSketchPlaneIdRef = useRef(activeSketchPlaneId);
   const activeSketchPlaneFrameRef = useRef(activeSketchPlaneFrame);
   const showViewportGridRef = useRef(showViewportGrid);
+  const documentRef = useRef(document);
   useEffect(() => {
     activeSketchPlaneIdRef.current = activeSketchPlaneId;
     activeSketchPlaneFrameRef.current = activeSketchPlaneFrame;
@@ -2245,6 +2246,9 @@ const currentGridSpacingRef = useRef(10);
   useEffect(() => {
     showViewportGridRef.current = showViewportGrid;
   }, [showViewportGrid]);
+  useEffect(() => {
+    documentRef.current = document;
+  }, [document]);
   useEffect(() => {
     draftDimensionSessionRef.current = draftDimensionSession;
   }, [draftDimensionSession]);
@@ -2463,8 +2467,19 @@ const currentGridSpacingRef = useRef(10);
 
     sketchGroup.remove(previewDimension.line);
     sketchGroup.remove(previewDimension.label);
-    previewDimension.line.geometry.dispose();
-    disposeMaterial(previewDimension.line.material);
+    // `buildSketchDimensionObject` now returns a Group that contains
+    // LineSegments + optional arrow Mesh + optional dashed ref Line.
+    // Traverse its children to dispose each sub-object's resources.
+    previewDimension.line.traverse((child) => {
+      if (
+        child instanceof THREE.Mesh ||
+        child instanceof THREE.LineSegments ||
+        child instanceof THREE.Line
+      ) {
+        child.geometry.dispose();
+        disposeMaterial(child.material);
+      }
+    });
     const labelMaterial = previewDimension.label.material;
     if (labelMaterial instanceof THREE.SpriteMaterial) {
       labelMaterial.map?.dispose();
@@ -5442,11 +5457,15 @@ const currentGridSpacingRef = useRef(10);
       const renderer = rendererRef.current;
       if (!camera || !renderer) return;
 
+      // Convert drag rectangle from viewport coords (clientX/Y) to
+      // canvas-relative coords so they match projectWorldPointToViewport
+      // output (which is relative to the renderer's DOM element).
+      const canvasRect = renderer.domElement.getBoundingClientRect();
       const rect = {
-        x1: Math.min(drag.startX, drag.currentX),
-        y1: Math.min(drag.startY, drag.currentY),
-        x2: Math.max(drag.startX, drag.currentX),
-        y2: Math.max(drag.startY, drag.currentY),
+        x1: Math.min(drag.startX, drag.currentX) - canvasRect.left,
+        y1: Math.min(drag.startY, drag.currentY) - canvasRect.top,
+        x2: Math.max(drag.startX, drag.currentX) - canvasRect.left,
+        y2: Math.max(drag.startY, drag.currentY) - canvasRect.top,
       };
       const isWindow = drag.currentX >= drag.startX; // L→R = window
 
@@ -5515,19 +5534,6 @@ const currentGridSpacingRef = useRef(10);
             if (boxesIntersect(bx1, by1, bx2, by2, rect.x1, rect.y1, rect.x2, rect.y2))
               selected.push(c.circleId);
           }
-        }
-      }
-
-      // Test points
-      if (sketchPoints) {
-        for (const pt of sketchPoints) {
-          const p = projectWorldPointToViewport(
-            [pt.position_x, pt.position_y, pt.position_z],
-            camera,
-            renderer,
-          );
-          if (!p) continue;
-          if (insideRect(p.x, p.y)) selected.push(pt.point_id);
         }
       }
 
@@ -8415,6 +8421,10 @@ const currentGridSpacingRef = useRef(10);
     function handleContextMenu(event: MouseEvent) {
       event.preventDefault();
 
+      // Use the ref so right-clicks after a batch select see the
+      // latest document state even when the handler closure is stale.
+      const doc = documentRef.current;
+
       if (activeSketchPlaneId) {
         const hit = intersectSceneTargets(event as PointerEvent);
         if (
@@ -8426,15 +8436,15 @@ const currentGridSpacingRef = useRef(10);
         ) {
           // Check if there's an active selection (from rectangle select or clicks)
           const selEntityIds = [
-            ...(document?.selected_sketch_entity_ids ?? []),
-            ...(document?.selected_sketch_entity_id
-              ? [document.selected_sketch_entity_id]
+            ...(doc?.selected_sketch_entity_ids ?? []),
+            ...(doc?.selected_sketch_entity_id
+              ? [doc.selected_sketch_entity_id]
               : []),
           ];
           const selPointIds = [
-            ...(document?.selected_sketch_point_ids ?? []),
-            ...(document?.selected_sketch_point_id
-              ? [document.selected_sketch_point_id]
+            ...(doc?.selected_sketch_point_ids ?? []),
+            ...(doc?.selected_sketch_point_id
+              ? [doc.selected_sketch_point_id]
               : []),
           ];
           const hasSelection = selEntityIds.length > 0 || selPointIds.length > 0;
@@ -8448,7 +8458,7 @@ const currentGridSpacingRef = useRef(10);
               sketchDeleteSelection: {
                 entityIds: [...new Set(selEntityIds)],
                 pointIds: [...new Set(selPointIds)],
-                profileIds: document?.selected_sketch_profile_ids ?? [],
+                profileIds: doc?.selected_sketch_profile_ids ?? [],
               },
             });
             return;
@@ -8491,21 +8501,21 @@ const currentGridSpacingRef = useRef(10);
         }
 
         const selectedEntityIds = [
-          ...(document?.selected_sketch_entity_ids ?? []),
-          ...(document?.selected_sketch_entity_id
-            ? [document.selected_sketch_entity_id]
+          ...(doc?.selected_sketch_entity_ids ?? []),
+          ...(doc?.selected_sketch_entity_id
+            ? [doc.selected_sketch_entity_id]
             : []),
         ];
         const selectedPointIds = [
-          ...(document?.selected_sketch_point_ids ?? []),
-          ...(document?.selected_sketch_point_id
-            ? [document.selected_sketch_point_id]
+          ...(doc?.selected_sketch_point_ids ?? []),
+          ...(doc?.selected_sketch_point_id
+            ? [doc.selected_sketch_point_id]
             : []),
         ];
         const selectedProfileIds = [
-          ...(document?.selected_sketch_profile_ids ?? []),
-          ...(document?.selected_sketch_profile_id
-            ? [document.selected_sketch_profile_id]
+          ...(doc?.selected_sketch_profile_ids ?? []),
+          ...(doc?.selected_sketch_profile_id
+            ? [doc.selected_sketch_profile_id]
             : []),
         ];
         const currentSelection = {

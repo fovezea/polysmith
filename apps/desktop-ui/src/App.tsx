@@ -570,6 +570,7 @@ function App() {
     finishSketch,
     reenterSketch,
     clearSelection,
+    batchSelectSketchEntities,
     updateSelectionFilter,
   } = useCadCore();
 
@@ -3248,9 +3249,7 @@ function App() {
               }}
               onBatchSelectEntities={async (entityIds, additive) => {
                 await runAction(async () => {
-                  for (const id of entityIds) {
-                    await selectSketchEntity(id, additive);
-                  }
+                  await batchSelectSketchEntities(entityIds, additive);
                 });
               }}
               onPickSketchPoint={async (pointId, kind, additive) => {

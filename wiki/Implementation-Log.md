@@ -1090,3 +1090,31 @@ Single file implementation in `ViewportPanel.tsx`:
 - HTML overlay div with blue/green border and translucent fill
 
 No TS regressions. No core changes needed.
+
+#### Bugfixes (2026-05-26)
+
+Three bugs fixed after initial implementation:
+
+1. **Point field-name mismatch.** The point-testing loop used snake_case
+   (`pt.position_x`, `pt.point_id`) but `SketchPointScene` uses camelCase
+   (`pt.position`, `pt.pointId`). Resolved to `undefined`, causing
+   `selected.push(undefined)` → `select_sketch_entity` without `entity_id`
+   → C++ threw "missing string field 'entity_id'". Fixed field names.
+   Additionally, the point loop was removed entirely — points are not
+   rectangle-selectable per CAD standard and use a different IPC path
+   (`pickSketchPoint`, not `selectSketchEntity`).
+
+2. **Coordinate-space mismatch.** The drag rectangle used viewport coords
+   (`event.clientX/Y`) but `projectWorldPointToViewport` returns
+   canvas-relative coords. Window-select (L→R) requires both endpoints
+   inside rect, which never matched with the offset. Fixed by offsetting
+   the rect by `renderer.domElement.getBoundingClientRect()`.
+
+3. **Serial batch select → parallel.** The batch callback looped
+   `await selectSketchEntity(id, additive)` serially — each call is 2 IPC
+   round-trips (select + getViewportState). For N entities that's 2N
+   round-trips, ~0.5 s per entity. Added `batchSelectSketchEntities` to
+   `useCadCore` that parallelizes all select commands via `Promise.all`
+   and sends one final `getViewportState`. Also added `documentRef` in
+   `ViewportPanel.tsx` so `handleContextMenu` always sees the latest
+   document state after a batch select.
