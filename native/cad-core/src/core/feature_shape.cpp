@@ -17,6 +17,7 @@
 #include <BRepOffsetAPI_MakePipe.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepPrimAPI_MakeCone.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepPrimAPI_MakeRevol.hxx>
@@ -753,9 +754,20 @@ std::vector<SketchProfilePoint> sample_circle_points(double center_x,
 }
 
 TopoDS_Shape make_circle_extrude_shape(
-    const ExtrudeFeatureParameters& parameters) {
+    const ExtrudeFeatureParameters& parameters,
+    double taper_angle_degrees = 0.0) {
   const double signed_depth = parameters.depth;
   const double abs_depth = std::abs(signed_depth);
+  const double end_radius =
+      parameters.radius - abs_depth * std::tan(taper_angle_degrees * kPi / 180.0);
+  if (end_radius < -1.0e-7) {
+    throw std::runtime_error(
+        "Extrude taper is too steep for this circular profile. Reduce the taper "
+        "angle, increase the circle radius, or reduce the distance.");
+  }
+  const double clamped_end_radius = std::max(0.0, end_radius);
+  const bool has_tapered_radius =
+      std::abs(clamped_end_radius - parameters.radius) > 1.0e-7;
 
   if (parameters.plane_frame.has_value()) {
     const auto& frame = parameters.plane_frame.value();
@@ -767,7 +779,11 @@ TopoDS_Shape make_circle_extrude_shape(
                                 frame.normal_z * sign);
     const gp_Ax2 axis(center, axis_direction);
     const TopoDS_Shape shape =
-        BRepPrimAPI_MakeCylinder(axis, parameters.radius, abs_depth).Shape();
+        !has_tapered_radius
+            ? BRepPrimAPI_MakeCylinder(axis, parameters.radius, abs_depth).Shape()
+            : BRepPrimAPI_MakeCone(
+                  axis, parameters.radius, clamped_end_radius, abs_depth)
+                  .Shape();
     if (shape.IsNull()) {
       throw std::runtime_error("Failed to build circle extrude on plane frame");
     }
@@ -786,7 +802,11 @@ TopoDS_Shape make_circle_extrude_shape(
                 : gp_Dir(0.0, 0.0, sign);
   const gp_Ax2 axis(center, axis_direction);
   const TopoDS_Shape shape =
-      BRepPrimAPI_MakeCylinder(axis, parameters.radius, abs_depth).Shape();
+      !has_tapered_radius
+          ? BRepPrimAPI_MakeCylinder(axis, parameters.radius, abs_depth).Shape()
+          : BRepPrimAPI_MakeCone(
+                axis, parameters.radius, clamped_end_radius, abs_depth)
+                .Shape();
   if (shape.IsNull()) {
     throw std::runtime_error("Failed to build circle extrude");
   }
@@ -822,7 +842,8 @@ TopoDS_Shape build_single_depth_extrude(
     if (parameters.thin.enabled) {
       return make_polygon_prism_shape(make_polygon_source(parameters));
     }
-    return make_circle_extrude_shape(parameters);
+    return make_circle_extrude_shape(parameters,
+                                     parameters.side1.taper_angle_degrees);
   }
   if (parameters.profile_kind == "polygon" ||
       parameters.profile_kind == "open_chain") {
