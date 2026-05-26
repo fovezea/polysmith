@@ -850,6 +850,19 @@ export function useCadCore() {
       await sendCoreCommand(makeReenterSketchCommand(featureId));
       await sendCoreCommand(makeGetViewportStateCommand());
     },
+    batchSelectSketchEntities: async (entityIds: string[], additive: boolean) => {
+      if (!additive) {
+        await sendCoreCommand(makeClearSelectionCommand());
+      }
+      // Fire all select commands in parallel — no need to wait for
+      // each one's viewport state; one final refresh at the end is enough.
+      await Promise.all(
+        entityIds.map((id) =>
+          sendCoreCommand(makeSelectSketchEntityCommand(id, true)),
+        ),
+      );
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
     clearSelection: async () => {
       await sendCoreCommand(makeClearSelectionCommand());
       await sendCoreCommand(makeGetViewportStateCommand());

@@ -1,9 +1,10 @@
 # Sketch Selection Controls
 
-> **Status as of 2026-05-24:** Selection filter + checkbox panel shipped.
+> **Status as of 2026-05-26:** Selection filter + checkbox panel shipped.
 > Inference engine (coincident, concentric) shipped. DOF counting + entity
 > coloring shipped. Constraint deletion UI shipped (select badge → Delete).
 > Constraint badge highlight + right-click → Delete shipped.
+> Rectangle drag selection shipped (window + crossing modes).
 > Remaining: C++ snap engine wiring, perpendicular snap, driven dimension
 > proposal, and DOF color legend.
 

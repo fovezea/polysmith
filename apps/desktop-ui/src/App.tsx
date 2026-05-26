@@ -570,6 +570,7 @@ function App() {
     finishSketch,
     reenterSketch,
     clearSelection,
+    batchSelectSketchEntities,
     updateSelectionFilter,
   } = useCadCore();
 
@@ -3244,6 +3245,11 @@ function App() {
               onSelectSketchEntity={async (entityId, additive) => {
                 await runAction(async () => {
                   await handleSketchConstraintLinePick(entityId, additive);
+                });
+              }}
+              onBatchSelectEntities={async (entityIds, additive) => {
+                await runAction(async () => {
+                  await batchSelectSketchEntities(entityIds, additive);
                 });
               }}
               onPickSketchPoint={async (pointId, kind, additive) => {

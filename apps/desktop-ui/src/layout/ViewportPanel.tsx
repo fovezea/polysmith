@@ -368,6 +368,7 @@ interface ViewportPanelProps {
     lineBId: string,
   ) => Promise<void>;
   onSelectSketchEntity: (entityId: string, additive: boolean) => Promise<void>;
+  onBatchSelectEntities: (entityIds: string[], additive: boolean) => Promise<void>;
   onPickSketchPoint: (
     pointId: string,
     kind: "endpoint" | "center",
@@ -988,6 +989,7 @@ export function ViewportPanel({
   onAddSketchPolygon,
   onAddSketchFillet,
   onSelectSketchEntity,
+  onBatchSelectEntities,
   onPickSketchPoint,
   armedSketchConstraint,
   mirrorFocusedSlot,
@@ -1221,7 +1223,23 @@ const currentGridSpacingRef = useRef(10);
   const addSketchLineRef = useRef(onAddSketchLine);
   const addSketchRectangleRef = useRef(onAddSketchRectangle);
   const addSketchCircleRef = useRef(onAddSketchCircle);
+  
   const addSketchArcRef = useRef(onAddSketchArc);
+  // --- Rectangle selection drag state ---
+  interface SelectionDrag {
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+    active: boolean;
+  }
+  const selectionDragRef = useRef<SelectionDrag | null>(null);
+  const [selectionRect, setSelectionRect] = useState<{
+    left: number; top: number; width: number; height: number;
+    visible: boolean;
+    direction: "window" | "crossing";
+  } | null>(null);
+
   const arcToolModeRef = useRef(arcToolMode);
   const rectangleToolModeRef = useRef(rectangleToolMode);
   const circleToolModeRef = useRef(circleToolMode);
@@ -2220,6 +2238,7 @@ const currentGridSpacingRef = useRef(10);
   const activeSketchPlaneIdRef = useRef(activeSketchPlaneId);
   const activeSketchPlaneFrameRef = useRef(activeSketchPlaneFrame);
   const showViewportGridRef = useRef(showViewportGrid);
+  const documentRef = useRef(document);
   useEffect(() => {
     activeSketchPlaneIdRef.current = activeSketchPlaneId;
     activeSketchPlaneFrameRef.current = activeSketchPlaneFrame;
@@ -2227,6 +2246,9 @@ const currentGridSpacingRef = useRef(10);
   useEffect(() => {
     showViewportGridRef.current = showViewportGrid;
   }, [showViewportGrid]);
+  useEffect(() => {
+    documentRef.current = document;
+  }, [document]);
   useEffect(() => {
     draftDimensionSessionRef.current = draftDimensionSession;
   }, [draftDimensionSession]);
@@ -2445,8 +2467,19 @@ const currentGridSpacingRef = useRef(10);
 
     sketchGroup.remove(previewDimension.line);
     sketchGroup.remove(previewDimension.label);
-    previewDimension.line.geometry.dispose();
-    disposeMaterial(previewDimension.line.material);
+    // `buildSketchDimensionObject` now returns a Group that contains
+    // LineSegments + optional arrow Mesh + optional dashed ref Line.
+    // Traverse its children to dispose each sub-object's resources.
+    previewDimension.line.traverse((child) => {
+      if (
+        child instanceof THREE.Mesh ||
+        child instanceof THREE.LineSegments ||
+        child instanceof THREE.Line
+      ) {
+        child.geometry.dispose();
+        disposeMaterial(child.material);
+      }
+    });
     const labelMaterial = previewDimension.label.material;
     if (labelMaterial instanceof THREE.SpriteMaterial) {
       labelMaterial.map?.dispose();
@@ -5365,6 +5398,152 @@ const currentGridSpacingRef = useRef(10);
       editor.style.transform = `translate(${projectedPosition.x}px, ${projectedPosition.y}px) translate(-50%, -50%)`;
     }
 
+
+    function segmentCrossesRect(
+      x1: number, y1: number, x2: number, y2: number,
+      rect: { x1: number; y1: number; x2: number; y2: number },
+    ): boolean {
+      // Check if segment intersects any of the 4 rect edges
+      return (
+        segmentsIntersect(x1, y1, x2, y2, rect.x1, rect.y1, rect.x2, rect.y1) ||
+        segmentsIntersect(x1, y1, x2, y2, rect.x2, rect.y1, rect.x2, rect.y2) ||
+        segmentsIntersect(x1, y1, x2, y2, rect.x2, rect.y2, rect.x1, rect.y2) ||
+        segmentsIntersect(x1, y1, x2, y2, rect.x1, rect.y2, rect.x1, rect.y1)
+      );
+    }
+
+    function segmentsIntersect(
+      ax1: number, ay1: number, ax2: number, ay2: number,
+      bx1: number, by1: number, bx2: number, by2: number,
+    ): boolean {
+      const d1 = cross2D(ax1, ay1, ax2, ay2, bx1, by1);
+      const d2 = cross2D(ax1, ay1, ax2, ay2, bx2, by2);
+      const d3 = cross2D(bx1, by1, bx2, by2, ax1, ay1);
+      const d4 = cross2D(bx1, by1, bx2, by2, ax2, ay2);
+      if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+          ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true;
+      if (d1 === 0 && pointOnSegment(ax1, ay1, ax2, ay2, bx1, by1)) return true;
+      if (d2 === 0 && pointOnSegment(ax1, ay1, ax2, ay2, bx2, by2)) return true;
+      if (d3 === 0 && pointOnSegment(bx1, by1, bx2, by2, ax1, ay1)) return true;
+      if (d4 === 0 && pointOnSegment(bx1, by1, bx2, by2, ax2, ay2)) return true;
+      return false;
+    }
+
+    function cross2D(x1: number, y1: number, x2: number, y2: number, x3: number, y3: number): number {
+      return (x2 - x1) * (y3 - y1) - (y2 - y1) * (x3 - x1);
+    }
+
+    function pointOnSegment(
+      x1: number, y1: number, x2: number, y2: number, px: number, py: number,
+    ): boolean {
+      return (
+        Math.min(x1, x2) <= px && px <= Math.max(x1, x2) &&
+        Math.min(y1, y2) <= py && py <= Math.max(y1, y2)
+      );
+    }
+
+    function boxesIntersect(
+      ax1: number, ay1: number, ax2: number, ay2: number,
+      bx1: number, by1: number, bx2: number, by2: number,
+    ): boolean {
+      return !(ax2 < bx1 || bx2 < ax1 || ay2 < by1 || by2 < ay1);
+    }
+
+
+    async function performRectangleSelect(drag: SelectionDrag, additive: boolean) {
+      if (!activeSketchPlaneIdRef.current) return;
+
+      const camera = cameraRef.current;
+      const renderer = rendererRef.current;
+      if (!camera || !renderer) return;
+
+      // Convert drag rectangle from viewport coords (clientX/Y) to
+      // canvas-relative coords so they match projectWorldPointToViewport
+      // output (which is relative to the renderer's DOM element).
+      const canvasRect = renderer.domElement.getBoundingClientRect();
+      const rect = {
+        x1: Math.min(drag.startX, drag.currentX) - canvasRect.left,
+        y1: Math.min(drag.startY, drag.currentY) - canvasRect.top,
+        x2: Math.max(drag.startX, drag.currentX) - canvasRect.left,
+        y2: Math.max(drag.startY, drag.currentY) - canvasRect.top,
+      };
+      const isWindow = drag.currentX >= drag.startX; // L→R = window
+
+      // Collect visible sketch entities from sceneData
+      const { sketchLines, sketchCircles, sketchArcs, sketchPolygons, sketchPoints } =
+        sceneDataRef.current ?? {};
+
+      const insideRect = (px: number, py: number) =>
+        px >= rect.x1 && px <= rect.x2 && py >= rect.y1 && py <= rect.y2;
+
+      const selected: string[] = [];
+      console.warn("[SEL]", isWindow ? "win" : "cross",
+        "L:", sketchLines?.length ?? 0,
+        "C:", sketchCircles?.length ?? 0,
+        "P:", sketchPoints?.length ?? 0);
+
+      // Test lines (skip preview and construction)
+      if (sketchLines) {
+        for (const line of sketchLines) {
+          if (line.isPreview || line.isConstruction) continue;
+          const s = projectWorldPointToViewport(
+            [line.start[0], line.start[1], line.start[2]],
+            camera,
+            renderer,
+          );
+          const e = projectWorldPointToViewport(
+            [line.end[0], line.end[1], line.end[2]],
+            camera,
+            renderer,
+          );
+          if (!s || !e) continue;
+          if (isWindow) {
+            if (insideRect(s.x, s.y) && insideRect(e.x, e.y))
+              selected.push(line.lineId);
+          } else {
+            if (insideRect(s.x, s.y) || insideRect(e.x, e.y) ||
+                segmentCrossesRect(s.x, s.y, e.x, e.y, rect))
+              selected.push(line.lineId);
+          }
+        }
+      }
+
+      // Test circles
+      if (sketchCircles) {
+        for (const c of sketchCircles) {
+          const center = projectWorldPointToViewport(
+            [c.center[0], c.center[1], c.center[2]],
+            camera,
+            renderer,
+          );
+          if (!center) continue;
+          // Simple bounding-box test
+          const radius = c.radius; // in world units, approximate px radius
+          const right = projectWorldPointToViewport(
+            [c.center[0] + radius, c.center[1], c.center[2]],
+            camera,
+            renderer,
+          );
+          const approxRadius = right ? Math.abs(right.x - center.x) : 0;
+          const bx1 = center.x - approxRadius, by1 = center.y - approxRadius;
+          const bx2 = center.x + approxRadius, by2 = center.y + approxRadius;
+          if (isWindow) {
+            if (bx1 >= rect.x1 && bx2 <= rect.x2 && by1 >= rect.y1 && by2 <= rect.y2)
+              selected.push(c.circleId);
+          } else {
+            if (boxesIntersect(bx1, by1, bx2, by2, rect.x1, rect.y1, rect.x2, rect.y2))
+              selected.push(c.circleId);
+          }
+        }
+      }
+
+      // Apply selection via IPC
+      // Batch selection via dedicated callback
+      if (selected.length > 0) {
+        onBatchSelectEntities(selected, additive);
+      }
+    }
+
     function isFacingCardinalCubeFace() {
       const viewOffset = new THREE.Vector3()
         .copy(camera.position)
@@ -5847,6 +6026,25 @@ const currentGridSpacingRef = useRef(10);
       }
 
       pointerDown = { x: event.clientX, y: event.clientY };
+      // --- Rectangular selection drag start (select tool, empty space) ---
+      if (activeSketchToolRef.current === "select") {
+        const selHit = intersectSceneTargets(event);
+        if (
+          !selHit &&
+          selHit?.kind !== "sketch_dimension"
+        ) {
+          selectionDragRef.current = {
+            startX: event.clientX,
+            startY: event.clientY,
+            currentX: event.clientX,
+            currentY: event.clientY,
+            active: true,
+          };
+          controls.enabled = false;
+          return;
+        }
+      }
+
       renderer.domElement.setPointerCapture(event.pointerId);
       if (
         activeSketchPlaneIdRef.current &&
@@ -5921,6 +6119,21 @@ const currentGridSpacingRef = useRef(10);
     }
 
     function handlePointerMove(event: PointerEvent) {
+
+      // --- Rectangle selection drag tracking ---
+      if (selectionDragRef.current?.active) {
+        selectionDragRef.current.currentX = event.clientX;
+        selectionDragRef.current.currentY = event.clientY;
+        const d = selectionDragRef.current;
+        const x1 = Math.min(d.startX, d.currentX);
+        const y1 = Math.min(d.startY, d.currentY);
+        const w = Math.abs(d.currentX - d.startX);
+        const h = Math.abs(d.currentY - d.startY);
+        const direction = d.currentX >= d.startX ? "window" : "crossing";
+        setSelectionRect({ left: x1, top: y1, width: w, height: h, visible: w > 3 || h > 3, direction });
+        return;
+      }
+
       lastPointerEventRef.current = event;
       // -- cube-area interaction ---------------------------------------
       const cubeDpr = renderer.getPixelRatio();
@@ -7127,6 +7340,21 @@ const currentGridSpacingRef = useRef(10);
     }
 
     function handlePointerUp(event: PointerEvent) {
+
+      // --- Rectangle selection finalize ---
+      if (selectionDragRef.current?.active) {
+        const d = selectionDragRef.current;
+        const w = Math.abs(d.currentX - d.startX);
+        const h = Math.abs(d.currentY - d.startY);
+        if (w > 3 || h > 3) {
+          void performRectangleSelect(d, event.shiftKey);
+        }
+        selectionDragRef.current = null;
+        setSelectionRect(null);
+        controls.enabled = true;
+        return;
+      }
+
       lastPointerEventRef.current = event;
       if (event.button === 1) {
         controls.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
@@ -8193,6 +8421,10 @@ const currentGridSpacingRef = useRef(10);
     function handleContextMenu(event: MouseEvent) {
       event.preventDefault();
 
+      // Use the ref so right-clicks after a batch select see the
+      // latest document state even when the handler closure is stale.
+      const doc = documentRef.current;
+
       if (activeSketchPlaneId) {
         const hit = intersectSceneTargets(event as PointerEvent);
         if (
@@ -8202,6 +8434,35 @@ const currentGridSpacingRef = useRef(10);
           hit?.kind !== "sketch_dimension" &&
           hit?.kind !== "sketch_constraint"
         ) {
+          // Check if there's an active selection (from rectangle select or clicks)
+          const selEntityIds = [
+            ...(doc?.selected_sketch_entity_ids ?? []),
+            ...(doc?.selected_sketch_entity_id
+              ? [doc.selected_sketch_entity_id]
+              : []),
+          ];
+          const selPointIds = [
+            ...(doc?.selected_sketch_point_ids ?? []),
+            ...(doc?.selected_sketch_point_id
+              ? [doc.selected_sketch_point_id]
+              : []),
+          ];
+          const hasSelection = selEntityIds.length > 0 || selPointIds.length > 0;
+          if (hasSelection) {
+            const rect = renderer.domElement.getBoundingClientRect();
+            setContextMenu({
+              x: event.clientX - rect.left,
+              y: event.clientY - rect.top,
+              referenceId: null,
+              faceId: null,
+              sketchDeleteSelection: {
+                entityIds: [...new Set(selEntityIds)],
+                pointIds: [...new Set(selPointIds)],
+                profileIds: doc?.selected_sketch_profile_ids ?? [],
+              },
+            });
+            return;
+          }
           setContextMenu(null);
           return;
         }
@@ -8240,21 +8501,21 @@ const currentGridSpacingRef = useRef(10);
         }
 
         const selectedEntityIds = [
-          ...(document?.selected_sketch_entity_ids ?? []),
-          ...(document?.selected_sketch_entity_id
-            ? [document.selected_sketch_entity_id]
+          ...(doc?.selected_sketch_entity_ids ?? []),
+          ...(doc?.selected_sketch_entity_id
+            ? [doc.selected_sketch_entity_id]
             : []),
         ];
         const selectedPointIds = [
-          ...(document?.selected_sketch_point_ids ?? []),
-          ...(document?.selected_sketch_point_id
-            ? [document.selected_sketch_point_id]
+          ...(doc?.selected_sketch_point_ids ?? []),
+          ...(doc?.selected_sketch_point_id
+            ? [doc.selected_sketch_point_id]
             : []),
         ];
         const selectedProfileIds = [
-          ...(document?.selected_sketch_profile_ids ?? []),
-          ...(document?.selected_sketch_profile_id
-            ? [document.selected_sketch_profile_id]
+          ...(doc?.selected_sketch_profile_ids ?? []),
+          ...(doc?.selected_sketch_profile_id
+            ? [doc.selected_sketch_profile_id]
             : []),
         ];
         const currentSelection = {
@@ -9607,6 +9868,25 @@ const currentGridSpacingRef = useRef(10);
             }}
           />
         ) : null}
+        {/* Selection rectangle overlay */}
+        {selectionRect?.visible ? (
+          <div
+            className="pointer-events-none fixed z-30"
+            style={{
+              left: selectionRect.left + 'px',
+              top: selectionRect.top + 'px',
+              width: selectionRect.width + 'px',
+              height: selectionRect.height + 'px',
+              border: selectionRect.direction === "window"
+                ? "1px solid var(--color-primary-edge-active, #4fc3f7)"
+                : "1px dashed var(--color-destructive, #4caf50)",
+              background: selectionRect.direction === "window"
+                ? "rgba(79, 195, 247, 0.07)"
+                : "rgba(76, 175, 80, 0.07)",
+            }}
+          />
+        ) : null}
+
         {/*
           Cursor-following constraint preview badge. Only visible
           while a sketch tool is producing a midpoint, perpendicular,

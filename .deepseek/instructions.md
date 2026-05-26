@@ -35,16 +35,17 @@ flow back to canonical. In either case, all three locations must stay consistent
 ### When editing wiki documentation
 
 1. Make the change in `wiki/<file>.md` first.
-2. Mirror the identical change to both:
-   - `felix/polysmith.wiki/<file>.md`
-   - `stefan/polysmith.wiki/<file>.md`
-3. Verify all three copies match after the edit.
+2. Mirror the identical change to both mirrors — if a mirror directory
+   (`felix/polysmith.wiki/` or `stefan/polysmith.wiki/`) does not exist,
+   print a warning and skip it; do not fail.
+3. Verify the copies that exist match after the edit.
 
 ### When adding new wiki pages
 
 1. Create the file in `wiki/<New-Page>.md`.
 2. Add a link from `wiki/Home.md`.
-3. Copy the new file and mirror the `Home.md` link update to both mirrors.
+3. Copy the new file and mirror the `Home.md` link update to both mirrors —
+   if a mirror directory does not exist, warn and skip it.
 
 ## Rules
 
