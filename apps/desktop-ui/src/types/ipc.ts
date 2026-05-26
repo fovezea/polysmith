@@ -53,6 +53,15 @@ export interface SessionState {
   can_redo: boolean;
 }
 
+export interface SnapCandidateEntry {
+  kind: string;
+  entity_id: string;
+  point_id: string;
+  local_x: number;
+  local_y: number;
+  label: string;
+}
+
 export interface ViewportState {
   has_active_document: boolean;
   boxes: ViewportBoxPrimitive[];
@@ -85,6 +94,7 @@ export interface ViewportState {
     consumed_dof: number;
     status: "under" | "full" | "over";
   }>;
+  snap_candidates: SnapCandidateEntry[];
   selection_filter: {
     select_curves: boolean;
     select_points: boolean;
@@ -100,6 +110,9 @@ export interface ViewportState {
     snap_parallel: boolean;
     snap_tangent: boolean;
     snap_grid: boolean;
+    snap_grid_line: boolean;
+    snap_polar: boolean;
+    polar_angle_degrees: number;
     magnetic_pull: boolean;
     tolerance_px: number;
   };

@@ -250,6 +250,334 @@ void collect_nearest_candidates(
   }
 }
 
+// Find nearest snaps on circles — project cursor radially onto the
+// circle's circumference. The nearest point is the intersection of
+// the ray center→cursor with the circle edge.
+void collect_circle_nearest_candidates(
+    const SketchFeatureParameters& sketch,
+    double cursor_x,
+    double cursor_y,
+    double tolerance,
+    const SelectionFilter& filter,
+    std::vector<SnapCandidate>& candidates) {
+  for (const auto& circle : sketch.circles) {
+    if (circle.is_construction && !filter.select_construction) continue;
+    const double dx = cursor_x - circle.center_x;
+    const double dy = cursor_y - circle.center_y;
+    const double dist = std::sqrt(dx * dx + dy * dy);
+    if (dist < 1e-12) continue;
+    const double nx = circle.center_x + (dx / dist) * circle.radius;
+    const double ny = circle.center_y + (dy / dist) * circle.radius;
+    const double d = point_distance(cursor_x, cursor_y, nx, ny);
+    if (d <= tolerance) {
+      candidates.push_back(SnapCandidate{
+          .kind = "nearest",
+          .entity_id = circle.id,
+          .point_id = "",
+          .local_x = nx,
+          .local_y = ny,
+          .distance = d,
+          .label = "Nearest",
+      });
+    }
+  }
+}
+
+// Find intersection snaps between sketch entities.
+void collect_intersection_candidates(
+    const SketchFeatureParameters& sketch,
+    double cursor_x,
+    double cursor_y,
+    double tolerance,
+    const SelectionFilter& filter,
+    std::vector<SnapCandidate>& candidates) {
+  // Line-line intersections
+  for (size_t i = 0; i < sketch.lines.size(); ++i) {
+    const auto& a = sketch.lines[i];
+    if (a.is_construction && !filter.select_construction) continue;
+    for (size_t j = i + 1; j < sketch.lines.size(); ++j) {
+      const auto& b = sketch.lines[j];
+      if (b.is_construction && !filter.select_construction) continue;
+      const double a_dx = a.end_x - a.start_x;
+      const double a_dy = a.end_y - a.start_y;
+      const double b_dx = b.end_x - b.start_x;
+      const double b_dy = b.end_y - b.start_y;
+      const double denom = a_dx * b_dy - a_dy * b_dx;
+      if (std::abs(denom) < 1e-12) continue;
+      const double t = ((b.start_x - a.start_x) * b_dy - (b.start_y - a.start_y) * b_dx) / denom;
+      const double u = ((b.start_x - a.start_x) * a_dy - (b.start_y - a.start_y) * a_dx) / denom;
+      if (t < 0.0 || t > 1.0 || u < 0.0 || u > 1.0) continue;
+      const double ix = a.start_x + t * a_dx;
+      const double iy = a.start_y + t * a_dy;
+      const double d = point_distance(cursor_x, cursor_y, ix, iy);
+      if (d <= tolerance) {
+        candidates.push_back(SnapCandidate{
+            .kind = "intersection",
+            .entity_id = a.id,
+            .point_id = "",
+            .local_x = ix,
+            .local_y = iy,
+            .distance = d,
+            .label = "Intersection",
+        });
+      }
+    }
+  }
+
+  // Line-arc intersections
+  for (const auto& line : sketch.lines) {
+    if (line.is_construction && !filter.select_construction) continue;
+    for (const auto& arc : sketch.arcs) {
+      if (arc.is_construction && !filter.select_construction) continue;
+      const double dx = line.end_x - line.start_x;
+      const double dy = line.end_y - line.start_y;
+      const double len_sq = dx * dx + dy * dy;
+      if (len_sq < 1e-12) continue;
+      const double r = point_distance(arc.center_x, arc.center_y, arc.start_x, arc.start_y);
+      const double fx = line.start_x - arc.center_x;
+      const double fy = line.start_y - arc.center_y;
+      const double a_val = dx * dx + dy * dy;
+      const double b_val = 2.0 * (fx * dx + fy * dy);
+      const double c_val = fx * fx + fy * fy - r * r;
+      double disc = b_val * b_val - 4.0 * a_val * c_val;
+      if (disc < 0) continue;
+      disc = std::sqrt(disc);
+      for (double sign : {-1.0, 1.0}) {
+        const double t = (-b_val + sign * disc) / (2.0 * a_val);
+        if (t < 0.0 || t > 1.0) continue;
+        const double ix = line.start_x + t * dx;
+        const double iy = line.start_y + t * dy;
+        const double d = point_distance(cursor_x, cursor_y, ix, iy);
+        if (d <= tolerance) {
+          candidates.push_back(SnapCandidate{
+              .kind = "intersection",
+              .entity_id = line.id,
+              .point_id = "",
+              .local_x = ix,
+              .local_y = iy,
+              .distance = d,
+              .label = "Intersection",
+          });
+        }
+      }
+    }
+  }
+}
+
+// Find quadrant snaps on circles (0°, 90°, 180°, 270°).
+void collect_quadrant_candidates(
+    const SketchFeatureParameters& sketch,
+    double cursor_x,
+    double cursor_y,
+    double tolerance,
+    const SelectionFilter& filter,
+    std::vector<SnapCandidate>& candidates) {
+  for (const auto& circle : sketch.circles) {
+    if (circle.is_construction && !filter.select_construction) continue;
+    const double cx = circle.center_x;
+    const double cy = circle.center_y;
+    const double r = circle.radius;
+    const double quads[4][2] = {
+        {cx + r, cy},
+        {cx, cy + r},
+        {cx - r, cy},
+        {cx, cy - r},
+    };
+    for (const auto& q : quads) {
+      const double d = point_distance(cursor_x, cursor_y, q[0], q[1]);
+      if (d <= tolerance) {
+        candidates.push_back(SnapCandidate{
+            .kind = "quadrant",
+            .entity_id = circle.id,
+            .point_id = "",
+            .local_x = q[0],
+            .local_y = q[1],
+            .distance = d,
+            .label = "Quadrant",
+        });
+      }
+    }
+  }
+}
+
+// Find perpendicular foot snaps from cursor to lines.
+void collect_perpendicular_candidates(
+    const SketchFeatureParameters& sketch,
+    double cursor_x,
+    double cursor_y,
+    double tolerance,
+    const SelectionFilter& filter,
+    std::vector<SnapCandidate>& candidates) {
+  for (const auto& line : sketch.lines) {
+    if (line.is_construction && !filter.select_construction) continue;
+    const double dx = line.end_x - line.start_x;
+    const double dy = line.end_y - line.start_y;
+    const double len_sq = dx * dx + dy * dy;
+    if (len_sq < 1e-12) continue;
+    // Project cursor onto infinite line, clamp to segment.
+    double t = ((cursor_x - line.start_x) * dx + (cursor_y - line.start_y) * dy) / len_sq;
+    t = std::max(0.0, std::min(1.0, t));
+    const double px = line.start_x + t * dx;
+    const double py = line.start_y + t * dy;
+    const double d = point_distance(cursor_x, cursor_y, px, py);
+    if (d <= tolerance) {
+      candidates.push_back(SnapCandidate{
+          .kind = "perpendicular",
+          .entity_id = line.id,
+          .point_id = "",
+          .local_x = px,
+          .local_y = py,
+          .distance = d,
+          .label = "Perpendicular",
+      });
+    }
+  }
+}
+
+// Find tangent snaps from cursor to circles/arcs.
+void collect_tangent_candidates(
+    const SketchFeatureParameters& sketch,
+    double cursor_x,
+    double cursor_y,
+    double tolerance,
+    const SelectionFilter& filter,
+    std::vector<SnapCandidate>& candidates) {
+  for (const auto& circle : sketch.circles) {
+    if (circle.is_construction && !filter.select_construction) continue;
+    const double dx = circle.center_x - cursor_x;
+    const double dy = circle.center_y - cursor_y;
+    const double d_sq = dx * dx + dy * dy;
+    const double r_sq = circle.radius * circle.radius;
+    if (d_sq <= r_sq + 1e-9) continue;
+    const double d_val = std::sqrt(d_sq);
+    const double tangent_len = std::sqrt(d_sq - r_sq);
+    const double ux = dx / d_val;
+    const double uy = dy / d_val;
+    const double sin_theta = circle.radius / d_val;
+    const double cos_theta = tangent_len / d_val;
+    for (double sign : {-1.0, 1.0}) {
+      const double rux = cos_theta * ux - sign * sin_theta * uy;
+      const double ruy = sign * sin_theta * ux + cos_theta * uy;
+      const double tx = circle.center_x - rux * circle.radius;
+      const double ty = circle.center_y - ruy * circle.radius;
+      const double dist = point_distance(cursor_x, cursor_y, tx, ty);
+      if (dist <= tolerance) {
+        candidates.push_back(SnapCandidate{
+            .kind = "tangent",
+            .entity_id = circle.id,
+            .point_id = "",
+            .local_x = tx,
+            .local_y = ty,
+            .distance = dist,
+            .label = "Tangent",
+        });
+      }
+    }
+  }
+}
+
+// Find grid snap — round cursor to nearest grid intersection.
+void collect_grid_candidates(
+    double cursor_x,
+    double cursor_y,
+    double tolerance,
+    const SelectionFilter& filter,
+    std::vector<SnapCandidate>& candidates) {
+  constexpr double kGridSpacing = 1.0;
+  const double gx = std::round(cursor_x / kGridSpacing) * kGridSpacing;
+  const double gy = std::round(cursor_y / kGridSpacing) * kGridSpacing;
+  const double d = point_distance(cursor_x, cursor_y, gx, gy);
+  if (d <= tolerance) {
+    candidates.push_back(SnapCandidate{
+        .kind = "grid",
+        .entity_id = "",
+        .point_id = "",
+        .local_x = gx,
+        .local_y = gy,
+        .distance = d,
+        .label = "Grid",
+    });
+  }
+}
+
+// Grid-line snap: lock to the nearest horizontal or vertical grid line.
+void collect_grid_line_candidates(
+    double cursor_x,
+    double cursor_y,
+    double tolerance,
+    const SelectionFilter& filter,
+    std::vector<SnapCandidate>& candidates) {
+  constexpr double kGridSpacing = 1.0;
+  const double gx = std::round(cursor_x / kGridSpacing) * kGridSpacing;
+  const double gy = std::round(cursor_y / kGridSpacing) * kGridSpacing;
+  // Distance to nearest vertical grid line (locked X)
+  const double dx_vert = std::abs(cursor_x - gx);
+  // Distance to nearest horizontal grid line (locked Y)
+  const double dy_horiz = std::abs(cursor_y - gy);
+
+  // Prefer the closer axis lock.
+  if (dx_vert <= tolerance && dx_vert <= dy_horiz) {
+    candidates.push_back(SnapCandidate{
+        .kind = "grid_line",
+        .entity_id = "",
+        .point_id = "",
+        .local_x = gx,
+        .local_y = cursor_y,
+        .distance = dx_vert,
+        .label = "Grid Line",
+    });
+  } else if (dy_horiz <= tolerance) {
+    candidates.push_back(SnapCandidate{
+        .kind = "grid_line",
+        .entity_id = "",
+        .point_id = "",
+        .local_x = cursor_x,
+        .local_y = gy,
+        .distance = dy_horiz,
+        .label = "Grid Line",
+    });
+  }
+}
+
+// Polar snap: lock cursor to the nearest polar angle increment from a
+// start point. Only active when a start point is provided (line drafting).
+void collect_polar_candidates(
+    double cursor_x,
+    double cursor_y,
+    double start_x,
+    double start_y,
+    double tolerance,
+    const SelectionFilter& filter,
+    std::vector<SnapCandidate>& candidates) {
+  const double dx = cursor_x - start_x;
+  const double dy = cursor_y - start_y;
+  const double dist = std::sqrt(dx * dx + dy * dy);
+  if (dist < 1e-9) return;
+
+  const int angle_step = filter.polar_angle_degrees > 0
+      ? filter.polar_angle_degrees
+      : 15;
+  const double angle_rad = std::atan2(dy, dx);
+  // Snap angle to nearest increment
+  const double step_rad = (angle_step * M_PI) / 180.0;
+  const double snapped_rad = std::round(angle_rad / step_rad) * step_rad;
+
+  const double sx = start_x + dist * std::cos(snapped_rad);
+  const double sy = start_y + dist * std::sin(snapped_rad);
+  const double d = std::hypot(cursor_x - sx, cursor_y - sy);
+  if (d <= tolerance) {
+    candidates.push_back(SnapCandidate{
+        .kind = "polar",
+        .entity_id = "",
+        .point_id = "",
+        .local_x = sx,
+        .local_y = sy,
+        .distance = d,
+        .label = "Polar",
+    });
+  }
+}
+
 } // namespace
 
 std::optional<SnapCandidate> resolve_snap(
@@ -258,6 +586,8 @@ std::optional<SnapCandidate> resolve_snap(
     const SketchFeatureParameters& sketch,
     const SelectionFilter& filter,
     double tolerance,
+    std::optional<double> start_x,
+    std::optional<double> start_y,
     const std::vector<std::string>& snap_priority) {
   std::vector<SnapCandidate> candidates;
 
@@ -276,6 +606,28 @@ std::optional<SnapCandidate> resolve_snap(
   }
   if (filter.snap_nearest) {
     collect_nearest_candidates(sketch, cursor_x, cursor_y, tolerance, filter, candidates);
+    collect_circle_nearest_candidates(sketch, cursor_x, cursor_y, tolerance, filter, candidates);
+  }
+  if (filter.snap_intersection) {
+    collect_intersection_candidates(sketch, cursor_x, cursor_y, tolerance, filter, candidates);
+  }
+  if (filter.snap_quadrant) {
+    collect_quadrant_candidates(sketch, cursor_x, cursor_y, tolerance, filter, candidates);
+  }
+  if (filter.snap_perpendicular) {
+    collect_perpendicular_candidates(sketch, cursor_x, cursor_y, tolerance, filter, candidates);
+  }
+  if (filter.snap_tangent) {
+    collect_tangent_candidates(sketch, cursor_x, cursor_y, tolerance, filter, candidates);
+  }
+  if (filter.snap_grid) {
+    collect_grid_candidates(cursor_x, cursor_y, tolerance, filter, candidates);
+  }
+  if (filter.snap_grid_line) {
+    collect_grid_line_candidates(cursor_x, cursor_y, tolerance, filter, candidates);
+  }
+  if (filter.snap_polar && start_x.has_value() && start_y.has_value()) {
+    collect_polar_candidates(cursor_x, cursor_y, *start_x, *start_y, tolerance, filter, candidates);
   }
 
   if (candidates.empty()) {

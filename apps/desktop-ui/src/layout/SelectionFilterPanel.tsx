@@ -15,6 +15,9 @@ export interface SelectionFilter {
   snap_parallel: boolean;
   snap_tangent: boolean;
   snap_grid: boolean;
+  snap_grid_line: boolean;
+  snap_polar: boolean;
+  polar_angle_degrees: number;
   magnetic_pull: boolean;
   tolerance_px: number;
 }
@@ -36,6 +39,9 @@ const defaultFilter: SelectionFilter = {
   snap_parallel: false,
   snap_tangent: true,
   snap_grid: true,
+  snap_grid_line: false,
+  snap_polar: false,
+  polar_angle_degrees: 15,
   magnetic_pull: true,
   tolerance_px: 10,
 };
@@ -164,6 +170,17 @@ export function SelectionFilterPanel({
           <label style={{ display: "block", fontSize: 13 }}>
             <input type="checkbox" checked={draft.snap_grid} onChange={() => toggle("snap_grid")} />{" "}
             Grid
+          </label>
+          <label style={{ display: "block", fontSize: 13 }}>
+            <input type="checkbox" checked={draft.snap_grid_line} onChange={() => toggle("snap_grid_line")} />{" "}
+            Grid Line
+          </label>
+          <label style={{ display: "block", fontSize: 13 }}>
+            <input type="checkbox" checked={draft.snap_polar} onChange={() => toggle("snap_polar")} />{" "}
+            Polar
+          </label>
+          <label style={{ display: "block", fontSize: 13, paddingLeft: 18 }}>
+            Angle: <input type="number" value={draft.polar_angle_degrees} onChange={(e) => { const v = parseInt(e.target.value,10); if (v>0 && v<=90) { const n={...draft,polar_angle_degrees:v}; setDraft(n); onChange(n); }}} min={5} max={90} step={5} style={{ width: 50, background: "#353534", border: "1px solid #555", color: "#e5e2e1", borderRadius: 4, padding: "2px 6px" }} />°
           </label>
         </div>
       </div>

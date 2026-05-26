@@ -1759,6 +1759,9 @@ json to_payload(const polysmith::core::DocumentState& document) {
               {"snap_parallel", sf.snap_parallel},
               {"snap_tangent", sf.snap_tangent},
               {"snap_grid", sf.snap_grid},
+              {"snap_grid_line", sf.snap_grid_line},
+              {"snap_polar", sf.snap_polar},
+              {"polar_angle_degrees", sf.polar_angle_degrees},
               {"magnetic_pull", sf.magnetic_pull},
               {"tolerance_px", sf.tolerance_px},
           };
@@ -2463,9 +2466,27 @@ json to_payload(const polysmith::core::ViewportState& viewport) {
               {"snap_parallel", sf.snap_parallel},
               {"snap_tangent", sf.snap_tangent},
               {"snap_grid", sf.snap_grid},
+              {"snap_grid_line", sf.snap_grid_line},
+              {"snap_polar", sf.snap_polar},
+              {"polar_angle_degrees", sf.polar_angle_degrees},
               {"magnetic_pull", sf.magnetic_pull},
               {"tolerance_px", sf.tolerance_px},
           };
+        }()},
+       {"snap_candidates",
+        [&viewport]() {
+          json arr = json::array();
+          for (const auto& c : viewport.snap_candidates) {
+            arr.push_back({
+                {"kind", c.kind},
+                {"entity_id", c.entity_id},
+                {"point_id", c.point_id},
+                {"local_x", c.local_x},
+                {"local_y", c.local_y},
+                {"label", c.label},
+            });
+          }
+          return arr;
         }()},
        {"dof_statuses",
         [&viewport]() {
@@ -2810,6 +2831,12 @@ polysmith::core::DocumentState document_from_payload(const json& payload) {
       filter.snap_tangent = sf.at("snap_tangent").get<bool>();
     if (sf.contains("snap_grid") && sf.at("snap_grid").is_boolean())
       filter.snap_grid = sf.at("snap_grid").get<bool>();
+    if (sf.contains("snap_grid_line") && sf.at("snap_grid_line").is_boolean())
+      filter.snap_grid_line = sf.at("snap_grid_line").get<bool>();
+    if (sf.contains("snap_polar") && sf.at("snap_polar").is_boolean())
+      filter.snap_polar = sf.at("snap_polar").get<bool>();
+    if (sf.contains("polar_angle_degrees") && sf.at("polar_angle_degrees").is_number())
+      filter.polar_angle_degrees = sf.at("polar_angle_degrees").get<int>();
     if (sf.contains("magnetic_pull") && sf.at("magnetic_pull").is_boolean())
       filter.magnetic_pull = sf.at("magnetic_pull").get<bool>();
     if (sf.contains("tolerance_px") && sf.at("tolerance_px").is_number())

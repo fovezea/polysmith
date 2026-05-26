@@ -487,8 +487,10 @@
     "constrainedLine": "{{constraint}} line",
     "lineEndpoint": "Line endpoint",
     "midpoint": "Midpoint",
+    "onCircle": "On circle",
     "onLine": "On line",
     "origin": "Origin",
+    "parallel": "Parallel",
     "perpendicular": "Perpendicular",
     "subSegmentMidpoint": "Sub-segment midpoint",
     "tangent": "Tangent"

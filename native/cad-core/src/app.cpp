@@ -1900,6 +1900,14 @@ void CadCoreApp::handle_command_line(const std::string& line) {
         command.payload.at("snap_grid").is_boolean()) {
       filter.snap_grid = command.payload.at("snap_grid").get<bool>();
     }
+    if (command.payload.contains("snap_grid_line") &&
+        command.payload.at("snap_grid_line").is_boolean()) {
+      filter.snap_grid_line = command.payload.at("snap_grid_line").get<bool>();
+    }
+    if (command.payload.contains("snap_polar") &&
+        command.payload.at("snap_polar").is_boolean()) {
+      filter.snap_polar = command.payload.at("snap_polar").get<bool>();
+    }
     if (command.payload.contains("magnetic_pull") &&
         command.payload.at("magnetic_pull").is_boolean()) {
       filter.magnetic_pull = command.payload.at("magnetic_pull").get<bool>();

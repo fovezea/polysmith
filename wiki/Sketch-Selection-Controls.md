@@ -1,12 +1,15 @@
 # Sketch Selection Controls
 
-> **Status as of 2026-05-26:** Selection filter + checkbox panel shipped.
+> **Status as of 2026-05-27:** Selection filter + checkbox panel shipped.
 > Inference engine (coincident, concentric) shipped. DOF counting + entity
 > coloring shipped. Constraint deletion UI shipped (select badge → Delete).
-> Constraint badge highlight + right-click → Delete shipped.
-> Rectangle drag selection shipped (window + crossing modes).
-> Remaining: C++ snap engine wiring, perpendicular snap, driven dimension
-> proposal, and DOF color legend.
+> Constraint badge highlight + right-click → Delete shipped. Rectangle drag
+> selection shipped (window + crossing modes, now includes arcs). C++ snap
+> engine wired with all collectors, snap_candidates through IPC. Parallel
+> snap, Alt-key override, circle-nearest snap shipped. Arc profile fix for
+> trimmed circles.
+> Remaining: Object Snap Tracking, driven dimension proposal, DOF color
+> legend.
 
 > This page consolidates the three interrelated subsystems (Constraints,
 > Snapping, Selection) into a single implementation roadmap. It defines
@@ -612,6 +615,48 @@ All frontend — no core or IPC changes needed:
 
 - `ViewportPanel.tsx` — all changes (drag state, overlay div, hit test logic)
 - No new dependencies, no core changes, no schema changes
+
+## 8. Object Snap Tracking (Planned — 2026-05-27)
+
+### Goal
+
+Project temporary guide lines from existing geometry endpoints when the
+user briefly hovers over them while drawing. The guide lines extend along
+cardinal (horizontal/vertical) axes, and the active draft snaps to the
+intersection of the guide and the rubber-band direction.
+
+### Use case
+
+An existing vertical line A has its top endpoint at Y=5. The user starts
+a new vertical line B at X=3, briefly hovers near A's top endpoint
+(acquiring it), then drags upward. A horizontal dotted guide line extends
+from Y=5. Line B snaps to end at exactly Y=5, matching line A's height
+without an explicit dimension.
+
+This also works vertically: hovering near the endpoint of a horizontal
+line while drawing another horizontal line snaps the X coordinate.
+
+### Implementation approach
+
+All frontend — no core or IPC changes needed:
+
+1. **Acquire phase** — during pointer-move while a draft is active,
+   detect when the cursor is within `SKETCH_SNAP_DISTANCE` of any
+   existing sketch entity endpoint or center. Store the matching point
+   in a transient `trackedPoints[]` list.
+
+2. **Render phase** — for each tracked point, draw a dashed horizontal
+   and vertical guide line from the point to a generous bounding box,
+   using a dedicated dashed-line Three.js material. Show only the
+   axis-aligned guides.
+
+3. **Snap phase** — in `resolveSnappedSketchPoint()`, for each tracked
+   point, compute the intersection of the rubber-band ray (start →
+   cursor) with each guide line. If within tolerance, snap to that
+   intersection.
+
+4. **Cleanup** — clear tracked points when the draft tool commits or
+   cancels (on `add_sketch_line` IPC or Escape).
 
 ## 8. Related Pages
 
