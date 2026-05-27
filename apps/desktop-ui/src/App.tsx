@@ -2374,7 +2374,7 @@ function App() {
 
   async function handleSketchConstraintPointPick(
     pointId: string,
-    kind: "endpoint" | "center",
+    kind: "endpoint" | "center" | "quadrant",
     additive = false,
   ) {
     if (!armedSketchConstraint || armedSketchConstraint.kind !== "coincident") {

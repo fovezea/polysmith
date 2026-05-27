@@ -176,7 +176,8 @@ export interface ViewportSketchPoint {
   // "endpoint" — line / arc endpoint (default).
   // "center" — circle center.
   // "projected" — Project-tool result; locked, drawn distinctly.
-  kind: "endpoint" | "center" | "projected";
+  // "quadrant" — derived cardinal point on a circle perimeter.
+  kind: "endpoint" | "center" | "projected" | "quadrant";
   position: Vector3;
   is_fixed: boolean;
   is_selected: boolean;

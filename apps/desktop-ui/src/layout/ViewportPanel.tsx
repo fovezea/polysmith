@@ -371,7 +371,7 @@ interface ViewportPanelProps {
   onBatchSelectEntities: (entityIds: string[], additive: boolean) => Promise<void>;
   onPickSketchPoint: (
     pointId: string,
-    kind: "endpoint" | "center",
+    kind: "endpoint" | "center" | "quadrant",
     additive: boolean,
   ) => Promise<void>;
   armedSketchConstraint: ArmedSketchConstraint;
@@ -4365,7 +4365,7 @@ const currentGridSpacingRef = useRef(10);
           ? themeColor("--color-primary-edge-active", "#c3f5ff")
           : isHovered
             ? themeColor("--color-tertiary-plane-edge-hover", "#fff2b2")
-            : kind === "center" || kind === "projected"
+            : kind === "center" || kind === "projected" || kind === "quadrant"
               ? themeColor("--color-axis-z", "#6db4ff")
               : themeColor("--color-tertiary-plane-edge", "#ffe784"),
       );
@@ -4782,6 +4782,7 @@ const currentGridSpacingRef = useRef(10);
     ) {
       return;
     }
+    pendingDimensionIdRef.current = null;
     pendingDimensionPlacementRef.current = false;
     pendingDimSourceEntityIdRef.current = null;
     beginDimensionPlacement(selectedSketchDimension);
@@ -10755,12 +10756,7 @@ const currentGridSpacingRef = useRef(10);
                 }
               }}
             />
-            <button
-              type="submit"
-              className="rounded px-2 py-0.5 text-[11px] font-medium text-primary-glow hover:bg-surface-bright"
-            >
-              {translate("parameters.save")}
-            </button>
+
             {dimensionParameterSuggestions.length > 0 ? (
               <div
                 className="absolute left-0 top-[calc(100%+0.35rem)] w-[220px] overflow-hidden rounded-lg border border-surface-high bg-surface-container py-1 text-left shadow-xl"
