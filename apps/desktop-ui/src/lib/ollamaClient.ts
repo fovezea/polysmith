@@ -1,3 +1,5 @@
+import type { AiConfig } from "@/config";
+
 interface OllamaTagsResponse {
   models?: Array<{ name?: string }>;
 }

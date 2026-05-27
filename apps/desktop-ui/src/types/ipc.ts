@@ -930,6 +930,15 @@ export interface AddSketchDistanceDimensionCommand {
   };
 }
 
+export interface AddSketchPointDistanceDimensionCommand {
+  id: string;
+  type: "add_sketch_point_distance_dimension";
+  payload: {
+    point_a_id: string;
+    point_b_id: string;
+  };
+}
+
 export interface AddSketchLineLengthDimensionCommand {
   id: string;
   type: "add_sketch_line_length_dimension";
@@ -1298,6 +1307,15 @@ export interface UpdateSketchDimensionCommand {
   };
 }
 
+export interface UpdateSketchDimensionDisplayCommand {
+  id: string;
+  type: "update_sketch_dimension_display";
+  payload: {
+    dimension_id: string;
+    display_as: string;
+  };
+}
+
 export interface SelectSketchProfileCommand {
   id: string;
   type: "select_sketch_profile";
@@ -1646,8 +1664,10 @@ export type CoreCommand =
   | SetSketchPointFixedCommand
   | UpdateSketchCircleCommand
   | UpdateSketchDimensionCommand
+  | UpdateSketchDimensionDisplayCommand
   | SelectSketchProfileCommand
   | AddSketchDistanceDimensionCommand
+  | AddSketchPointDistanceDimensionCommand
   | ExtrudeProfileCommand
   | ExtrudeFaceCommand
   | AddSketchLineCommand

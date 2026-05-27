@@ -39,6 +39,7 @@ import type {
   SketchProfileScene,
   MoveFeatureParameters,
 } from "@/types";
+import type { SelectionFilter } from "./SelectionFilterPanel";
 import {
   applyPrimitiveVisualState,
   applyReferencePlaneVisualState,
@@ -1259,7 +1260,7 @@ export function ViewportPanel({
   const previewLineRef = useRef<THREE.Line | null>(null);
   const previewCircleRef = useRef<THREE.LineLoop | null>(null);
   const previewDimensionRef = useRef<{
-    line: THREE.LineSegments;
+    line: THREE.Object3D;
     label: THREE.Sprite;
   } | null>(null);
   // Mirrors `previewLineRef` / `previewCircleRef` for the arc tool.
@@ -1468,7 +1469,7 @@ const currentGridSpacingRef = useRef(10);
   const clearSketchConstraintRef = useRef(onClearSketchConstraint);
   /** Selected constraint for deletion on Delete key. */
   interface SelectedConstraint {
-    kind: string;
+    kind: ConstraintType;
     entityId: string;
     relatedEntityId: string | null;
   }
@@ -1480,7 +1481,13 @@ const currentGridSpacingRef = useRef(10);
     Array<{
       local: [number, number];
       label: string;
-      kind?: "midpoint" | "endpoint";
+      kind?:
+        | "midpoint"
+        | "endpoint"
+        | "center"
+        | "intersection"
+        | "nearest"
+        | "tangent";
       hostLineId?: string;
       // Parametric position along the host line for sub-segment
       // midpoint candidates (and 0.5 for whole-line midpoints).
@@ -2315,7 +2322,13 @@ const currentGridSpacingRef = useRef(10);
     type Candidate = {
       local: [number, number];
       label: string;
-      kind?: "midpoint" | "endpoint";
+      kind?:
+        | "midpoint"
+        | "endpoint"
+        | "center"
+        | "intersection"
+        | "nearest"
+        | "tangent";
       hostLineId?: string;
       tValue?: number;
       endpointHostLineId?: string;
@@ -3760,10 +3773,10 @@ const currentGridSpacingRef = useRef(10);
   }
 
   /** Read the selection filter from localStorage synchronously. */
-  function readLocalFilter(): import("../SelectionFilterPanel").SelectionFilter | null {
+  function readLocalFilter(): SelectionFilter | null {
     try {
       const raw = localStorage.getItem("polysmith-selection-filter");
-      if (raw) return JSON.parse(raw) as import("../SelectionFilterPanel").SelectionFilter;
+      if (raw) return JSON.parse(raw) as SelectionFilter;
     } catch { /* ignore */ }
     return null;
   }
@@ -6420,7 +6433,8 @@ const currentGridSpacingRef = useRef(10);
             kind: "sketch_constraint" as const,
             id: sketchConstraintId,
             constraintKind:
-              sketchConstraintHit.object.userData.sketchConstraintKind,
+              sketchConstraintHit.object.userData
+                .sketchConstraintKind as ConstraintType,
             entityId:
               sketchConstraintHit.object.userData.sketchConstraintEntityId,
             relatedEntityId:

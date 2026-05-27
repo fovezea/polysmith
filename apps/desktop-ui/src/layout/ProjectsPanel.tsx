@@ -925,7 +925,10 @@ export function ProjectsPanel({
                   type="button"
                   className="flex w-full items-center rounded-lg px-3 py-1.5 text-left text-sm text-on-surface transition-colors hover:bg-white/10"
                   onClick={() => {
-                    openMoveProject(contextMenu.target.project);
+                    const target = contextMenu.target;
+                    if (target.kind === "project") {
+                      openMoveProject(target.project);
+                    }
                     setContextMenu(null);
                   }}
                 >
