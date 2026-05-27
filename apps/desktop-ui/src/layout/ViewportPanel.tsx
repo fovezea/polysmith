@@ -239,7 +239,11 @@ type DimensionLabelDragState = {
 };
 
 type DimensionRelationPreview = {
-  kind: "parallel_line_distance" | "line_angle" | "circle_line_distance";
+  kind:
+    | "parallel_line_distance"
+    | "line_angle"
+    | "circle_line_distance"
+    | "circle_center_distance";
   firstEntityId: string;
   targetEntityId: string;
 };
@@ -3034,12 +3038,18 @@ const currentGridSpacingRef = useRef(10);
     pendingDimensionIdRef.current = dimensionId;
     pendingDimSourceEntityIdRef.current = entityId;
     pendingDimensionPlacementRef.current = true;
+    // Stage for possible two-entity follow-up pick while the diameter
+    // placement is active.
+    dimensionToolFirstLineRef.current = entityId;
+    setDimensionToolFirstLine(entityId);
     void addSketchCircleRadiusDimensionRef
       .current(entityId, displayAs)
       .catch(() => {
         pendingDimensionIdRef.current = null;
         pendingDimSourceEntityIdRef.current = null;
         pendingDimensionPlacementRef.current = false;
+        dimensionToolFirstLineRef.current = null;
+        setDimensionToolFirstLine(null);
       });
   }
 
@@ -3448,6 +3458,40 @@ const currentGridSpacingRef = useRef(10);
     };
   }
 
+  function createCircleCenterDistancePreview(
+    first: SketchCircleEntry,
+    second: SketchCircleEntry,
+  ): SketchDimensionScene | null {
+    const dx = second.center_x - first.center_x;
+    const dy = second.center_y - first.center_y;
+    const distance = Math.hypot(dx, dy);
+    if (distance <= 1e-9) {
+      return null;
+    }
+    const start: [number, number] = [first.center_x, first.center_y];
+    const end: [number, number] = [second.center_x, second.center_y];
+    const labelLocal: [number, number] = [
+      (first.center_x + second.center_x) / 2,
+      (first.center_y + second.center_y) / 2,
+    ];
+    const planeId = activeSketchPlaneIdRef.current ?? "ref-plane-xy";
+    return {
+      dimensionId: "preview-dim-circle-center-distance",
+      planeId,
+      kind: "circle_center_distance",
+      entityId: first.circle_id,
+      label: `${formatDraftDimension(distance)} mm`,
+      rawValue: distance,
+      unitSuffix: "mm",
+      isSelected: false,
+      anchorStart: toWorldPoint(planeId, start, activeSketchPlaneFrameRef.current),
+      anchorEnd: toWorldPoint(planeId, end, activeSketchPlaneFrameRef.current),
+      dimensionStart: toWorldPoint(planeId, start, activeSketchPlaneFrameRef.current),
+      dimensionEnd: toWorldPoint(planeId, end, activeSketchPlaneFrameRef.current),
+      labelPosition: toWorldPoint(planeId, labelLocal, activeSketchPlaneFrameRef.current),
+    };
+  }
+
   function renderDimensionRelationPreview(
     relation: DimensionRelationPreview,
     dimension: SketchDimensionScene,
@@ -3582,6 +3626,30 @@ const currentGridSpacingRef = useRef(10);
           best = { score: hit.distance, relation, dimension };
         }
       }
+      for (const circle of params.circles) {
+        if (circle.circle_id === firstCircle.circle_id) {
+          continue;
+        }
+        if (circle.is_construction && !allowConstruction) {
+          continue;
+        }
+        const distance = distanceToCircleEdge(cursor, circle);
+        if (distance > SKETCH_SNAP_DISTANCE) {
+          continue;
+        }
+        const dimension = createCircleCenterDistancePreview(firstCircle, circle);
+        if (!dimension) {
+          continue;
+        }
+        const relation: DimensionRelationPreview = {
+          kind: "circle_center_distance",
+          firstEntityId,
+          targetEntityId: circle.circle_id,
+        };
+        if (!best || distance < best.score) {
+          best = { score: distance, relation, dimension };
+        }
+      }
     }
 
     if (!best) {
@@ -3657,6 +3725,9 @@ const currentGridSpacingRef = useRef(10);
     }
     if (relation.kind === "line_angle") {
       return coreDimension.kind === "angle";
+    }
+    if (relation.kind === "circle_center_distance") {
+      return coreDimension.kind === "circle_center_distance";
     }
     return coreDimension.kind === "circle_line_distance";
   }
@@ -3973,7 +4044,8 @@ const currentGridSpacingRef = useRef(10);
         : null;
     const relationPosition =
       dimension.kind === "line_line_distance" ||
-      dimension.kind === "circle_line_distance"
+      dimension.kind === "circle_line_distance" ||
+      dimension.kind === "circle_center_distance"
         ? pendingRelationPlacementLabelRef.current
         : null;
     pendingRelationPlacementLabelRef.current = null;
@@ -9435,16 +9507,10 @@ const currentGridSpacingRef = useRef(10);
                 // stage for two-entity flow.
                 dimSelectCircle(hit.id);
               } else {
-                // No radius dimension yet. Stage the circle center
-                // point so the next click can create either a radius
-                // dimension (re-click same circle) or a two-entity
-                // distance. Don't create a radius dimension yet so
-                // point-to-circle-center two-pick works.
-                dimensionToolFirstPointRef.current = {
-                  id: `point-circle-${hit.id}-center`, x: 0, y: 0,
-                };
-                dimensionToolFirstLineRef.current = hit.id;
-                setDimensionToolFirstLine(hit.id);
+                // First circle click creates the diameter dimension, then
+                // stages the circle for relation previews while the label is
+                // being placed.
+                dimCreateCircle(hit.id, "");
               }
               return;
             }
@@ -10689,6 +10755,9 @@ const currentGridSpacingRef = useRef(10);
     }
 
     for (const sketchConstraint of sceneData.sketchConstraints) {
+      if (sketchConstraint.kind === "fixed") {
+        continue;
+      }
       const sketchConstraintObject =
         buildSketchConstraintObject(sketchConstraint);
       sketchConstraintObjectsRef.current.push(sketchConstraintObject);
