@@ -1704,6 +1704,21 @@ Payload:
 }
 ```
 
+#### `update_sketch_dimension_label_position`
+
+Stores presentation-only label placement for a sketch dimension in sketch-local
+coordinates. This does not change the solved dimension value.
+
+Payload:
+
+```ts
+{
+  dimension_id: string;
+  label_x: number;
+  label_y: number;
+}
+```
+
 #### `update_sketch_dimension_display`
 
 Toggles a circle dimension between radius and diameter display.

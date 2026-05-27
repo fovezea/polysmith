@@ -535,6 +535,11 @@ struct SketchDimension {
   // value as radius or diameter. Empty string = diameter (default, for
   // backward compat). "radius" = display the raw radius value.
   std::string display_as;
+  // Optional sketch-local label position. When set, viewport generation
+  // uses it as a presentation override without changing the solved
+  // dimension value or constrained geometry.
+  std::optional<double> label_x;
+  std::optional<double> label_y;
 };
 
 // A point anchored to the midpoint of a line. The anchored point is

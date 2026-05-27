@@ -1324,6 +1324,16 @@ export interface UpdateSketchDimensionCommand {
   };
 }
 
+export interface UpdateSketchDimensionLabelPositionCommand {
+  id: string;
+  type: "update_sketch_dimension_label_position";
+  payload: {
+    dimension_id: string;
+    label_x: number;
+    label_y: number;
+  };
+}
+
 export interface UpdateSketchDimensionDisplayCommand {
   id: string;
   type: "update_sketch_dimension_display";
@@ -1683,6 +1693,7 @@ export type CoreCommand =
   | SetSketchPointFixedCommand
   | UpdateSketchCircleCommand
   | UpdateSketchDimensionCommand
+  | UpdateSketchDimensionLabelPositionCommand
   | UpdateSketchDimensionDisplayCommand
   | SelectSketchProfileCommand
   | AddSketchDistanceDimensionCommand

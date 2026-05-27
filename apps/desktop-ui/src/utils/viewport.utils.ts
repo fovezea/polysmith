@@ -1226,7 +1226,11 @@ export function buildSketchPointObject(point: SketchPointScene) {
   return mesh;
 }
 
-export function makeDimensionLabelSprite(text: string, isSelected: boolean) {
+export function makeDimensionLabelSprite(
+  text: string,
+  isSelected: boolean,
+  options: { variant?: "muted-preview" } = {},
+) {
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");
   if (!context) {
@@ -1248,10 +1252,13 @@ export function makeDimensionLabelSprite(text: string, isSelected: boolean) {
     "--cad-sketch-label-shadow",
     "rgba(0, 0, 0, 0.55)",
   );
-  context.shadowBlur = isSelected ? 4 : 3;
-  context.fillStyle = isSelected
-    ? themeColor("--cad-sketch-label-selected", "#e7fbff")
-    : themeColor("--cad-sketch-label", "rgba(223, 247, 250, 0.92)");
+  const isMutedPreview = options.variant === "muted-preview";
+  context.shadowBlur = isMutedPreview ? 1 : isSelected ? 4 : 3;
+  context.fillStyle = isMutedPreview
+    ? themeColor("--color-on-surface-muted", "rgba(223, 247, 250, 0.55)")
+    : isSelected
+      ? themeColor("--cad-sketch-label-selected", "#e7fbff")
+      : themeColor("--cad-sketch-label", "rgba(223, 247, 250, 0.92)");
   context.textAlign = "center";
   context.textBaseline = "middle";
   context.fillText(text, canvas.width / 2, canvas.height / 2 + 1);
@@ -1261,6 +1268,7 @@ export function makeDimensionLabelSprite(text: string, isSelected: boolean) {
   const material = new THREE.SpriteMaterial({
     map: texture,
     transparent: true,
+    opacity: isMutedPreview ? 0.72 : 1,
     depthTest: false,
     depthWrite: false,
   });
@@ -1323,7 +1331,10 @@ export function makeConstraintBadgeSprite(text: string, isSelected: boolean) {
 export function buildSketchDimensionObject(
   dimension: SketchDimensionScene,
   displayUnits?: "mm" | "in",
+  options: { variant?: "muted-preview"; pickable?: boolean } = {},
 ) {
+  const isMutedPreview = options.variant === "muted-preview";
+  const isPickable = options.pickable ?? !isMutedPreview;
   const labelText =
     displayUnits === "in" && dimension.unitSuffix === "mm"
       ? reformatDimensionLabel(dimension.label, dimension.kind, "in")
@@ -1521,22 +1532,28 @@ export function buildSketchDimensionObject(
 
   // Build line segments geometry
   const material = new THREE.LineBasicMaterial({
-    color: dimension.isSelected
+    color: isMutedPreview
+      ? themeColor("--color-on-surface-muted", "#9b9b98")
+      : dimension.isSelected
       ? themeColor("--color-primary-edge-active", "#c3f5ff")
       : themeColor("--color-primary-soft", "#8feaf7"),
     transparent: true,
-    opacity: dimension.isSelected ? 0.98 : 0.84,
+    opacity: isMutedPreview ? 0.34 : dimension.isSelected ? 0.98 : 0.84,
     depthTest: false,
   });
   const geometry = new THREE.BufferGeometry().setFromPoints(points);
   const lineSegments = new THREE.LineSegments(geometry, material);
-  lineSegments.renderOrder = 6;
-  lineSegments.userData.sketchDimensionId = dimension.dimensionId;
+  lineSegments.renderOrder = isMutedPreview ? 5 : 6;
+  if (isPickable) {
+    lineSegments.userData.sketchDimensionId = dimension.dimensionId;
+  }
 
   // Build filled arrow mesh
   const group = new THREE.Group();
   group.add(lineSegments);
-  group.userData.sketchDimensionId = dimension.dimensionId;
+  if (isPickable) {
+    group.userData.sketchDimensionId = dimension.dimensionId;
+  }
 
   if (arrowIndices.length > 0) {
     const arrowGeom = new THREE.BufferGeometry();
@@ -1546,17 +1563,21 @@ export function buildSketchDimensionObject(
     );
     arrowGeom.setIndex(arrowIndices);
     const arrowMat = new THREE.MeshBasicMaterial({
-      color: dimension.isSelected
+      color: isMutedPreview
+        ? themeColor("--color-on-surface-muted", "#9b9b98")
+        : dimension.isSelected
         ? themeColor("--color-primary-edge-active", "#c3f5ff")
         : themeColor("--color-primary-soft", "#8feaf7"),
       transparent: true,
-      opacity: dimension.isSelected ? 0.98 : 0.84,
+      opacity: isMutedPreview ? 0.34 : dimension.isSelected ? 0.98 : 0.84,
       depthTest: false,
       side: THREE.DoubleSide,
     });
     const arrowMesh = new THREE.Mesh(arrowGeom, arrowMat);
-    arrowMesh.renderOrder = 6;
-    arrowMesh.userData.sketchDimensionId = dimension.dimensionId;
+    arrowMesh.renderOrder = isMutedPreview ? 5 : 6;
+    if (isPickable) {
+      arrowMesh.userData.sketchDimensionId = dimension.dimensionId;
+    }
     group.add(arrowMesh);
   }
 
@@ -1567,26 +1588,34 @@ export function buildSketchDimensionObject(
       refLineData.end,
     ]);
     const refMat = new THREE.LineDashedMaterial({
-      color: dimension.isSelected
+      color: isMutedPreview
+        ? themeColor("--color-on-surface-muted", "#9b9b98")
+        : dimension.isSelected
         ? themeColor("--color-primary-edge-active", "#c3f5ff")
         : themeColor("--color-primary-soft", "#8feaf7"),
       transparent: true,
-      opacity: 0.40,
+      opacity: isMutedPreview ? 0.24 : 0.40,
       dashSize: 2,
       gapSize: 2,
       depthTest: false,
     });
     const refLine = new THREE.Line(refGeom, refMat);
     refLine.computeLineDistances();
-    refLine.renderOrder = 6;
-    refLine.userData.sketchDimensionId = dimension.dimensionId;
+    refLine.renderOrder = isMutedPreview ? 5 : 6;
+    if (isPickable) {
+      refLine.userData.sketchDimensionId = dimension.dimensionId;
+    }
     group.add(refLine);
   }
 
-  const label = makeDimensionLabelSprite(labelText, dimension.isSelected);
+  const label = makeDimensionLabelSprite(labelText, dimension.isSelected, {
+    variant: options.variant,
+  });
   label.position.copy(labelPosition);
-  label.renderOrder = 7;
-  label.userData.sketchDimensionId = dimension.dimensionId;
+  label.renderOrder = isMutedPreview ? 6 : 7;
+  if (isPickable) {
+    label.userData.sketchDimensionId = dimension.dimensionId;
+  }
   label.userData.basePosition = dimension.labelPosition;
   label.userData.dimensionStart = dimension.dimensionStart;
   label.userData.dimensionEnd = dimension.dimensionEnd;

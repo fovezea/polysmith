@@ -37,6 +37,8 @@ import type {
   ViewportContextMenuState,
   SketchPreviewPoint,
   SketchProfileScene,
+  SketchLineEntry,
+  SketchCircleEntry,
   MoveFeatureParameters,
 } from "@/types";
 import type { SelectionFilter } from "./SelectionFilterPanel";
@@ -235,6 +237,12 @@ type DimensionLabelDragState = {
   isPlacement?: boolean;
 };
 
+type DimensionRelationPreview = {
+  kind: "parallel_line_distance" | "line_angle" | "circle_line_distance";
+  firstEntityId: string;
+  targetEntityId: string;
+};
+
 const GRID_STEPS_MM = [
   0.1, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000,
 ];
@@ -424,6 +432,11 @@ interface ViewportPanelProps {
   onUpdateSketchDimension: (
     dimensionId: string,
     value: number | string,
+  ) => Promise<void>;
+  onUpdateSketchDimensionLabelPosition: (
+    dimensionId: string,
+    labelX: number,
+    labelY: number,
   ) => Promise<void>;
   onSelectSketchProfile: (profileId: string, additive: boolean) => Promise<void>;
   onTrimSketchEntity?: (
@@ -747,6 +760,43 @@ function projectPointToGridFrame(point: THREE.Vector3, frame: GridPlaneFrame) {
     u: relative.dot(frame.xAxis),
     v: relative.dot(frame.yAxis),
   };
+}
+
+function worldPointToSketchLocal(
+  world: [number, number, number],
+  planeId: string | null,
+  planeFrame: ActiveSketchGridPlaneFrame | null,
+): [number, number] | null {
+  if (!planeId) {
+    return null;
+  }
+  if (planeFrame) {
+    const point = new THREE.Vector3(...world);
+    const origin = new THREE.Vector3(
+      planeFrame.origin.x,
+      planeFrame.origin.y,
+      planeFrame.origin.z,
+    );
+    const xAxis = new THREE.Vector3(
+      planeFrame.x_axis.x,
+      planeFrame.x_axis.y,
+      planeFrame.x_axis.z,
+    ).normalize();
+    const yAxis = new THREE.Vector3(
+      planeFrame.y_axis.x,
+      planeFrame.y_axis.y,
+      planeFrame.y_axis.z,
+    ).normalize();
+    const delta = point.sub(origin);
+    return [delta.dot(xAxis), delta.dot(yAxis)];
+  }
+  if (planeId === "ref-plane-xy") {
+    return [world[0], world[2]];
+  }
+  if (planeId === "ref-plane-yz") {
+    return [world[1], world[2]];
+  }
+  return [world[0], world[1]];
 }
 
 function fallbackGridBounds(
@@ -1156,6 +1206,7 @@ export function ViewportPanel({
   onClearSketchConstraint,
   onSelectSketchDimension,
   onUpdateSketchDimension,
+  onUpdateSketchDimensionLabelPosition,
   onSelectSketchProfile,
   onTrimSketchEntity,
   onDeleteSketchSelection,
@@ -1245,6 +1296,9 @@ export function ViewportPanel({
   } | null>(null);
   const [isDimensionEditorOpen, setIsDimensionEditorOpen] = useState(false);
   const [dimensionLabelPositions, setDimensionLabelPositions] = useState<
+    Record<string, [number, number, number]>
+  >({});
+  const dimensionLabelPositionsRef = useRef<
     Record<string, [number, number, number]>
   >({});
   const [draftDimensionSession, setDraftDimensionSession] =
@@ -1439,6 +1493,9 @@ const currentGridSpacingRef = useRef(10);
   const pickSketchPointRef = useRef(onPickSketchPoint);
   const selectSketchDimensionRef = useRef(onSelectSketchDimension);
   const updateSketchDimensionRef = useRef(onUpdateSketchDimension);
+  const updateSketchDimensionLabelPositionRef = useRef(
+    onUpdateSketchDimensionLabelPosition,
+  );
   const selectSketchProfileRef = useRef(onSelectSketchProfile);
   const trimSketchEntityRef = useRef(onTrimSketchEntity);
   const deleteSketchSelectionRef = useRef(onDeleteSketchSelection);
@@ -1452,6 +1509,9 @@ const currentGridSpacingRef = useRef(10);
   const selectedSketchDimensionRef = useRef<SketchDimensionScene | null>(null);
   const displayedSketchDimensionsRef = useRef<SketchDimensionScene[]>([]);
   const dimensionLabelDragRef = useRef<DimensionLabelDragState | null>(null);
+  const dimensionRelationPreviewRef =
+    useRef<DimensionRelationPreview | null>(null);
+  const hiddenRelationPreviewDimensionIdsRef = useRef<Set<string>>(new Set());
   const pendingDimensionPlacementRef = useRef(false);
   // The dimension ID that was just created (before the IPC round-trip).
   // Used to delete it on Escape even before the response arrives.
@@ -2720,6 +2780,8 @@ const currentGridSpacingRef = useRef(10);
   function clearPreviewDimension() {
     const previewDimension = previewDimensionRef.current;
     const sketchGroup = sketchGroupRef.current;
+    dimensionRelationPreviewRef.current = null;
+    restoreRelationPreviewHiddenDimensions();
     if (!previewDimension || !sketchGroup) {
       return;
     }
@@ -2745,6 +2807,40 @@ const currentGridSpacingRef = useRef(10);
     }
     disposeMaterial(labelMaterial);
     previewDimensionRef.current = null;
+  }
+
+  function setSketchDimensionObjectVisibility(
+    dimensionId: string,
+    visible: boolean,
+  ) {
+    for (const object of sketchDimensionObjectsRef.current) {
+      let matches = object.userData.sketchDimensionId === dimensionId;
+      if (!matches) {
+        object.traverse((child) => {
+          if (child.userData.sketchDimensionId === dimensionId) {
+            matches = true;
+          }
+        });
+      }
+      if (matches) {
+        object.visible = visible;
+      }
+    }
+  }
+
+  function hideRelationPreviewDimension(dimensionId: string | null) {
+    if (!dimensionId) {
+      return;
+    }
+    hiddenRelationPreviewDimensionIdsRef.current.add(dimensionId);
+    setSketchDimensionObjectVisibility(dimensionId, false);
+  }
+
+  function restoreRelationPreviewHiddenDimensions() {
+    for (const dimensionId of hiddenRelationPreviewDimensionIdsRef.current) {
+      setSketchDimensionObjectVisibility(dimensionId, true);
+    }
+    hiddenRelationPreviewDimensionIdsRef.current.clear();
   }
 
   function clearDraftDimGroup() {
@@ -3015,6 +3111,491 @@ const currentGridSpacingRef = useRef(10);
     }
   }
 
+  function unaryDimensionIdForEntity(entityId: string) {
+    if (entityId.startsWith("line-")) {
+      return `dim-line-${entityId}`;
+    }
+    if (entityId.startsWith("circle-")) {
+      return `dim-circle-${entityId}`;
+    }
+    if (entityId.startsWith("polygon-")) {
+      return `dim-polygon-${entityId}`;
+    }
+    return null;
+  }
+
+  function readDimensionPreviewFilter() {
+    const localFilter = readLocalFilter();
+    const base = localFilter ?? {
+      select_curves: true,
+      select_construction: false,
+      snap_intersection: true,
+      snap_nearest: true,
+      snap_parallel: true,
+    };
+    if (!localFilter || !altHeldRef.current) {
+      return base;
+    }
+    return {
+      ...base,
+      select_curves: !localFilter.select_curves,
+      select_construction: !localFilter.select_construction,
+      snap_intersection: !localFilter.snap_intersection,
+      snap_nearest: !localFilter.snap_nearest,
+      snap_parallel: !localFilter.snap_parallel,
+    };
+  }
+
+  function lineLength(line: SketchLineEntry) {
+    return Math.hypot(line.end_x - line.start_x, line.end_y - line.start_y);
+  }
+
+  function lineDirection(line: SketchLineEntry): [number, number] | null {
+    const length = lineLength(line);
+    if (length <= 1e-9) {
+      return null;
+    }
+    return [(line.end_x - line.start_x) / length, (line.end_y - line.start_y) / length];
+  }
+
+  function midpointOfLine(line: SketchLineEntry): [number, number] {
+    return [(line.start_x + line.end_x) / 2, (line.start_y + line.end_y) / 2];
+  }
+
+  function distanceToLineSegment(
+    point: [number, number],
+    line: SketchLineEntry,
+  ) {
+    const dx = line.end_x - line.start_x;
+    const dy = line.end_y - line.start_y;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq <= 1e-12) {
+      return {
+        distance: Math.hypot(point[0] - line.start_x, point[1] - line.start_y),
+        local: [line.start_x, line.start_y] as [number, number],
+        t: 0,
+      };
+    }
+    const t = Math.max(
+      0,
+      Math.min(
+        1,
+        ((point[0] - line.start_x) * dx + (point[1] - line.start_y) * dy) /
+          lenSq,
+      ),
+    );
+    const local: [number, number] = [
+      line.start_x + t * dx,
+      line.start_y + t * dy,
+    ];
+    return {
+      distance: Math.hypot(point[0] - local[0], point[1] - local[1]),
+      local,
+      t,
+    };
+  }
+
+  function distanceToCircleEdge(
+    point: [number, number],
+    circle: SketchCircleEntry,
+  ) {
+    const dx = point[0] - circle.center_x;
+    const dy = point[1] - circle.center_y;
+    const centerDistance = Math.hypot(dx, dy);
+    return Math.abs(centerDistance - circle.radius);
+  }
+
+  function areLinesParallel(first: SketchLineEntry, second: SketchLineEntry) {
+    const firstDir = lineDirection(first);
+    const secondDir = lineDirection(second);
+    if (!firstDir || !secondDir) {
+      return false;
+    }
+    return Math.abs(firstDir[0] * secondDir[1] - firstDir[1] * secondDir[0]) <
+      0.03;
+  }
+
+  function sharedLineEndpoint(
+    first: SketchLineEntry,
+    second: SketchLineEntry,
+  ): [number, number] | null {
+    if (first.start_point_id === second.start_point_id) {
+      return [first.start_x, first.start_y];
+    }
+    if (first.start_point_id === second.end_point_id) {
+      return [first.start_x, first.start_y];
+    }
+    if (first.end_point_id === second.start_point_id) {
+      return [first.end_x, first.end_y];
+    }
+    if (first.end_point_id === second.end_point_id) {
+      return [first.end_x, first.end_y];
+    }
+    return null;
+  }
+
+  function lineDirectionAwayFromPoint(
+    line: SketchLineEntry,
+    point: [number, number],
+  ): [number, number] | null {
+    const startDistance = Math.hypot(line.start_x - point[0], line.start_y - point[1]);
+    const endDistance = Math.hypot(line.end_x - point[0], line.end_y - point[1]);
+    const target =
+      startDistance > endDistance
+        ? [line.start_x, line.start_y]
+        : [line.end_x, line.end_y];
+    const dx = target[0] - point[0];
+    const dy = target[1] - point[1];
+    const length = Math.hypot(dx, dy);
+    if (length <= 1e-9) {
+      return null;
+    }
+    return [dx / length, dy / length];
+  }
+
+  function formatAngleLabel(radians: number) {
+    const degrees = Math.abs((radians * 180) / Math.PI);
+    return `${formatDraftDimension(degrees)}°`;
+  }
+
+  function createParallelLineDistancePreview(
+    first: SketchLineEntry,
+    second: SketchLineEntry,
+    cursor: [number, number],
+  ): SketchDimensionScene | null {
+    const dir = lineDirection(first);
+    if (!dir) {
+      return null;
+    }
+    const normal: [number, number] = [-dir[1], dir[0]];
+    const firstMid = midpointOfLine(first);
+    const secondMid = midpointOfLine(second);
+    const signedDistance =
+      (secondMid[0] - firstMid[0]) * normal[0] +
+      (secondMid[1] - firstMid[1]) * normal[1];
+    if (Math.abs(signedDistance) <= 1e-6) {
+      return null;
+    }
+    if (signedDistance < 0) {
+      normal[0] *= -1;
+      normal[1] *= -1;
+    }
+
+    const projection =
+      (cursor[0] - firstMid[0]) * dir[0] + (cursor[1] - firstMid[1]) * dir[1];
+    const anchorStart: [number, number] = [
+      firstMid[0] + projection * dir[0],
+      firstMid[1] + projection * dir[1],
+    ];
+    const distance = Math.abs(signedDistance);
+    const anchorEnd: [number, number] = [
+      anchorStart[0] + normal[0] * distance,
+      anchorStart[1] + normal[1] * distance,
+    ];
+    const labelLocal: [number, number] = [
+      (anchorStart[0] + anchorEnd[0]) / 2,
+      (anchorStart[1] + anchorEnd[1]) / 2,
+    ];
+    const planeId = activeSketchPlaneIdRef.current ?? "ref-plane-xy";
+    return {
+      dimensionId: "preview-dim-line-line-distance",
+      planeId,
+      kind: "line_line_distance",
+      entityId: first.line_id,
+      label: `${formatDraftDimension(distance)} mm`,
+      rawValue: distance,
+      unitSuffix: "mm",
+      isSelected: false,
+      anchorStart: toWorldPoint(planeId, anchorStart, activeSketchPlaneFrameRef.current),
+      anchorEnd: toWorldPoint(planeId, anchorEnd, activeSketchPlaneFrameRef.current),
+      dimensionStart: toWorldPoint(planeId, anchorStart, activeSketchPlaneFrameRef.current),
+      dimensionEnd: toWorldPoint(planeId, anchorEnd, activeSketchPlaneFrameRef.current),
+      labelPosition: toWorldPoint(planeId, labelLocal, activeSketchPlaneFrameRef.current),
+    };
+  }
+
+  function createLineAnglePreview(
+    first: SketchLineEntry,
+    second: SketchLineEntry,
+    cursor: [number, number],
+  ): SketchDimensionScene | null {
+    const pivot = sharedLineEndpoint(first, second);
+    if (!pivot) {
+      return null;
+    }
+    const firstDir = lineDirectionAwayFromPoint(first, pivot);
+    const secondDir = lineDirectionAwayFromPoint(second, pivot);
+    if (!firstDir || !secondDir) {
+      return null;
+    }
+    const dot = Math.max(
+      -1,
+      Math.min(1, firstDir[0] * secondDir[0] + firstDir[1] * secondDir[1]),
+    );
+    const angle = Math.acos(dot);
+    const cursorRadius = Math.hypot(cursor[0] - pivot[0], cursor[1] - pivot[1]);
+    const radius = Math.max(6, Math.min(cursorRadius, 80));
+    const dimensionStart: [number, number] = [
+      pivot[0] + firstDir[0] * radius,
+      pivot[1] + firstDir[1] * radius,
+    ];
+    const dimensionEnd: [number, number] = [
+      pivot[0] + secondDir[0] * radius,
+      pivot[1] + secondDir[1] * radius,
+    ];
+    const anchorRadius = Math.min(lineLength(first), lineLength(second), radius + 2);
+    const anchorStart: [number, number] = [
+      pivot[0] + firstDir[0] * anchorRadius,
+      pivot[1] + firstDir[1] * anchorRadius,
+    ];
+    const anchorEnd: [number, number] = [
+      pivot[0] + secondDir[0] * anchorRadius,
+      pivot[1] + secondDir[1] * anchorRadius,
+    ];
+    const bisector: [number, number] = [
+      firstDir[0] + secondDir[0],
+      firstDir[1] + secondDir[1],
+    ];
+    const bisectorLength = Math.hypot(bisector[0], bisector[1]);
+    if (bisectorLength <= 1e-9) {
+      return null;
+    }
+    bisector[0] /= bisectorLength;
+    bisector[1] /= bisectorLength;
+    const labelLocal: [number, number] = [
+      pivot[0] + bisector[0] * Math.max(3, radius * 0.42),
+      pivot[1] + bisector[1] * Math.max(3, radius * 0.42),
+    ];
+    const planeId = activeSketchPlaneIdRef.current ?? "ref-plane-xy";
+    return {
+      dimensionId: "preview-dim-line-angle",
+      planeId,
+      kind: "line_angle",
+      entityId: first.line_id,
+      label: formatAngleLabel(angle),
+      rawValue: angle,
+      unitSuffix: "°",
+      isSelected: false,
+      anchorStart: toWorldPoint(planeId, anchorStart, activeSketchPlaneFrameRef.current),
+      anchorEnd: toWorldPoint(planeId, anchorEnd, activeSketchPlaneFrameRef.current),
+      dimensionStart: toWorldPoint(planeId, dimensionStart, activeSketchPlaneFrameRef.current),
+      dimensionEnd: toWorldPoint(planeId, dimensionEnd, activeSketchPlaneFrameRef.current),
+      labelPosition: toWorldPoint(planeId, labelLocal, activeSketchPlaneFrameRef.current),
+      arcCenter: toWorldPoint(planeId, pivot, activeSketchPlaneFrameRef.current),
+      arcRadius: radius,
+      arcStartAngle: Math.atan2(firstDir[1], firstDir[0]),
+      arcEndAngle: Math.atan2(secondDir[1], secondDir[0]),
+      arcCcw: true,
+    };
+  }
+
+  function createCircleLineDistancePreview(
+    line: SketchLineEntry,
+    circle: SketchCircleEntry,
+  ): SketchDimensionScene | null {
+    const closest = distanceToLineSegment([circle.center_x, circle.center_y], line);
+    const dx = circle.center_x - closest.local[0];
+    const dy = circle.center_y - closest.local[1];
+    const centerDistance = Math.hypot(dx, dy);
+    if (centerDistance <= 1e-9) {
+      return null;
+    }
+    const nx = dx / centerDistance;
+    const ny = dy / centerDistance;
+    const circleEdge: [number, number] = [
+      circle.center_x - nx * circle.radius,
+      circle.center_y - ny * circle.radius,
+    ];
+    const distance = Math.max(0, centerDistance - circle.radius);
+    const labelLocal: [number, number] = [
+      (closest.local[0] + circleEdge[0]) / 2,
+      (closest.local[1] + circleEdge[1]) / 2,
+    ];
+    const planeId = activeSketchPlaneIdRef.current ?? "ref-plane-xy";
+    return {
+      dimensionId: "preview-dim-circle-line-distance",
+      planeId,
+      kind: "circle_line_distance",
+      entityId: line.line_id,
+      label: `${formatDraftDimension(distance)} mm`,
+      rawValue: distance,
+      unitSuffix: "mm",
+      isSelected: false,
+      anchorStart: toWorldPoint(planeId, closest.local, activeSketchPlaneFrameRef.current),
+      anchorEnd: toWorldPoint(planeId, circleEdge, activeSketchPlaneFrameRef.current),
+      dimensionStart: toWorldPoint(planeId, closest.local, activeSketchPlaneFrameRef.current),
+      dimensionEnd: toWorldPoint(planeId, circleEdge, activeSketchPlaneFrameRef.current),
+      labelPosition: toWorldPoint(planeId, labelLocal, activeSketchPlaneFrameRef.current),
+    };
+  }
+
+  function renderDimensionRelationPreview(
+    relation: DimensionRelationPreview,
+    dimension: SketchDimensionScene,
+  ) {
+    clearPreviewDimension();
+    const sketchGroup = sketchGroupRef.current;
+    if (!sketchGroup) {
+      dimensionRelationPreviewRef.current = null;
+      return;
+    }
+    const preview = buildSketchDimensionObject(dimension, config.displayUnits, {
+      variant: "muted-preview",
+      pickable: false,
+    });
+    hideRelationPreviewDimension(unaryDimensionIdForEntity(relation.firstEntityId));
+    previewDimensionRef.current = preview;
+    dimensionRelationPreviewRef.current = relation;
+    sketchGroup.add(preview.line);
+    sketchGroup.add(preview.label);
+  }
+
+  function updateDimensionRelationPreview(cursor: [number, number]) {
+    clearPreviewDimension();
+    dimensionRelationPreviewRef.current = null;
+    const firstEntityId = dimensionToolFirstLineRef.current;
+    const params = sketchLinesRef.current;
+    if (!firstEntityId || !params || activeSketchToolRef.current !== "dimension") {
+      return null;
+    }
+    const filter = readDimensionPreviewFilter();
+    if (!filter.select_curves) {
+      return null;
+    }
+
+    const firstLine = params.lines.find((line) => line.line_id === firstEntityId);
+    const firstCircle = params.circles.find(
+      (circle) => circle.circle_id === firstEntityId,
+    );
+    const allowConstruction = Boolean(filter.select_construction);
+    let best:
+      | {
+          score: number;
+          relation: DimensionRelationPreview;
+          dimension: SketchDimensionScene;
+        }
+      | null = null;
+
+    if (firstLine && (!firstLine.is_construction || allowConstruction)) {
+      for (const line of params.lines) {
+        if (line.line_id === firstLine.line_id) {
+          continue;
+        }
+        if (line.is_construction && !allowConstruction) {
+          continue;
+        }
+        const hit = distanceToLineSegment(cursor, line);
+        if (hit.distance > SKETCH_SNAP_DISTANCE) {
+          continue;
+        }
+        let relation: DimensionRelationPreview | null = null;
+        let dimension: SketchDimensionScene | null = null;
+        if (filter.snap_intersection && sharedLineEndpoint(firstLine, line)) {
+          relation = {
+            kind: "line_angle",
+            firstEntityId,
+            targetEntityId: line.line_id,
+          };
+          dimension = createLineAnglePreview(firstLine, line, cursor);
+        } else if (filter.snap_parallel && areLinesParallel(firstLine, line)) {
+          relation = {
+            kind: "parallel_line_distance",
+            firstEntityId,
+            targetEntityId: line.line_id,
+          };
+          dimension = createParallelLineDistancePreview(firstLine, line, cursor);
+        }
+        if (!relation || !dimension) {
+          continue;
+        }
+        if (!best || hit.distance < best.score) {
+          best = { score: hit.distance, relation, dimension };
+        }
+      }
+
+      if (filter.snap_nearest) {
+        for (const circle of params.circles) {
+          if (circle.is_construction && !allowConstruction) {
+            continue;
+          }
+          const distance = distanceToCircleEdge(cursor, circle);
+          if (distance > SKETCH_SNAP_DISTANCE) {
+            continue;
+          }
+          const dimension = createCircleLineDistancePreview(firstLine, circle);
+          if (!dimension) {
+            continue;
+          }
+          const relation: DimensionRelationPreview = {
+            kind: "circle_line_distance",
+            firstEntityId,
+            targetEntityId: circle.circle_id,
+          };
+          if (!best || distance < best.score) {
+            best = { score: distance, relation, dimension };
+          }
+        }
+      }
+    } else if (
+      firstCircle &&
+      (!firstCircle.is_construction || allowConstruction) &&
+      filter.snap_nearest
+    ) {
+      for (const line of params.lines) {
+        if (line.is_construction && !allowConstruction) {
+          continue;
+        }
+        const hit = distanceToLineSegment(cursor, line);
+        if (hit.distance > SKETCH_SNAP_DISTANCE) {
+          continue;
+        }
+        const dimension = createCircleLineDistancePreview(line, firstCircle);
+        if (!dimension) {
+          continue;
+        }
+        const relation: DimensionRelationPreview = {
+          kind: "circle_line_distance",
+          firstEntityId,
+          targetEntityId: line.line_id,
+        };
+        if (!best || hit.distance < best.score) {
+          best = { score: hit.distance, relation, dimension };
+        }
+      }
+    }
+
+    if (!best) {
+      return null;
+    }
+    renderDimensionRelationPreview(best.relation, best.dimension);
+    return best.relation;
+  }
+
+  function commitDimensionRelationPreview() {
+    const relation = dimensionRelationPreviewRef.current;
+    if (!relation) {
+      return false;
+    }
+    clearPreviewDimension();
+    dimensionRelationPreviewRef.current = null;
+    const unaryDimensionId = unaryDimensionIdForEntity(relation.firstEntityId);
+    if (unaryDimensionId) {
+      void deleteSketchDimensionRef.current(unaryDimensionId);
+    }
+    pendingDimensionIdRef.current = null;
+    pendingDimSourceEntityIdRef.current = null;
+    pendingDimensionPlacementRef.current = false;
+    dimensionLabelDragRef.current = null;
+    dimensionPlacementOriginalPositionRef.current = null;
+    controlsRef.current && (controlsRef.current.enabled = true);
+    setCanvasCursor("");
+    dimensionToolFirstLineRef.current = null;
+    setDimensionToolFirstLine(null);
+    dimensionToolFirstPointRef.current = null;
+    dimCreateAngleOrDistance(relation.firstEntityId, relation.targetEntityId);
+    return true;
+  }
+
   function dimCreatePointDistance(pointAId: string, pointBId: string) {
     pendingDimensionIdRef.current =
       `dim-point-distance-${pointAId}-${pointBId}`;
@@ -3217,11 +3798,52 @@ const currentGridSpacingRef = useRef(10);
     return [labelPosition.x, labelPosition.y, labelPosition.z];
   }
 
+  function setDimensionLabelPosition(
+    dimensionId: string,
+    position: [number, number, number],
+  ) {
+    dimensionLabelPositionsRef.current = {
+      ...dimensionLabelPositionsRef.current,
+      [dimensionId]: position,
+    };
+    setDimensionLabelPositions((current) => ({
+      ...current,
+      [dimensionId]: position,
+    }));
+  }
+
+  function persistDimensionLabelPosition(
+    dimensionId: string,
+    position: [number, number, number] | undefined,
+  ) {
+    if (!position) {
+      return;
+    }
+    const labelLocal = worldPointToSketchLocal(
+      position,
+      activeSketchPlaneIdRef.current,
+      activeSketchPlaneFrameRef.current,
+    );
+    if (!labelLocal) {
+      return;
+    }
+    void updateSketchDimensionLabelPositionRef.current(
+      dimensionId,
+      labelLocal[0],
+      labelLocal[1],
+    );
+  }
+
   function finishDimensionPlacement() {
     const dimensionDrag = dimensionLabelDragRef.current;
     if (!dimensionDrag?.isPlacement) {
       return false;
     }
+    persistDimensionLabelPosition(
+      dimensionDrag.dimensionId,
+      dimensionLabelPositionsRef.current[dimensionDrag.dimensionId],
+    );
+    clearPreviewDimension();
     dimensionLabelDragRef.current = null;
     dimensionPlacementOriginalPositionRef.current = null;
     controlsRef.current && (controlsRef.current.enabled = true);
@@ -3234,6 +3856,7 @@ const currentGridSpacingRef = useRef(10);
     if (!dimensionDrag?.isPlacement) {
       return false;
     }
+    clearPreviewDimension();
     const originalPosition = dimensionPlacementOriginalPositionRef.current;
     if (originalPosition) {
       setDimensionLabelPositions((current) => ({
@@ -3304,10 +3927,7 @@ const currentGridSpacingRef = useRef(10);
         ] as [number, number, number];
       })();
     dimensionPlacementOriginalPositionRef.current = dimension.labelPosition;
-    setDimensionLabelPositions((current) => ({
-      ...current,
-      [dimension.dimensionId]: nextPosition,
-    }));
+    setDimensionLabelPosition(dimension.dimensionId, nextPosition);
     dimensionLabelDragRef.current = {
       dimensionId: dimension.dimensionId,
       startClientX: pointerEvent.clientX,
@@ -4714,6 +5334,8 @@ const currentGridSpacingRef = useRef(10);
     pickSketchPointRef.current = onPickSketchPoint;
     selectSketchDimensionRef.current = onSelectSketchDimension;
     updateSketchDimensionRef.current = onUpdateSketchDimension;
+    updateSketchDimensionLabelPositionRef.current =
+      onUpdateSketchDimensionLabelPosition;
     addSketchPointDistanceDimensionRef.current =
       onAddSketchPointDistanceDimension;
     updateSketchDimensionDisplayRef.current =
@@ -4757,6 +5379,7 @@ const currentGridSpacingRef = useRef(10);
     onPickSketchPoint,
     onSelectSketchDimension,
     onUpdateSketchDimension,
+    onUpdateSketchDimensionLabelPosition,
     onSelectSketchProfile,
     onDeleteSketchSelection,
     onSetSketchTool,
@@ -5053,6 +5676,10 @@ const currentGridSpacingRef = useRef(10);
   useEffect(() => {
     selectedSketchDimensionRef.current = selectedSketchDimension;
   }, [selectedSketchDimension]);
+
+  useEffect(() => {
+    dimensionLabelPositionsRef.current = dimensionLabelPositions;
+  }, [dimensionLabelPositions]);
 
   useEffect(() => {
     if (selectedSketchDimensionValue === null) {
@@ -7102,6 +7729,16 @@ const currentGridSpacingRef = useRef(10);
         if (!sketchPoint) {
           return;
         }
+        if (dimensionDrag.isPlacement) {
+          if (updateDimensionRelationPreview(sketchPoint.local)) {
+            // When a relation snap is active, the ghost relation dimension
+            // is the preview. Do not keep moving the temporary unary
+            // dimension label underneath it; that causes the two previews
+            // to fight and flicker.
+            dimensionDrag.hasMoved = true;
+            return;
+          }
+        }
         const dx = event.clientX - dimensionDrag.startClientX;
         const dy = event.clientY - dimensionDrag.startClientY;
         if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
@@ -7119,10 +7756,7 @@ const currentGridSpacingRef = useRef(10);
             sketchPoint.world,
           );
           if (nextPosition) {
-            setDimensionLabelPositions((current) => ({
-              ...current,
-              [dimensionDrag.dimensionId]: nextPosition,
-            }));
+            setDimensionLabelPosition(dimensionDrag.dimensionId, nextPosition);
           }
           return;
         }
@@ -7132,10 +7766,7 @@ const currentGridSpacingRef = useRef(10);
             sketchPoint.world,
           );
           if (nextPosition) {
-            setDimensionLabelPositions((current) => ({
-              ...current,
-              [dimensionDrag.dimensionId]: nextPosition,
-            }));
+            setDimensionLabelPosition(dimensionDrag.dimensionId, nextPosition);
           }
           return;
         }
@@ -7156,10 +7787,7 @@ const currentGridSpacingRef = useRef(10);
           nextPositionVector.y,
           nextPositionVector.z,
         ];
-        setDimensionLabelPositions((current) => ({
-          ...current,
-          [dimensionDrag.dimensionId]: nextPosition,
-        }));
+        setDimensionLabelPosition(dimensionDrag.dimensionId, nextPosition);
         return;
       }
 
@@ -8279,6 +8907,11 @@ const currentGridSpacingRef = useRef(10);
       const dimensionDrag = dimensionLabelDragRef.current;
       if (dimensionDrag) {
         if (dimensionDrag.isPlacement) {
+          if (commitDimensionRelationPreview()) {
+            setIsDimensionEditorOpen(false);
+            pointerDown = null;
+            return;
+          }
           finishDimensionPlacement();
           setIsDimensionEditorOpen(false);
           // Fall through to entity handling so two-pick workflows
@@ -8287,6 +8920,12 @@ const currentGridSpacingRef = useRef(10);
         // finishDimensionPlacement nulls the ref; only clean up if
         // the drag is still active (non-placement label drag).
         if (dimensionLabelDragRef.current) {
+          if (dimensionDrag.hasMoved) {
+            persistDimensionLabelPosition(
+              dimensionDrag.dimensionId,
+              dimensionLabelPositionsRef.current[dimensionDrag.dimensionId],
+            );
+          }
           dimensionLabelDragRef.current = null;
           controls.enabled = true;
           (renderer.domElement as HTMLCanvasElement).style.cursor = "";
@@ -9937,6 +10576,14 @@ const currentGridSpacingRef = useRef(10);
         sketchDimension,
         config.displayUnits,
       );
+      if (
+        hiddenRelationPreviewDimensionIdsRef.current.has(
+          sketchDimension.dimensionId,
+        )
+      ) {
+        sketchDimensionObject.line.visible = false;
+        sketchDimensionObject.label.visible = false;
+      }
       sketchDimensionObjectsRef.current.push(sketchDimensionObject.line);
       sketchDimensionObjectsRef.current.push(sketchDimensionObject.label);
       sketchGroup.add(sketchDimensionObject.line);
@@ -10091,6 +10738,7 @@ const currentGridSpacingRef = useRef(10);
           (drag?.isPlacement ? drag.dimensionId : null);
         if (targetId) {
           event.preventDefault();
+          clearPreviewDimension();
           pendingDimensionIdRef.current = null;
           pendingDimSourceEntityIdRef.current = null;
           pendingDimensionPlacementRef.current = false;

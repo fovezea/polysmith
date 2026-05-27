@@ -1495,3 +1495,16 @@ Three bugs fixed after initial implementation:
 - added an irreversible-by-design Unlink action for linked body copies. The UI
   shows it only for linked copies, asks for confirmation, and the core converts
   the copy into a standalone snapshot while preserving normal undo support.
+
+### Dimension Visual Snap Preview (2026-05-27)
+
+- added UI-only muted relation previews while placing sketch dimensions near
+  eligible second entities: parallel line distance, shared-endpoint line angle,
+  and line-circle distance. The preview respects the existing sketch selection
+  and snap filters and is rendered as non-pickable Three.js geometry.
+- made the relation preview take precedence over the temporary unary dimension
+  placement so the two visuals do not flicker against each other.
+- added `update_sketch_dimension_label_position` and optional sketch-local
+  dimension label placement metadata so confirmed dimension label placement can
+  persist in `.polysmith` files. The first core rendering pass applies saved
+  placement to line-line and circle-line distance dimensions.

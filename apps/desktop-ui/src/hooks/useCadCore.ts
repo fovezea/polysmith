@@ -16,6 +16,7 @@ import {
   makeDeleteSketchDimensionCommand,
   makeTrimSketchEntityCommand,
   makeUpdateSketchDimensionDisplayCommand,
+  makeUpdateSketchDimensionLabelPositionCommand,
   makeAddParameterCommand,
   makeUpdateParameterCommand,
   makeDeleteParameterCommand,
@@ -780,6 +781,20 @@ export function useCadCore() {
     updateSketchDimension: async (dimensionId: string, value: number | string) => {
       await sendCoreCommand(
         makeUpdateSketchDimensionCommand(dimensionId, value),
+      );
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateSketchDimensionLabelPosition: async (
+      dimensionId: string,
+      labelX: number,
+      labelY: number,
+    ) => {
+      await sendCoreCommand(
+        makeUpdateSketchDimensionLabelPositionCommand(
+          dimensionId,
+          labelX,
+          labelY,
+        ),
       );
       await sendCoreCommand(makeGetViewportStateCommand());
     },

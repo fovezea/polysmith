@@ -591,6 +591,8 @@ const documentStateSchema = z.object({
               expression: z.string().default(""),
               driven: z.boolean().default(false),
               display_as: z.string().default(""),
+              label_x: z.number().nullable().optional(),
+              label_y: z.number().nullable().optional(),
             }),
           ),
           line_relations: z.array(

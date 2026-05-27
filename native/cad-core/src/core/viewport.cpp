@@ -1134,7 +1134,7 @@ ViewportSketchDimensionPrimitive make_circle_line_distance_dimension_primitive(
       parameters,
       (foot_x + circle.center_x) / 2.0,
       (foot_y + circle.center_y) / 2.0);
-  return ViewportSketchDimensionPrimitive{
+  auto primitive = ViewportSketchDimensionPrimitive{
       .dimension_id = dimension.id,
       .plane_id = parameters.plane_id,
       .kind = "circle_line_distance",
@@ -1157,6 +1157,23 @@ ViewportSketchDimensionPrimitive make_circle_line_distance_dimension_primitive(
       .label_y = label.y,
       .label_z = label.z,
   };
+  if (dimension.label_x.has_value() && dimension.label_y.has_value()) {
+    const WorldPoint custom_label =
+        to_world_point(parameters, *dimension.label_x, *dimension.label_y);
+    const double offset_x = custom_label.x - label.x;
+    const double offset_y = custom_label.y - label.y;
+    const double offset_z = custom_label.z - label.z;
+    primitive.dimension_start_x += offset_x;
+    primitive.dimension_start_y += offset_y;
+    primitive.dimension_start_z += offset_z;
+    primitive.dimension_end_x += offset_x;
+    primitive.dimension_end_y += offset_y;
+    primitive.dimension_end_z += offset_z;
+    primitive.label_x = custom_label.x;
+    primitive.label_y = custom_label.y;
+    primitive.label_z = custom_label.z;
+  }
+  return primitive;
 }
 
 ViewportSketchDimensionPrimitive make_line_line_distance_dimension_primitive(
@@ -1186,7 +1203,7 @@ ViewportSketchDimensionPrimitive make_line_line_distance_dimension_primitive(
       parameters,
       (foot_x + midpoint_x) / 2.0,
       (foot_y + midpoint_y) / 2.0);
-  return ViewportSketchDimensionPrimitive{
+  auto primitive = ViewportSketchDimensionPrimitive{
       .dimension_id = dimension.id,
       .plane_id = parameters.plane_id,
       .kind = "line_line_distance",
@@ -1209,6 +1226,23 @@ ViewportSketchDimensionPrimitive make_line_line_distance_dimension_primitive(
       .label_y = label.y,
       .label_z = label.z,
   };
+  if (dimension.label_x.has_value() && dimension.label_y.has_value()) {
+    const WorldPoint custom_label =
+        to_world_point(parameters, *dimension.label_x, *dimension.label_y);
+    const double offset_x = custom_label.x - label.x;
+    const double offset_y = custom_label.y - label.y;
+    const double offset_z = custom_label.z - label.z;
+    primitive.dimension_start_x += offset_x;
+    primitive.dimension_start_y += offset_y;
+    primitive.dimension_start_z += offset_z;
+    primitive.dimension_end_x += offset_x;
+    primitive.dimension_end_y += offset_y;
+    primitive.dimension_end_z += offset_z;
+    primitive.label_x = custom_label.x;
+    primitive.label_y = custom_label.y;
+    primitive.label_z = custom_label.z;
+  }
+  return primitive;
 }
 
 ViewportSketchDimensionPrimitive make_point_distance_dimension_primitive(

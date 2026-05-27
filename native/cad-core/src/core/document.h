@@ -308,6 +308,10 @@ class DocumentManager {
   DocumentState update_sketch_dimension(const std::string& dimension_id,
                                         double value,
                                         std::optional<std::string> expression = std::nullopt);
+  DocumentState update_sketch_dimension_label_position(
+      const std::string& dimension_id,
+      double label_x,
+      double label_y);
   DocumentState select_sketch_profile(const std::string& profile_id,
                                       bool additive = false);
   DocumentState extrude_profile(

@@ -1476,6 +1476,19 @@ void CadCoreApp::handle_command_line(const std::string& line) {
     return;
   }
 
+  if (command.type == "update_sketch_dimension_label_position") {
+    const auto document =
+        document_manager().update_sketch_dimension_label_position(
+            read_string(command.payload, "dimension_id"),
+            read_dimension(command.payload, "label_x"),
+            read_dimension(command.payload, "label_y"));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
   if (command.type == "add_sketch_line_length_dimension") {
     const auto document =
         document_manager().add_sketch_line_length_dimension(

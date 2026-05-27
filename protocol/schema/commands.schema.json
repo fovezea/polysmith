@@ -98,6 +98,7 @@
         "set_sketch_point_fixed",
         "update_sketch_circle",
         "update_sketch_dimension",
+        "update_sketch_dimension_label_position",
         "add_sketch_line",
         "add_sketch_rectangle",
         "add_sketch_circle",

@@ -366,6 +366,13 @@ const commandPayloadSchemas = {
   update_sketch_dimension: z
     .object({ dimension_id: stringField, value: numberField })
     .strict(),
+  update_sketch_dimension_label_position: z
+    .object({
+      dimension_id: stringField,
+      label_x: numberField,
+      label_y: numberField,
+    })
+    .strict(),
   select_sketch_profile: z
     .object({ profile_id: stringField, additive: booleanField.optional() })
     .strict(),
@@ -534,6 +541,7 @@ const activeSketchRequiredCommands = new Set<string>([
   "set_sketch_midpoint_anchor",
   "add_sketch_angle_dimension",
   "add_sketch_distance_dimension",
+  "update_sketch_dimension_label_position",
   "set_sketch_point_line_anchor",
   "add_sketch_rectangle",
   "add_sketch_circle",
@@ -559,6 +567,7 @@ const activeSketchRequiredCommands = new Set<string>([
   "set_sketch_point_fixed",
   "update_sketch_circle",
   "update_sketch_dimension",
+  "update_sketch_dimension_label_position",
   "select_sketch_entity",
   "select_sketch_point",
   "select_sketch_dimension",

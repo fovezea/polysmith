@@ -845,6 +845,7 @@ function App() {
     cancelMirrorPreview,
     setSketchPointFixed,
     updateSketchDimension,
+    updateSketchDimensionLabelPosition,
     selectSketchProfile,
     extrudeProfile,
     extrudeOpenEntities,
@@ -5995,6 +5996,19 @@ function App() {
               onUpdateSketchDimension={async (dimensionId, value) => {
                 await runAction(async () => {
                   await updateSketchDimension(dimensionId, value);
+                });
+              }}
+              onUpdateSketchDimensionLabelPosition={async (
+                dimensionId,
+                labelX,
+                labelY,
+              ) => {
+                await runAction(async () => {
+                  await updateSketchDimensionLabelPosition(
+                    dimensionId,
+                    labelX,
+                    labelY,
+                  );
                 });
               }}
               onSelectSketchProfile={async (profileId, additive) => {

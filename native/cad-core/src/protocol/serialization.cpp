@@ -605,6 +605,14 @@ sketch_parameters_from_payload(const json& payload) {
         dimension.display_as =
             dim_payload.at("display_as").get<std::string>();
       }
+      if (dim_payload.contains("label_x") &&
+          dim_payload.at("label_x").is_number()) {
+        dimension.label_x = dim_payload.at("label_x").get<double>();
+      }
+      if (dim_payload.contains("label_y") &&
+          dim_payload.at("label_y").is_number()) {
+        dimension.label_y = dim_payload.at("label_y").get<double>();
+      }
       params.dimensions.push_back(dimension);
     }
   }
@@ -1345,6 +1353,14 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                           {"expression", dimension.expression},
                           {"driven", dimension.driven},
                           {"display_as", dimension.display_as},
+                          {"label_x",
+                           dimension.label_x.has_value()
+                               ? json(*dimension.label_x)
+                               : json(nullptr)},
+                          {"label_y",
+                           dimension.label_y.has_value()
+                               ? json(*dimension.label_y)
+                               : json(nullptr)},
                       });
                     }
                     return dimensions;

@@ -72,6 +72,9 @@ export interface SketchDimensionEntry {
   driven?: boolean;
   /** For circle_radius: "" = diameter display (default), "radius" = radius display. */
   display_as?: string;
+  /** Optional sketch-local label placement override. */
+  label_x?: number | null;
+  label_y?: number | null;
 }
 
 export interface SketchLineRelationEntry {

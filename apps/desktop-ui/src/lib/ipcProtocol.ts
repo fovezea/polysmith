@@ -1095,6 +1095,22 @@ export function makeUpdateSketchDimensionCommand(
   };
 }
 
+export function makeUpdateSketchDimensionLabelPositionCommand(
+  dimensionId: string,
+  labelX: number,
+  labelY: number,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_sketch_dimension_label_position",
+    payload: {
+      dimension_id: dimensionId,
+      label_x: labelX,
+      label_y: labelY,
+    },
+  };
+}
+
 export function makeSelectSketchProfileCommand(
   profileId: string,
   additive = false,
