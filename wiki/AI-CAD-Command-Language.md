@@ -981,6 +981,23 @@ Use `update_move_parameters { feature_id, parameters }` for live preview and
 target body disappears during recompute, the Move feature degrades with
 `dependency_broken` instead of trusting stale topology.
 
+#### `create_body_copy`
+
+Creates a core-owned `body_copy` timeline feature from an existing body id. The
+new body is emitted under the copy feature id, starts in the same position and
+local frame as the source, and can be followed by `create_move` to place it.
+
+Payload:
+
+```ts
+{
+  source_body_id: string;
+}
+```
+
+If the source body disappears during recompute, the copy feature degrades with
+`dependency_broken` instead of keeping a stale shape reference.
+
 #### `update_offset_plane`
 
 Updates a construction plane offset.

@@ -786,6 +786,16 @@ export function makeConfirmMoveCommand(featureId: string): CoreCommand {
   };
 }
 
+export function makeCreateBodyCopyCommand(sourceBodyId: string): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "create_body_copy",
+    payload: {
+      source_body_id: sourceBodyId,
+    },
+  };
+}
+
 export function makeUpdateOffsetPlaneCommand(
   featureId: string,
   offset: number,

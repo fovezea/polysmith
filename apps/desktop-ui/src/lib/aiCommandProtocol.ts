@@ -203,6 +203,11 @@ const commandPayloadSchemas = {
     .object({ feature_id: stringField, parameters: moveParametersSchema })
     .strict(),
   confirm_move: z.object({ feature_id: stringField }).strict(),
+  create_body_copy: z
+    .object({
+      source_body_id: stringField,
+    })
+    .strict(),
   update_offset_plane: z
     .object({ feature_id: stringField, offset: numberField })
     .strict(),
@@ -639,6 +644,14 @@ export function validateAiCommandBatchForState(
       if (!knownBodyIds.has(command.payload.target_body_id)) {
         throw new Error(
           `create_move references unknown body "${command.payload.target_body_id}". Use a body id from viewport state.`,
+        );
+      }
+    }
+
+    if (command.type === "create_body_copy") {
+      if (!knownBodyIds.has(command.payload.source_body_id)) {
+        throw new Error(
+          `create_body_copy references unknown body "${command.payload.source_body_id}". Use a body id from viewport state.`,
         );
       }
     }

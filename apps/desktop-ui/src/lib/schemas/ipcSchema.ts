@@ -405,6 +405,12 @@ const documentStateSchema = z.object({
         })
         .nullable()
         .default(null),
+      body_copy_parameters: z
+        .object({
+          source_body_id: z.string(),
+        })
+        .nullable()
+        .default(null),
       sketch_parameters: z
         .object({
           plane_id: z.string(),

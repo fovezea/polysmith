@@ -263,6 +263,10 @@ struct MoveFeatureParameters {
   bool is_pending = false;
 };
 
+struct BodyCopyFeatureParameters {
+  std::string source_body_id;
+};
+
 // Edge-modifying body operation. `target_body_id` is the body root feature
 // id whose edges are being filleted/chamfered. `edge_ids` mirrors the
 // `<body_id>:edge:<index>` strings emitted by viewport_state.edges so the
@@ -792,6 +796,7 @@ struct FeatureEntry {
   std::optional<ThreadFeatureParameters> thread_parameters;
   std::optional<FastenerFeatureParameters> fastener_parameters;
   std::optional<MoveFeatureParameters> move_parameters;
+  std::optional<BodyCopyFeatureParameters> body_copy_parameters;
 };
 
 }  // namespace polysmith::core

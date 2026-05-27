@@ -1792,6 +1792,13 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                  {"is_pending", feature.move_parameters->is_pending},
              }
            : json(nullptr)},
+      {"body_copy_parameters",
+       feature.body_copy_parameters.has_value()
+           ? json{
+                 {"source_body_id",
+                  feature.body_copy_parameters->source_body_id},
+             }
+           : json(nullptr)},
   };
 }
 
@@ -3090,6 +3097,15 @@ polysmith::core::FeatureEntry feature_entry_from_payload(const json& payload) {
       params.is_pending = mp.at("is_pending").get<bool>();
     }
     feature.move_parameters = params;
+  }
+
+  if (payload.contains("body_copy_parameters") &&
+      !payload.at("body_copy_parameters").is_null()) {
+    const json& bp = payload.at("body_copy_parameters");
+    polysmith::core::BodyCopyFeatureParameters params{};
+    params.source_body_id =
+        read_optional_string_value(bp, "source_body_id", params.source_body_id);
+    feature.body_copy_parameters = params;
   }
 
   return feature;

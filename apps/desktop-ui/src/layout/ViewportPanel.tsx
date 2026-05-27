@@ -451,6 +451,8 @@ interface ViewportPanelProps {
   onFinishSketch: () => Promise<void>;
   moveGizmo?: MoveGizmoDescriptor | null;
   onMoveGizmoChange?: (parameters: MoveFeatureParameters) => Promise<void> | void;
+  onMoveBody?: (bodyId: string) => Promise<void> | void;
+  onCopyBody?: (bodyId: string) => Promise<void> | void;
   hiddenFeatureIds?: ReadonlySet<string>;
   hiddenSketchPlaneIds?: ReadonlySet<string>;
   hideReferences?: boolean;
@@ -1160,6 +1162,8 @@ export function ViewportPanel({
   onFinishSketch,
   moveGizmo = null,
   onMoveGizmoChange,
+  onMoveBody,
+  onCopyBody,
   hiddenFeatureIds,
   hiddenSketchPlaneIds,
   hideReferences,
@@ -1370,6 +1374,8 @@ const currentGridSpacingRef = useRef(10);
   const moveGizmoDragRef = useRef<MoveGizmoDragState | null>(null);
   const moveGizmoRef = useRef<MoveGizmoDescriptor | null>(moveGizmo);
   const moveGizmoChangeRef = useRef(onMoveGizmoChange);
+  const moveBodyRef = useRef(onMoveBody);
+  const copyBodyRef = useRef(onCopyBody);
   const pendingMoveGizmoParametersRef = useRef<MoveFeatureParameters | null>(
     null,
   );
@@ -4646,6 +4652,8 @@ const currentGridSpacingRef = useRef(10);
     selectPrimitiveRef.current = onSelectPrimitive;
     selectReferenceRef.current = onSelectReference;
     selectFaceRef.current = onSelectFace;
+    moveBodyRef.current = onMoveBody;
+    copyBodyRef.current = onCopyBody;
     selectEdgeRef.current = onSelectEdge;
     selectVertexRef.current = onSelectVertex;
     startSketchRef.current = onStartSketch;
@@ -4683,6 +4691,8 @@ const currentGridSpacingRef = useRef(10);
     clearSketchConstraintRef.current = onClearSketchConstraint;
     moveGizmoRef.current = moveGizmo;
     moveGizmoChangeRef.current = onMoveGizmoChange;
+    moveBodyRef.current = onMoveBody;
+    copyBodyRef.current = onCopyBody;
   }, [
     onSelectPrimitive,
     onSelectReference,
@@ -4718,6 +4728,8 @@ const currentGridSpacingRef = useRef(10);
     onClearSketchConstraint,
     moveGizmo,
     onMoveGizmoChange,
+    onMoveBody,
+    onCopyBody,
   ]);
 
   function flushMoveGizmoChange(parameters: MoveFeatureParameters) {
@@ -9445,18 +9457,50 @@ const currentGridSpacingRef = useRef(10);
         return;
       }
 
+      function bodyIdFromTopologyId(id: string | null | undefined) {
+        if (!id) {
+          return null;
+        }
+        for (const marker of [":face:", ":edge:", ":vertex:"]) {
+          const markerIndex = id.indexOf(marker);
+          if (markerIndex > 0) {
+            return id.slice(0, markerIndex);
+          }
+        }
+        return null;
+      }
+
       const hit = intersectSceneTargets(event as PointerEvent);
-      if (hit?.kind !== "reference" && hit?.kind !== "face") {
+      if (
+        hit?.kind !== "reference" &&
+        hit?.kind !== "face" &&
+        hit?.kind !== "primitive" &&
+        hit?.kind !== "edge" &&
+        hit?.kind !== "vertex"
+      ) {
         setContextMenu(null);
         return;
       }
 
       const rect = renderer.domElement.getBoundingClientRect();
+      const solidFace =
+        hit.kind === "face"
+          ? sceneDataRef.current?.solidFaces.find((face) => face.faceId === hit.id)
+          : null;
+      const bodyId =
+        hit.kind === "primitive"
+          ? hit.id
+          : hit.kind === "face"
+            ? (solidFace?.ownerId ?? bodyIdFromTopologyId(hit.id))
+            : hit.kind === "edge" || hit.kind === "vertex"
+              ? bodyIdFromTopologyId(hit.id)
+              : null;
       setContextMenu({
         x: event.clientX - rect.left,
         y: event.clientY - rect.top,
         referenceId: hit.kind === "reference" ? hit.id : null,
         faceId: hit.kind === "face" ? hit.id : null,
+        bodyId,
         sketchDeleteSelection: null,
       });
     }
@@ -10183,6 +10227,24 @@ const currentGridSpacingRef = useRef(10);
     await startSketchOnFaceRef.current(solidFace.faceId, solidFace.planeFrame);
   }
 
+  async function handleMoveBodyFromContextMenu() {
+    const bodyId = contextMenu?.bodyId;
+    if (!bodyId) {
+      return;
+    }
+    setContextMenu(null);
+    await moveBodyRef.current?.(bodyId);
+  }
+
+  async function handleCopyBodyFromContextMenu() {
+    const bodyId = contextMenu?.bodyId;
+    if (!bodyId) {
+      return;
+    }
+    setContextMenu(null);
+    await copyBodyRef.current?.(bodyId);
+  }
+
   async function handleDeleteSketchFromContextMenu() {
     const selection = contextMenu?.sketchDeleteSelection;
     if (!selection) {
@@ -10720,13 +10782,35 @@ const currentGridSpacingRef = useRef(10);
                 Delete
               </button>
             ) : (
-              <button
-                type="button"
-                className="cad-context-menu-item flex w-full items-center justify-start rounded-xl px-3 py-2 text-sm text-on-surface transition-colors duration-200"
-                onClick={handleCreateSketchFromContextMenu}
-              >
-                Create Sketch
-              </button>
+              <>
+                {contextMenu.bodyId ? (
+                  <>
+                    <button
+                      type="button"
+                      className="cad-context-menu-item flex w-full items-center justify-start rounded-xl px-3 py-2 text-sm text-on-surface transition-colors duration-200"
+                      onClick={handleMoveBodyFromContextMenu}
+                    >
+                      {translate("common.move")}
+                    </button>
+                    <button
+                      type="button"
+                      className="cad-context-menu-item flex w-full items-center justify-start rounded-xl px-3 py-2 text-sm text-on-surface transition-colors duration-200"
+                      onClick={handleCopyBodyFromContextMenu}
+                    >
+                      {translate("common.copy")}
+                    </button>
+                  </>
+                ) : null}
+                {contextMenu.referenceId || contextMenu.faceId ? (
+                  <button
+                    type="button"
+                    className="cad-context-menu-item flex w-full items-center justify-start rounded-xl px-3 py-2 text-sm text-on-surface transition-colors duration-200"
+                    onClick={handleCreateSketchFromContextMenu}
+                  >
+                    Create Sketch
+                  </button>
+                ) : null}
+              </>
             )}
           </div>
         ) : null}

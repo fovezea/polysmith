@@ -1339,6 +1339,27 @@ void refresh_history_dependencies(DocumentState& document) {
       }
     }
 
+    if (feature.kind == "body_copy" && feature.body_copy_parameters.has_value()) {
+      const auto& params = feature.body_copy_parameters.value();
+      DocumentState prefix = document;
+      prefix.feature_history.resize(i);
+      const CompiledBodies compiled = compile_bodies(prefix);
+      const bool source_body_exists = std::any_of(
+          compiled.bodies.begin(), compiled.bodies.end(),
+          [&](const CompiledBody& body) {
+            return body.id == params.source_body_id;
+          });
+      if (source_body_exists) {
+        feature.dependency_broken = false;
+        feature.dependency_warning.clear();
+      } else {
+        feature.dependency_broken = true;
+        feature.dependency_warning =
+            "Copy source body '" + params.source_body_id +
+            "' is no longer available.";
+      }
+    }
+
     // Sketch on a body face / construction plane: re-resolve the
     // plane frame against upstream geometry. We compile the prefix
     // [0, i) — every earlier feature has already been refreshed in

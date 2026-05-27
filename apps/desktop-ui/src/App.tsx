@@ -163,6 +163,7 @@ const BODY_KINDS = new Set([
   "revolve",
   "sweep",
   "fastener",
+  "body_copy",
 ]);
 
 function documentHasSolidBody(documentState: DocumentState | null) {
@@ -255,6 +256,7 @@ type ActiveMoveAction =
       targetBodyId: string;
       parameters: MoveFeatureParameters;
       originalSnapshot: MoveFeatureParameters | null;
+      createdCopyFeatureId?: string | null;
     };
 
 interface SketchDeleteSelection {
@@ -821,6 +823,7 @@ function App() {
     createFastener,
     updateFastenerParameters,
     createMove,
+    createBodyCopy,
     updateMoveParameters,
     confirmMove,
     updateOffsetPlane,
@@ -2590,6 +2593,7 @@ function App() {
   async function createMoveFeature(
     targetBodyId: string,
     parameters: MoveFeatureParameters = defaultMoveParameters(targetBodyId),
+    options: { createdCopyFeatureId?: string | null } = {},
   ) {
     const documentPromise = awaitDocumentChange((next, previous) => {
       if (!next.selected_feature_id) {
@@ -2626,6 +2630,7 @@ function App() {
             targetBodyId,
             parameters: created.move_parameters,
             originalSnapshot: null,
+            createdCopyFeatureId: options.createdCopyFeatureId ?? null,
           });
         }
       } catch (error) {
@@ -2633,6 +2638,73 @@ function App() {
         setMoveAction(null);
       }
     });
+  }
+
+  function isBodyPlacementActionBlocked() {
+    return (
+      activeSketchPlaneId ||
+      extrudeAction ||
+      loftAction ||
+      revolveAction ||
+      sweepAction ||
+      edgeOpAction ||
+      shellAction ||
+      holeAction ||
+      offsetPlaneAction ||
+      midplaneAction ||
+      tangentPlaneAction ||
+      anglePlaneAction ||
+      constructionAxisAction ||
+      constructionPointAction ||
+      helixAction ||
+      threadAction ||
+      fastenerAction ||
+      moveAction
+    );
+  }
+
+  async function moveBodyFromContext(bodyId: string) {
+    if (isBodyPlacementActionBlocked()) {
+      return;
+    }
+    await createMoveFeature(bodyId, defaultMoveParameters(bodyId));
+  }
+
+  async function copyBodyAndMove(sourceBodyId: string) {
+    if (isBodyPlacementActionBlocked()) {
+      return;
+    }
+
+    const documentPromise = awaitDocumentChange((next, previous) => {
+      if (!next.selected_feature_id) {
+        return false;
+      }
+      const previousLength = previous?.feature_history.length ?? 0;
+      if (next.feature_history.length <= previousLength) {
+        return false;
+      }
+      const lastFeature = next.feature_history[next.feature_history.length - 1];
+      return (
+        lastFeature.feature_id === next.selected_feature_id &&
+        lastFeature.kind === "body_copy" &&
+        lastFeature.body_copy_parameters?.source_body_id === sourceBodyId
+      );
+    });
+
+    try {
+      await runAction(async () => {
+        await createBodyCopy(sourceBodyId);
+      });
+      const nextDocument = await documentPromise;
+      const copyBodyId = nextDocument.selected_feature_id ?? null;
+      if (copyBodyId) {
+        await createMoveFeature(copyBodyId, defaultMoveParameters(copyBodyId), {
+          createdCopyFeatureId: copyBodyId,
+        });
+      }
+    } catch (error) {
+      addMessage(`copy body error: ${String(error)}`);
+    }
   }
 
   async function triggerMoveAction() {
@@ -3061,6 +3133,9 @@ function App() {
         } else {
           await runAction(async () => {
             await undo();
+            if (moveAction.createdCopyFeatureId) {
+              await undo();
+            }
           });
         }
       }
@@ -5004,6 +5079,12 @@ function App() {
                     onDeleteFeature={async (featureId) => {
                       confirmAndDeleteFeature(featureId);
                     }}
+                    onMoveBody={async (bodyId) => {
+                      await moveBodyFromContext(bodyId);
+                    }}
+                    onCopyBody={async (bodyId) => {
+                      await copyBodyAndMove(bodyId);
+                    }}
                     onSetFeatureSuppressed={async (featureId, suppressed) => {
                       await runAction(async () => {
                         await setFeatureSuppressed(featureId, suppressed);
@@ -5123,6 +5204,12 @@ function App() {
                     ? { ...current, parameters }
                     : current,
                 );
+              }}
+              onMoveBody={async (bodyId) => {
+                await moveBodyFromContext(bodyId);
+              }}
+              onCopyBody={async (bodyId) => {
+                await copyBodyAndMove(bodyId);
               }}
               inactiveSketchEntityPickEnabled={
                 revolveAction !== null ||

@@ -1441,3 +1441,13 @@ Three bugs fixed after initial implementation:
 - added a top-bar Materials popover with Body / Face paint modes, quick color
   swatches, HSV-style picker controls, hex input, apply, clear selected, and
   clear all actions.
+
+### Body Context Move / Copy (2026-05-27)
+
+- added a core-owned `body_copy` timeline feature and `create_body_copy` IPC
+  command. Copies re-resolve their source body on recompute, emit a new body
+  under the copy feature id, preserve the source local frame, and degrade with a
+  dependency warning if the source disappears.
+- added Move and Copy entries to body context menus in both the viewport and
+  hierarchy. Copy creates the duplicate in place and immediately opens the Move
+  panel/gizmo for placement.

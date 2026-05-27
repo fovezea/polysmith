@@ -88,6 +88,7 @@ import {
   makeCreateFastenerCommand,
   makeCreateHelixCommand,
   makeCreateHoleCommand,
+  makeCreateBodyCopyCommand,
   makeCreateMoveCommand,
   makeCreateThreadCommand,
   makeConfirmHoleCommand,
@@ -607,6 +608,11 @@ export function useCadCore() {
       parameters: Partial<MoveFeatureParameters> = {},
     ) => {
       await sendCoreCommand(makeCreateMoveCommand(targetBodyId, parameters));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    createBodyCopy: async (sourceBodyId: string) => {
+      await sendCoreCommand(makeCreateBodyCopyCommand(sourceBodyId));
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());
     },

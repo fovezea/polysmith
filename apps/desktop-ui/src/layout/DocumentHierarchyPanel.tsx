@@ -21,6 +21,8 @@ interface DocumentHierarchyPanelProps {
   onReenterSketch: (featureId: string) => Promise<void>;
   onRenameFeature: (featureId: string, name: string) => Promise<void>;
   onDeleteFeature: (featureId: string) => Promise<void>;
+  onMoveBody?: (bodyId: string) => Promise<void> | void;
+  onCopyBody?: (bodyId: string) => Promise<void> | void;
   // Optional toggle for the persisted suppressed flag (Phase B). When
   // omitted (e.g. read-only previews) the menu just hides the entry.
   onSetFeatureSuppressed?: (
@@ -35,6 +37,7 @@ interface ContextMenuState {
   featureId: string;
   featureName: string;
   isHidden: boolean;
+  isBody: boolean;
   // Mirrors the feature's persisted `suppressed` flag at the moment
   // the menu was opened. Used to label the Suppress / Unsuppress
   // entry; the persisted state may change after we open the menu, but
@@ -51,6 +54,7 @@ const BODY_KINDS = new Set([
   "revolve",
   "sweep",
   "fastener",
+  "body_copy",
 ]);
 
 function EyeIcon({ open }: { open: boolean }) {
@@ -453,6 +457,8 @@ export function DocumentHierarchyPanel({
   onReenterSketch,
   onRenameFeature,
   onDeleteFeature,
+  onMoveBody,
+  onCopyBody,
   onSetFeatureSuppressed,
 }: DocumentHierarchyPanelProps) {
   const { t } = useTranslation();
@@ -561,6 +567,7 @@ export function DocumentHierarchyPanel({
       featureName: string,
       isHidden: boolean,
       suppressed: boolean,
+      isBody: boolean,
     ) =>
     (event: React.MouseEvent) => {
       event.preventDefault();
@@ -572,6 +579,7 @@ export function DocumentHierarchyPanel({
         featureName,
         isHidden,
         suppressed,
+        isBody,
       });
     };
 
@@ -682,6 +690,7 @@ export function DocumentHierarchyPanel({
                 feature.name,
                 isHidden,
                 feature.suppressed === true,
+                false,
               )}
               onRenameSubmit={(nextName) => {
                 void submitRename(feature.feature_id, nextName);
@@ -729,6 +738,7 @@ export function DocumentHierarchyPanel({
                 sketch.name,
                 isHidden,
                 sketch.suppressed === true,
+                false,
               )}
               onRenameSubmit={(nextName) => {
                 void submitRename(sketch.feature_id, nextName);
@@ -773,6 +783,7 @@ export function DocumentHierarchyPanel({
                 body.name,
                 isHidden,
                 body.suppressed === true,
+                true,
               )}
               onRenameSubmit={(nextName) => {
                 void submitRename(body.feature_id, nextName);
@@ -809,6 +820,32 @@ export function DocumentHierarchyPanel({
               >
                 {t("common.rename")}
               </button>
+              {contextMenu.isBody ? (
+                <>
+                  <button
+                    type="button"
+                    className="flex w-full items-center rounded-lg px-3 py-1.5 text-left text-sm text-on-surface transition-colors hover:bg-white/10"
+                    onClick={() => {
+                      const id = contextMenu.featureId;
+                      setContextMenu(null);
+                      void onMoveBody?.(id);
+                    }}
+                  >
+                    {t("common.move")}
+                  </button>
+                  <button
+                    type="button"
+                    className="flex w-full items-center rounded-lg px-3 py-1.5 text-left text-sm text-on-surface transition-colors hover:bg-white/10"
+                    onClick={() => {
+                      const id = contextMenu.featureId;
+                      setContextMenu(null);
+                      void onCopyBody?.(id);
+                    }}
+                  >
+                    {t("common.copy")}
+                  </button>
+                </>
+              ) : null}
               <button
                 type="button"
                 className="flex w-full items-center rounded-lg px-3 py-1.5 text-left text-sm text-on-surface transition-colors hover:bg-white/10"

@@ -129,10 +129,25 @@ export function ExtrudePreviewPanel({
   const lastPreviewedRef = useRef<number>(initialDepth);
   const onPreviewDepthRef = useRef(onPreviewDepth);
   const advancedRef = useRef(advanced);
+  const primaryDistanceInputRef = useRef<HTMLInputElement | null>(null);
+  const didFocusDistanceRef = useRef(false);
 
   useEffect(() => {
     onPreviewDepthRef.current = onPreviewDepth;
   }, [onPreviewDepth]);
+
+  useEffect(() => {
+    if (disabled || didFocusDistanceRef.current) {
+      return;
+    }
+    const input = primaryDistanceInputRef.current;
+    if (!input) {
+      return;
+    }
+    didFocusDistanceRef.current = true;
+    input.focus();
+    input.select();
+  }, [disabled]);
 
   useEffect(() => {
     advancedRef.current = advanced;
@@ -291,6 +306,7 @@ export function ExtrudePreviewPanel({
           <label className="mt-3 block text-xs uppercase tracking-[0.18em] text-on-surface-muted">
             {t("forms.distanceMm")}
             <input
+              ref={sideKey === "side1" ? primaryDistanceInputRef : undefined}
               className={problemInputClass}
               type="number"
               min="0.01"

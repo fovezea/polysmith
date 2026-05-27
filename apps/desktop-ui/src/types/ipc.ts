@@ -843,6 +843,14 @@ export interface ConfirmMoveCommand {
   };
 }
 
+export interface CreateBodyCopyCommand {
+  id: string;
+  type: "create_body_copy";
+  payload: {
+    source_body_id: string;
+  };
+}
+
 // Live-edit an existing construction plane's offset. The core
 // re-derives the cached frame from the source's current frame, so
 // chained planes / face-source planes update correctly.
@@ -1643,6 +1651,7 @@ export type CoreCommand =
   | CreateMoveCommand
   | UpdateMoveParametersCommand
   | ConfirmMoveCommand
+  | CreateBodyCopyCommand
   | UpdateOffsetPlaneCommand
   | UpdateAnglePlaneCommand
   | StartSketchOnPlaneCommand

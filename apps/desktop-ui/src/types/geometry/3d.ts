@@ -203,3 +203,7 @@ export interface MoveFeatureParameters {
   rotation_z_degrees: number;
   is_pending: boolean;
 }
+
+export interface BodyCopyFeatureParameters {
+  source_body_id: string;
+}

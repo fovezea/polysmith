@@ -1,5 +1,6 @@
 import type {
   BoxFeatureParameters,
+  BodyCopyFeatureParameters,
   CylinderFeatureParameters,
   ExtrudeFeatureParameters,
   FastenerFeatureParameters,
@@ -362,6 +363,7 @@ export interface FeatureEntry {
   thread_parameters: ThreadFeatureParameters | null;
   fastener_parameters: FastenerFeatureParameters | null;
   move_parameters: MoveFeatureParameters | null;
+  body_copy_parameters: BodyCopyFeatureParameters | null;
   sketch_parameters: SketchFeatureParameters | null;
   fillet_parameters: FilletFeatureParameters | null;
   chamfer_parameters: ChamferFeatureParameters | null;

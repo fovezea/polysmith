@@ -7048,6 +7048,43 @@ DocumentState DocumentManager::confirm_move(const std::string& feature_id) {
   return document_.value();
 }
 
+DocumentState DocumentManager::create_body_copy(
+    const std::string& source_body_id) {
+  require_document();
+  if (!compiled_body_exists(*document_, source_body_id)) {
+    throw std::runtime_error("Copy source body not found: " + source_body_id);
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+
+  BodyCopyFeatureParameters params{};
+  params.source_body_id = source_body_id;
+
+  FeatureEntry feature{};
+  feature.id = "feature-" + std::to_string(next_feature_id_++);
+  feature.kind = "body_copy";
+  feature.name = "Copy";
+  feature.status = "healthy";
+  feature.parameters_summary = "Body copy";
+  feature.body_copy_parameters = params;
+  document_->feature_history.push_back(feature);
+  document_->selected_feature_id = document_->feature_history.back().id;
+  document_->selected_reference_id = std::nullopt;
+  document_->selected_face_id = std::nullopt;
+  document_->selected_edge_ids.clear();
+  document_->selected_vertex_ids.clear();
+  document_->selected_sketch_point_id = std::nullopt;
+  document_->selected_sketch_entity_id = std::nullopt;
+  document_->selected_sketch_dimension_id = std::nullopt;
+  document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
+  bump_geometry_revision();
+  return document_.value();
+}
+
 DocumentState DocumentManager::set_body_color(const std::string& body_id,
                                               const std::string& color) {
   require_document();

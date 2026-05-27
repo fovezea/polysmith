@@ -980,7 +980,7 @@ CompiledBodies compile_bodies(const DocumentState& document) {
     }
     if (feature.kind == "fillet" || feature.kind == "chamfer" ||
         feature.kind == "shell" || feature.kind == "hole" ||
-        feature.kind == "move" ||
+        feature.kind == "move" || feature.kind == "body_copy" ||
         feature.kind == "fastener") {
       // Body-modifying features always produce a mesh body (they modify an
       // existing OCCT shape in ways the legacy primitive renderers
@@ -1168,6 +1168,18 @@ CompiledBodies compile_bodies(const DocumentState& document) {
         }
         body_order.push_back(params.target_body_id);
       }
+      continue;
+    }
+    if (feature.kind == "body_copy" && feature.body_copy_parameters.has_value()) {
+      const auto& params = feature.body_copy_parameters.value();
+      if (params.source_body_id.empty() ||
+          body_shapes.find(params.source_body_id) == body_shapes.end()) {
+        continue;
+      }
+      body_shapes[feature.id] = body_shapes[params.source_body_id];
+      body_frames[feature.id] = body_frames[params.source_body_id];
+      body_pick_shapes.erase(feature.id);
+      body_order.push_back(feature.id);
       continue;
     }
     if (feature.kind == "thread" && feature.thread_parameters.has_value()) {

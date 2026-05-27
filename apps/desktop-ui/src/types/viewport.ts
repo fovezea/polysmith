@@ -332,6 +332,7 @@ export interface ViewportContextMenuState {
   y: number;
   referenceId: string | null;
   faceId: string | null;
+  bodyId?: string | null;
   sketchDeleteSelection?: {
     entityIds: string[];
     pointIds: string[];
