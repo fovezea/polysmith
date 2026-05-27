@@ -237,8 +237,9 @@ export interface SketchPointScene {
   // renderer draws these with a small distinguishing crosshair so
   // the user can tell derived geometry from sketched geometry at a
   // glance.
+  // "quadrant" — derived cardinal point on a circle perimeter.
   pointId: string;
-  kind: "endpoint" | "center" | "projected";
+  kind: "endpoint" | "center" | "projected" | "quadrant";
   position: [number, number, number];
   isFixed: boolean;
   isSelected: boolean;

@@ -206,6 +206,29 @@ function AiSparkIcon() {
   );
 }
 
+function SnapFilterIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-4 w-4"
+      viewBox="0 0 18 18"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.45"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M9 2.5v3" />
+      <path d="M9 12.5v3" />
+      <path d="M2.5 9h3" />
+      <path d="M12.5 9h3" />
+      <circle cx="9" cy="9" r="2.7" />
+      <path d="M3.8 3.8l2.1 2.1" />
+      <path d="M12.1 12.1l2.1 2.1" />
+    </svg>
+  );
+}
+
 interface AppHeaderProps {
   workspaceView: WorkspaceView;
   canOpenSlicerView: boolean;
@@ -492,13 +515,13 @@ export function AppHeader({
             </nav>
           ) : null}
           {workspaceView === "cad" ? (
-            <div className="relative">
+            <div className="relative flex items-center gap-1.5">
               <button
                 type="button"
                 className={
                   parametersPanelOpen
-                    ? "cad-ribbon-action cad-ribbon-action-primary"
-                    : "cad-ribbon-action"
+                    ? "cad-ribbon-action cad-ribbon-action-primary h-9 px-3 leading-none"
+                    : "cad-ribbon-action h-9 px-3 leading-none"
                 }
                 onClick={onToggleParametersPanel}
               >
@@ -508,20 +531,22 @@ export function AppHeader({
                 type="button"
                 className={
                   filterPanelOpen
-                    ? "cad-ribbon-action cad-ribbon-action-primary"
-                    : "cad-ribbon-action"
+                    ? "cad-ribbon-action cad-ribbon-action-primary h-9 gap-2 px-3 leading-none"
+                    : "cad-ribbon-action h-9 gap-2 px-3 leading-none"
                 }
                 onClick={onToggleFilterPanel}
-                title="Selection &amp; Snap Filter"
+                title={t("selectionFilter.title")}
+                aria-label={t("selectionFilter.title")}
               >
-                <span style={{ fontFamily: "monospace" }}>&#9881;</span>
+                <SnapFilterIcon />
+                <span>{t("selectionFilter.button")}</span>
               </button>
               <button
                 type="button"
                 className={
                   materialsPanelOpen
-                    ? "cad-ribbon-action cad-ribbon-action-primary"
-                    : "cad-ribbon-action"
+                    ? "cad-ribbon-action cad-ribbon-action-primary h-9 px-3 leading-none"
+                    : "cad-ribbon-action h-9 px-3 leading-none"
                 }
                 onClick={onToggleMaterialsPanel}
                 title={t("materials.title")}

@@ -1,4 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+import { Checkbox } from "@/lib/components/Checkbox";
 
 export interface SelectionFilter {
   select_curves: boolean;
@@ -69,21 +71,109 @@ interface Props {
   onClose: () => void;
 }
 
+type BooleanFilterKey = {
+  [Key in keyof SelectionFilter]: SelectionFilter[Key] extends boolean
+    ? Key
+    : never;
+}[keyof SelectionFilter];
+
+interface FilterRow {
+  key: BooleanFilterKey;
+  labelKey: string;
+}
+
+const sketchGeometryRows: FilterRow[] = [
+  { key: "select_curves", labelKey: "selectionFilter.curves" },
+  { key: "select_points", labelKey: "selectionFilter.points" },
+  {
+    key: "select_construction",
+    labelKey: "selectionFilter.constructionGeometry",
+  },
+  { key: "select_constraints", labelKey: "selectionFilter.constraints" },
+];
+
+const snapTypeRows: FilterRow[] = [
+  { key: "snap_endpoint", labelKey: "selectionFilter.endpoint" },
+  { key: "snap_midpoint", labelKey: "selectionFilter.midpoint" },
+  { key: "snap_center", labelKey: "selectionFilter.center" },
+  { key: "snap_intersection", labelKey: "selectionFilter.intersection" },
+  { key: "snap_nearest", labelKey: "selectionFilter.nearest" },
+  { key: "snap_quadrant", labelKey: "selectionFilter.quadrant" },
+  { key: "snap_perpendicular", labelKey: "selectionFilter.perpendicular" },
+  { key: "snap_parallel", labelKey: "selectionFilter.parallel" },
+  { key: "snap_tangent", labelKey: "selectionFilter.tangent" },
+  { key: "snap_grid", labelKey: "selectionFilter.grid" },
+  { key: "snap_grid_line", labelKey: "selectionFilter.gridLine" },
+  { key: "snap_polar", labelKey: "selectionFilter.polar" },
+];
+
+function CloseIcon() {
+  return (
+    <svg
+      className="h-4 w-4"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M4 4l8 8M12 4l-8 8" />
+    </svg>
+  );
+}
+
+function PanelSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="border-t border-[var(--cad-panel-soft-border)] pt-4 first:border-t-0 first:pt-0">
+      <p className="cad-kicker mb-3">{title}</p>
+      {children}
+    </section>
+  );
+}
+
 export function SelectionFilterPanel({
   currentFilter,
   open,
   onChange,
   onClose,
 }: Props) {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState<SelectionFilter>(currentFilter);
 
   useEffect(() => {
     setDraft(currentFilter);
   }, [currentFilter]);
 
+  useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") {
+        return;
+      }
+      event.preventDefault();
+      onClose();
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose, open]);
+
   if (!open) return null;
 
-  function toggle(key: keyof SelectionFilter) {
+  function toggle(key: BooleanFilterKey) {
     const next = { ...draft, [key]: !draft[key] };
     setDraft(next);
     onChange(next);
@@ -97,111 +187,108 @@ export function SelectionFilterPanel({
     onChange(next);
   }
 
+  function handlePolarAngle(val: string) {
+    const degrees = Number.parseInt(val, 10);
+    if (Number.isNaN(degrees) || degrees <= 0 || degrees > 90) {
+      return;
+    }
+    const next = { ...draft, polar_angle_degrees: degrees };
+    setDraft(next);
+    onChange(next);
+  }
+
+  function renderCheckboxRow(row: FilterRow) {
+    return (
+      <label
+        key={row.key}
+        className="flex cursor-pointer select-none items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-on-surface transition-colors hover:bg-[var(--cad-subtle-surface)]"
+      >
+        <Checkbox
+          checked={draft[row.key]}
+          onCheckedChange={() => {
+            toggle(row.key);
+          }}
+          ariaLabel={t(row.labelKey)}
+        />
+        <span>{t(row.labelKey)}</span>
+      </label>
+    );
+  }
+
   return (
-    <div className="selection-filter-panel" style={{
-        minWidth: 320,
-        background: "#1c1b1b",
-        borderRadius: 8,
-        padding: 16,
-        boxShadow: "0 4px 24px rgba(0,0,0,0.6)",
-        color: "#e5e2e1",
-      }}>
-      <h3 style={{ margin: "0 0 12px 0", fontSize: 14, fontWeight: 600 }}>Selection &amp; Snap Filter</h3>
-
-      <div style={{ borderBottom: "1px solid #353534", marginBottom: 12, paddingBottom: 12 }}>
-        <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em", color: "#888" }}>Sketch Geometry</div>
-        <label style={{ display: "block", marginBottom: 4, fontSize: 13 }}>
-          <input type="checkbox" checked={draft.select_curves} onChange={() => toggle("select_curves")} />{" "}
-          Curves (lines, arcs, circles)
-        </label>
-        <label style={{ display: "block", marginBottom: 4, fontSize: 13 }}>
-          <input type="checkbox" checked={draft.select_points} onChange={() => toggle("select_points")} />{" "}
-          Points (endpoints, centers)
-        </label>
-        <label style={{ display: "block", marginBottom: 4, fontSize: 13 }}>
-          <input type="checkbox" checked={draft.select_construction} onChange={() => toggle("select_construction")} />{" "}
-          Construction geometry
-        </label>
-        <label style={{ display: "block", marginBottom: 4, fontSize: 13 }}>
-          <input type="checkbox" checked={draft.select_constraints} onChange={() => toggle("select_constraints")} />{" "}
-          Constraints (click to edit)
-        </label>
-      </div>
-
-      <div style={{ borderBottom: "1px solid #353534", marginBottom: 12, paddingBottom: 12 }}>
-        <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em", color: "#888" }}>Snap Types</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px" }}>
-          <label style={{ display: "block", fontSize: 13 }}>
-            <input type="checkbox" checked={draft.snap_endpoint} onChange={() => toggle("snap_endpoint")} />{" "}
-            Endpoint
-          </label>
-          <label style={{ display: "block", fontSize: 13 }}>
-            <input type="checkbox" checked={draft.snap_midpoint} onChange={() => toggle("snap_midpoint")} />{" "}
-            Midpoint
-          </label>
-          <label style={{ display: "block", fontSize: 13 }}>
-            <input type="checkbox" checked={draft.snap_center} onChange={() => toggle("snap_center")} />{" "}
-            Center
-          </label>
-          <label style={{ display: "block", fontSize: 13 }}>
-            <input type="checkbox" checked={draft.snap_intersection} onChange={() => toggle("snap_intersection")} />{" "}
-            Intersection
-          </label>
-          <label style={{ display: "block", fontSize: 13 }}>
-            <input type="checkbox" checked={draft.snap_nearest} onChange={() => toggle("snap_nearest")} />{" "}
-            Nearest
-          </label>
-          <label style={{ display: "block", fontSize: 13 }}>
-            <input type="checkbox" checked={draft.snap_quadrant} onChange={() => toggle("snap_quadrant")} />{" "}
-            Quadrant
-          </label>
-          <label style={{ display: "block", fontSize: 13 }}>
-            <input type="checkbox" checked={draft.snap_perpendicular} onChange={() => toggle("snap_perpendicular")} />{" "}
-            Perpendicular
-          </label>
-          <label style={{ display: "block", fontSize: 13 }}>
-            <input type="checkbox" checked={draft.snap_parallel} onChange={() => toggle("snap_parallel")} />{" "}
-            Parallel
-          </label>
-          <label style={{ display: "block", fontSize: 13 }}>
-            <input type="checkbox" checked={draft.snap_tangent} onChange={() => toggle("snap_tangent")} />{" "}
-            Tangent
-          </label>
-          <label style={{ display: "block", fontSize: 13 }}>
-            <input type="checkbox" checked={draft.snap_grid} onChange={() => toggle("snap_grid")} />{" "}
-            Grid
-          </label>
-          <label style={{ display: "block", fontSize: 13 }}>
-            <input type="checkbox" checked={draft.snap_grid_line} onChange={() => toggle("snap_grid_line")} />{" "}
-            Grid Line
-          </label>
-          <label style={{ display: "block", fontSize: 13 }}>
-            <input type="checkbox" checked={draft.snap_polar} onChange={() => toggle("snap_polar")} />{" "}
-            Polar
-          </label>
-          <label style={{ display: "block", fontSize: 13, paddingLeft: 18 }}>
-            Angle: <input type="number" value={draft.polar_angle_degrees} onChange={(e) => { const v = parseInt(e.target.value,10); if (v>0 && v<=90) { const n={...draft,polar_angle_degrees:v}; setDraft(n); onChange(n); }}} min={5} max={90} step={5} style={{ width: 50, background: "#353534", border: "1px solid #555", color: "#e5e2e1", borderRadius: 4, padding: "2px 6px" }} />°
-          </label>
+    <div className="selection-filter-panel cad-floating-panel w-[28rem] px-5 py-5">
+      <div className="mb-5 flex items-start justify-between gap-4">
+        <div>
+          <p className="cad-kicker">{t("selectionFilter.kicker")}</p>
+          <h3 className="mt-2 font-display text-lg tracking-[0.08em] text-on-surface">
+            {t("selectionFilter.title")}
+          </h3>
         </div>
+        <button
+          type="button"
+          className="cad-ribbon-action h-8 w-8 px-0 py-0 text-on-surface-muted hover:text-on-surface"
+          aria-label={t("common.close")}
+          title={t("common.close")}
+          onClick={onClose}
+        >
+          <CloseIcon />
+        </button>
       </div>
 
-      <div style={{ borderBottom: "1px solid #353534", marginBottom: 12, paddingBottom: 12 }}>
-        <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em", color: "#888" }}>Global</div>
-        <label style={{ display: "block", marginBottom: 4, fontSize: 13 }}>
-          Tolerance (px):{" "}
-          <input type="number" value={draft.tolerance_px} onChange={(e) => handleTolerance(e.target.value)} min={1} max={50} style={{ width: 60, background: "#353534", border: "1px solid #555", color: "#e5e2e1", borderRadius: 4, padding: "2px 6px" }} />
-        </label>
-        <label style={{ display: "block", marginBottom: 4, fontSize: 13 }}>
-          <input type="checkbox" checked={draft.magnetic_pull} onChange={() => toggle("magnetic_pull")} />{" "}
-          Magnetic pull
-        </label>
-      </div>
+      <div className="space-y-4">
+        <PanelSection title={t("selectionFilter.sketchGeometry")}>
+          <div className="grid gap-1">
+            {sketchGeometryRows.map(renderCheckboxRow)}
+          </div>
+        </PanelSection>
 
-      <button onClick={onClose} style={{
-        background: "#353534", border: "1px solid #555", color: "#e5e2e1", borderRadius: 6, padding: "6px 16px", fontSize: 12, cursor: "pointer", width: "100%"
-      }}>
-        Close
-      </button>
+        <PanelSection title={t("selectionFilter.snapTypes")}>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+            {snapTypeRows.map(renderCheckboxRow)}
+          </div>
+          <label className="mt-3 flex items-center justify-between gap-4 rounded-xl px-2 py-2 text-sm text-on-surface">
+            <span className="text-on-surface-muted">
+              {t("selectionFilter.polarAngle")}
+            </span>
+            <span className="flex items-center gap-1">
+              <input
+                className="cad-input w-16 text-right text-sm"
+                type="number"
+                value={draft.polar_angle_degrees}
+                onChange={(event) => handlePolarAngle(event.target.value)}
+                min={5}
+                max={90}
+                step={5}
+              />
+              <span className="text-on-surface-muted">
+                {t("selectionFilter.degreesShort")}
+              </span>
+            </span>
+          </label>
+        </PanelSection>
+
+        <PanelSection title={t("selectionFilter.global")}>
+          <div className="space-y-1">
+            <label className="flex items-center justify-between gap-4 rounded-xl px-2 py-2 text-sm text-on-surface">
+              <span className="text-on-surface-muted">
+                {t("selectionFilter.tolerance")}
+              </span>
+              <input
+                className="cad-input w-16 text-right text-sm"
+                type="number"
+                value={draft.tolerance_px}
+                onChange={(event) => handleTolerance(event.target.value)}
+                min={1}
+                max={50}
+              />
+            </label>
+            {renderCheckboxRow({
+              key: "magnetic_pull",
+              labelKey: "selectionFilter.magneticPull",
+            })}
+          </div>
+        </PanelSection>
+      </div>
     </div>
   );
 }
