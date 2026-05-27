@@ -2963,6 +2963,241 @@ function App() {
     setHoleAction({ phase: "pending" });
   }
 
+  async function cancelActiveTool() {
+    // Central Escape/Cancel path for app-level tools. Sketch mode is
+    // deliberately excluded here; sketch drafting Escape stays owned by
+    // ViewportPanel so Esc never exits an active sketch.
+    if (extrudeAction) {
+      if (extrudeAction.phase === "active" && extrudeAction.featureId) {
+        const snapshot = extrudeAction.originalSnapshot;
+        if (snapshot) {
+          await runAction(async () => {
+            await updateExtrudeDepth(extrudeAction.featureId!, snapshot.depth);
+            await updateExtrudeMode(extrudeAction.featureId!, snapshot.mode);
+            await updateExtrudeTargetBody(
+              extrudeAction.featureId!,
+              snapshot.targetBodyId,
+            );
+            await updateExtrudeParameters(
+              extrudeAction.featureId!,
+              snapshot.parameters,
+            );
+          });
+        } else {
+          await runAction(async () => {
+            await undo();
+          });
+        }
+      }
+      setExtrudeAction(null);
+      await restoreTimelineCursorAfterEdit();
+      return true;
+    }
+
+    if (loftAction) {
+      if (loftAction.originalSnapshot && loftAction.featureId) {
+        const snapshot = loftAction.originalSnapshot;
+        await runAction(async () => {
+          await updateLoftProfiles(loftAction.featureId!, snapshot.profileIds);
+          await updateLoftRuled(loftAction.featureId!, snapshot.ruled);
+        });
+      } else if (loftAction.phase === "active") {
+        await runAction(async () => {
+          await undo();
+        });
+      }
+      setLoftAction(null);
+      await restoreTimelineCursorAfterEdit();
+      return true;
+    }
+
+    if (revolveAction) {
+      if (revolveAction.originalSnapshot && revolveAction.featureId) {
+        const snapshot = revolveAction.originalSnapshot;
+        await runAction(async () => {
+          await updateRevolveProfile(revolveAction.featureId!, snapshot.profileId);
+          await updateRevolveAxis(revolveAction.featureId!, snapshot.axisEntityId);
+          await updateRevolveAngle(
+            revolveAction.featureId!,
+            snapshot.angleDegrees,
+          );
+        });
+      } else if (revolveAction.phase === "active") {
+        await runAction(async () => {
+          await undo();
+        });
+      }
+      setRevolveAction(null);
+      await restoreTimelineCursorAfterEdit();
+      return true;
+    }
+
+    if (sweepAction) {
+      if (sweepAction.originalSnapshot && sweepAction.featureId) {
+        const snapshot = sweepAction.originalSnapshot;
+        await runAction(async () => {
+          await updateSweepProfile(sweepAction.featureId!, snapshot.profileId);
+          await updateSweepPath(sweepAction.featureId!, snapshot.pathEntityId);
+        });
+      } else if (sweepAction.phase === "active") {
+        await runAction(async () => {
+          await undo();
+        });
+      }
+      setSweepAction(null);
+      await restoreTimelineCursorAfterEdit();
+      return true;
+    }
+
+    if (moveAction) {
+      if (moveAction.phase === "active") {
+        if (moveAction.originalSnapshot) {
+          await runAction(async () => {
+            await updateMoveParameters(
+              moveAction.featureId,
+              moveAction.originalSnapshot!,
+            );
+          });
+        } else {
+          await runAction(async () => {
+            await undo();
+          });
+        }
+      }
+      setMoveAction(null);
+      await restoreTimelineCursorAfterEdit();
+      return true;
+    }
+
+    if (edgeOpAction) {
+      if (edgeOpAction.phase === "active") {
+        await runAction(async () => {
+          await undo();
+        });
+      }
+      activeEdgeIdsRef.current = [];
+      setEdgeOpAction(null);
+      return true;
+    }
+
+    if (shellAction) {
+      if (shellAction.phase === "active") {
+        await runAction(async () => {
+          await undo();
+        });
+      }
+      setShellAction(null);
+      return true;
+    }
+
+    if (holeAction) {
+      if (holeAction.phase === "active") {
+        await runAction(async () => {
+          await undo();
+        });
+      }
+      setHoleAction(null);
+      return true;
+    }
+
+    if (offsetPlaneAction) {
+      if (offsetPlaneAction.phase === "active") {
+        await runAction(async () => {
+          await undo();
+        });
+      }
+      setOffsetPlaneAction(null);
+      return true;
+    }
+
+    if (anglePlaneAction) {
+      if (anglePlaneAction.phase === "active") {
+        await runAction(async () => {
+          await undo();
+        });
+      }
+      setAnglePlaneAction(null);
+      return true;
+    }
+
+    if (midplaneAction) {
+      setMidplaneAction(null);
+      return true;
+    }
+
+    if (tangentPlaneAction) {
+      setTangentPlaneAction(null);
+      return true;
+    }
+
+    if (constructionAxisAction) {
+      setConstructionAxisAction(null);
+      return true;
+    }
+
+    if (constructionPointAction) {
+      setConstructionPointAction(null);
+      return true;
+    }
+
+    if (threadAction) {
+      if (threadAction.phase === "active") {
+        await runAction(async () => {
+          if (threadAction.originalParameters) {
+            await updateThreadParameters(
+              threadAction.featureId,
+              threadAction.originalParameters,
+            );
+          } else {
+            await undo();
+          }
+        });
+        await restoreTimelineCursorAfterEdit();
+      }
+      setThreadAction(null);
+      return true;
+    }
+
+    if (fastenerAction) {
+      await runAction(async () => {
+        if (fastenerAction.originalParameters) {
+          await updateFastenerParameters(
+            fastenerAction.featureId,
+            fastenerAction.originalParameters,
+          );
+        } else {
+          await undo();
+        }
+      });
+      setFastenerAction(null);
+      await restoreTimelineCursorAfterEdit();
+      return true;
+    }
+
+    if (helixAction) {
+      if (helixAction.phase === "active") {
+        await runAction(async () => {
+          await undo();
+        });
+      }
+      setHelixAction(null);
+      return true;
+    }
+
+    if (editingFeatureId) {
+      setEditingFeatureId(null);
+      await restoreTimelineCursorAfterEdit();
+      return true;
+    }
+
+    if (materialsPanelOpen) {
+      setMaterialsPanelOpen(false);
+      return true;
+    }
+
+    return false;
+  }
+
   useEffect(() => {
     function isTypingTarget(target: EventTarget | null) {
       return (
@@ -2974,7 +3209,41 @@ function App() {
     }
 
     function handleKeyDown(event: KeyboardEvent) {
+      if (event.defaultPrevented) {
+        return;
+      }
+
       const target = event.target;
+      const hasCancelableTool =
+        Boolean(
+          extrudeAction ||
+            loftAction ||
+            revolveAction ||
+            sweepAction ||
+            moveAction ||
+            edgeOpAction ||
+            shellAction ||
+            holeAction ||
+            offsetPlaneAction ||
+            anglePlaneAction ||
+            midplaneAction ||
+            tangentPlaneAction ||
+            constructionAxisAction ||
+            constructionPointAction ||
+            threadAction ||
+            fastenerAction ||
+            helixAction ||
+            editingFeatureId,
+        ) || materialsPanelOpen;
+
+      if (event.code === "Escape" && hasCancelableTool) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        void cancelActiveTool();
+        return;
+      }
+
       if (isTypingTarget(target)) {
         return;
       }
@@ -3004,6 +3273,7 @@ function App() {
         !threadAction &&
         !fastenerAction &&
         !moveAction &&
+        !materialsPanelOpen &&
         document &&
         (document.selected_feature_id ||
           document.selected_reference_id ||
@@ -3097,7 +3367,22 @@ function App() {
     extrudeAction,
     loftAction,
     revolveAction,
+    sweepAction,
+    moveAction,
     edgeOpAction,
+    shellAction,
+    holeAction,
+    offsetPlaneAction,
+    anglePlaneAction,
+    midplaneAction,
+    tangentPlaneAction,
+    constructionAxisAction,
+    constructionPointAction,
+    threadAction,
+    fastenerAction,
+    helixAction,
+    editingFeatureId,
+    materialsPanelOpen,
     activeSketchPlaneId,
     activeSketchTool,
     document?.selected_edge_ids,
@@ -5862,7 +6147,7 @@ function App() {
                     }
                   }}
                   onCancel={async () => {
-                    setExtrudeAction(null);
+                    await cancelActiveTool();
                   }}
                 />
               ) : null}
@@ -5982,39 +6267,7 @@ function App() {
                           await restoreTimelineCursorAfterEdit();
                         }}
                         onCancel={async () => {
-                          // Edit flow (snapshot present): restore the
-                          // depth / mode / target the extrude had
-                          // before the user opened the panel. Create
-                          // flow (no snapshot): undo the whole new
-                          // feature, since cancelling creation should
-                          // leave the document untouched.
-                          const snapshot = extrudeAction.originalSnapshot;
-                          if (snapshot) {
-                            await runAction(async () => {
-                              await updateExtrudeDepth(
-                                activeExtrudeFeatureId,
-                                snapshot.depth,
-                              );
-                              await updateExtrudeMode(
-                                activeExtrudeFeatureId,
-                                snapshot.mode,
-                              );
-                              await updateExtrudeTargetBody(
-                                activeExtrudeFeatureId,
-                                snapshot.targetBodyId,
-                              );
-                              await updateExtrudeParameters(
-                                activeExtrudeFeatureId,
-                                snapshot.parameters,
-                              );
-                            });
-                          } else {
-                            await runAction(async () => {
-                              await undo();
-                            });
-                          }
-                          setExtrudeAction(null);
-                          await restoreTimelineCursorAfterEdit();
+                          await cancelActiveTool();
                         }}
                       />
                     );
@@ -6109,25 +6362,7 @@ function App() {
                     await restoreTimelineCursorAfterEdit();
                   }}
                   onCancel={async () => {
-                    const snapshot = loftAction.originalSnapshot;
-                    if (snapshot && loftAction.featureId) {
-                      await runAction(async () => {
-                        await updateLoftProfiles(
-                          loftAction.featureId!,
-                          snapshot.profileIds,
-                        );
-                        await updateLoftRuled(
-                          loftAction.featureId!,
-                          snapshot.ruled,
-                        );
-                      });
-                    } else if (loftAction.phase === "active") {
-                      await runAction(async () => {
-                        await undo();
-                      });
-                    }
-                    setLoftAction(null);
-                    await restoreTimelineCursorAfterEdit();
+                    await cancelActiveTool();
                   }}
                 />
               ) : null}
@@ -6205,29 +6440,7 @@ function App() {
                     await restoreTimelineCursorAfterEdit();
                   }}
                   onCancel={async () => {
-                    const snapshot = revolveAction.originalSnapshot;
-                    if (snapshot && revolveAction.featureId) {
-                      await runAction(async () => {
-                        await updateRevolveProfile(
-                          revolveAction.featureId!,
-                          snapshot.profileId,
-                        );
-                        await updateRevolveAxis(
-                          revolveAction.featureId!,
-                          snapshot.axisEntityId,
-                        );
-                        await updateRevolveAngle(
-                          revolveAction.featureId!,
-                          snapshot.angleDegrees,
-                        );
-                      });
-                    } else if (revolveAction.phase === "active") {
-                      await runAction(async () => {
-                        await undo();
-                      });
-                    }
-                    setRevolveAction(null);
-                    await restoreTimelineCursorAfterEdit();
+                    await cancelActiveTool();
                   }}
                 />
               ) : null}
@@ -6280,25 +6493,7 @@ function App() {
                     await restoreTimelineCursorAfterEdit();
                   }}
                   onCancel={async () => {
-                    const snapshot = sweepAction.originalSnapshot;
-                    if (snapshot && sweepAction.featureId) {
-                      await runAction(async () => {
-                        await updateSweepProfile(
-                          sweepAction.featureId!,
-                          snapshot.profileId,
-                        );
-                        await updateSweepPath(
-                          sweepAction.featureId!,
-                          snapshot.pathEntityId,
-                        );
-                      });
-                    } else if (sweepAction.phase === "active") {
-                      await runAction(async () => {
-                        await undo();
-                      });
-                    }
-                    setSweepAction(null);
-                    await restoreTimelineCursorAfterEdit();
+                    await cancelActiveTool();
                   }}
                 />
               ) : null}
@@ -6460,22 +6655,7 @@ function App() {
                     await restoreTimelineCursorAfterEdit();
                   }}
                   onCancel={async () => {
-                    if (moveAction.phase === "active") {
-                      if (moveAction.originalSnapshot) {
-                        await runAction(async () => {
-                          await updateMoveParameters(
-                            moveAction.featureId,
-                            moveAction.originalSnapshot!,
-                          );
-                        });
-                      } else {
-                        await runAction(async () => {
-                          await undo();
-                        });
-                      }
-                    }
-                    setMoveAction(null);
-                    await restoreTimelineCursorAfterEdit();
+                    await cancelActiveTool();
                   }}
                 />
               ) : null}
@@ -6544,21 +6724,7 @@ function App() {
                     setEdgeOpAction(null);
                   }}
                   onCancel={async () => {
-                    // Pending phase: no feature was ever created, so
-                    // there is nothing to undo. Active phase: a
-                    // single undo() rolls back the entire panel
-                    // session because update_*_edges and
-                    // update_*_radius / update_*_distance
-                    // intentionally do not push undo states (see
-                    // the matching comment in
-                    // `DocumentManager::update_fillet_edges`).
-                    if (edgeOpAction.phase === "active") {
-                      await runAction(async () => {
-                        await undo();
-                      });
-                    }
-                    activeEdgeIdsRef.current = [];
-                    setEdgeOpAction(null);
+                    await cancelActiveTool();
                   }}
                 />
               ) : null}
@@ -6594,12 +6760,7 @@ function App() {
                     setShellAction(null);
                   }}
                   onCancel={async () => {
-                    if (shellAction.phase === "active") {
-                      await runAction(async () => {
-                        await undo();
-                      });
-                    }
-                    setShellAction(null);
+                    await cancelActiveTool();
                   }}
                 />
               ) : null}
@@ -7089,12 +7250,7 @@ function App() {
                         type="button"
                         className="cad-ribbon-action flex-1"
                         onClick={() => {
-                          void runAction(async () => {
-                            if (holeAction.phase === "active") {
-                              await undo();
-                            }
-                            setHoleAction(null);
-                          });
+                          void cancelActiveTool();
                         }}
                       >
                         {t("common.cancel")}
@@ -7136,18 +7292,7 @@ function App() {
                     setOffsetPlaneAction(null);
                   }}
                   onCancel={async () => {
-                    // Pending phase: no feature was created — just
-                    // close the panel. Active phase: a single
-                    // undo() rolls back the entire panel session
-                    // because update_offset_plane intentionally
-                    // does not push undo states (see the matching
-                    // comment in `DocumentManager::update_offset_plane`).
-                    if (offsetPlaneAction.phase === "active") {
-                      await runAction(async () => {
-                        await undo();
-                      });
-                    }
-                    setOffsetPlaneAction(null);
+                    await cancelActiveTool();
                   }}
                 />
               ) : null}
@@ -7182,12 +7327,7 @@ function App() {
                     setAnglePlaneAction(null);
                   }}
                   onCancel={async () => {
-                    if (anglePlaneAction.phase === "active") {
-                      await runAction(async () => {
-                        await undo();
-                      });
-                    }
-                    setAnglePlaneAction(null);
+                    await cancelActiveTool();
                   }}
                 />
               ) : null}
@@ -7208,7 +7348,9 @@ function App() {
                     type="button"
                     className="cad-action-ghost mt-4 w-full"
                     disabled={status !== "connected"}
-                    onClick={() => setMidplaneAction(null)}
+                    onClick={() => {
+                      void cancelActiveTool();
+                    }}
                   >
                     {t("common.cancel")}
                   </button>
@@ -7224,7 +7366,9 @@ function App() {
                     type="button"
                     className="cad-action-ghost mt-4 w-full"
                     disabled={status !== "connected"}
-                    onClick={() => setTangentPlaneAction(null)}
+                    onClick={() => {
+                      void cancelActiveTool();
+                    }}
                   >
                     {t("common.cancel")}
                   </button>
@@ -7240,7 +7384,9 @@ function App() {
                     type="button"
                     className="cad-action-ghost mt-4 w-full"
                     disabled={status !== "connected"}
-                    onClick={() => setConstructionAxisAction(null)}
+                    onClick={() => {
+                      void cancelActiveTool();
+                    }}
                   >
                     {t("common.cancel")}
                   </button>
@@ -7256,7 +7402,9 @@ function App() {
                     type="button"
                     className="cad-action-ghost mt-4 w-full"
                     disabled={status !== "connected"}
-                    onClick={() => setConstructionPointAction(null)}
+                    onClick={() => {
+                      void cancelActiveTool();
+                    }}
                   >
                     {t("common.cancel")}
                   </button>
@@ -7291,7 +7439,9 @@ function App() {
                         type="button"
                         className="cad-action-ghost mt-4 w-full"
                         disabled={status !== "connected"}
-                        onClick={() => setThreadAction(null)}
+                        onClick={() => {
+                          void cancelActiveTool();
+                        }}
                       >
                         {t("common.cancel")}
                       </button>
@@ -7576,18 +7726,7 @@ function App() {
                           type="button"
                           className="cad-ribbon-action flex-1"
                           onClick={() => {
-                            void runAction(async () => {
-                              if (threadAction.originalParameters) {
-                                await updateThreadParameters(
-                                  threadAction.featureId,
-                                  threadAction.originalParameters,
-                                );
-                              } else {
-                                await undo();
-                              }
-                              setThreadAction(null);
-                              await restoreTimelineCursorAfterEdit();
-                            });
+                            void cancelActiveTool();
                           }}
                         >
                           {t("common.cancel")}
@@ -7850,18 +7989,7 @@ function App() {
                       type="button"
                       className="cad-ribbon-action flex-1"
                       onClick={() => {
-                        void runAction(async () => {
-                          if (fastenerAction.originalParameters) {
-                            await updateFastenerParameters(
-                              fastenerAction.featureId,
-                              fastenerAction.originalParameters,
-                            );
-                          } else {
-                            await undo();
-                          }
-                          setFastenerAction(null);
-                          await restoreTimelineCursorAfterEdit();
-                        });
+                        void cancelActiveTool();
                       }}
                     >
                       {t("common.cancel")}
@@ -7881,7 +8009,9 @@ function App() {
                         type="button"
                         className="cad-action-ghost mt-4 w-full"
                         disabled={status !== "connected"}
-                        onClick={() => setHelixAction(null)}
+                        onClick={() => {
+                          void cancelActiveTool();
+                        }}
                       >
                         {t("common.cancel")}
                       </button>
@@ -8016,10 +8146,7 @@ function App() {
                           type="button"
                           className="cad-ribbon-action flex-1"
                           onClick={() => {
-                            void runAction(async () => {
-                              await undo();
-                              setHelixAction(null);
-                            });
+                            void cancelActiveTool();
                           }}
                         >
                           {t("common.cancel")}
