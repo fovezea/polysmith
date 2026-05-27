@@ -542,6 +542,42 @@ void rebuild_sketch_points(SketchFeatureParameters& parameters) {
   for (const auto& circle : parameters.circles) {
     append_point(
         "point-circle-" + circle.id + "-center", "center", circle.center_x, circle.center_y);
+
+    // Derived quadrant points (cardinal directions on the circle).
+    // These are always fixed — they're derived geometry, not independently
+    // movable.  They give the dimension tool stable point IDs for
+    // quadrant / perimeter snaps without needing a new IPC command.
+    const double cx = circle.center_x;
+    const double cy = circle.center_y;
+    const double r = circle.radius;
+    parameters.points.push_back(SketchPoint{
+        .id = "point-circle-" + circle.id + "-quadrant-0",
+        .kind = "quadrant",
+        .x = cx + r,
+        .y = cy,
+        .is_fixed = true,
+    });
+    parameters.points.push_back(SketchPoint{
+        .id = "point-circle-" + circle.id + "-quadrant-1",
+        .kind = "quadrant",
+        .x = cx,
+        .y = cy + r,
+        .is_fixed = true,
+    });
+    parameters.points.push_back(SketchPoint{
+        .id = "point-circle-" + circle.id + "-quadrant-2",
+        .kind = "quadrant",
+        .x = cx - r,
+        .y = cy,
+        .is_fixed = true,
+    });
+    parameters.points.push_back(SketchPoint{
+        .id = "point-circle-" + circle.id + "-quadrant-3",
+        .kind = "quadrant",
+        .x = cx,
+        .y = cy - r,
+        .is_fixed = true,
+    });
   }
 
   // Re-emit the original corner point of every fillet. After
@@ -564,22 +600,21 @@ void rebuild_sketch_points(SketchFeatureParameters& parameters) {
   // recompute. Marked `kind = "projected"` so the renderer / hit
   // testing can give them a distinct visual (a small cross, similar
   // to common CAD behavior). `is_fixed` is forced true below by
-  // `enforce_projected_points_fixed` so the user can't drag them.
+  // `enforce_derived_points_fixed` so the user can't drag them.
   for (const auto& projected : parameters.projected_points) {
     append_point(projected.id, "projected", projected.x, projected.y);
   }
 }
 
-// Force every projected point to be is_fixed = true. Runs after
-// `rebuild_sketch_points` + `sync_fixed_point_flags` so it doesn't
-// matter what the previous-frame value was — projected points are
-// derived geometry and always locked.
-void enforce_projected_points_fixed(SketchFeatureParameters& parameters) {
+// Force every derived point (projected, quadrant) to be is_fixed = true.
+// Runs after `rebuild_sketch_points` + `sync_fixed_point_flags` so it
+// doesn't matter what the previous-frame value was — derived geometry is
+// always locked.
+void enforce_derived_points_fixed(SketchFeatureParameters& parameters) {
   for (auto& point : parameters.points) {
-    if (point.kind != "projected") {
-      continue;
+    if (point.kind == "projected" || point.kind == "quadrant") {
+      point.is_fixed = true;
     }
-    point.is_fixed = true;
   }
 }
 
@@ -1666,10 +1701,10 @@ void refresh_sketch_derived_state(FeatureEntry& feature) {
   const std::vector<SketchPoint> previous_points = feature.sketch_parameters->points;
   rebuild_sketch_points(*feature.sketch_parameters);
   sync_fixed_point_flags(*feature.sketch_parameters, previous_points);
-  // Projected points are derived geometry; force them locked
-  // unconditionally even if `sync_fixed_point_flags` happened to
-  // copy a transient false from the previous frame.
-  enforce_projected_points_fixed(*feature.sketch_parameters);
+  // Derived points (projected, quadrant) are derived geometry;
+  // force them locked unconditionally even if `sync_fixed_point_flags`
+  // happened to copy a transient false from the previous frame.
+  enforce_derived_points_fixed(*feature.sketch_parameters);
   rebuild_sketch_profiles(*feature.sketch_parameters);
   feature.parameters_summary = make_parameters_summary(feature.sketch_parameters.value());
 }
@@ -4342,8 +4377,13 @@ void trim_sketch_entity(FeatureEntry& feature,
       for (const auto& l : params.lines) {
         live_pt.insert(l.start_point_id); live_pt.insert(l.end_point_id);
       }
-      for (const auto& c : params.circles)
+      for (const auto& c : params.circles) {
         live_pt.insert("point-circle-" + c.id + "-center");
+        live_pt.insert("point-circle-" + c.id + "-quadrant-0");
+        live_pt.insert("point-circle-" + c.id + "-quadrant-1");
+        live_pt.insert("point-circle-" + c.id + "-quadrant-2");
+        live_pt.insert("point-circle-" + c.id + "-quadrant-3");
+      }
       for (const auto& a : params.arcs) {
         live_pt.insert(a.start_point_id); live_pt.insert(a.end_point_id);
       }
