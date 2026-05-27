@@ -83,7 +83,7 @@ Common command payloads:
 - create_thread { target_body_id, axis_source_id, mode?, standard?, size?, pitch?, length?, representation? }
 - update_thread_parameters { feature_id, parameters }
 - confirm_thread { feature_id }
-- create_fastener { standard?, size?, diameter?, length?, thread_length?, head_type?, drive_type? }
+- create_fastener { standard?, size?, diameter?, minor_diameter?, pitch?, length?, thread_length?, head_type?, drive_type?, thread_representation? }
 - update_fastener_parameters { feature_id, parameters }
 - update_angle_plane { feature_id, angle_degrees }
 - project_face_into_sketch { face_id }

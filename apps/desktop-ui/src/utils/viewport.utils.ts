@@ -654,9 +654,10 @@ export function buildReferenceHelixObject(helix: ReferenceHelixScene) {
       : themeColor("--color-tertiary-plane-edge", "#ffe784"),
     transparent: true,
     opacity: 0.95,
-    depthTest: true,
+    depthTest: false,
   });
   const line = new THREE.Line(geometry, material);
+  line.renderOrder = 4;
   line.userData.referenceId = helix.referenceId;
   return { line };
 }

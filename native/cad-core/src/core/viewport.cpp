@@ -37,6 +37,7 @@
 #include "core/body_compiler.h"
 #include "core/dof_counter.h"
 #include "core/feature_shape.h"
+#include "core/refresh_dependents.h"
 #include "core/sketch_profile.h"
 
 namespace polysmith::core {
@@ -94,6 +95,62 @@ WorldVector normalize_vector(const WorldVector& vector) {
       .y = vector.y / length,
       .z = vector.z / length,
   };
+}
+
+double dot_product(const WorldVector& left, const WorldVector& right) {
+  return left.x * right.x + left.y * right.y + left.z * right.z;
+}
+
+std::vector<double> make_cosmetic_thread_points(
+    double start_x,
+    double start_y,
+    double start_z,
+    double end_x,
+    double end_y,
+    double end_z,
+    double radius,
+    double pitch,
+    double length,
+    double start_offset,
+    bool right_handed) {
+  if (radius <= 0.0 || pitch <= 0.0 || length <= 0.0) {
+    return {};
+  }
+  const WorldPoint start{.x = start_x, .y = start_y, .z = start_z};
+  const WorldPoint end{.x = end_x, .y = end_y, .z = end_z};
+  const WorldVector axis = subtract_points(end, start);
+  const WorldVector dir = normalize_vector(axis);
+  if (vector_length(dir) <= 0.0) {
+    return {};
+  }
+
+  WorldVector seed{.x = 0.0, .y = 1.0, .z = 0.0};
+  if (std::abs(dot_product(dir, seed)) > 0.9) {
+    seed = WorldVector{.x = 1.0, .y = 0.0, .z = 0.0};
+  }
+  WorldVector u = normalize_vector(cross_product(dir, seed));
+  if (vector_length(u) <= 0.0) {
+    return {};
+  }
+  const WorldVector v = normalize_vector(cross_product(dir, u));
+
+  const double direction_sign = right_handed ? 1.0 : -1.0;
+  const int steps = std::max(
+      24, static_cast<int>(std::ceil((length / pitch) * 32.0)));
+  std::vector<double> points;
+  points.reserve(static_cast<size_t>(steps + 1) * 3);
+  for (int i = 0; i <= steps; ++i) {
+    const double t = static_cast<double>(i) / static_cast<double>(steps);
+    const double along = start_offset + length * t;
+    const double angle = direction_sign * 2.0 * kPi * (along / pitch);
+    points.push_back(start.x + dir.x * along + u.x * std::cos(angle) * radius +
+                     v.x * std::sin(angle) * radius);
+    points.push_back(start.y + dir.y * along + u.y * std::cos(angle) * radius +
+                     v.y * std::sin(angle) * radius);
+    points.push_back(start.z + dir.z * along + u.z * std::cos(angle) * radius +
+                     v.z * std::sin(angle) * radius);
+  }
+  return points;
 }
 
 ViewportSolidFace make_solid_face(
@@ -3729,6 +3786,115 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
           .is_selected = view->selected_feature_id.has_value() &&
                          view->selected_feature_id.value() == feature.id,
       });
+      continue;
+    }
+    if (feature.kind == "thread" && feature.thread_parameters.has_value() &&
+        !feature.dependency_broken &&
+        feature.thread_parameters->representation == "cosmetic") {
+      const auto& params = feature.thread_parameters.value();
+      const auto axis = resolve_construction_axis_source(*view, params.axis_source_id);
+      if (axis.has_value()) {
+        const double radius =
+            std::max(params.major_diameter, params.minor_diameter) * 0.5 * 1.015;
+        const auto points = make_cosmetic_thread_points(
+            axis->start_x,
+            axis->start_y,
+            axis->start_z,
+            axis->end_x,
+            axis->end_y,
+            axis->end_z,
+            radius,
+            params.pitch,
+            params.length,
+            params.start_offset,
+            params.handedness != "left");
+        if (!points.empty()) {
+          helices.push_back(ViewportHelixPrimitive{
+              .id = feature.id,
+              .label = feature.name,
+              .points = points,
+              .is_selected = view->selected_feature_id.has_value() &&
+                             view->selected_feature_id.value() == feature.id,
+          });
+        }
+      }
+      continue;
+    }
+    if (feature.kind == "hole" && feature.hole_parameters.has_value() &&
+        !feature.dependency_broken &&
+        feature.hole_parameters->thread_enabled &&
+        feature.hole_parameters->thread_representation == "cosmetic" &&
+        feature.hole_parameters->thread_pitch > 0.0) {
+      const auto& params = feature.hole_parameters.value();
+      const double start_x = params.plane_frame.origin_x +
+                             params.plane_frame.x_axis_x * params.center_x +
+                             params.plane_frame.y_axis_x * params.center_y;
+      const double start_y = params.plane_frame.origin_y +
+                             params.plane_frame.x_axis_y * params.center_x +
+                             params.plane_frame.y_axis_y * params.center_y;
+      const double start_z = params.plane_frame.origin_z +
+                             params.plane_frame.x_axis_z * params.center_x +
+                             params.plane_frame.y_axis_z * params.center_y;
+      const double length = std::min(
+          std::abs(params.thread_depth),
+          params.extent_type == "through_all" ? std::max(10000.0, std::abs(params.depth))
+                                              : std::abs(params.depth));
+      const double end_x = start_x - params.plane_frame.normal_x * length;
+      const double end_y = start_y - params.plane_frame.normal_y * length;
+      const double end_z = start_z - params.plane_frame.normal_z * length;
+      const double radius =
+          std::max(params.major_diameter, params.minor_diameter) * 0.5;
+      const auto points = make_cosmetic_thread_points(start_x,
+                                                      start_y,
+                                                      start_z,
+                                                      end_x,
+                                                      end_y,
+                                                      end_z,
+                                                      radius,
+                                                      params.thread_pitch,
+                                                      length,
+                                                      0.0,
+                                                      true);
+      if (!points.empty()) {
+        helices.push_back(ViewportHelixPrimitive{
+            .id = feature.id + ":thread",
+            .label = feature.name + " thread",
+            .points = points,
+            .is_selected = view->selected_feature_id.has_value() &&
+                           view->selected_feature_id.value() == feature.id,
+        });
+      }
+      continue;
+    }
+    if (feature.kind == "fastener" && feature.fastener_parameters.has_value() &&
+        feature.fastener_parameters->thread_representation == "cosmetic") {
+      const auto& params = feature.fastener_parameters.value();
+      const double shaft_radius = params.diameter * 0.5;
+      const double thread_length =
+          std::min(std::max(params.thread_length, 0.0), params.length);
+      const double pitch =
+          params.pitch > 0.0 ? params.pitch : std::max(params.diameter * 0.16, 0.2);
+      const auto points = make_cosmetic_thread_points(
+          shaft_radius,
+          0.0,
+          shaft_radius,
+          shaft_radius,
+          params.length,
+          shaft_radius,
+          shaft_radius * 1.015,
+          pitch,
+          thread_length,
+          0.0,
+          true);
+      if (!points.empty()) {
+        helices.push_back(ViewportHelixPrimitive{
+            .id = feature.id + ":thread",
+            .label = feature.name + " thread",
+            .points = points,
+            .is_selected = view->selected_feature_id.has_value() &&
+                           view->selected_feature_id.value() == feature.id,
+        });
+      }
     }
   }
 

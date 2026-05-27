@@ -4,6 +4,7 @@ import {
   BoxIcon,
   CylinderIcon,
   ExtrudeIcon,
+  FastenerIcon,
   HoleIcon,
   LoftIcon,
   RevolveIcon,
@@ -38,6 +39,8 @@ export interface CreateToolbarProps {
   onHole: () => Promise<void>;
   canThread: boolean;
   onThread: () => Promise<void>;
+  canFastener: boolean;
+  onFastener: () => Promise<void>;
 }
 
 // Flat icon-only button shared by every action in the Create ribbon.
@@ -67,6 +70,8 @@ export function CreateToolbar({
   onHole,
   canThread,
   onThread,
+  canFastener,
+  onFastener,
 }: CreateToolbarProps) {
   const { config } = useAppConfig();
   const { t } = useTranslation();
@@ -164,6 +169,17 @@ export function CreateToolbar({
           disabled={disabled || !canThread}
         >
           <ThreadIcon />
+        </button>
+        <button
+          className={ICON_BUTTON_BASE}
+          data-tooltip={t("toolbar.fastener")}
+          aria-label={t("toolbar.fastener")}
+          onClick={() => {
+            void onFastener();
+          }}
+          disabled={disabled || !canFastener}
+        >
+          <FastenerIcon />
         </button>
         {openMenu === "box" ? (
           <div className="cad-toolbar-popover absolute left-0 top-[calc(100%+0.75rem)] w-[360px]">

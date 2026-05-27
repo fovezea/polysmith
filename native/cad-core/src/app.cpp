@@ -276,6 +276,9 @@ FastenerFeatureParameters read_fastener_parameters(
   params.size = read_optional_string(source, "size").value_or(params.size);
   params.diameter =
       read_optional_dimension(source, "diameter", params.diameter);
+  params.minor_diameter =
+      read_optional_dimension(source, "minor_diameter", params.minor_diameter);
+  params.pitch = read_optional_dimension(source, "pitch", params.pitch);
   params.length = read_optional_dimension(source, "length", params.length);
   params.thread_length =
       read_optional_dimension(source, "thread_length", params.thread_length);

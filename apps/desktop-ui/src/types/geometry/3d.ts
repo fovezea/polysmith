@@ -184,6 +184,8 @@ export interface FastenerFeatureParameters {
   standard: "metric" | "imperial" | "custom";
   size: string;
   diameter: number;
+  minor_diameter: number;
+  pitch: number;
   length: number;
   thread_length: number;
   head_type: "socket_head" | "button_head" | "flat" | "hex_bolt";

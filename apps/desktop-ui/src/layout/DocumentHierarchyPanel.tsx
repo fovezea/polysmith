@@ -50,6 +50,7 @@ const BODY_KINDS = new Set([
   "loft",
   "revolve",
   "sweep",
+  "fastener",
 ]);
 
 function EyeIcon({ open }: { open: boolean }) {

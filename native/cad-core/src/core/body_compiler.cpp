@@ -6,20 +6,29 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepAlgoAPI_Common.hxx>
+#include <BRepAdaptor_Curve.hxx>
+#include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_MakePolygon.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
+#include <BRepOffsetAPI_MakePipe.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRep_Tool.hxx>
 #include <BRepOffset_Mode.hxx>
+#include <GeomAbs_CurveType.hxx>
 #include <GeomAbs_JoinType.hxx>
 #include <NCollection_List.hxx>
 #include <Poly_Triangulation.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
+#include <Standard_Failure.hxx>
 #include <TopAbs_Orientation.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
@@ -28,16 +37,54 @@
 #include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
+#include <TopoDS_Wire.hxx>
+#include <TopoDS_Vertex.hxx>
+#include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
+#include <gp_Vec.hxx>
 
 #include "core/document.h"
 #include "core/feature_shape.h"
+#include "core/refresh_dependents.h"
 
 namespace polysmith::core {
 namespace {
 
 constexpr double kLinearDeflection = 0.1;
 constexpr double kAngularDeflection = 0.5;
+constexpr double kPi = 3.14159265358979323846;
+
+struct ParsedEdgeId {
+  std::string body_id;
+  int index = -1;
+};
+
+struct ThreadAxis {
+  gp_Pnt start;
+  gp_Dir direction;
+  double length = 0.0;
+};
+
+std::optional<ParsedEdgeId> parse_edge_id(const std::string& id) {
+  const std::string separator = ":edge:";
+  const auto pos = id.find(separator);
+  if (pos == std::string::npos) {
+    return std::nullopt;
+  }
+  ParsedEdgeId parsed{};
+  parsed.body_id = id.substr(0, pos);
+  try {
+    size_t consumed = 0;
+    const std::string suffix = id.substr(pos + separator.size());
+    parsed.index = std::stoi(suffix, &consumed);
+    if (consumed != suffix.size() || parsed.index < 0) {
+      return std::nullopt;
+    }
+  } catch (const std::exception&) {
+    return std::nullopt;
+  }
+  return parsed;
+}
 
 TopoDS_Shape unify_same_domain(const TopoDS_Shape& shape) {
   if (shape.IsNull()) {
@@ -57,6 +104,248 @@ TopoDS_Shape unify_same_domain(const TopoDS_Shape& shape) {
     // Keep the original boolean result if OCCT cannot merge domains.
   }
   return shape;
+}
+
+std::optional<ThreadAxis> resolve_thread_axis(
+    const DocumentState& document,
+    const std::string& source_id,
+    const std::unordered_map<std::string, TopoDS_Shape>& body_shapes) {
+  if (const auto parsed = parse_edge_id(source_id); parsed.has_value()) {
+    const auto body_it = body_shapes.find(parsed->body_id);
+    if (body_it == body_shapes.end() || body_it->second.IsNull()) {
+      return std::nullopt;
+    }
+    TopTools_IndexedMapOfShape edge_map;
+    TopExp::MapShapes(body_it->second, TopAbs_EDGE, edge_map);
+    const int one_based = parsed->index + 1;
+    if (one_based < 1 || one_based > edge_map.Extent()) {
+      return std::nullopt;
+    }
+    const TopoDS_Edge edge = TopoDS::Edge(edge_map(one_based));
+    if (edge.IsNull()) {
+      return std::nullopt;
+    }
+    BRepAdaptor_Curve curve(edge);
+    if (curve.GetType() != GeomAbs_Line) {
+      return std::nullopt;
+    }
+    TopoDS_Vertex first;
+    TopoDS_Vertex last;
+    TopExp::Vertices(edge, first, last, /*CumOri=*/true);
+    if (first.IsNull() || last.IsNull()) {
+      return std::nullopt;
+    }
+    const gp_Pnt start = BRep_Tool::Pnt(first);
+    const gp_Pnt end = BRep_Tool::Pnt(last);
+    const gp_Vec span(start, end);
+    if (span.SquareMagnitude() <= 1.0e-18) {
+      return std::nullopt;
+    }
+    return ThreadAxis{
+        .start = start,
+        .direction = gp_Dir(span),
+        .length = span.Magnitude(),
+    };
+  }
+
+  const auto axis = resolve_construction_axis_source(document, source_id);
+  if (!axis.has_value()) {
+    return std::nullopt;
+  }
+  const gp_Pnt start(axis->start_x, axis->start_y, axis->start_z);
+  const gp_Pnt end(axis->end_x, axis->end_y, axis->end_z);
+  const gp_Vec span(start, end);
+  if (span.SquareMagnitude() <= 1.0e-18) {
+    return std::nullopt;
+  }
+  return ThreadAxis{
+      .start = start,
+      .direction = gp_Dir(span),
+      .length = span.Magnitude(),
+  };
+}
+
+std::optional<TopoDS_Wire> make_wire_from_points(
+    const std::vector<gp_Pnt>& points) {
+  if (points.size() < 2) {
+    return std::nullopt;
+  }
+  BRepBuilderAPI_MakeWire wire_builder;
+  for (size_t index = 1; index < points.size(); ++index) {
+    if (points[index - 1].Distance(points[index]) <= 1.0e-9) {
+      continue;
+    }
+    const TopoDS_Edge edge =
+        BRepBuilderAPI_MakeEdge(points[index - 1], points[index]).Edge();
+    if (edge.IsNull()) {
+      return std::nullopt;
+    }
+    wire_builder.Add(edge);
+  }
+  if (!wire_builder.IsDone()) {
+    return std::nullopt;
+  }
+  return wire_builder.Wire();
+}
+
+TopoDS_Shape make_thread_cutter_profile(const gp_Pnt& center,
+                                        const gp_Pnt& axis_point,
+                                        const gp_Vec& tangent,
+                                        const ThreadFeatureParameters& params,
+                                        double major_radius,
+                                        double minor_radius,
+                                        double half_width) {
+  gp_Vec radial(axis_point, center);
+  if (radial.SquareMagnitude() <= 1.0e-18 ||
+      tangent.SquareMagnitude() <= 1.0e-18) {
+    return TopoDS_Shape{};
+  }
+  radial.Normalize();
+  gp_Vec width = tangent.Crossed(radial);
+  if (width.SquareMagnitude() <= 1.0e-18) {
+    return TopoDS_Shape{};
+  }
+  width.Normalize();
+
+  const double center_radius = (major_radius + minor_radius) * 0.5;
+  const double overshoot = std::max((major_radius - minor_radius) * 0.35, 0.02);
+  gp_Pnt base_a;
+  gp_Pnt base_b;
+  gp_Pnt tip;
+  if (params.mode == "internal") {
+    const double inner_base = minor_radius - overshoot - center_radius;
+    const double outer_tip = major_radius - center_radius;
+    base_a = center.Translated(radial.Multiplied(inner_base))
+                 .Translated(width.Multiplied(half_width));
+    base_b = center.Translated(radial.Multiplied(inner_base))
+                 .Translated(width.Reversed().Multiplied(half_width));
+    tip = center.Translated(radial.Multiplied(outer_tip));
+  } else {
+    const double outer_base = major_radius + overshoot - center_radius;
+    const double inner_tip = minor_radius - center_radius;
+    base_a = center.Translated(radial.Multiplied(outer_base))
+                 .Translated(width.Multiplied(half_width));
+    base_b = center.Translated(radial.Multiplied(outer_base))
+                 .Translated(width.Reversed().Multiplied(half_width));
+    tip = center.Translated(radial.Multiplied(inner_tip));
+  }
+
+  BRepBuilderAPI_MakePolygon polygon;
+  polygon.Add(base_a);
+  polygon.Add(base_b);
+  polygon.Add(tip);
+  polygon.Close();
+  if (!polygon.IsDone()) {
+    return TopoDS_Shape{};
+  }
+  BRepBuilderAPI_MakeFace face(polygon.Wire());
+  if (!face.IsDone()) {
+    return TopoDS_Shape{};
+  }
+  return face.Face();
+}
+
+TopoDS_Shape build_thread_cutter(const ThreadAxis& axis,
+                                 const ThreadFeatureParameters& params) {
+  if (params.representation != "modeled" || params.pitch <= 0.0 ||
+      params.length <= 0.0 || params.major_diameter <= 0.0) {
+    return TopoDS_Shape{};
+  }
+  const double major_radius = params.major_diameter * 0.5;
+  double minor_radius = params.minor_diameter > 0.0
+                            ? params.minor_diameter * 0.5
+                            : major_radius - params.pitch * 0.6;
+  minor_radius = std::min(minor_radius, major_radius - 0.02);
+  if (minor_radius <= 0.0) {
+    return TopoDS_Shape{};
+  }
+
+  const double length =
+      axis.length > 0.0
+          ? std::min(params.length, std::max(0.0, axis.length - params.start_offset))
+          : params.length;
+  if (length <= 0.0) {
+    return TopoDS_Shape{};
+  }
+
+  const gp_Vec axis_vec(axis.direction);
+  gp_Vec seed(0.0, 1.0, 0.0);
+  if (std::abs(axis_vec.Normalized().Dot(seed)) > 0.9) {
+    seed = gp_Vec(1.0, 0.0, 0.0);
+  }
+  gp_Vec u = axis_vec.Crossed(seed);
+  if (u.SquareMagnitude() <= 1.0e-18) {
+    return TopoDS_Shape{};
+  }
+  u.Normalize();
+  gp_Vec v = axis_vec.Crossed(u);
+  if (v.SquareMagnitude() <= 1.0e-18) {
+    return TopoDS_Shape{};
+  }
+  v.Normalize();
+
+  const double helix_radius = (major_radius + minor_radius) * 0.5;
+  const double direction_sign = params.handedness == "left" ? -1.0 : 1.0;
+  const int steps =
+      std::max(32, std::min(1800, static_cast<int>(
+                                      std::ceil((length / params.pitch) * 48.0))));
+  std::vector<gp_Pnt> points;
+  points.reserve(static_cast<size_t>(steps + 1));
+  for (int index = 0; index <= steps; ++index) {
+    const double t = static_cast<double>(index) / static_cast<double>(steps);
+    const double along = params.start_offset + length * t;
+    const double angle = direction_sign * 2.0 * kPi * (along / params.pitch);
+    gp_Vec offset = axis_vec.Multiplied(along);
+    offset += u.Multiplied(std::cos(angle) * helix_radius);
+    offset += v.Multiplied(std::sin(angle) * helix_radius);
+    points.push_back(axis.start.Translated(offset));
+  }
+
+  const auto wire = make_wire_from_points(points);
+  if (!wire.has_value() || points.size() < 2) {
+    return TopoDS_Shape{};
+  }
+  const gp_Vec tangent(points[0], points[1]);
+  const gp_Pnt axis_point = axis.start.Translated(
+      axis_vec.Multiplied(params.start_offset));
+  const double half_width = std::min(params.pitch * 0.30, major_radius * 0.24);
+  const TopoDS_Shape profile =
+      make_thread_cutter_profile(points.front(),
+                                 axis_point,
+                                 tangent,
+                                 params,
+                                 major_radius,
+                                 minor_radius,
+                                 half_width);
+  if (profile.IsNull()) {
+    return TopoDS_Shape{};
+  }
+
+  try {
+    BRepOffsetAPI_MakePipe pipe(wire.value(), profile);
+    pipe.Build();
+    if (!pipe.IsDone()) {
+      return TopoDS_Shape{};
+    }
+    return pipe.Shape();
+  } catch (const Standard_Failure&) {
+    return TopoDS_Shape{};
+  }
+}
+
+TopoDS_Shape apply_thread(const TopoDS_Shape& body_shape,
+                          const ThreadFeatureParameters& params,
+                          const ThreadAxis& axis) {
+  const TopoDS_Shape cutter = build_thread_cutter(axis, params);
+  if (body_shape.IsNull() || cutter.IsNull()) {
+    return body_shape;
+  }
+  try {
+    const TopoDS_Shape result = BRepAlgoAPI_Cut(body_shape, cutter).Shape();
+    return result.IsNull() ? body_shape : unify_same_domain(result);
+  } catch (const Standard_Failure&) {
+    return body_shape;
+  }
 }
 
 // Triangulate `shape` and accumulate world-space vertices/indices/normals
@@ -337,8 +626,59 @@ TopoDS_Shape apply_hole(const TopoDS_Shape& body_shape,
     if (cutter.IsNull()) {
       return body_shape;
     }
-    const TopoDS_Shape result = BRepAlgoAPI_Cut(body_shape, cutter).Shape();
-    return result.IsNull() ? body_shape : unify_same_domain(result);
+    TopoDS_Shape result = BRepAlgoAPI_Cut(body_shape, cutter).Shape();
+    if (result.IsNull()) {
+      return body_shape;
+    }
+    result = unify_same_domain(result);
+    if (!params.thread_enabled ||
+        params.thread_representation != "modeled" ||
+        params.thread_pitch <= 0.0 ||
+        params.major_diameter <= 0.0 ||
+        params.minor_diameter <= 0.0) {
+      return result;
+    }
+
+    const gp_Pnt face_center(
+        params.plane_frame.origin_x +
+            params.plane_frame.x_axis_x * params.center_x +
+            params.plane_frame.y_axis_x * params.center_y,
+        params.plane_frame.origin_y +
+            params.plane_frame.x_axis_y * params.center_x +
+            params.plane_frame.y_axis_y * params.center_y,
+        params.plane_frame.origin_z +
+            params.plane_frame.x_axis_z * params.center_x +
+            params.plane_frame.y_axis_z * params.center_y);
+    gp_Vec inward(-params.plane_frame.normal_x,
+                  -params.plane_frame.normal_y,
+                  -params.plane_frame.normal_z);
+    if (inward.SquareMagnitude() <= 1.0e-18) {
+      return result;
+    }
+    inward.Normalize();
+    ThreadFeatureParameters thread{};
+    thread.target_body_id = params.target_body_id;
+    thread.axis_source_id = params.source_face_id;
+    thread.mode = "internal";
+    thread.standard = params.standard;
+    thread.size = params.standard_size;
+    thread.major_diameter = params.major_diameter;
+    thread.minor_diameter = params.minor_diameter;
+    thread.pitch = params.thread_pitch;
+    thread.length = std::min(std::abs(params.thread_depth),
+                             params.extent_type == "through_all"
+                                 ? std::max(10000.0, std::abs(params.depth))
+                                 : std::abs(params.depth));
+    thread.thread_angle_degrees = 60.0;
+    thread.start_offset = 0.0;
+    thread.handedness = "right";
+    thread.representation = "modeled";
+    const ThreadAxis axis{
+        .start = face_center,
+        .direction = gp_Dir(inward),
+        .length = thread.length,
+    };
+    return apply_thread(result, thread, axis);
   } catch (const std::exception&) {
     return body_shape;
   }
@@ -430,6 +770,11 @@ CompiledBodies compile_bodies(const DocumentState& document) {
       // Body-modifying features always produce a mesh body (they modify an
       // existing OCCT shape in ways the legacy primitive renderers
       // can't replicate), so they always trigger the mesh path.
+      any_boolean = true;
+      break;
+    }
+    if (feature.kind == "thread" && feature.thread_parameters.has_value() &&
+        feature.thread_parameters->representation == "modeled") {
       any_boolean = true;
       break;
     }
@@ -587,6 +932,37 @@ CompiledBodies compile_bodies(const DocumentState& document) {
       continue;
     }
     if (feature.kind == "thread" && feature.thread_parameters.has_value()) {
+      const auto& params = feature.thread_parameters.value();
+      if (params.representation == "modeled") {
+        std::string target_id;
+        if (!params.target_body_id.empty() &&
+            body_shapes.find(params.target_body_id) != body_shapes.end()) {
+          target_id = params.target_body_id;
+        } else if (!body_order.empty()) {
+          target_id = body_order.back();
+        } else {
+          result.consumed_feature_ids.insert(feature.id);
+          continue;
+        }
+        const auto axis = resolve_thread_axis(document,
+                                              params.axis_source_id,
+                                              body_shapes);
+        if (axis.has_value()) {
+          body_shapes[target_id] =
+              apply_thread(body_shapes[target_id], params, axis.value());
+          body_pick_shapes.erase(target_id);
+          if (!body_order.empty() && body_order.back() != target_id) {
+            for (auto it = body_order.begin(); it != body_order.end(); ++it) {
+              if (*it == target_id) {
+                body_order.erase(it);
+                break;
+              }
+            }
+            body_order.push_back(target_id);
+          }
+        }
+        result.consumed_feature_ids.insert(target_id);
+      }
       result.consumed_feature_ids.insert(feature.id);
       continue;
     }

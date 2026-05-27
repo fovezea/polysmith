@@ -1336,3 +1336,73 @@ Three bugs fixed after initial implementation:
   sweep/boolean path is robust enough to generate real thread geometry
 - added dependency refresh for thread target bodies and axis sources so broken
   references surface as `dependency_broken` warnings instead of stale metadata
+
+### Fastener UI Pass (2026-05-27)
+
+- exposed the semantic Fastener feature in the Create toolbar as an immediate
+  core-owned generator with a live floating edit panel
+- added metric / imperial / custom size controls, diameter, length, thread
+  length, head type, and drive type fields driven through
+  `update_fastener_parameters`
+- kept thread and drive details as cosmetic/metadata for now; the native shape
+  currently creates the shaft and head plus a lightweight cosmetic thread curve
+  while modeled threads and recess geometry remain staged behind the thread
+  modeling path
+- added timeline edit support so existing fastener parameters can be reopened
+  and cancelled back to their original values
+
+### Cosmetic Thread Fixes (2026-05-27)
+
+- fixed flat/countersunk fastener heads so the cone widens away from the shank
+  instead of appearing inverted
+- added viewport cosmetic thread helices for semantic `thread` features and
+  fasteners that use cosmetic thread representation
+- rendered helix/reference thread curves above solid geometry so cosmetic
+  threads remain visible as visual markers instead of hidden metadata
+
+### Modeled Fastener Thread First Pass (2026-05-27)
+
+- added a modeled thread representation path for generated fasteners that
+  cuts a V-profile external helical groove with OCCT pipe geometry into the
+  shaft body
+- kept cosmetic threads as the default for speed and compatibility, while the
+  Fastener panel now lets users switch between cosmetic and modeled thread
+  representations
+- left drive recess geometry staged for a later pass; standalone body Thread
+  booleans are handled in the modeled Thread feature pass below
+
+### Modeled Thread Feature Pass (2026-05-27)
+
+- enabled the standalone Thread panel's representation picker so users can
+  choose Cosmetic or Modeled for a selected target body and axis source
+- wired modeled Thread features through the native body compiler as a
+  target-body modification: the compiler re-resolves the selected axis, builds
+  a V-profile helical cutter, and cuts it from the target body
+- kept cosmetic threads as lightweight viewport helices and preserved graceful
+  fallback behavior when axis resolution or OCCT booleans fail
+
+### Threading Completion Pass (2026-05-27)
+
+- threaded holes now support the same cosmetic / modeled representation choice:
+  cosmetic holes emit a viewport helix and modeled holes cut an internal
+  V-profile helical groove after the drill hole
+- generated fasteners now persist pitch and minor diameter alongside major
+  diameter so standard-selected fastener threads are data-driven instead of
+  diameter-estimated
+- hex-socket and Phillips drive options now cut simple recess geometry into
+  generated fastener heads instead of remaining metadata-only
+- attempted to replace the fastener modeled-thread groove-cut experiment with
+  an explicit faceted external thread shaft; manual QA later showed this path
+  is still bugged and not production-ready
+
+### Known Issue: Modeled Thread Geometry (2026-05-27)
+
+- modeled thread geometry is currently experimental and visibly incorrect in
+  manual QA. Generated fastener threads can lose the helical shaft, split into
+  detached pieces, or export as incomplete screw geometry.
+- cosmetic threads and semantic thread metadata are the reliable path for now.
+  Treat modeled fastener threads, standalone modeled thread cuts, and modeled
+  threaded holes as known-buggy until the native thread kernel is reworked.
+- the follow-up should replace the current ad hoc pipe/cutter/faceted attempts
+  with one robust core-owned thread construction path, validated against
+  viewport display and exported STL/STEP geometry.

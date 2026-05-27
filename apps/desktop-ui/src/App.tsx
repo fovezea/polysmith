@@ -72,6 +72,7 @@ import type {
   ExtrudeAdvancedParameters,
   ExtrudeFeatureParameters,
   ExtrudeMode,
+  FastenerFeatureParameters,
   HelixFeatureParameters,
   HoleFit,
   HoleFeatureParameters,
@@ -94,6 +95,10 @@ const DEFAULT_THREAD_MAJOR_DIAMETER = 5;
 const DEFAULT_THREAD_MINOR_DIAMETER = 4;
 const DEFAULT_THREAD_PITCH = 0.8;
 const DEFAULT_THREAD_LENGTH = 10;
+const DEFAULT_FASTENER_SIZE = "M5";
+const DEFAULT_FASTENER_DIAMETER = 5;
+const DEFAULT_FASTENER_LENGTH = 20;
+const DEFAULT_FASTENER_THREAD_LENGTH = 16;
 // Default seed for the Offset Plane panel. Zero would be a valid
 // frame (sitting on top of the source) but gives no visible preview;
 // 10 mm matches common CAD workflow's "show me something" default.
@@ -142,6 +147,7 @@ const BODY_KINDS = new Set([
   "loft",
   "revolve",
   "sweep",
+  "fastener",
 ]);
 
 function documentHasSolidBody(documentState: DocumentState | null) {
@@ -433,6 +439,13 @@ function App() {
         originalParameters: ThreadFeatureParameters | null;
       };
   const [threadAction, setThreadAction] = useState<ThreadAction | null>(null);
+  type FastenerAction = {
+    featureId: string;
+    originalParameters: FastenerFeatureParameters | null;
+  };
+  const [fastenerAction, setFastenerAction] = useState<FastenerAction | null>(
+    null,
+  );
   type HoleAction =
     | { phase: "pending" }
     | { phase: "active"; featureId: string };
@@ -548,6 +561,16 @@ function App() {
   const activeThreadParameters = activeThreadFeature?.thread_parameters ?? null;
   const activeThreadStandards = activeThreadParameters
     ? holeStandardsForMode(activeThreadParameters.standard)
+    : [];
+  const activeFastenerFeature = fastenerAction
+    ? (document?.feature_history.find(
+        (feature) => feature.feature_id === fastenerAction.featureId,
+      ) ?? null)
+    : null;
+  const activeFastenerParameters =
+    activeFastenerFeature?.fastener_parameters ?? null;
+  const activeFastenerStandards = activeFastenerParameters
+    ? holeStandardsForMode(activeFastenerParameters.standard)
     : [];
   const selectedSketchProfileIdsKey = selectedSketchProfileIds.join("|");
   const sketchProfileLabelById = new Map<string, string>();
@@ -736,6 +759,8 @@ function App() {
     createThread,
     updateThreadParameters,
     confirmThread,
+    createFastener,
+    updateFastenerParameters,
     updateOffsetPlane,
     updateAnglePlane,
     startSketchOnPlane,
@@ -1093,7 +1118,8 @@ function App() {
       constructionAxisAction ||
       constructionPointAction ||
       helixAction ||
-      threadAction
+      threadAction ||
+      fastenerAction
     ) {
       return;
     }
@@ -2208,7 +2234,8 @@ function App() {
       constructionAxisAction ||
       constructionPointAction ||
       helixAction ||
-      threadAction
+      threadAction ||
+      fastenerAction
     ) {
       return;
     }
@@ -2236,7 +2263,8 @@ function App() {
       constructionAxisAction ||
       constructionPointAction ||
       helixAction ||
-      threadAction
+      threadAction ||
+      fastenerAction
     ) {
       return;
     }
@@ -2305,6 +2333,7 @@ function App() {
       constructionPointAction ||
       helixAction ||
       threadAction ||
+      fastenerAction ||
       activeSketchPlaneId
     ) {
       return;
@@ -2397,6 +2426,7 @@ function App() {
       constructionPointAction ||
       helixAction ||
       threadAction ||
+      fastenerAction ||
       activeSketchPlaneId
     ) {
       return;
@@ -2416,6 +2446,91 @@ function App() {
       return;
     }
     setThreadAction({ phase: "pick_target", axisSourceId });
+  }
+
+  function defaultFastenerParameters(): FastenerFeatureParameters {
+    const standard = findHoleStandard("metric", DEFAULT_FASTENER_SIZE);
+    return {
+      standard: "metric",
+      size: standard?.id ?? DEFAULT_FASTENER_SIZE,
+      diameter: standard?.majorDiameter ?? DEFAULT_FASTENER_DIAMETER,
+      minor_diameter: standard?.minorDiameter ?? DEFAULT_FASTENER_DIAMETER * 0.84,
+      pitch: standard?.pitch ?? 0.8,
+      length: DEFAULT_FASTENER_LENGTH,
+      thread_length: DEFAULT_FASTENER_THREAD_LENGTH,
+      head_type: "socket_head",
+      drive_type: "hex_socket",
+      thread_representation: "cosmetic",
+    };
+  }
+
+  async function triggerFastenerAction() {
+    if (
+      extrudeAction ||
+      loftAction ||
+      revolveAction ||
+      sweepAction ||
+      edgeOpAction ||
+      shellAction ||
+      holeAction ||
+      offsetPlaneAction ||
+      midplaneAction ||
+      tangentPlaneAction ||
+      anglePlaneAction ||
+      constructionAxisAction ||
+      constructionPointAction ||
+      helixAction ||
+      threadAction ||
+      fastenerAction ||
+      activeSketchPlaneId
+    ) {
+      return;
+    }
+
+    const documentPromise = awaitDocumentChange((next, previous) => {
+      if (!next.selected_feature_id) {
+        return false;
+      }
+      const previousLength = previous?.feature_history.length ?? 0;
+      if (next.feature_history.length <= previousLength) {
+        return false;
+      }
+      const lastFeature = next.feature_history[next.feature_history.length - 1];
+      return (
+        lastFeature.feature_id === next.selected_feature_id &&
+        lastFeature.kind === "fastener"
+      );
+    });
+
+    await runAction(async () => {
+      try {
+        await createFastener(defaultFastenerParameters());
+        const nextDocument = await documentPromise;
+        const newFeatureId = nextDocument.selected_feature_id ?? null;
+        if (newFeatureId) {
+          setFastenerAction({
+            featureId: newFeatureId,
+            originalParameters: null,
+          });
+        }
+      } catch (error) {
+        addMessage(`fastener error: ${String(error)}`);
+      }
+    });
+  }
+
+  async function updateActiveFastenerParameters(
+    patch: Partial<FastenerFeatureParameters>,
+  ) {
+    if (!fastenerAction || !activeFastenerParameters) {
+      return;
+    }
+    await runAction(async () => {
+      await updateFastenerParameters(fastenerAction.featureId, {
+        ...activeFastenerParameters,
+        ...patch,
+      });
+    });
   }
 
   async function updateActiveThreadParameters(
@@ -2463,6 +2578,7 @@ function App() {
       constructionPointAction ||
       helixAction ||
       threadAction ||
+      fastenerAction ||
       activeSketchPlaneId
     ) {
       return;
@@ -2734,6 +2850,7 @@ function App() {
         !edgeOpAction &&
         !shellAction &&
         !threadAction &&
+        !fastenerAction &&
         document &&
         (document.selected_feature_id ||
           document.selected_reference_id ||
@@ -3883,6 +4000,7 @@ function App() {
             !constructionPointAction &&
             !helixAction &&
             !threadAction &&
+            !fastenerAction &&
             (!extrudeAction || extrudeAction.phase === "pending")
           }
           onExtrude={triggerExtrudeAction}
@@ -3902,7 +4020,8 @@ function App() {
             !constructionAxisAction &&
             !constructionPointAction &&
             !helixAction &&
-            !threadAction
+            !threadAction &&
+            !fastenerAction
           }
           onLoft={triggerLoftAction}
           canRevolve={
@@ -3921,7 +4040,8 @@ function App() {
             !constructionAxisAction &&
             !constructionPointAction &&
             !helixAction &&
-            !threadAction
+            !threadAction &&
+            !fastenerAction
           }
           onRevolve={triggerRevolveAction}
           canSweep={
@@ -3940,7 +4060,8 @@ function App() {
             !constructionAxisAction &&
             !constructionPointAction &&
             !helixAction &&
-            !threadAction
+            !threadAction &&
+            !fastenerAction
           }
           onSweep={triggerSweepAction}
           canHole={
@@ -3959,7 +4080,8 @@ function App() {
             !constructionAxisAction &&
             !constructionPointAction &&
             !helixAction &&
-            !threadAction
+            !threadAction &&
+            !fastenerAction
           }
           onHole={triggerHoleAction}
           canThread={
@@ -3978,9 +4100,30 @@ function App() {
             !constructionAxisAction &&
             !constructionPointAction &&
             !helixAction &&
-            !threadAction
+            !threadAction &&
+            !fastenerAction
           }
           onThread={triggerThreadAction}
+          canFastener={
+            !activeSketchPlaneId &&
+            !extrudeAction &&
+            !loftAction &&
+            !revolveAction &&
+            !sweepAction &&
+            !edgeOpAction &&
+            !shellAction &&
+            !holeAction &&
+            !offsetPlaneAction &&
+            !midplaneAction &&
+            !tangentPlaneAction &&
+            !anglePlaneAction &&
+            !constructionAxisAction &&
+            !constructionPointAction &&
+            !helixAction &&
+            !threadAction &&
+            !fastenerAction
+          }
+          onFastener={triggerFastenerAction}
           // Modify ribbon: Fillet / Chamfer can be invoked at any
           // time outside a sketch / other floating action. Edge
           // selection is *not* required — the panel opens in
@@ -4002,7 +4145,8 @@ function App() {
             !constructionAxisAction &&
             !constructionPointAction &&
             !helixAction &&
-            !threadAction
+            !threadAction &&
+            !fastenerAction
           }
           onFillet={async () => {
             await triggerEdgeOpAction("fillet");
@@ -4026,7 +4170,8 @@ function App() {
             !constructionAxisAction &&
             !constructionPointAction &&
             !helixAction &&
-            !threadAction
+            !threadAction &&
+            !fastenerAction
           }
           onShell={async () => {
             await triggerShellAction();
@@ -4046,7 +4191,8 @@ function App() {
             !constructionAxisAction &&
             !constructionPointAction &&
             !helixAction &&
-            !threadAction
+            !threadAction &&
+            !fastenerAction
           }
           onOffsetPlane={() => {
             void triggerOffsetPlaneAction();
@@ -4066,7 +4212,8 @@ function App() {
             !constructionAxisAction &&
             !constructionPointAction &&
             !helixAction &&
-            !threadAction
+            !threadAction &&
+            !fastenerAction
           }
           canTangentPlane={
             !activeSketchPlaneId &&
@@ -4083,7 +4230,8 @@ function App() {
             !constructionAxisAction &&
             !constructionPointAction &&
             !helixAction &&
-            !threadAction
+            !threadAction &&
+            !fastenerAction
           }
           canAnglePlane={
             !activeSketchPlaneId &&
@@ -4100,7 +4248,8 @@ function App() {
             !constructionAxisAction &&
             !constructionPointAction &&
             !helixAction &&
-            !threadAction
+            !threadAction &&
+            !fastenerAction
           }
           canConstructionAxis={
             !extrudeAction &&
@@ -4116,7 +4265,8 @@ function App() {
             !constructionAxisAction &&
             !constructionPointAction &&
             !helixAction &&
-            !threadAction
+            !threadAction &&
+            !fastenerAction
           }
           canConstructionPoint={
             !extrudeAction &&
@@ -4132,7 +4282,8 @@ function App() {
             !constructionAxisAction &&
             !constructionPointAction &&
             !helixAction &&
-            !threadAction
+            !threadAction &&
+            !fastenerAction
           }
           canHelix={
             !activeSketchPlaneId &&
@@ -4150,7 +4301,8 @@ function App() {
             !constructionAxisAction &&
             !constructionPointAction &&
             !helixAction &&
-            !threadAction
+            !threadAction &&
+            !fastenerAction
           }
           onMidplane={() => {
             void triggerMidplaneAction();
@@ -6519,7 +6671,9 @@ function App() {
                                   {
                                     ...activeHoleParameters,
                                     thread_enabled: checked,
-                                    thread_representation: "cosmetic",
+                                    thread_representation: checked
+                                      ? activeHoleParameters.thread_representation
+                                      : "cosmetic",
                                   },
                                 );
                               });
@@ -6527,9 +6681,43 @@ function App() {
                           />
                         </label>
                         {activeHoleParameters.thread_enabled ? (
-                          <p className="text-xs text-[color:var(--cad-muted)]">
-                            {t("panels.hole.cosmeticThreadOnly")}
-                          </p>
+                          <div>
+                            <span className="cad-field-label">
+                              {t("panels.hole.representation")}
+                            </span>
+                            <Dropdown
+                              label={t("panels.hole.representation")}
+                              className="mt-2"
+                              value={activeHoleParameters.thread_representation}
+                              disabled={status !== "connected"}
+                              options={[
+                                {
+                                  value: "cosmetic",
+                                  label: t("panels.hole.cosmetic"),
+                                },
+                                {
+                                  value: "modeled",
+                                  label: t("panels.hole.modeled"),
+                                },
+                              ]}
+                              onChange={(value) => {
+                                void runAction(async () => {
+                                  await updateHoleParameters(
+                                    holeAction.phase === "active"
+                                      ? holeAction.featureId
+                                      : "",
+                                    {
+                                      ...activeHoleParameters,
+                                      thread_representation: value,
+                                    },
+                                  );
+                                });
+                              }}
+                            />
+                            <p className="mt-1 text-xs text-[color:var(--cad-muted)]">
+                              {t("panels.hole.cosmeticThreadOnly")}
+                            </p>
+                          </div>
                         ) : null}
                       </>
                     ) : null}
@@ -6996,12 +7184,30 @@ function App() {
                           />
                         </div>
                         <div className="rounded-md border border-outline/50 bg-surface-container-low px-3 py-2">
-                          <p className="cad-field-label">
+                          <span className="cad-field-label">
                             {t("panels.thread.representation")}
-                          </p>
-                          <p className="mt-1 text-sm text-on-surface">
-                            {t("panels.thread.cosmetic")}
-                          </p>
+                          </span>
+                          <Dropdown
+                            label={t("panels.thread.representation")}
+                            className="mt-2"
+                            value={activeThreadParameters.representation}
+                            disabled={status !== "connected"}
+                            options={[
+                              {
+                                value: "cosmetic",
+                                label: t("panels.thread.cosmetic"),
+                              },
+                              {
+                                value: "modeled",
+                                label: t("panels.thread.modeled"),
+                              },
+                            ]}
+                            onChange={(value) => {
+                              void updateActiveThreadParameters({
+                                representation: value,
+                              });
+                            }}
+                          />
                           <p className="mt-1 text-[11px] leading-4 text-on-surface-dim">
                             {t("panels.thread.modeledUnavailable")}
                           </p>
@@ -7045,6 +7251,278 @@ function App() {
                       </div>
                     </>
                   ) : null}
+                </section>
+              ) : null}
+              {fastenerAction && activeFastenerParameters ? (
+                <section className="pointer-events-auto cad-floating-panel cad-scrollbar max-h-[min(40rem,calc(100vh-12rem))] w-[21rem] overflow-y-auto px-5 py-5">
+                  <p className="cad-kicker">{t("panels.fastener.title")}</p>
+                  <div className="mt-5 space-y-4">
+                    <div>
+                      <span className="cad-field-label">
+                        {t("panels.fastener.standard")}
+                      </span>
+                      <Dropdown
+                        label={t("panels.fastener.standard")}
+                        className="mt-2"
+                        value={activeFastenerParameters.standard}
+                        disabled={status !== "connected"}
+                        options={[
+                          { value: "custom", label: t("panels.fastener.custom") },
+                          { value: "metric", label: t("panels.fastener.metric") },
+                          {
+                            value: "imperial",
+                            label: t("panels.fastener.imperial"),
+                          },
+                        ]}
+                        onChange={(value) => {
+                          if (value === "custom") {
+                            void updateActiveFastenerParameters({
+                              standard: value,
+                              size: "",
+                            });
+                            return;
+                          }
+                          const entry = holeStandardsForMode(value)[0];
+                          if (!entry) {
+                            return;
+                          }
+                          void updateActiveFastenerParameters({
+                            standard: value,
+                            size: entry.id,
+                            diameter: entry.majorDiameter,
+                            minor_diameter: entry.minorDiameter,
+                            pitch: entry.pitch,
+                          });
+                        }}
+                      />
+                    </div>
+                    {activeFastenerParameters.standard !== "custom" ? (
+                      <div>
+                        <span className="cad-field-label">
+                          {t("panels.fastener.size")}
+                        </span>
+                        <Dropdown
+                          label={t("panels.fastener.size")}
+                          className="mt-2"
+                          value={
+                            findHoleStandard(
+                              activeFastenerParameters.standard,
+                              activeFastenerParameters.size,
+                            )?.id ??
+                            activeFastenerStandards[0]?.id ??
+                            ""
+                          }
+                          disabled={
+                            status !== "connected" ||
+                            activeFastenerStandards.length === 0
+                          }
+                          options={activeFastenerStandards.map((entry) => ({
+                            value: entry.id,
+                            label: entry.label,
+                          }))}
+                          onChange={(value) => {
+                            const entry = findHoleStandard(
+                              activeFastenerParameters.standard,
+                              value,
+                            );
+                            if (!entry) {
+                              return;
+                            }
+                            void updateActiveFastenerParameters({
+                              size: entry.id,
+                              diameter: entry.majorDiameter,
+                              minor_diameter: entry.minorDiameter,
+                              pitch: entry.pitch,
+                            });
+                          }}
+                        />
+                      </div>
+                    ) : null}
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="block">
+                        <span className="cad-field-label">
+                          {t("panels.fastener.diameter")}
+                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.1}
+                          className="cad-input mt-2 w-full"
+                          value={activeFastenerParameters.diameter}
+                          disabled={status !== "connected"}
+                          onChange={(event) => {
+                            const value = event.currentTarget.valueAsNumber;
+                            if (!Number.isFinite(value)) {
+                              return;
+                            }
+                            void updateActiveFastenerParameters({
+                              diameter: value,
+                            });
+                          }}
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="cad-field-label">
+                          {t("panels.fastener.length")}
+                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.1}
+                          className="cad-input mt-2 w-full"
+                          value={activeFastenerParameters.length}
+                          disabled={status !== "connected"}
+                          onChange={(event) => {
+                            const value = event.currentTarget.valueAsNumber;
+                            if (!Number.isFinite(value)) {
+                              return;
+                            }
+                            void updateActiveFastenerParameters({ length: value });
+                          }}
+                        />
+                      </label>
+                    </div>
+                    <label className="block">
+                      <span className="cad-field-label">
+                        {t("panels.fastener.threadLength")}
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.1}
+                        className="cad-input mt-2 w-full"
+                        value={activeFastenerParameters.thread_length}
+                        disabled={status !== "connected"}
+                        onChange={(event) => {
+                          const value = event.currentTarget.valueAsNumber;
+                          if (!Number.isFinite(value)) {
+                            return;
+                          }
+                          void updateActiveFastenerParameters({
+                            thread_length: value,
+                          });
+                        }}
+                      />
+                    </label>
+                    <div>
+                      <span className="cad-field-label">
+                        {t("panels.fastener.headType")}
+                      </span>
+                      <Dropdown
+                        label={t("panels.fastener.headType")}
+                        className="mt-2"
+                        value={activeFastenerParameters.head_type}
+                        disabled={status !== "connected"}
+                        options={[
+                          {
+                            value: "socket_head",
+                            label: t("panels.fastener.socketHead"),
+                          },
+                          {
+                            value: "button_head",
+                            label: t("panels.fastener.buttonHead"),
+                          },
+                          { value: "flat", label: t("panels.fastener.flat") },
+                          {
+                            value: "hex_bolt",
+                            label: t("panels.fastener.hexBolt"),
+                          },
+                        ]}
+                        onChange={(value) => {
+                          void updateActiveFastenerParameters({ head_type: value });
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <span className="cad-field-label">
+                        {t("panels.fastener.driveType")}
+                      </span>
+                      <Dropdown
+                        label={t("panels.fastener.driveType")}
+                        className="mt-2"
+                        value={activeFastenerParameters.drive_type}
+                        disabled={status !== "connected"}
+                        options={[
+                          { value: "none", label: t("panels.fastener.none") },
+                          {
+                            value: "hex_socket",
+                            label: t("panels.fastener.hexSocket"),
+                          },
+                          {
+                            value: "phillips",
+                            label: t("panels.fastener.phillips"),
+                          },
+                        ]}
+                        onChange={(value) => {
+                          void updateActiveFastenerParameters({ drive_type: value });
+                        }}
+                      />
+                    </div>
+                    <div className="rounded-md border border-outline/50 bg-surface-container-low px-3 py-2">
+                      <span className="cad-field-label">
+                        {t("panels.fastener.threadRepresentation")}
+                      </span>
+                      <Dropdown
+                        label={t("panels.fastener.threadRepresentation")}
+                        className="mt-2"
+                        value={activeFastenerParameters.thread_representation}
+                        disabled={status !== "connected"}
+                        options={[
+                          {
+                            value: "cosmetic",
+                            label: t("panels.fastener.cosmetic"),
+                          },
+                          {
+                            value: "modeled",
+                            label: t("panels.fastener.modeled"),
+                          },
+                        ]}
+                        onChange={(value) => {
+                          void updateActiveFastenerParameters({
+                            thread_representation: value,
+                          });
+                        }}
+                      />
+                      <p className="mt-1 text-[11px] leading-4 text-on-surface-dim">
+                        {t("panels.fastener.modeledUnavailable")}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-5 flex gap-3">
+                    <button
+                      type="button"
+                      className="cad-ribbon-action cad-ribbon-action-primary flex-1"
+                      disabled={status !== "connected"}
+                      onClick={() => {
+                        void runAction(async () => {
+                          setFastenerAction(null);
+                          await restoreTimelineCursorAfterEdit();
+                        });
+                      }}
+                    >
+                      {t("common.confirm")}
+                    </button>
+                    <button
+                      type="button"
+                      className="cad-ribbon-action flex-1"
+                      onClick={() => {
+                        void runAction(async () => {
+                          if (fastenerAction.originalParameters) {
+                            await updateFastenerParameters(
+                              fastenerAction.featureId,
+                              fastenerAction.originalParameters,
+                            );
+                          } else {
+                            await undo();
+                          }
+                          setFastenerAction(null);
+                          await restoreTimelineCursorAfterEdit();
+                        });
+                      }}
+                    >
+                      {t("common.cancel")}
+                    </button>
+                  </div>
                 </section>
               ) : null}
               {helixAction ? (
@@ -7403,7 +7881,8 @@ function App() {
                 revolveAction ||
                 sweepAction ||
                 edgeOpAction ||
-                threadAction
+                threadAction ||
+                fastenerAction
               ) {
                 return;
               }
@@ -7436,7 +7915,8 @@ function App() {
                 revolveAction ||
                 sweepAction ||
                 edgeOpAction ||
-                threadAction
+                threadAction ||
+                fastenerAction
               ) {
                 return;
               }
@@ -7462,7 +7942,8 @@ function App() {
                 revolveAction ||
                 sweepAction ||
                 edgeOpAction ||
-                threadAction
+                threadAction ||
+                fastenerAction
               ) {
                 return;
               }
@@ -7489,7 +7970,8 @@ function App() {
                 revolveAction ||
                 sweepAction ||
                 edgeOpAction ||
-                threadAction
+                threadAction ||
+                fastenerAction
               ) {
                 return;
               }
@@ -7514,7 +7996,8 @@ function App() {
                 revolveAction ||
                 sweepAction ||
                 edgeOpAction ||
-                threadAction
+                threadAction ||
+                fastenerAction
               ) {
                 return;
               }
@@ -7523,6 +8006,24 @@ function App() {
                 phase: "active",
                 featureId,
                 originalParameters: feature.thread_parameters,
+              });
+            }
+            if (feature.kind === "fastener" && feature.fastener_parameters) {
+              if (
+                extrudeAction ||
+                loftAction ||
+                revolveAction ||
+                sweepAction ||
+                edgeOpAction ||
+                threadAction ||
+                fastenerAction
+              ) {
+                return;
+              }
+              beginTimelineEditSession(featureId, feature.kind);
+              setFastenerAction({
+                featureId,
+                originalParameters: feature.fastener_parameters,
               });
             }
           }}

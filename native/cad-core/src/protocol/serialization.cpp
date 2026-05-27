@@ -1765,6 +1765,9 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                  {"standard", feature.fastener_parameters->standard},
                  {"size", feature.fastener_parameters->size},
                  {"diameter", feature.fastener_parameters->diameter},
+                 {"minor_diameter",
+                  feature.fastener_parameters->minor_diameter},
+                 {"pitch", feature.fastener_parameters->pitch},
                  {"length", feature.fastener_parameters->length},
                  {"thread_length", feature.fastener_parameters->thread_length},
                  {"head_type", feature.fastener_parameters->head_type},
@@ -2968,6 +2971,9 @@ polysmith::core::FeatureEntry feature_entry_from_payload(const json& payload) {
         read_optional_string_value(fp, "standard", params.standard);
     params.size = read_optional_string_value(fp, "size", params.size);
     params.diameter = read_optional_number(fp, "diameter", params.diameter);
+    params.minor_diameter =
+        read_optional_number(fp, "minor_diameter", params.minor_diameter);
+    params.pitch = read_optional_number(fp, "pitch", params.pitch);
     params.length = read_optional_number(fp, "length", params.length);
     params.thread_length =
         read_optional_number(fp, "thread_length", params.thread_length);

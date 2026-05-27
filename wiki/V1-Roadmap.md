@@ -134,6 +134,16 @@ Small individually but they shape day-to-day usability:
 - **View cube / named views** (Front / Top / Iso).
 - **Active sketch panel** showing entities in the same hierarchy treatment.
 
+### Known Modeling Issues
+
+- ⚠️ **Modeled thread geometry is bugged.** The semantic hole/thread/fastener
+  feature stack exists and cosmetic thread markers are usable, but modeled
+  threads are not reliable yet. Manual QA showed generated fastener threads can
+  lose the helical shaft, split into detached pieces, or export as incomplete
+  screw geometry. Treat modeled fastener threads, standalone modeled thread
+  cuts, and modeled threaded holes as experimental until the native thread
+  construction path is reworked and validated against viewport and export.
+
 ## Suggested Order
 
 1. ✅ Save/load + STL export + undo/redo hotkeys + Project — shipped.

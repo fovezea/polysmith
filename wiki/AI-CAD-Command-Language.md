@@ -803,8 +803,11 @@ Payload:
 ```
 
 The core owns the boolean cut and stores the semantic hole parameters in
-`feature_history[].hole_parameters`. Face references are re-resolved during
-dependency refresh; failed resolution marks the feature `dependency_broken`.
+`feature_history[].hole_parameters`. Cosmetic threaded holes emit a lightweight
+thread curve. Modeled threaded holes are experimental/known-buggy and should
+not be used when reliable production geometry is required. Face references are
+re-resolved during dependency refresh; failed resolution marks the feature
+`dependency_broken`.
 
 #### `update_hole_parameters`
 
@@ -847,7 +850,9 @@ index.
 #### `create_thread`
 
 Creates a semantic thread feature. Cosmetic representation stores thread
-metadata; modeled representation is reserved for the helical sweep/boolean path.
+metadata and emits a lightweight cosmetic thread curve. Modeled representation
+is experimental/known-buggy and should be treated as a future fix area rather
+than reliable production geometry.
 The target is a body id and the axis source is a sketch line, construction-axis
 feature, or straight body edge.
 
@@ -873,7 +878,12 @@ body or axis source stops resolving during recompute, the feature degrades with
 
 #### `create_fastener`
 
-Creates a semantic fastener body.
+Creates a semantic fastener body. Cosmetic thread representation emits a
+lightweight thread curve. Modeled thread representation is experimental/
+known-buggy and can currently produce invalid or incomplete threaded shafts in
+viewport/export.
+Hex-socket and Phillips drive types cut simple recess geometry into the
+generated head.
 
 Payload:
 
@@ -882,6 +892,8 @@ Payload:
   standard?: "metric" | "imperial" | "custom";
   size?: string;
   diameter?: number;
+  minor_diameter?: number;
+  pitch?: number;
   length?: number;
   thread_length?: number;
   head_type?: "socket_head" | "button_head" | "flat" | "hex_bolt";

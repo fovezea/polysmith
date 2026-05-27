@@ -447,6 +447,25 @@ export const ThreadIcon = () => (
   </svg>
 );
 
+export const FastenerIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-7 w-7"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M8 5.5 12 3.5l4 2v3L12 10.5l-4-2Z" />
+    <path d="M9.5 9.7v9.1c0 .9 1.1 1.7 2.5 1.7s2.5-.8 2.5-1.7V9.7" />
+    <path d="M9.5 12.5c.9.6 4.1.6 5 0" />
+    <path d="M9.5 15c.9.6 4.1.6 5 0" />
+    <path d="M9.5 17.5c.9.6 4.1.6 5 0" />
+  </svg>
+);
+
 export const PatternIcon = () => (
   <svg
     viewBox="0 0 24 24"
@@ -795,6 +814,8 @@ export function FeatureKindIcon({ kind }: { kind: string }) {
       return <HoleIcon />;
     case "thread":
       return <ThreadIcon />;
+    case "fastener":
+      return <FastenerIcon />;
     case "helix":
       return <HelixIcon />;
     case "pattern":

@@ -243,6 +243,8 @@ struct FastenerFeatureParameters {
   std::string standard = "metric";
   std::string size = "M5";
   double diameter = 5.0;
+  double minor_diameter = 4.2;
+  double pitch = 0.8;
   double length = 20.0;
   double thread_length = 16.0;
   std::string head_type = "socket_head";

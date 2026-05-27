@@ -380,6 +380,8 @@ const documentStateSchema = z.object({
           standard: z.enum(["metric", "imperial", "custom"]).default("metric"),
           size: z.string(),
           diameter: z.number(),
+          minor_diameter: z.number().default(4.2),
+          pitch: z.number().default(0.8),
           length: z.number(),
           thread_length: z.number(),
           head_type: z
