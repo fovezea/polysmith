@@ -1,4 +1,3 @@
-import type { ReactElement } from "react";
 import {
   ConstructAxisIcon,
   AnglePlaneIcon,
@@ -20,26 +19,19 @@ interface ConstructToolbarProps {
   canMidplane: boolean;
   canTangentPlane: boolean;
   canAnglePlane: boolean;
+  canConstructionAxis: boolean;
+  canConstructionPoint: boolean;
   onOffsetPlane: () => void;
   onMidplane: () => void;
   onTangentPlane: () => void;
   onAnglePlane: () => void;
+  onConstructionAxis: () => void;
+  onConstructionPoint: () => void;
 }
 
 // See `CreateToolbar.tsx` — same icon-button base so the ribbon
 // matches the Create / Sketch tabs visually.
 const ICON_BUTTON_BASE = "cad-icon-button cad-icon-tool h-9 w-9 p-0";
-
-// Items in the Construct ribbon that aren't wired to a real action
-// yet. Kept as disabled icon buttons so the user can see what's
-// coming. Removed from this list as each action lands.
-const placeholderTools: Array<{
-  labelKey: string;
-  Icon: () => ReactElement;
-}> = [
-  { labelKey: "toolbar.axis", Icon: ConstructAxisIcon },
-  { labelKey: "toolbar.constructPoint", Icon: ConstructPointIcon },
-];
 
 export function ConstructToolbar({
   disabled,
@@ -47,10 +39,14 @@ export function ConstructToolbar({
   canMidplane,
   canTangentPlane,
   canAnglePlane,
+  canConstructionAxis,
+  canConstructionPoint,
   onOffsetPlane,
   onMidplane,
   onTangentPlane,
   onAnglePlane,
+  onConstructionAxis,
+  onConstructionPoint,
 }: ConstructToolbarProps) {
   const { t } = useTranslation();
   return (
@@ -95,18 +91,26 @@ export function ConstructToolbar({
       >
         <AnglePlaneIcon />
       </button>
-      {placeholderTools.map(({ labelKey, Icon }) => (
-        <button
-          key={labelKey}
-          type="button"
-          className={ICON_BUTTON_BASE}
-          data-tooltip={t(labelKey)}
-          aria-label={t(labelKey)}
-          disabled
-        >
-          <Icon />
-        </button>
-      ))}
+      <button
+        type="button"
+        className={ICON_BUTTON_BASE}
+        data-tooltip={t("toolbar.axis")}
+        aria-label={t("toolbar.axis")}
+        disabled={disabled || !canConstructionAxis}
+        onClick={onConstructionAxis}
+      >
+        <ConstructAxisIcon />
+      </button>
+      <button
+        type="button"
+        className={ICON_BUTTON_BASE}
+        data-tooltip={t("toolbar.constructPoint")}
+        aria-label={t("toolbar.constructPoint")}
+        disabled={disabled || !canConstructionPoint}
+        onClick={onConstructionPoint}
+      >
+        <ConstructPointIcon />
+      </button>
     </>
   );
 }

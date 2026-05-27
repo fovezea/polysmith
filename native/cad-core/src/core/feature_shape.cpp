@@ -1071,6 +1071,121 @@ TopoDS_Shape build_sweep_shape(const SweepFeatureParameters& parameters) {
   return shape;
 }
 
+gp_Pnt local_point_on_frame(const PlaneFrame& frame, double local_x, double local_y) {
+  return gp_Pnt(frame.origin_x + frame.x_axis_x * local_x + frame.y_axis_x * local_y,
+                frame.origin_y + frame.x_axis_y * local_x + frame.y_axis_y * local_y,
+                frame.origin_z + frame.x_axis_z * local_x + frame.y_axis_z * local_y);
+}
+
+TopoDS_Shape build_hole_cutter_shape(const HoleFeatureParameters& parameters) {
+  if (parameters.diameter <= 0.0) {
+    throw std::runtime_error("Hole diameter must be greater than zero");
+  }
+  const double main_depth =
+      parameters.extent_type == "through_all"
+          ? std::max(10000.0, std::abs(parameters.depth))
+          : std::abs(parameters.depth);
+  if (main_depth <= 0.0) {
+    throw std::runtime_error("Hole depth must be greater than zero");
+  }
+
+  const PlaneFrame& frame = parameters.plane_frame;
+  const gp_Pnt face_center =
+      local_point_on_frame(frame, parameters.center_x, parameters.center_y);
+  const gp_Vec outward(frame.normal_x, frame.normal_y, frame.normal_z);
+  if (outward.SquareMagnitude() <= 1.0e-18) {
+    throw std::runtime_error("Hole source plane normal is invalid");
+  }
+  gp_Vec inward = outward.Reversed();
+  inward.Normalize();
+
+  const double overshoot = 1.0;
+  gp_Vec outward_unit = outward;
+  outward_unit.Normalize();
+  const gp_Pnt start = face_center.Translated(outward_unit * overshoot);
+  const gp_Ax2 axis(start, gp_Dir(inward));
+  TopoDS_Shape cutter =
+      BRepPrimAPI_MakeCylinder(axis,
+                               parameters.diameter * 0.5,
+                               main_depth + overshoot * 2.0)
+          .Shape();
+
+  if (parameters.hole_type == "counterbore" ||
+      parameters.hole_type == "spotface") {
+    const double cb_diameter =
+        std::max(parameters.counterbore_diameter, parameters.diameter);
+    const double cb_depth = std::abs(parameters.counterbore_depth);
+    if (cb_depth > 0.0) {
+      cutter = fuse_shapes(
+          cutter,
+          BRepPrimAPI_MakeCylinder(axis,
+                                   cb_diameter * 0.5,
+                                   cb_depth + overshoot)
+              .Shape());
+    }
+  } else if (parameters.hole_type == "countersink") {
+    const double sink_diameter =
+        std::max(parameters.countersink_diameter, parameters.diameter);
+    const double half_angle =
+        std::max(1.0, parameters.countersink_angle_degrees) * kPi / 360.0;
+    const double sink_depth =
+        (sink_diameter - parameters.diameter) * 0.5 / std::tan(half_angle);
+    if (sink_depth > 0.0) {
+      cutter = fuse_shapes(
+          cutter,
+          BRepPrimAPI_MakeCone(axis,
+                               sink_diameter * 0.5,
+                               parameters.diameter * 0.5,
+                               sink_depth + overshoot)
+              .Shape());
+    }
+  }
+
+  if (cutter.IsNull()) {
+    throw std::runtime_error("Failed to build hole cutter");
+  }
+  return cutter;
+}
+
+TopoDS_Shape build_fastener_shape(const FastenerFeatureParameters& parameters) {
+  if (parameters.diameter <= 0.0 || parameters.length <= 0.0) {
+    throw std::runtime_error("Fastener diameter and length must be greater than zero");
+  }
+  const double shaft_radius = parameters.diameter * 0.5;
+  TopoDS_Shape shape =
+      BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(shaft_radius, 0.0, shaft_radius),
+                                      gp_Dir(0.0, 1.0, 0.0)),
+                               shaft_radius,
+                               parameters.length)
+          .Shape();
+  if (shape.IsNull()) {
+    throw std::runtime_error("Failed to build fastener shaft");
+  }
+
+  const double head_radius =
+      parameters.head_type == "hex_bolt" ? parameters.diameter : parameters.diameter * 0.85;
+  const double head_height =
+      parameters.head_type == "flat" ? parameters.diameter * 0.5 : parameters.diameter * 0.65;
+  TopoDS_Shape head;
+  if (parameters.head_type == "flat") {
+    head = BRepPrimAPI_MakeCone(
+               gp_Ax2(gp_Pnt(shaft_radius, parameters.length, shaft_radius),
+                      gp_Dir(0.0, 1.0, 0.0)),
+               head_radius,
+               shaft_radius,
+               head_height)
+               .Shape();
+  } else {
+    head = BRepPrimAPI_MakeCylinder(
+               gp_Ax2(gp_Pnt(shaft_radius, parameters.length, shaft_radius),
+                      gp_Dir(0.0, 1.0, 0.0)),
+               head_radius,
+               head_height)
+               .Shape();
+  }
+  return fuse_shapes(shape, head);
+}
+
 TopoDS_Shape build_feature_shape(const FeatureEntry& feature) {
   if (feature.kind == "box" && feature.box_parameters.has_value()) {
     return build_box_shape(feature.box_parameters.value());
@@ -1089,6 +1204,9 @@ TopoDS_Shape build_feature_shape(const FeatureEntry& feature) {
   }
   if (feature.kind == "sweep" && feature.sweep_parameters.has_value()) {
     return build_sweep_shape(feature.sweep_parameters.value());
+  }
+  if (feature.kind == "fastener" && feature.fastener_parameters.has_value()) {
+    return build_fastener_shape(feature.fastener_parameters.value());
   }
   return TopoDS_Shape{};
 }

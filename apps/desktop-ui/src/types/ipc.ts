@@ -4,6 +4,8 @@ import {
   ViewportCylinderPrimitive,
   ViewportPolygonExtrudePrimitive,
   ViewportReferenceAxis,
+  ViewportHelixPrimitive,
+  ViewportReferencePoint,
   ViewportReferencePlane,
   ViewportSceneBounds,
   ViewportSketchArc,
@@ -17,6 +19,10 @@ import {
   ViewportSolidFace,
   SketchTool,
   PlaneFrame,
+  FastenerFeatureParameters,
+  HelixFeatureParameters,
+  HoleFeatureParameters,
+  ThreadFeatureParameters,
 } from "@/types";
 
 export interface DocumentState {
@@ -70,6 +76,8 @@ export interface ViewportState {
   solid_faces: ViewportSolidFace[];
   reference_planes: ViewportReferencePlane[];
   reference_axes: ViewportReferenceAxis[];
+  reference_points: ViewportReferencePoint[];
+  helices: ViewportHelixPrimitive[];
   sketch_lines: ViewportSketchLine[];
   sketch_circles: ViewportSketchCircle[];
   sketch_polygons: ViewportSketchPolygon[];
@@ -645,6 +653,105 @@ export interface CreateAnglePlaneCommand {
     source_plane_id: string;
     source_axis_id: string;
     angle_degrees: number;
+  };
+}
+
+export interface CreateConstructionAxisCommand {
+  id: string;
+  type: "create_construction_axis";
+  payload: {
+    source_id: string;
+  };
+}
+
+export interface CreateConstructionPointCommand {
+  id: string;
+  type: "create_construction_point";
+  payload: {
+    source_id: string;
+  };
+}
+
+export interface CreateHoleCommand {
+  id: string;
+  type: "create_hole";
+  payload: Partial<HoleFeatureParameters> & {
+    face_id: string;
+    center_x: number;
+    center_y: number;
+    center_z: number;
+  };
+}
+
+export interface UpdateHoleParametersCommand {
+  id: string;
+  type: "update_hole_parameters";
+  payload: {
+    feature_id: string;
+    parameters: Partial<HoleFeatureParameters>;
+  };
+}
+
+export interface ConfirmHoleCommand {
+  id: string;
+  type: "confirm_hole";
+  payload: {
+    feature_id: string;
+  };
+}
+
+export interface CreateHelixCommand {
+  id: string;
+  type: "create_helix";
+  payload: Partial<HelixFeatureParameters> & {
+    axis_source_id: string;
+  };
+}
+
+export interface UpdateHelixParametersCommand {
+  id: string;
+  type: "update_helix_parameters";
+  payload: {
+    feature_id: string;
+    parameters: Partial<HelixFeatureParameters>;
+  };
+}
+
+export interface CreateThreadCommand {
+  id: string;
+  type: "create_thread";
+  payload: Partial<ThreadFeatureParameters>;
+}
+
+export interface UpdateThreadParametersCommand {
+  id: string;
+  type: "update_thread_parameters";
+  payload: {
+    feature_id: string;
+    parameters: Partial<ThreadFeatureParameters>;
+  };
+}
+
+export interface ConfirmThreadCommand {
+  id: string;
+  type: "confirm_thread";
+  payload: {
+    feature_id: string;
+  };
+}
+
+export interface CreateFastenerCommand {
+  id: string;
+  type: "create_fastener";
+  payload: Partial<FastenerFeatureParameters>;
+}
+
+export interface UpdateFastenerParametersCommand {
+  id: string;
+  type: "update_fastener_parameters";
+  payload: {
+    feature_id: string;
+    parameters: Partial<FastenerFeatureParameters>;
   };
 }
 
@@ -1410,6 +1517,18 @@ export type CoreCommand =
   | CreateMidplaneCommand
   | CreateTangentPlaneCommand
   | CreateAnglePlaneCommand
+  | CreateConstructionAxisCommand
+  | CreateConstructionPointCommand
+  | CreateHoleCommand
+  | UpdateHoleParametersCommand
+  | ConfirmHoleCommand
+  | CreateHelixCommand
+  | UpdateHelixParametersCommand
+  | CreateThreadCommand
+  | UpdateThreadParametersCommand
+  | ConfirmThreadCommand
+  | CreateFastenerCommand
+  | UpdateFastenerParametersCommand
   | UpdateOffsetPlaneCommand
   | UpdateAnglePlaneCommand
   | StartSketchOnPlaneCommand

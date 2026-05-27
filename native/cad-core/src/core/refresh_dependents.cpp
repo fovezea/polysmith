@@ -7,6 +7,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepGProp_Face.hxx>
@@ -420,12 +421,31 @@ std::optional<PlaneFrame> resolve_tangent_plane_source_frame(
 std::optional<ConstructionAxisFrame> resolve_angle_plane_axis(
     const DocumentState& document,
     const std::string& source_id) {
+  const auto axis = resolve_construction_axis_source(document, source_id);
+  if (!axis.has_value()) {
+    return std::nullopt;
+  }
+  return ConstructionAxisFrame{
+      .start_x = axis->start_x,
+      .start_y = axis->start_y,
+      .start_z = axis->start_z,
+      .end_x = axis->end_x,
+      .end_y = axis->end_y,
+      .end_z = axis->end_z,
+  };
+}
+
+std::optional<ConstructionAxisFeatureParameters> resolve_construction_axis_source(
+    const DocumentState& document,
+    const std::string& source_id) {
   if (source_id.find(":edge:") != std::string::npos) {
     const auto edge = compute_edge_geometry(document, source_id);
     if (!edge.has_value() || edge->kind != "line") {
       return std::nullopt;
     }
-    return ConstructionAxisFrame{
+    return ConstructionAxisFeatureParameters{
+        .source_id = source_id,
+        .source_kind = "edge",
         .start_x = edge->start.x,
         .start_y = edge->start.y,
         .start_z = edge->start.z,
@@ -459,13 +479,66 @@ std::optional<ConstructionAxisFrame> resolve_angle_plane_axis(
         sketch_local_to_world(frame.value(), line_it->start_x, line_it->start_y);
     const auto end =
         sketch_local_to_world(frame.value(), line_it->end_x, line_it->end_y);
-    return ConstructionAxisFrame{
+    return ConstructionAxisFeatureParameters{
+        .source_id = source_id,
+        .source_kind = "sketch_line",
         .start_x = start[0],
         .start_y = start[1],
         .start_z = start[2],
         .end_x = end[0],
         .end_y = end[1],
         .end_z = end[2],
+    };
+  }
+
+  return std::nullopt;
+}
+
+std::optional<ConstructionPointFeatureParameters> resolve_construction_point_source(
+    const DocumentState& document,
+    const std::string& source_id) {
+  if (source_id.find(":vertex:") != std::string::npos) {
+    const auto point = compute_vertex_position(document, source_id);
+    if (!point.has_value()) {
+      return std::nullopt;
+    }
+    return ConstructionPointFeatureParameters{
+        .source_id = source_id,
+        .source_kind = "vertex",
+        .x = point->x,
+        .y = point->y,
+        .z = point->z,
+    };
+  }
+
+  for (const auto& feature : document.feature_history) {
+    if (feature.kind != "sketch" || !feature.sketch_parameters.has_value()) {
+      continue;
+    }
+    const auto& sketch = feature.sketch_parameters.value();
+    const auto point_it = std::find_if(
+        sketch.points.begin(), sketch.points.end(),
+        [&](const SketchPoint& point) { return point.id == source_id; });
+    if (point_it == sketch.points.end()) {
+      continue;
+    }
+    const std::optional<PlaneFrame> frame =
+        sketch.plane_frame.has_value()
+            ? std::optional<PlaneFrame>(
+                  from_sketch_plane_frame(sketch.plane_frame.value()))
+            : origin_plane_frame(sketch.plane_id);
+    if (!frame.has_value()) {
+      return std::nullopt;
+    }
+
+    const auto world =
+        sketch_local_to_world(frame.value(), point_it->x, point_it->y);
+    return ConstructionPointFeatureParameters{
+        .source_id = source_id,
+        .source_kind = "sketch_point",
+        .x = world[0],
+        .y = world[1],
+        .z = world[2],
     };
   }
 
@@ -499,6 +572,62 @@ std::array<double, 3> sketch_local_to_world(const PlaneFrame& frame,
       frame.origin_y + local_x * frame.x_axis_y + local_y * frame.y_axis_y,
       frame.origin_z + local_x * frame.x_axis_z + local_y * frame.y_axis_z,
   };
+}
+
+std::vector<double> make_refreshed_helix_points(
+    const ConstructionAxisFeatureParameters& axis,
+    const HelixFeatureParameters& params) {
+  constexpr double kPi = 3.14159265358979323846;
+  const double ax = axis.end_x - axis.start_x;
+  const double ay = axis.end_y - axis.start_y;
+  const double az = axis.end_z - axis.start_z;
+  const double length = std::sqrt(ax * ax + ay * ay + az * az);
+  if (length <= 1.0e-9 || params.radius <= 0.0 || params.pitch <= 0.0 ||
+      params.height <= 0.0) {
+    return {};
+  }
+
+  const std::array<double, 3> dir{ax / length, ay / length, az / length};
+  const std::array<double, 3> seed =
+      std::abs(dir[0]) < 0.9 ? std::array<double, 3>{1.0, 0.0, 0.0}
+                             : std::array<double, 3>{0.0, 1.0, 0.0};
+  std::array<double, 3> u{
+      dir[1] * seed[2] - dir[2] * seed[1],
+      dir[2] * seed[0] - dir[0] * seed[2],
+      dir[0] * seed[1] - dir[1] * seed[0],
+  };
+  const double u_len = std::sqrt(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
+  if (u_len <= 1.0e-9) {
+    return {};
+  }
+  u = {u[0] / u_len, u[1] / u_len, u[2] / u_len};
+  const std::array<double, 3> v{
+      dir[1] * u[2] - dir[2] * u[1],
+      dir[2] * u[0] - dir[0] * u[2],
+      dir[0] * u[1] - dir[1] * u[0],
+  };
+
+  const double turns = params.height / params.pitch;
+  const int samples = std::max(24, static_cast<int>(std::ceil(turns * 48.0)));
+  const double handed = params.handedness == "left" ? -1.0 : 1.0;
+  const double start = params.start_angle_degrees * kPi / 180.0;
+  std::vector<double> points;
+  points.reserve(static_cast<size_t>(samples + 1) * 3);
+  for (int i = 0; i <= samples; ++i) {
+    const double t = static_cast<double>(i) / static_cast<double>(samples);
+    const double along = params.height * t;
+    const double angle = start + handed * 2.0 * kPi * turns * t;
+    points.push_back(axis.start_x + dir[0] * along +
+                     u[0] * std::cos(angle) * params.radius +
+                     v[0] * std::sin(angle) * params.radius);
+    points.push_back(axis.start_y + dir[1] * along +
+                     u[1] * std::cos(angle) * params.radius +
+                     v[1] * std::sin(angle) * params.radius);
+    points.push_back(axis.start_z + dir[2] * along +
+                     u[2] * std::cos(angle) * params.radius +
+                     v[2] * std::sin(angle) * params.radius);
+  }
+  return points;
 }
 
 struct SweepPathEntity {
@@ -1057,6 +1186,98 @@ void refresh_history_dependencies(DocumentState& document) {
             "Construction plane references '" + source_summary +
             "', which is no longer available. Edit upstream features to "
             "restore it.";
+      }
+    }
+
+    if (feature.kind == "construction_axis" &&
+        feature.construction_axis_parameters.has_value()) {
+      const auto& params = feature.construction_axis_parameters.value();
+      DocumentState prefix = document;
+      prefix.feature_history.resize(i);
+      const auto next_axis =
+          resolve_construction_axis_source(prefix, params.source_id);
+      if (next_axis.has_value()) {
+        feature.construction_axis_parameters = next_axis.value();
+        feature.dependency_broken = false;
+        feature.dependency_warning.clear();
+      } else {
+        feature.dependency_broken = true;
+        feature.dependency_warning =
+            "Construction axis references '" + params.source_id +
+            "', which is no longer available or is no longer linear.";
+      }
+    }
+
+    if (feature.kind == "construction_point" &&
+        feature.construction_point_parameters.has_value()) {
+      const auto& params = feature.construction_point_parameters.value();
+      DocumentState prefix = document;
+      prefix.feature_history.resize(i);
+      const auto next_point =
+          resolve_construction_point_source(prefix, params.source_id);
+      if (next_point.has_value()) {
+        feature.construction_point_parameters = next_point.value();
+        feature.dependency_broken = false;
+        feature.dependency_warning.clear();
+      } else {
+        feature.dependency_broken = true;
+        feature.dependency_warning =
+            "Construction point references '" + params.source_id +
+            "', which is no longer available.";
+      }
+    }
+
+    if (feature.kind == "hole" && feature.hole_parameters.has_value()) {
+      const auto& params = feature.hole_parameters.value();
+      DocumentState prefix = document;
+      prefix.feature_history.resize(i);
+      const auto face_target = parse_face_target(params.source_face_id);
+      std::optional<PlaneFrame> next_frame;
+      if (face_target.has_value()) {
+        next_frame = resolve_face_frame(
+            prefix, face_target->body_id, face_target->face_index);
+      }
+      if (next_frame.has_value()) {
+        HoleFeatureParameters next = params;
+        next.target_body_id =
+            face_target.has_value() ? face_target->body_id : params.target_body_id;
+        next.plane_frame = next_frame.value();
+        feature.hole_parameters = next;
+        feature.dependency_broken = false;
+        feature.dependency_warning.clear();
+      } else {
+        feature.dependency_broken = true;
+        feature.dependency_warning =
+            "Hole references '" + params.source_face_id +
+            "', which is no longer available as a planar face.";
+      }
+    }
+
+    if (feature.kind == "helix" && feature.helix_parameters.has_value()) {
+      const auto& params = feature.helix_parameters.value();
+      DocumentState prefix = document;
+      prefix.feature_history.resize(i);
+      const auto axis =
+          resolve_construction_axis_source(prefix, params.axis_source_id);
+      if (axis.has_value()) {
+        HelixFeatureParameters next = params;
+        next.axis_start_x = axis->start_x;
+        next.axis_start_y = axis->start_y;
+        next.axis_start_z = axis->start_z;
+        next.axis_end_x = axis->end_x;
+        next.axis_end_y = axis->end_y;
+        next.axis_end_z = axis->end_z;
+        next.turns = next.pitch > 0.0 ? next.height / next.pitch : 0.0;
+        next.points = make_refreshed_helix_points(axis.value(), next);
+        feature.helix_parameters = next;
+        feature.dependency_broken = next.points.empty();
+        feature.dependency_warning =
+            next.points.empty() ? "Helix parameters are invalid." : "";
+      } else {
+        feature.dependency_broken = true;
+        feature.dependency_warning =
+            "Helix references '" + params.axis_source_id +
+            "', which is no longer available or is no longer linear.";
       }
     }
 

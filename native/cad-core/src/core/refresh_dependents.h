@@ -50,6 +50,14 @@ std::optional<ConstructionAxisFrame> resolve_angle_plane_axis(
     const DocumentState& document,
     const std::string& source_id);
 
+std::optional<ConstructionAxisFeatureParameters> resolve_construction_axis_source(
+    const DocumentState& document,
+    const std::string& source_id);
+
+std::optional<ConstructionPointFeatureParameters> resolve_construction_point_source(
+    const DocumentState& document,
+    const std::string& source_id);
+
 // Walk `document.feature_history` in order and refresh every feature
 // whose geometry is derived from upstream features:
 //

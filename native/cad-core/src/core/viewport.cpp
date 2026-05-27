@@ -1955,6 +1955,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
         .solid_faces = {},
         .reference_planes = {},
         .reference_axes = {},
+        .reference_points = {},
+        .helices = {},
         .sketch_lines = {},
         .sketch_circles = {},
         .sketch_arcs = {},
@@ -1995,6 +1997,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
   std::vector<ViewportSolidFace> solid_faces;
   std::vector<ViewportReferencePlane> reference_planes;
   std::vector<ViewportReferenceAxis> reference_axes;
+  std::vector<ViewportReferencePoint> reference_points;
+  std::vector<ViewportHelixPrimitive> helices;
   std::vector<ViewportSketchLinePrimitive> sketch_lines;
   std::vector<ViewportSketchCirclePrimitive> sketch_circles;
   std::vector<ViewportSketchPolygonPrimitive> sketch_polygons;
@@ -3681,6 +3685,53 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
     });
   }
 
+  for (const auto& feature : view->feature_history) {
+    if (feature.suppressed) {
+      continue;
+    }
+    if (feature.kind == "construction_axis" &&
+        feature.construction_axis_parameters.has_value()) {
+      const auto& params = feature.construction_axis_parameters.value();
+      reference_axes.push_back(ViewportReferenceAxis{
+          .id = feature.id,
+          .label = feature.name,
+          .axis = "custom",
+          .start_x = params.start_x,
+          .start_y = params.start_y,
+          .start_z = params.start_z,
+          .end_x = params.end_x,
+          .end_y = params.end_y,
+          .end_z = params.end_z,
+      });
+      continue;
+    }
+    if (feature.kind == "construction_point" &&
+        feature.construction_point_parameters.has_value()) {
+      const auto& params = feature.construction_point_parameters.value();
+      reference_points.push_back(ViewportReferencePoint{
+          .id = feature.id,
+          .label = feature.name,
+          .x = params.x,
+          .y = params.y,
+          .z = params.z,
+          .is_selected = view->selected_feature_id.has_value() &&
+                         view->selected_feature_id.value() == feature.id,
+      });
+      continue;
+    }
+    if (feature.kind == "helix" && feature.helix_parameters.has_value() &&
+        !feature.dependency_broken) {
+      const auto& params = feature.helix_parameters.value();
+      helices.push_back(ViewportHelixPrimitive{
+          .id = feature.id,
+          .label = feature.name,
+          .points = params.points,
+          .is_selected = view->selected_feature_id.has_value() &&
+                         view->selected_feature_id.value() == feature.id,
+      });
+    }
+  }
+
   // Drop legacy named-suffix analytical faces for extrude features
   // (e.g. "<id>:face:top", "<id>:face:base", "<id>:face:side-N"). The
   // per-feature loop above still emits those for backwards
@@ -3869,6 +3920,8 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
       .solid_faces = solid_faces,
       .reference_planes = reference_planes,
       .reference_axes = reference_axes,
+      .reference_points = reference_points,
+      .helices = helices,
       .sketch_lines = sketch_lines,
       .sketch_circles = sketch_circles,
       .sketch_polygons = sketch_polygons,

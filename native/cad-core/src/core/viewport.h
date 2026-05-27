@@ -150,6 +150,22 @@ struct ViewportReferenceAxis {
   double end_z;
 };
 
+struct ViewportReferencePoint {
+  std::string id;
+  std::string label;
+  double x;
+  double y;
+  double z;
+  bool is_selected;
+};
+
+struct ViewportHelixPrimitive {
+  std::string id;
+  std::string label;
+  std::vector<double> points;
+  bool is_selected;
+};
+
 struct ViewportSketchLinePrimitive {
   std::string line_id;
   std::string start_point_id;
@@ -410,6 +426,8 @@ struct ViewportState {
   std::vector<ViewportSolidFace> solid_faces;
   std::vector<ViewportReferencePlane> reference_planes;
   std::vector<ViewportReferenceAxis> reference_axes;
+  std::vector<ViewportReferencePoint> reference_points;
+  std::vector<ViewportHelixPrimitive> helices;
   std::vector<ViewportSketchLinePrimitive> sketch_lines;
   std::vector<ViewportSketchCirclePrimitive> sketch_circles;
   std::vector<ViewportSketchPolygonPrimitive> sketch_polygons;

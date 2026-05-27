@@ -739,6 +739,144 @@ Payload:
 `viewport_state.edges[]`. The axis must be parallel to the source plane so the
 resulting construction plane can pivot around it.
 
+#### `create_construction_axis`
+
+Creates a construction axis from a linear source.
+
+Payload:
+
+```ts
+{
+  source_id: string;
+}
+```
+
+`source_id` may be a sketch line id or a straight body edge id from
+`viewport_state.edges[]`. Curved / unsupported edges are rejected by the core.
+
+#### `create_construction_point`
+
+Creates a construction point from a point-like source.
+
+Payload:
+
+```ts
+{
+  source_id: string;
+}
+```
+
+`source_id` may be a sketch point id or a body vertex id from
+`viewport_state.vertices[]`.
+
+#### `create_hole`
+
+Creates a semantic hole feature on a planar body face.
+
+Payload:
+
+```ts
+{
+  face_id: string;
+  center_x: number;
+  center_y: number;
+  center_z: number;
+  hole_type?: "simple" | "counterbore" | "countersink" | "spotface";
+  extent_type?: "blind" | "through_all";
+  diameter?: number;
+  depth?: number;
+  counterbore_diameter?: number;
+  counterbore_depth?: number;
+  countersink_diameter?: number;
+  countersink_angle_degrees?: number;
+  thread_enabled?: boolean;
+  thread_spec?: string;
+  thread_depth?: number;
+  thread_representation?: "cosmetic" | "modeled";
+}
+```
+
+The core owns the boolean cut and stores the semantic hole parameters in
+`feature_history[].hole_parameters`. Face references are re-resolved during
+dependency refresh; failed resolution marks the feature `dependency_broken`.
+
+#### `update_hole_parameters`
+
+Live-edits an existing hole feature.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+  parameters: Record<string, unknown>;
+}
+```
+
+Call `confirm_hole { feature_id }` after the contextual panel is accepted.
+
+#### `create_helix`
+
+Creates a construction helix from a linear axis source.
+
+Payload:
+
+```ts
+{
+  axis_source_id: string;
+  radius?: number;
+  pitch?: number;
+  height?: number;
+  handedness?: "left" | "right";
+  start_angle_degrees?: number;
+}
+```
+
+The core samples the helix into `viewport_state.helices[]` and re-resolves the
+axis source on recompute.
+
+#### `create_thread`
+
+Creates a semantic thread feature. Cosmetic representation stores thread
+metadata; modeled representation is reserved for the helical sweep/boolean path.
+
+Payload:
+
+```ts
+{
+  target_body_id: string;
+  axis_source_id: string;
+  mode?: "external" | "internal";
+  standard?: "custom" | "metric" | "imperial";
+  size?: string;
+  pitch?: number;
+  length?: number;
+  representation?: "cosmetic" | "modeled";
+}
+```
+
+Use `update_thread_parameters { feature_id, parameters }` for live edits and
+`confirm_thread { feature_id }` to finish the pending feature.
+
+#### `create_fastener`
+
+Creates a semantic fastener body.
+
+Payload:
+
+```ts
+{
+  standard?: "metric" | "imperial" | "custom";
+  size?: string;
+  diameter?: number;
+  length?: number;
+  thread_length?: number;
+  head_type?: "socket_head" | "button_head" | "flat" | "hex_bolt";
+  drive_type?: "none" | "hex_socket" | "phillips";
+  thread_representation?: "cosmetic" | "modeled";
+}
+```
+
 #### `update_offset_plane`
 
 Updates a construction plane offset.

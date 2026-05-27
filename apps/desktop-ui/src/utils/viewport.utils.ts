@@ -4,8 +4,10 @@ import {
   PrimitiveInteractionState,
   PrimitiveVisual,
   ReferenceAxisScene,
+  ReferenceHelixScene,
   ReferencePlaneInteractionState,
   ReferencePlaneScene,
+  ReferencePointScene,
   ReferencePlaneVisual,
   ScenePrimitive,
   SolidFaceInteractionState,
@@ -606,7 +608,9 @@ export function buildReferencePlaneObject(plane: ReferencePlaneScene) {
 
 export function buildReferenceAxisObject(axis: ReferenceAxisScene) {
   const color =
-    axis.axis === "x"
+    axis.axis === "custom"
+      ? themeColor("--color-tertiary-plane-edge", "#ffe784")
+      : axis.axis === "x"
       ? themeColor("--color-axis-x", "#ff6b7a")
       : axis.axis === "y"
         ? themeColor("--color-axis-y", "#2bd978")
@@ -623,6 +627,37 @@ export function buildReferenceAxisObject(axis: ReferenceAxisScene) {
   const geometry = new THREE.BufferGeometry().setFromPoints(points);
   const line = new THREE.Line(geometry, material);
 
+  return { line };
+}
+
+export function buildReferencePointObject(point: ReferencePointScene) {
+  const geometry = new THREE.SphereGeometry(0.7, 16, 12);
+  const material = new THREE.MeshBasicMaterial({
+    color: point.isSelected
+      ? themeColor("--color-tertiary-plane-edge-hover", "#fff2b2")
+      : themeColor("--color-tertiary-plane-edge", "#ffe784"),
+    transparent: true,
+    opacity: 0.95,
+    depthTest: true,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.set(...point.position);
+  return { mesh };
+}
+
+export function buildReferenceHelixObject(helix: ReferenceHelixScene) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(helix.points, 3));
+  const material = new THREE.LineBasicMaterial({
+    color: helix.isSelected
+      ? themeColor("--color-tertiary-plane-edge-hover", "#fff2b2")
+      : themeColor("--color-tertiary-plane-edge", "#ffe784"),
+    transparent: true,
+    opacity: 0.95,
+    depthTest: true,
+  });
+  const line = new THREE.Line(geometry, material);
+  line.userData.referenceId = helix.referenceId;
   return { line };
 }
 

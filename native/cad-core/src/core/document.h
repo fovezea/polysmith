@@ -189,6 +189,28 @@ class DocumentManager {
   DocumentState create_angle_plane(const std::string& source_plane_id,
                                    const std::string& source_axis_id,
                                    double angle_degrees);
+  DocumentState create_construction_axis(const std::string& source_id);
+  DocumentState create_construction_point(const std::string& source_id);
+  DocumentState create_hole(const std::string& face_id,
+                            double center_x,
+                            double center_y,
+                            double center_z,
+                            const HoleFeatureParameters& parameters);
+  DocumentState update_hole_parameters(const std::string& feature_id,
+                                       const HoleFeatureParameters& parameters);
+  DocumentState confirm_hole(const std::string& feature_id);
+  DocumentState create_helix(const std::string& axis_source_id,
+                             const HelixFeatureParameters& parameters);
+  DocumentState update_helix_parameters(const std::string& feature_id,
+                                        const HelixFeatureParameters& parameters);
+  DocumentState create_thread(const ThreadFeatureParameters& parameters);
+  DocumentState update_thread_parameters(const std::string& feature_id,
+                                         const ThreadFeatureParameters& parameters);
+  DocumentState confirm_thread(const std::string& feature_id);
+  DocumentState create_fastener(const FastenerFeatureParameters& parameters);
+  DocumentState update_fastener_parameters(
+      const std::string& feature_id,
+      const FastenerFeatureParameters& parameters);
   // Drive an existing construction plane's offset. The frame is
   // re-derived from the source's current frame, so chained planes
   // / face-based sources update correctly.

@@ -126,6 +126,49 @@ const commandPayloadSchemas = {
       angle_degrees: numberField,
     })
     .strict(),
+  create_construction_axis: z.object({ source_id: stringField }).strict(),
+  create_construction_point: z.object({ source_id: stringField }).strict(),
+  create_hole: z
+    .object({
+      face_id: stringField,
+      center_x: numberField,
+      center_y: numberField,
+      center_z: numberField,
+      hole_type: z.enum(["simple", "counterbore", "countersink", "spotface"]).optional(),
+      extent_type: z.enum(["blind", "through_all"]).optional(),
+      diameter: numberField.optional(),
+      depth: numberField.optional(),
+      thread_enabled: booleanField.optional(),
+      thread_spec: stringField.optional(),
+      thread_representation: z.enum(["cosmetic", "modeled"]).optional(),
+    })
+    .strict(),
+  update_hole_parameters: z
+    .object({ feature_id: stringField, parameters: z.record(z.string(), z.unknown()) })
+    .strict(),
+  confirm_hole: z.object({ feature_id: stringField }).strict(),
+  create_helix: z
+    .object({
+      axis_source_id: stringField,
+      radius: numberField.optional(),
+      pitch: numberField.optional(),
+      height: numberField.optional(),
+      handedness: z.enum(["left", "right"]).optional(),
+      start_angle_degrees: numberField.optional(),
+    })
+    .strict(),
+  update_helix_parameters: z
+    .object({ feature_id: stringField, parameters: z.record(z.string(), z.unknown()) })
+    .strict(),
+  create_thread: z.record(z.string(), z.unknown()),
+  update_thread_parameters: z
+    .object({ feature_id: stringField, parameters: z.record(z.string(), z.unknown()) })
+    .strict(),
+  confirm_thread: z.object({ feature_id: stringField }).strict(),
+  create_fastener: z.record(z.string(), z.unknown()),
+  update_fastener_parameters: z
+    .object({ feature_id: stringField, parameters: z.record(z.string(), z.unknown()) })
+    .strict(),
   update_offset_plane: z
     .object({ feature_id: stringField, offset: numberField })
     .strict(),

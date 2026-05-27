@@ -73,6 +73,18 @@ Common command payloads:
 - create_midplane { source_plane_ids }
 - create_tangent_plane { source_face_id }
 - create_angle_plane { source_plane_id, source_axis_id, angle_degrees }
+- create_construction_axis { source_id }
+- create_construction_point { source_id }
+- create_hole { face_id, center_x, center_y, center_z, hole_type?, extent_type?, diameter?, depth?, thread_enabled? }
+- update_hole_parameters { feature_id, parameters }
+- confirm_hole { feature_id }
+- create_helix { axis_source_id, radius?, pitch?, height?, handedness?, start_angle_degrees? }
+- update_helix_parameters { feature_id, parameters }
+- create_thread { target_body_id, axis_source_id, mode?, standard?, size?, pitch?, length?, representation? }
+- update_thread_parameters { feature_id, parameters }
+- confirm_thread { feature_id }
+- create_fastener { standard?, size?, diameter?, length?, thread_length?, head_type?, drive_type? }
+- update_fastener_parameters { feature_id, parameters }
 - update_angle_plane { feature_id, angle_degrees }
 - project_face_into_sketch { face_id }
 - project_profile_into_sketch { profile_id }

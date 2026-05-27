@@ -78,6 +78,18 @@ import {
   makeCreateMidplaneCommand,
   makeCreateTangentPlaneCommand,
   makeCreateAnglePlaneCommand,
+  makeCreateConstructionAxisCommand,
+  makeCreateConstructionPointCommand,
+  makeCreateFastenerCommand,
+  makeCreateHelixCommand,
+  makeCreateHoleCommand,
+  makeCreateThreadCommand,
+  makeConfirmHoleCommand,
+  makeConfirmThreadCommand,
+  makeUpdateFastenerParametersCommand,
+  makeUpdateHelixParametersCommand,
+  makeUpdateHoleParametersCommand,
+  makeUpdateThreadParametersCommand,
   makeUpdateOffsetPlaneCommand,
   makeUpdateAnglePlaneCommand,
   makeSetSketchCoincidentConstraintCommand,
@@ -128,6 +140,10 @@ import type {
   ExtrudeAdvancedParameters,
   ExtrudeFeatureParameters,
   ExtrudeMode,
+  FastenerFeatureParameters,
+  HelixFeatureParameters,
+  HoleFeatureParameters,
+  ThreadFeatureParameters,
 } from "@/types";
 
 import { useCadCoreStore } from "@/state";
@@ -465,6 +481,89 @@ export function useCadCore() {
     ) => {
       await sendCoreCommand(
         makeCreateAnglePlaneCommand(sourcePlaneId, sourceAxisId, angleDegrees),
+      );
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    createConstructionAxis: async (sourceId: string) => {
+      await sendCoreCommand(makeCreateConstructionAxisCommand(sourceId));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    createConstructionPoint: async (sourceId: string) => {
+      await sendCoreCommand(makeCreateConstructionPointCommand(sourceId));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    createHole: async (
+      faceId: string,
+      center: { x: number; y: number; z: number },
+      parameters: Partial<HoleFeatureParameters> = {},
+    ) => {
+      await sendCoreCommand(makeCreateHoleCommand(faceId, center, parameters));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateHoleParameters: async (
+      featureId: string,
+      parameters: Partial<HoleFeatureParameters>,
+    ) => {
+      await sendCoreCommand(makeUpdateHoleParametersCommand(featureId, parameters));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    confirmHole: async (featureId: string) => {
+      await sendCoreCommand(makeConfirmHoleCommand(featureId));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    createHelix: async (
+      axisSourceId: string,
+      parameters: Partial<HelixFeatureParameters> = {},
+    ) => {
+      await sendCoreCommand(makeCreateHelixCommand(axisSourceId, parameters));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateHelixParameters: async (
+      featureId: string,
+      parameters: Partial<HelixFeatureParameters>,
+    ) => {
+      await sendCoreCommand(makeUpdateHelixParametersCommand(featureId, parameters));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    createThread: async (parameters: Partial<ThreadFeatureParameters>) => {
+      await sendCoreCommand(makeCreateThreadCommand(parameters));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateThreadParameters: async (
+      featureId: string,
+      parameters: Partial<ThreadFeatureParameters>,
+    ) => {
+      await sendCoreCommand(makeUpdateThreadParametersCommand(featureId, parameters));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    confirmThread: async (featureId: string) => {
+      await sendCoreCommand(makeConfirmThreadCommand(featureId));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    createFastener: async (
+      parameters: Partial<FastenerFeatureParameters> = {},
+    ) => {
+      await sendCoreCommand(makeCreateFastenerCommand(parameters));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateFastenerParameters: async (
+      featureId: string,
+      parameters: Partial<FastenerFeatureParameters>,
+    ) => {
+      await sendCoreCommand(
+        makeUpdateFastenerParametersCommand(featureId, parameters),
       );
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());

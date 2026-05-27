@@ -291,6 +291,97 @@ const documentStateSchema = z.object({
         })
         .nullable()
         .default(null),
+      construction_axis_parameters: z
+        .object({
+          source_id: z.string(),
+          source_kind: z.enum(["edge", "sketch_line"]),
+          start: z.object({ x: z.number(), y: z.number(), z: z.number() }),
+          end: z.object({ x: z.number(), y: z.number(), z: z.number() }),
+        })
+        .nullable()
+        .default(null),
+      construction_point_parameters: z
+        .object({
+          source_id: z.string(),
+          source_kind: z.enum(["vertex", "sketch_point"]),
+          position: z.object({ x: z.number(), y: z.number(), z: z.number() }),
+        })
+        .nullable()
+        .default(null),
+      hole_parameters: z
+        .object({
+          target_body_id: z.string(),
+          source_face_id: z.string(),
+          plane_frame: planeFrameSchema,
+          center_x: z.number(),
+          center_y: z.number(),
+          hole_type: z
+            .enum(["simple", "counterbore", "countersink", "spotface"])
+            .default("simple"),
+          extent_type: z.enum(["blind", "through_all"]).default("blind"),
+          diameter: z.number(),
+          depth: z.number(),
+          counterbore_diameter: z.number(),
+          counterbore_depth: z.number(),
+          countersink_diameter: z.number(),
+          countersink_angle_degrees: z.number(),
+          thread_enabled: z.boolean().default(false),
+          thread_spec: z.string().default(""),
+          thread_depth: z.number(),
+          thread_representation: z.enum(["cosmetic", "modeled"]).default("cosmetic"),
+          is_pending: z.boolean().default(false),
+        })
+        .nullable()
+        .default(null),
+      helix_parameters: z
+        .object({
+          axis_source_id: z.string(),
+          axis_start: z.object({ x: z.number(), y: z.number(), z: z.number() }),
+          axis_end: z.object({ x: z.number(), y: z.number(), z: z.number() }),
+          radius: z.number(),
+          pitch: z.number(),
+          height: z.number(),
+          turns: z.number(),
+          handedness: z.enum(["left", "right"]).default("right"),
+          start_angle_degrees: z.number(),
+          points: z.array(z.number()).default([]),
+        })
+        .nullable()
+        .default(null),
+      thread_parameters: z
+        .object({
+          target_body_id: z.string(),
+          axis_source_id: z.string(),
+          mode: z.enum(["external", "internal"]).default("external"),
+          standard: z.enum(["custom", "metric", "imperial"]).default("custom"),
+          size: z.string().default(""),
+          major_diameter: z.number(),
+          minor_diameter: z.number(),
+          pitch: z.number(),
+          length: z.number(),
+          thread_angle_degrees: z.number(),
+          start_offset: z.number(),
+          handedness: z.enum(["left", "right"]).default("right"),
+          representation: z.enum(["cosmetic", "modeled"]).default("cosmetic"),
+          is_pending: z.boolean().default(false),
+        })
+        .nullable()
+        .default(null),
+      fastener_parameters: z
+        .object({
+          standard: z.enum(["metric", "imperial", "custom"]).default("metric"),
+          size: z.string(),
+          diameter: z.number(),
+          length: z.number(),
+          thread_length: z.number(),
+          head_type: z
+            .enum(["socket_head", "button_head", "flat", "hex_bolt"])
+            .default("socket_head"),
+          drive_type: z.enum(["none", "hex_socket", "phillips"]).default("hex_socket"),
+          thread_representation: z.enum(["cosmetic", "modeled"]).default("cosmetic"),
+        })
+        .nullable()
+        .default(null),
       sketch_parameters: z
         .object({
           plane_id: z.string(),
@@ -681,7 +772,7 @@ const viewportStateSchema = z.object({
     z.object({
       reference_id: z.string(),
       label: z.string(),
-      axis: z.enum(["x", "y", "z"]),
+      axis: z.enum(["x", "y", "z", "custom"]),
       start: z.object({
         x: z.number(),
         y: z.number(),
@@ -694,6 +785,30 @@ const viewportStateSchema = z.object({
       }),
     }),
   ),
+  reference_points: z
+    .array(
+      z.object({
+        reference_id: z.string(),
+        label: z.string(),
+        position: z.object({
+          x: z.number(),
+          y: z.number(),
+          z: z.number(),
+        }),
+        is_selected: z.boolean(),
+      }),
+    )
+    .default([]),
+  helices: z
+    .array(
+      z.object({
+        helix_id: z.string(),
+        label: z.string(),
+        points: z.array(z.number()).default([]),
+        is_selected: z.boolean(),
+      }),
+    )
+    .default([]),
   sketch_lines: z.array(
     z.object({
       line_id: z.string(),

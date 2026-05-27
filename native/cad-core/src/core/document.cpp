@@ -6503,6 +6503,406 @@ DocumentState DocumentManager::create_angle_plane(
   return document_.value();
 }
 
+DocumentState DocumentManager::create_construction_axis(
+    const std::string& source_id) {
+  require_document();
+  const auto axis = resolve_construction_axis_source(*document_, source_id);
+  if (!axis.has_value()) {
+    throw std::runtime_error(
+        "Construction axis source not found or not linear: " + source_id);
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+
+  FeatureEntry feature{};
+  feature.id = "feature-" + std::to_string(next_feature_id_++);
+  feature.kind = "construction_axis";
+  feature.name = "Axis";
+  feature.status = "healthy";
+  feature.parameters_summary =
+      axis->source_kind == "edge" ? "From edge" : "From sketch line";
+  feature.construction_axis_parameters = axis.value();
+  document_->feature_history.push_back(feature);
+
+  const std::string feature_id = document_->feature_history.back().id;
+  document_->selected_feature_id = feature_id;
+  document_->selected_reference_id = std::nullopt;
+  document_->selected_face_id = std::nullopt;
+  document_->selected_edge_ids.clear();
+  document_->selected_vertex_ids.clear();
+  document_->selected_sketch_point_id = std::nullopt;
+  document_->selected_sketch_entity_id = std::nullopt;
+  document_->selected_sketch_dimension_id = std::nullopt;
+  document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::create_construction_point(
+    const std::string& source_id) {
+  require_document();
+  const auto point = resolve_construction_point_source(*document_, source_id);
+  if (!point.has_value()) {
+    throw std::runtime_error(
+        "Construction point source not found: " + source_id);
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+
+  FeatureEntry feature{};
+  feature.id = "feature-" + std::to_string(next_feature_id_++);
+  feature.kind = "construction_point";
+  feature.name = "Point";
+  feature.status = "healthy";
+  feature.parameters_summary =
+      point->source_kind == "vertex" ? "From vertex" : "From sketch point";
+  feature.construction_point_parameters = point.value();
+  document_->feature_history.push_back(feature);
+
+  const std::string feature_id = document_->feature_history.back().id;
+  document_->selected_feature_id = feature_id;
+  document_->selected_reference_id = std::nullopt;
+  document_->selected_face_id = std::nullopt;
+  document_->selected_edge_ids.clear();
+  document_->selected_vertex_ids.clear();
+  document_->selected_sketch_point_id = std::nullopt;
+  document_->selected_sketch_entity_id = std::nullopt;
+  document_->selected_sketch_dimension_id = std::nullopt;
+  document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::create_hole(
+    const std::string& face_id,
+    double center_x,
+    double center_y,
+    double center_z,
+    const HoleFeatureParameters& parameters) {
+  require_document();
+  const auto frame = resolve_plane_source_frame(*document_, face_id);
+  if (!frame.has_value()) {
+    throw std::runtime_error("Hole requires a planar face source");
+  }
+  const auto face_marker = face_id.find(":face:");
+  if (face_marker == std::string::npos || face_marker == 0) {
+    throw std::runtime_error("Hole requires a body face id");
+  }
+
+  HoleFeatureParameters next = parameters;
+  next.target_body_id = face_id.substr(0, face_marker);
+  next.source_face_id = face_id;
+  next.plane_frame = frame.value();
+  const double dx = center_x - frame->origin_x;
+  const double dy = center_y - frame->origin_y;
+  const double dz = center_z - frame->origin_z;
+  next.center_x = dx * frame->x_axis_x + dy * frame->x_axis_y + dz * frame->x_axis_z;
+  next.center_y = dx * frame->y_axis_x + dy * frame->y_axis_y + dz * frame->y_axis_z;
+  next.is_pending = true;
+  if (next.thread_enabled && next.thread_depth <= 0.0) {
+    next.thread_depth = next.depth;
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+
+  FeatureEntry feature{};
+  feature.id = "feature-" + std::to_string(next_feature_id_++);
+  feature.kind = "hole";
+  feature.name = "Hole";
+  feature.status = "healthy";
+  feature.parameters_summary = next.hole_type + " · " +
+                               std::to_string(next.diameter) + " mm";
+  feature.hole_parameters = next;
+  document_->feature_history.push_back(feature);
+  document_->selected_feature_id = document_->feature_history.back().id;
+  document_->selected_reference_id = std::nullopt;
+  document_->selected_face_id = std::nullopt;
+  document_->selected_edge_ids.clear();
+  document_->selected_vertex_ids.clear();
+  document_->selected_sketch_point_id = std::nullopt;
+  document_->selected_sketch_entity_id = std::nullopt;
+  document_->selected_sketch_dimension_id = std::nullopt;
+  document_->selected_sketch_profile_id = std::nullopt;
+  document_->selected_sketch_profile_ids.clear();
+  document_->selected_sketch_point_ids.clear();
+  document_->selected_sketch_entity_ids.clear();
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::update_hole_parameters(
+    const std::string& feature_id,
+    const HoleFeatureParameters& parameters) {
+  require_document();
+  auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+  if (feature_it == document_->feature_history.end() ||
+      feature_it->kind != "hole" ||
+      !feature_it->hole_parameters.has_value()) {
+    throw std::runtime_error("update_hole_parameters requires a hole feature");
+  }
+  HoleFeatureParameters next = parameters;
+  next.target_body_id = feature_it->hole_parameters->target_body_id;
+  next.source_face_id = feature_it->hole_parameters->source_face_id;
+  next.plane_frame = feature_it->hole_parameters->plane_frame;
+  next.center_x = feature_it->hole_parameters->center_x;
+  next.center_y = feature_it->hole_parameters->center_y;
+  next.is_pending = feature_it->hole_parameters->is_pending;
+  feature_it->hole_parameters = next;
+  feature_it->parameters_summary = next.hole_type + " · " +
+                                   std::to_string(next.diameter) + " mm";
+  feature_it->status = "healthy";
+  feature_it->dependency_broken = false;
+  feature_it->dependency_warning.clear();
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::confirm_hole(const std::string& feature_id) {
+  require_document();
+  auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+  if (feature_it == document_->feature_history.end() ||
+      feature_it->kind != "hole" ||
+      !feature_it->hole_parameters.has_value()) {
+    throw std::runtime_error("confirm_hole requires a hole feature");
+  }
+  feature_it->hole_parameters->is_pending = false;
+  bump_geometry_revision();
+  return document_.value();
+}
+
+namespace {
+
+std::vector<double> make_helix_points(const ConstructionAxisFeatureParameters& axis,
+                                      const HelixFeatureParameters& params) {
+  const double ax = axis.end_x - axis.start_x;
+  const double ay = axis.end_y - axis.start_y;
+  const double az = axis.end_z - axis.start_z;
+  const double length = std::sqrt(ax * ax + ay * ay + az * az);
+  if (length <= 1.0e-9 || params.radius <= 0.0 || params.pitch <= 0.0 ||
+      params.height <= 0.0) {
+    return {};
+  }
+  const std::array<double, 3> dir{ax / length, ay / length, az / length};
+  std::array<double, 3> seed =
+      std::abs(dir[0]) < 0.9 ? std::array<double, 3>{1.0, 0.0, 0.0}
+                             : std::array<double, 3>{0.0, 1.0, 0.0};
+  std::array<double, 3> u{
+      dir[1] * seed[2] - dir[2] * seed[1],
+      dir[2] * seed[0] - dir[0] * seed[2],
+      dir[0] * seed[1] - dir[1] * seed[0],
+  };
+  const double u_len = std::sqrt(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
+  if (u_len <= 1.0e-9) {
+    return {};
+  }
+  u = {u[0] / u_len, u[1] / u_len, u[2] / u_len};
+  const std::array<double, 3> v{
+      dir[1] * u[2] - dir[2] * u[1],
+      dir[2] * u[0] - dir[0] * u[2],
+      dir[0] * u[1] - dir[1] * u[0],
+  };
+  const double turns = params.height / params.pitch;
+  const int samples = std::max(24, static_cast<int>(std::ceil(turns * 48.0)));
+  const double handed = params.handedness == "left" ? -1.0 : 1.0;
+  const double start = params.start_angle_degrees * kPi / 180.0;
+  std::vector<double> points;
+  points.reserve(static_cast<size_t>(samples + 1) * 3);
+  for (int i = 0; i <= samples; ++i) {
+    const double t = static_cast<double>(i) / static_cast<double>(samples);
+    const double along = params.height * t;
+    const double angle = start + handed * 2.0 * kPi * turns * t;
+    const double radial_u = std::cos(angle) * params.radius;
+    const double radial_v = std::sin(angle) * params.radius;
+    points.push_back(axis.start_x + dir[0] * along + u[0] * radial_u + v[0] * radial_v);
+    points.push_back(axis.start_y + dir[1] * along + u[1] * radial_u + v[1] * radial_v);
+    points.push_back(axis.start_z + dir[2] * along + u[2] * radial_u + v[2] * radial_v);
+  }
+  return points;
+}
+
+}  // namespace
+
+DocumentState DocumentManager::create_helix(
+    const std::string& axis_source_id,
+    const HelixFeatureParameters& parameters) {
+  require_document();
+  const auto axis = resolve_construction_axis_source(*document_, axis_source_id);
+  if (!axis.has_value()) {
+    throw std::runtime_error("Helix axis source not found or not linear");
+  }
+  HelixFeatureParameters next = parameters;
+  next.axis_source_id = axis_source_id;
+  next.axis_start_x = axis->start_x;
+  next.axis_start_y = axis->start_y;
+  next.axis_start_z = axis->start_z;
+  next.axis_end_x = axis->end_x;
+  next.axis_end_y = axis->end_y;
+  next.axis_end_z = axis->end_z;
+  next.turns = next.pitch > 0.0 ? next.height / next.pitch : 0.0;
+  next.points = make_helix_points(axis.value(), next);
+  if (next.points.empty()) {
+    throw std::runtime_error("Helix parameters are invalid");
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+  FeatureEntry feature{};
+  feature.id = "feature-" + std::to_string(next_feature_id_++);
+  feature.kind = "helix";
+  feature.name = "Helix";
+  feature.status = "healthy";
+  feature.parameters_summary = std::to_string(next.pitch) + " mm pitch";
+  feature.helix_parameters = next;
+  document_->feature_history.push_back(feature);
+  document_->selected_feature_id = document_->feature_history.back().id;
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::update_helix_parameters(
+    const std::string& feature_id,
+    const HelixFeatureParameters& parameters) {
+  require_document();
+  auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+  if (feature_it == document_->feature_history.end() ||
+      feature_it->kind != "helix" ||
+      !feature_it->helix_parameters.has_value()) {
+    throw std::runtime_error("update_helix_parameters requires a helix feature");
+  }
+  const auto axis = resolve_construction_axis_source(
+      *document_, feature_it->helix_parameters->axis_source_id);
+  if (!axis.has_value()) {
+    feature_it->dependency_broken = true;
+    feature_it->dependency_warning = "Helix axis source is no longer available.";
+    return document_.value();
+  }
+  HelixFeatureParameters next = parameters;
+  next.axis_source_id = feature_it->helix_parameters->axis_source_id;
+  next.axis_start_x = axis->start_x;
+  next.axis_start_y = axis->start_y;
+  next.axis_start_z = axis->start_z;
+  next.axis_end_x = axis->end_x;
+  next.axis_end_y = axis->end_y;
+  next.axis_end_z = axis->end_z;
+  next.turns = next.pitch > 0.0 ? next.height / next.pitch : 0.0;
+  next.points = make_helix_points(axis.value(), next);
+  feature_it->helix_parameters = next;
+  feature_it->dependency_broken = next.points.empty();
+  feature_it->dependency_warning =
+      next.points.empty() ? "Helix parameters are invalid." : "";
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::create_thread(
+    const ThreadFeatureParameters& parameters) {
+  require_document();
+  push_undo_state();
+  clear_redo_stack();
+  FeatureEntry feature{};
+  feature.id = "feature-" + std::to_string(next_feature_id_++);
+  feature.kind = "thread";
+  feature.name = "Thread";
+  feature.status = "healthy";
+  feature.parameters_summary = parameters.size.empty() ? "Custom thread" : parameters.size;
+  feature.thread_parameters = parameters;
+  feature.thread_parameters->is_pending = true;
+  document_->feature_history.push_back(feature);
+  document_->selected_feature_id = document_->feature_history.back().id;
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::update_thread_parameters(
+    const std::string& feature_id,
+    const ThreadFeatureParameters& parameters) {
+  require_document();
+  auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+  if (feature_it == document_->feature_history.end() ||
+      feature_it->kind != "thread" ||
+      !feature_it->thread_parameters.has_value()) {
+    throw std::runtime_error("update_thread_parameters requires a thread feature");
+  }
+  feature_it->thread_parameters = parameters;
+  feature_it->parameters_summary = parameters.size.empty() ? "Custom thread" : parameters.size;
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::confirm_thread(const std::string& feature_id) {
+  require_document();
+  auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+  if (feature_it == document_->feature_history.end() ||
+      feature_it->kind != "thread" ||
+      !feature_it->thread_parameters.has_value()) {
+    throw std::runtime_error("confirm_thread requires a thread feature");
+  }
+  feature_it->thread_parameters->is_pending = false;
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::create_fastener(
+    const FastenerFeatureParameters& parameters) {
+  require_document();
+  push_undo_state();
+  clear_redo_stack();
+  FeatureEntry feature{};
+  feature.id = "feature-" + std::to_string(next_feature_id_++);
+  feature.kind = "fastener";
+  feature.name = "Fastener";
+  feature.status = "healthy";
+  feature.parameters_summary = parameters.size + " · " + std::to_string(parameters.length) + " mm";
+  feature.fastener_parameters = parameters;
+  document_->feature_history.push_back(feature);
+  document_->selected_feature_id = document_->feature_history.back().id;
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::update_fastener_parameters(
+    const std::string& feature_id,
+    const FastenerFeatureParameters& parameters) {
+  require_document();
+  auto feature_it = std::find_if(
+      document_->feature_history.begin(),
+      document_->feature_history.end(),
+      [&](const FeatureEntry& feature) { return feature.id == feature_id; });
+  if (feature_it == document_->feature_history.end() ||
+      feature_it->kind != "fastener" ||
+      !feature_it->fastener_parameters.has_value()) {
+    throw std::runtime_error("update_fastener_parameters requires a fastener feature");
+  }
+  feature_it->fastener_parameters = parameters;
+  feature_it->parameters_summary = parameters.size + " · " + std::to_string(parameters.length) + " mm";
+  bump_geometry_revision();
+  return document_.value();
+}
+
 DocumentState DocumentManager::update_offset_plane(
     const std::string& feature_id, double offset) {
   require_document();

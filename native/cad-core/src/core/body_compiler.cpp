@@ -327,6 +327,23 @@ TopoDS_Shape apply_shell(const TopoDS_Shape& body_shape,
   }
 }
 
+TopoDS_Shape apply_hole(const TopoDS_Shape& body_shape,
+                        const HoleFeatureParameters& params) {
+  if (body_shape.IsNull()) {
+    return body_shape;
+  }
+  try {
+    const TopoDS_Shape cutter = build_hole_cutter_shape(params);
+    if (cutter.IsNull()) {
+      return body_shape;
+    }
+    const TopoDS_Shape result = BRepAlgoAPI_Cut(body_shape, cutter).Shape();
+    return result.IsNull() ? body_shape : unify_same_domain(result);
+  } catch (const std::exception&) {
+    return body_shape;
+  }
+}
+
 }  // namespace
 
 CompiledBodies compile_bodies(const DocumentState& document) {
@@ -408,7 +425,8 @@ CompiledBodies compile_bodies(const DocumentState& document) {
       }
     }
     if (feature.kind == "fillet" || feature.kind == "chamfer" ||
-        feature.kind == "shell") {
+        feature.kind == "shell" || feature.kind == "hole" ||
+        feature.kind == "fastener") {
       // Body-modifying features always produce a mesh body (they modify an
       // existing OCCT shape in ways the legacy primitive renderers
       // can't replicate), so they always trigger the mesh path.
@@ -539,6 +557,37 @@ CompiledBodies compile_bodies(const DocumentState& document) {
         }
         body_order.push_back(target_id);
       }
+      continue;
+    }
+    if (feature.kind == "hole" && feature.hole_parameters.has_value()) {
+      const auto& params = feature.hole_parameters.value();
+      std::string target_id;
+      if (!params.target_body_id.empty() &&
+          body_shapes.find(params.target_body_id) != body_shapes.end()) {
+        target_id = params.target_body_id;
+      } else if (!body_order.empty()) {
+        target_id = body_order.back();
+      } else {
+        continue;
+      }
+      const TopoDS_Shape pre_shape = body_shapes[target_id];
+      body_shapes[target_id] = apply_hole(pre_shape, params);
+      result.consumed_feature_ids.insert(feature.id);
+      result.consumed_feature_ids.insert(target_id);
+      body_pick_shapes.erase(target_id);
+      if (!body_order.empty() && body_order.back() != target_id) {
+        for (auto it = body_order.begin(); it != body_order.end(); ++it) {
+          if (*it == target_id) {
+            body_order.erase(it);
+            break;
+          }
+        }
+        body_order.push_back(target_id);
+      }
+      continue;
+    }
+    if (feature.kind == "thread" && feature.thread_parameters.has_value()) {
+      result.consumed_feature_ids.insert(feature.id);
       continue;
     }
 

@@ -8,6 +8,10 @@ import type {
   ExtrudeAdvancedParameters,
   ExtrudeFeatureParameters,
   ExtrudeMode,
+  FastenerFeatureParameters,
+  HelixFeatureParameters,
+  HoleFeatureParameters,
+  ThreadFeatureParameters,
   ViewportState,
 } from "@/types";
 
@@ -535,6 +539,154 @@ export function makeCreateAnglePlaneCommand(
       source_plane_id: sourcePlaneId,
       source_axis_id: sourceAxisId,
       angle_degrees: angleDegrees,
+    },
+  };
+}
+
+export function makeCreateConstructionAxisCommand(sourceId: string): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "create_construction_axis",
+    payload: {
+      source_id: sourceId,
+    },
+  };
+}
+
+export function makeCreateConstructionPointCommand(sourceId: string): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "create_construction_point",
+    payload: {
+      source_id: sourceId,
+    },
+  };
+}
+
+export function makeCreateHoleCommand(
+  faceId: string,
+  center: { x: number; y: number; z: number },
+  parameters: Partial<HoleFeatureParameters> = {},
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "create_hole",
+    payload: {
+      ...parameters,
+      face_id: faceId,
+      center_x: center.x,
+      center_y: center.y,
+      center_z: center.z,
+    },
+  };
+}
+
+export function makeUpdateHoleParametersCommand(
+  featureId: string,
+  parameters: Partial<HoleFeatureParameters>,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_hole_parameters",
+    payload: {
+      feature_id: featureId,
+      parameters,
+    },
+  };
+}
+
+export function makeConfirmHoleCommand(featureId: string): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "confirm_hole",
+    payload: {
+      feature_id: featureId,
+    },
+  };
+}
+
+export function makeCreateHelixCommand(
+  axisSourceId: string,
+  parameters: Partial<HelixFeatureParameters> = {},
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "create_helix",
+    payload: {
+      ...parameters,
+      axis_source_id: axisSourceId,
+    },
+  };
+}
+
+export function makeUpdateHelixParametersCommand(
+  featureId: string,
+  parameters: Partial<HelixFeatureParameters>,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_helix_parameters",
+    payload: {
+      feature_id: featureId,
+      parameters,
+    },
+  };
+}
+
+export function makeCreateThreadCommand(
+  parameters: Partial<ThreadFeatureParameters>,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "create_thread",
+    payload: parameters,
+  };
+}
+
+export function makeUpdateThreadParametersCommand(
+  featureId: string,
+  parameters: Partial<ThreadFeatureParameters>,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_thread_parameters",
+    payload: {
+      feature_id: featureId,
+      parameters,
+    },
+  };
+}
+
+export function makeConfirmThreadCommand(featureId: string): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "confirm_thread",
+    payload: {
+      feature_id: featureId,
+    },
+  };
+}
+
+export function makeCreateFastenerCommand(
+  parameters: Partial<FastenerFeatureParameters> = {},
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "create_fastener",
+    payload: parameters,
+  };
+}
+
+export function makeUpdateFastenerParametersCommand(
+  featureId: string,
+  parameters: Partial<FastenerFeatureParameters>,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_fastener_parameters",
+    payload: {
+      feature_id: featureId,
+      parameters,
     },
   };
 }

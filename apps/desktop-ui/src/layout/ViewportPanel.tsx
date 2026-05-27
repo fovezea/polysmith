@@ -45,7 +45,9 @@ import {
   applySolidFaceVisualState,
   buildPrimitiveObject,
   buildReferenceAxisObject,
+  buildReferenceHelixObject,
   buildReferencePlaneObject,
+  buildReferencePointObject,
   buildSketchArcObject,
   buildSketchCircleObject,
   buildSketchConstraintObject,
@@ -9250,8 +9252,16 @@ const currentGridSpacingRef = useRef(10);
         continue;
       }
 
-      const axisObject = buildReferenceAxisObject(reference);
-      referenceGroup.add(axisObject.line);
+      if (reference.kind === "reference_axis") {
+        const axisObject = buildReferenceAxisObject(reference);
+        referenceGroup.add(axisObject.line);
+      } else if (reference.kind === "reference_point") {
+        const pointObject = buildReferencePointObject(reference);
+        referenceGroup.add(pointObject.mesh);
+      } else if (reference.kind === "reference_helix") {
+        const helixObject = buildReferenceHelixObject(reference);
+        referenceGroup.add(helixObject.line);
+      }
     }
 
     for (const face of sceneData.solidFaces) {

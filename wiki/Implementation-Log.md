@@ -458,6 +458,13 @@ When adding a new entity, grep `ipcSchema.ts` for the union literally and walk e
 - protocol / schema / docs: added the two new commands to `protocol/schema/commands.schema.json`, documented them and the new `viewport_state.reference_planes[].plane_frame` field in `IPC-Protocol`, and updated `findDependents` so deleting a construction plane (or any plane it sources from) surfaces a "this will break N downstream features" prompt. Round-trip serialization for `construction_plane_parameters` is symmetric with the other feature kinds; older `.polysmith` saves load cleanly because the field defaults to null.
 - v1 limitations (deliberate): no in-panel "Edit" entry from the timeline yet (the user undoes + redoes to revisit the offset for now); no Mid-plane / Axis / Point construct features (still placeholders); the panel's Cancel collapses to a single `undo()` which won't separately revert older live offset edits if the panel is reopened — acceptable because v1 only opens the panel during creation. All natural follow-ups.
 
+### Construction Axes and Points (v1)
+
+- added `construction_axis` and `construction_point` feature kinds. Axes are created from sketch lines or straight body edges; points are created from sketch points or body vertices. Both feature kinds store their source id plus cached world-space geometry for rendering.
+- dependency refresh re-resolves construction-axis and construction-point sources against the live prefix history. Missing / changed sources mark the feature `dependency_broken` and keep the last cached geometry instead of crashing or trusting stale topology.
+- viewport protocol now emits construction axes through `reference_axes[]` with `axis: "custom"` and emits construction points through `reference_points[]`. The hierarchy lists planes, axes, and points together under Construction, with per-feature visibility preserved.
+- UI: the Construct ribbon Axis and Point placeholders are now active contextual pick tools. Axis accepts body edges and sketch lines; Point accepts body vertices and sketch points.
+
 ### Modal Project Tool (face / edge / vertex)
 
 - reshaped Project from a one-shot face-projection action into a contextual modeling modal sketch tool. While active (toggled via the `P` button in `SketchToolbar` or the `P` hotkey), every viewport face / edge / vertex click is routed to `project_*_into_sketch` instead of the normal selection. The tool stays armed across clicks; toggling Project again, picking a different sketch tool, or pressing `Esc` returns to Select.
@@ -1273,3 +1280,24 @@ Three bugs fixed after initial implementation:
 - reworked the extrude floating panel into grouped controls for operation,
   intersect result, extents, side settings, thin placement, and targets, with
   timeline cancel restoring the complete saved extrude parameter snapshot
+
+## Screws / Holes / Threading Foundation (2026-05-27)
+
+- added semantic native feature kinds for `hole`, `helix`, `thread`, and
+  `fastener`, with JSON serialization and IPC commands for create/update/confirm
+  flows
+- implemented first-pass core-owned Hole: planar face source, local center,
+  simple / counterbore / countersink / spotface parameters, blind / through-all
+  extent, cosmetic thread metadata, and boolean cut preview through the body
+  compiler
+- added dependency refresh for holes and helices: hole source faces re-resolve
+  against the current body shape, helix axis sources re-resolve against sketch
+  lines / construction axes / straight body edges, and failures degrade via
+  `dependency_broken`
+- added sampled construction helix viewport payloads in `viewport_state.helices[]`
+  and a lightweight renderer path using theme construction colors
+- exposed the Hole tool in the Create toolbar with the contextual workflow:
+  select/invoke or invoke/select planar face, edit the floating panel, confirm or
+  cancel with undo
+- staged thread and fastener semantics without claiming modeled thread booleans
+  are complete; modeled thread generation will build on the helix + sweep path

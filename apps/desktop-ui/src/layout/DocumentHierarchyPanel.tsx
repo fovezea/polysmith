@@ -193,6 +193,20 @@ function AxisIcon() {
   );
 }
 
+function PointIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="12"
+      height="12"
+      aria-hidden="true"
+      fill="currentColor"
+    >
+      <circle cx="8" cy="8" r="2.5" />
+    </svg>
+  );
+}
+
 function WarningIcon() {
   return (
     <svg
@@ -481,8 +495,13 @@ export function DocumentHierarchyPanel({
     () => features.filter((feature) => feature.kind === "sketch"),
     [features],
   );
-  const constructionPlanes = useMemo(
-    () => features.filter((feature) => feature.kind === "construction_plane"),
+  const constructionFeatures = useMemo(
+    () =>
+      features.filter((feature) =>
+        ["construction_plane", "construction_axis", "construction_point"].includes(
+          feature.kind,
+        ),
+      ),
     [features],
   );
   const bodies = useMemo(
@@ -611,48 +630,60 @@ export function DocumentHierarchyPanel({
         isHidden={hiddenCategories.has("construction")}
         onToggleVisibility={() => onToggleCategoryVisibility("construction")}
         emptyHint={
-          constructionPlanes.length === 0
+          constructionFeatures.length === 0
             ? t("document.noConstructionGeometry")
             : undefined
         }
         {...categoryLabels}
       >
-        {constructionPlanes.map((plane) => {
-          const isHidden = hiddenFeatureIds.has(plane.feature_id);
+        {constructionFeatures.map((feature) => {
+          const isHidden = hiddenFeatureIds.has(feature.feature_id);
+          const icon =
+            feature.kind === "construction_plane" ? (
+              <PlaneIcon />
+            ) : feature.kind === "construction_axis" ? (
+              <AxisIcon />
+            ) : (
+              <PointIcon />
+            );
           return (
             <Row
-              key={plane.feature_id}
-              icon={<PlaneIcon />}
-              label={plane.name}
+              key={feature.feature_id}
+              icon={icon}
+              label={feature.name}
               // Construction planes get highlighted via either
               // selected_reference_id or selected_feature_id —
               // both selectors are valid for them. Match the
               // viewport's behaviour by light-up if either is set.
               isSelected={
-                document.selected_reference_id === plane.feature_id ||
-                document.selected_feature_id === plane.feature_id
+                document.selected_reference_id === feature.feature_id ||
+                document.selected_feature_id === feature.feature_id
               }
               isHidden={isHidden}
-              hasWarning={plane.dependency_broken === true}
-              warningText={plane.dependency_warning}
-              isRenaming={renamingFeatureId === plane.feature_id}
+              hasWarning={feature.dependency_broken === true}
+              warningText={feature.dependency_warning}
+              isRenaming={renamingFeatureId === feature.feature_id}
               onSelect={() => {
                 // Treat construction planes as references when
                 // clicked here so the Sketch button enables. The
                 // core also sets selected_feature_id internally.
-                void onSelectReference(plane.feature_id);
+                if (feature.kind === "construction_plane") {
+                  void onSelectReference(feature.feature_id);
+                  return;
+                }
+                void onSelectFeature(feature.feature_id);
               }}
               onToggleVisibility={() => {
-                onToggleFeatureVisibility(plane.feature_id);
+                onToggleFeatureVisibility(feature.feature_id);
               }}
               onContextMenu={openContextMenu(
-                plane.feature_id,
-                plane.name,
+                feature.feature_id,
+                feature.name,
                 isHidden,
-                plane.suppressed === true,
+                feature.suppressed === true,
               )}
               onRenameSubmit={(nextName) => {
-                void submitRename(plane.feature_id, nextName);
+                void submitRename(feature.feature_id, nextName);
               }}
               onRenameCancel={cancelRename}
               {...rowLabels}

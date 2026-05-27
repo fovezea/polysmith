@@ -1,10 +1,12 @@
 import type {
   ViewportBoxPrimitive,
   ViewportCylinderPrimitive,
+  ViewportHelixPrimitive,
   ViewportMeshPrimitive,
   ViewportPolygonExtrudePrimitive,
   ViewportSolidFace,
   ViewportReferenceAxis,
+  ViewportReferencePoint,
   ViewportReferencePlane,
   ViewportSketchArc,
   ViewportSketchCircle,
@@ -19,6 +21,8 @@ import type {
   PolygonExtrudeScenePrimitive,
   ReferencePlaneScene,
   ReferenceAxisScene,
+  ReferenceHelixScene,
+  ReferencePointScene,
   SketchArcScene,
   SketchCircleScene,
   SketchConstraintScene,
@@ -187,6 +191,26 @@ function makeReferenceAxis(axis: ViewportReferenceAxis): ReferenceAxisScene {
     axis: axis.axis,
     start: [axis.start.x, axis.start.y, axis.start.z],
     end: [axis.end.x, axis.end.y, axis.end.z],
+  };
+}
+
+function makeReferencePoint(point: ViewportReferencePoint): ReferencePointScene {
+  return {
+    kind: "reference_point",
+    referenceId: point.reference_id,
+    label: point.label,
+    position: [point.position.x, point.position.y, point.position.z],
+    isSelected: point.is_selected,
+  };
+}
+
+function makeReferenceHelix(helix: ViewportHelixPrimitive): ReferenceHelixScene {
+  return {
+    kind: "reference_helix",
+    referenceId: helix.helix_id,
+    label: helix.label,
+    points: new Float32Array(helix.points),
+    isSelected: helix.is_selected,
   };
 }
 
@@ -766,7 +790,16 @@ export function createViewportScene(
         (plane) => !(hideReferences && isOriginPlaneId(plane.reference_id)),
       )
       .map(makeReferencePlane),
-    ...(hideReferences ? [] : viewport.reference_axes.map(makeReferenceAxis)),
+    ...viewport.reference_axes
+      .filter((axis) => !hiddenFeatureIds.has(axis.reference_id))
+      .filter((axis) => !(hideReferences && axis.reference_id.startsWith("ref-axis-")))
+      .map(makeReferenceAxis),
+    ...(viewport.reference_points ?? [])
+      .filter((point) => !hiddenFeatureIds.has(point.reference_id))
+      .map(makeReferencePoint),
+    ...(viewport.helices ?? [])
+      .filter((helix) => !hiddenFeatureIds.has(helix.helix_id))
+      .map(makeReferenceHelix),
   ];
   const isSketchPlaneVisible = (planeId: string) =>
     !hiddenSketchPlaneIds.has(planeId);
@@ -994,7 +1027,11 @@ export function createViewportScene(
         references.map((reference) =>
           reference.kind === "reference_plane"
             ? `plane:${reference.referenceId}:${reference.orientation}:${reference.position.join(":")}:${reference.size.join(":")}:${reference.isActiveSketchPlane}`
-            : `axis:${reference.referenceId}:${reference.axis}:${reference.start.join(":")}:${reference.end.join(":")}`,
+            : reference.kind === "reference_axis"
+              ? `axis:${reference.referenceId}:${reference.axis}:${reference.start.join(":")}:${reference.end.join(":")}`
+              : reference.kind === "reference_point"
+                ? `point:${reference.referenceId}:${reference.position.join(":")}:${reference.isSelected}`
+                : `helix:${reference.referenceId}:${numericBufferSignature(reference.points)}:${reference.isSelected}`,
         ),
       )
       .concat(

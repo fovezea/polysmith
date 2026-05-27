@@ -103,9 +103,23 @@ export interface ViewportReferencePlane {
 export interface ViewportReferenceAxis {
   reference_id: string;
   label: string;
-  axis: Axis;
+  axis: Axis | "custom";
   start: Vector3;
   end: Vector3;
+}
+
+export interface ViewportReferencePoint {
+  reference_id: string;
+  label: string;
+  position: Vector3;
+  is_selected: boolean;
+}
+
+export interface ViewportHelixPrimitive {
+  helix_id: string;
+  label: string;
+  points: number[];
+  is_selected: boolean;
 }
 
 export interface ViewportSketchLine {

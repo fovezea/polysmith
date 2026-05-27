@@ -28,6 +28,8 @@ import {
   upsertRecentProject,
   useAppConfig,
   writeProjectThumbnail,
+  Checkbox,
+  Dropdown,
 } from "./lib";
 import {
   embedOrcaWindow,
@@ -67,6 +69,7 @@ import type {
   ExtrudeAdvancedParameters,
   ExtrudeFeatureParameters,
   ExtrudeMode,
+  HoleFeatureParameters,
 } from "./types";
 import type { DocumentState } from "./types/ipc";
 import type { RecentProject, RecentProjectsDocument } from "./lib";
@@ -75,6 +78,8 @@ const DEFAULT_EXTRUDE_DEPTH = 20;
 const DEFAULT_FILLET_RADIUS = 1;
 const DEFAULT_CHAMFER_DISTANCE = 1;
 const DEFAULT_SHELL_THICKNESS = 2;
+const DEFAULT_HOLE_DIAMETER = 5;
+const DEFAULT_HOLE_DEPTH = 10;
 // Default seed for the Offset Plane panel. Zero would be a valid
 // frame (sitting on top of the source) but gives no visible preview;
 // 10 mm matches common CAD workflow's "show me something" default.
@@ -397,6 +402,14 @@ function App() {
   const [anglePlaneAction, setAnglePlaneAction] =
     useState<AnglePlaneAction | null>(null);
   const pendingAngleRef = useRef<number>(DEFAULT_ANGLE_PLANE_DEGREES);
+  const [constructionAxisAction, setConstructionAxisAction] =
+    useState<{ isPending: true } | null>(null);
+  const [constructionPointAction, setConstructionPointAction] =
+    useState<{ isPending: true } | null>(null);
+  type HoleAction =
+    | { phase: "pending" }
+    | { phase: "active"; featureId: string };
+  const [holeAction, setHoleAction] = useState<HoleAction | null>(null);
   // Identifies which feature (if any) is being edited via the floating
   // edit panel. The panel itself reads the feature's parameters
   // directly from `document.feature_history`, so we only need the id
@@ -482,6 +495,13 @@ function App() {
       (profile) => profile.profile_id,
     );
   const selectedSketchEntityIds = document?.selected_sketch_entity_ids ?? [];
+  const activeHoleFeature =
+    holeAction?.phase === "active"
+      ? (document?.feature_history.find(
+          (feature) => feature.feature_id === holeAction.featureId,
+        ) ?? null)
+      : null;
+  const activeHoleParameters = activeHoleFeature?.hole_parameters ?? null;
   const selectedSketchProfileIdsKey = selectedSketchProfileIds.join("|");
   const sketchProfileLabelById = new Map<string, string>();
   const sketchLineLabelById = new Map<string, string>();
@@ -659,6 +679,11 @@ function App() {
     createMidplane,
     createTangentPlane,
     createAnglePlane,
+    createConstructionAxis,
+    createConstructionPoint,
+    createHole,
+    updateHoleParameters,
+    confirmHole,
     updateOffsetPlane,
     updateAnglePlane,
     startSketchOnPlane,
@@ -955,12 +980,14 @@ function App() {
         set.add(feature.feature_id);
       }
       // Hiding the Construction category hides every parametric
-      // construction plane (and indirectly suppresses any sketch
+      // construction reference (and indirectly suppresses any sketch
       // anchored on one, since `hiddenSketchPlaneIds` follows from
       // these ids via the per-plane sketch grouping below).
       if (
         hiddenCategories.has("construction") &&
-        feature.kind === "construction_plane"
+        (feature.kind === "construction_plane" ||
+          feature.kind === "construction_axis" ||
+          feature.kind === "construction_point")
       ) {
         set.add(feature.feature_id);
       }
@@ -1691,6 +1718,8 @@ function App() {
       midplaneAction ||
       tangentPlaneAction ||
       anglePlaneAction ||
+      constructionAxisAction ||
+      constructionPointAction ||
       activeSketchPlaneId
     ) {
       return;
@@ -1807,6 +1836,14 @@ function App() {
 
   function describeAxisSource(axisId: string): string {
     return sketchLineLabelById.get(axisId) ?? t("geometry.selectedAxis");
+  }
+
+  function currentPointSourceId(): string | null {
+    const selectedVertexId = document?.selected_vertex_ids[0] ?? null;
+    if (selectedVertexId) {
+      return selectedVertexId;
+    }
+    return document?.selected_sketch_point_id ?? null;
   }
 
   async function createMidplaneFeature(sourceIds: [string, string]) {
@@ -2009,6 +2046,78 @@ function App() {
     });
   }
 
+  async function createConstructionAxisFeature(sourceId: string) {
+    await runAction(async () => {
+      try {
+        await createConstructionAxis(sourceId);
+        setConstructionAxisAction(null);
+      } catch (error) {
+        addMessage(`axis error: ${String(error)}`);
+      }
+    });
+  }
+
+  async function createConstructionPointFeature(sourceId: string) {
+    await runAction(async () => {
+      try {
+        await createConstructionPoint(sourceId);
+        setConstructionPointAction(null);
+      } catch (error) {
+        addMessage(`point error: ${String(error)}`);
+      }
+    });
+  }
+
+  async function triggerConstructionAxisAction() {
+    if (
+      extrudeAction ||
+      loftAction ||
+      revolveAction ||
+      sweepAction ||
+      edgeOpAction ||
+      shellAction ||
+      offsetPlaneAction ||
+      midplaneAction ||
+      tangentPlaneAction ||
+      anglePlaneAction ||
+      constructionAxisAction ||
+      constructionPointAction
+    ) {
+      return;
+    }
+    const sourceId = currentAxisSourceId();
+    if (sourceId) {
+      await createConstructionAxisFeature(sourceId);
+      return;
+    }
+    setConstructionAxisAction({ isPending: true });
+  }
+
+  async function triggerConstructionPointAction() {
+    if (
+      extrudeAction ||
+      loftAction ||
+      revolveAction ||
+      sweepAction ||
+      edgeOpAction ||
+      shellAction ||
+      offsetPlaneAction ||
+      midplaneAction ||
+      tangentPlaneAction ||
+      anglePlaneAction ||
+      constructionAxisAction ||
+      constructionPointAction
+    ) {
+      return;
+    }
+    const sourceId = currentPointSourceId();
+    if (sourceId) {
+      await createConstructionPointFeature(sourceId);
+      return;
+    }
+    setConstructionPointAction({ isPending: true });
+  }
+
   async function triggerEdgeOpAction(kind: "fillet" | "chamfer") {
     if (
       extrudeAction ||
@@ -2160,6 +2269,83 @@ function App() {
       phase: "pending",
       initialThickness: DEFAULT_SHELL_THICKNESS,
     });
+  }
+
+  async function createHoleFeature(
+    faceId: string,
+    parameters: Partial<HoleFeatureParameters> = {},
+  ) {
+    const face = viewport?.solid_faces.find((entry) => entry.face_id === faceId);
+    if (!face) {
+      addMessage("hole action error: selected face is no longer available");
+      return;
+    }
+    const documentPromise = awaitDocumentChange((next, previous) => {
+      if (!next.selected_feature_id) {
+        return false;
+      }
+      const previousLength = previous?.feature_history.length ?? 0;
+      if (next.feature_history.length <= previousLength) {
+        return false;
+      }
+      const lastFeature = next.feature_history[next.feature_history.length - 1];
+      return (
+        lastFeature.feature_id === next.selected_feature_id &&
+        lastFeature.kind === "hole"
+      );
+    });
+
+    await runAction(async () => {
+      await createHole(faceId, face.center, {
+        hole_type: "simple",
+        extent_type: "blind",
+        diameter: DEFAULT_HOLE_DIAMETER,
+        depth: DEFAULT_HOLE_DEPTH,
+        counterbore_diameter: DEFAULT_HOLE_DIAMETER * 1.6,
+        counterbore_depth: 2,
+        countersink_diameter: DEFAULT_HOLE_DIAMETER * 1.6,
+        countersink_angle_degrees: 82,
+        thread_enabled: false,
+        thread_spec: "",
+        thread_depth: DEFAULT_HOLE_DEPTH,
+        thread_representation: "cosmetic",
+        ...parameters,
+      });
+      try {
+        const nextDocument = await documentPromise;
+        const newFeatureId = nextDocument.selected_feature_id ?? null;
+        if (newFeatureId) {
+          setHoleAction({ phase: "active", featureId: newFeatureId });
+        }
+      } catch (error) {
+        addMessage(`hole action error: ${String(error)}`);
+      }
+    });
+  }
+
+  async function triggerHoleAction() {
+    if (
+      extrudeAction ||
+      loftAction ||
+      revolveAction ||
+      sweepAction ||
+      edgeOpAction ||
+      shellAction ||
+      holeAction ||
+      offsetPlaneAction ||
+      midplaneAction ||
+      tangentPlaneAction ||
+      anglePlaneAction ||
+      activeSketchPlaneId
+    ) {
+      return;
+    }
+    const selectedFaceId = document?.selected_face_id ?? null;
+    if (selectedFaceId) {
+      await createHoleFeature(selectedFaceId);
+      return;
+    }
+    setHoleAction({ phase: "pending" });
   }
 
   useEffect(() => {
@@ -3344,6 +3530,9 @@ function App() {
             !revolveAction &&
             !sweepAction &&
             !shellAction &&
+            !holeAction &&
+            !constructionAxisAction &&
+            !constructionPointAction &&
             (!extrudeAction || extrudeAction.phase === "pending")
           }
           onExtrude={triggerExtrudeAction}
@@ -3355,10 +3544,13 @@ function App() {
             !sweepAction &&
             !edgeOpAction &&
             !shellAction &&
+            !holeAction &&
             !offsetPlaneAction &&
             !midplaneAction &&
             !tangentPlaneAction &&
-            !anglePlaneAction
+            !anglePlaneAction &&
+            !constructionAxisAction &&
+            !constructionPointAction
           }
           onLoft={triggerLoftAction}
           canRevolve={
@@ -3369,10 +3561,13 @@ function App() {
             !sweepAction &&
             !edgeOpAction &&
             !shellAction &&
+            !holeAction &&
             !offsetPlaneAction &&
             !midplaneAction &&
             !tangentPlaneAction &&
-            !anglePlaneAction
+            !anglePlaneAction &&
+            !constructionAxisAction &&
+            !constructionPointAction
           }
           onRevolve={triggerRevolveAction}
           canSweep={
@@ -3383,12 +3578,32 @@ function App() {
             !sweepAction &&
             !edgeOpAction &&
             !shellAction &&
+            !holeAction &&
             !offsetPlaneAction &&
             !midplaneAction &&
             !tangentPlaneAction &&
-            !anglePlaneAction
+            !anglePlaneAction &&
+            !constructionAxisAction &&
+            !constructionPointAction
           }
           onSweep={triggerSweepAction}
+          canHole={
+            !activeSketchPlaneId &&
+            !extrudeAction &&
+            !loftAction &&
+            !revolveAction &&
+            !sweepAction &&
+            !edgeOpAction &&
+            !shellAction &&
+            !holeAction &&
+            !offsetPlaneAction &&
+            !midplaneAction &&
+            !tangentPlaneAction &&
+            !anglePlaneAction &&
+            !constructionAxisAction &&
+            !constructionPointAction
+          }
+          onHole={triggerHoleAction}
           // Modify ribbon: Fillet / Chamfer can be invoked at any
           // time outside a sketch / other floating action. Edge
           // selection is *not* required — the panel opens in
@@ -3402,10 +3617,13 @@ function App() {
             !sweepAction &&
             !edgeOpAction &&
             !shellAction &&
+            !holeAction &&
             !offsetPlaneAction &&
             !midplaneAction &&
             !tangentPlaneAction &&
-            !anglePlaneAction
+            !anglePlaneAction &&
+            !constructionAxisAction &&
+            !constructionPointAction
           }
           onFillet={async () => {
             await triggerEdgeOpAction("fillet");
@@ -3421,10 +3639,13 @@ function App() {
             !sweepAction &&
             !edgeOpAction &&
             !shellAction &&
+            !holeAction &&
             !offsetPlaneAction &&
             !midplaneAction &&
             !tangentPlaneAction &&
-            !anglePlaneAction
+            !anglePlaneAction &&
+            !constructionAxisAction &&
+            !constructionPointAction
           }
           onShell={async () => {
             await triggerShellAction();
@@ -3440,7 +3661,9 @@ function App() {
             !offsetPlaneAction &&
             !midplaneAction &&
             !tangentPlaneAction &&
-            !anglePlaneAction
+            !anglePlaneAction &&
+            !constructionAxisAction &&
+            !constructionPointAction
           }
           onOffsetPlane={() => {
             void triggerOffsetPlaneAction();
@@ -3456,7 +3679,9 @@ function App() {
             !offsetPlaneAction &&
             !midplaneAction &&
             !tangentPlaneAction &&
-            !anglePlaneAction
+            !anglePlaneAction &&
+            !constructionAxisAction &&
+            !constructionPointAction
           }
           canTangentPlane={
             !activeSketchPlaneId &&
@@ -3469,7 +3694,9 @@ function App() {
             !offsetPlaneAction &&
             !midplaneAction &&
             !tangentPlaneAction &&
-            !anglePlaneAction
+            !anglePlaneAction &&
+            !constructionAxisAction &&
+            !constructionPointAction
           }
           canAnglePlane={
             !activeSketchPlaneId &&
@@ -3482,7 +3709,37 @@ function App() {
             !offsetPlaneAction &&
             !midplaneAction &&
             !tangentPlaneAction &&
-            !anglePlaneAction
+            !anglePlaneAction &&
+            !constructionAxisAction &&
+            !constructionPointAction
+          }
+          canConstructionAxis={
+            !extrudeAction &&
+            !loftAction &&
+            !revolveAction &&
+            !sweepAction &&
+            !edgeOpAction &&
+            !shellAction &&
+            !offsetPlaneAction &&
+            !midplaneAction &&
+            !tangentPlaneAction &&
+            !anglePlaneAction &&
+            !constructionAxisAction &&
+            !constructionPointAction
+          }
+          canConstructionPoint={
+            !extrudeAction &&
+            !loftAction &&
+            !revolveAction &&
+            !sweepAction &&
+            !edgeOpAction &&
+            !shellAction &&
+            !offsetPlaneAction &&
+            !midplaneAction &&
+            !tangentPlaneAction &&
+            !anglePlaneAction &&
+            !constructionAxisAction &&
+            !constructionPointAction
           }
           onMidplane={() => {
             void triggerMidplaneAction();
@@ -3492,6 +3749,12 @@ function App() {
           }}
           onAnglePlane={() => {
             void triggerAnglePlaneAction();
+          }}
+          onConstructionAxis={() => {
+            void triggerConstructionAxisAction();
+          }}
+          onConstructionPoint={() => {
+            void triggerConstructionPointAction();
           }}
           onStartSketch={triggerCreateSketchAction}
           onFinishSketch={async () => {
@@ -3783,9 +4046,15 @@ function App() {
               document={document}
               viewport={viewport}
               inactiveSketchEntityPickEnabled={
-                revolveAction !== null || sweepAction !== null
+                revolveAction !== null ||
+                sweepAction !== null ||
+                constructionAxisAction !== null
               }
               onPickInactiveSketchLine={async (lineId) => {
+                if (constructionAxisAction) {
+                  await createConstructionAxisFeature(lineId);
+                  return;
+                }
                 if (revolveAction) {
                   setRevolveAction((current) =>
                     current ? {...current, axisEntityId: lineId} : current,
@@ -3841,6 +4110,15 @@ function App() {
                 });
               }}
               onSelectFace={async (faceId) => {
+                if (holeAction?.phase === "pending") {
+                  const face = viewport?.solid_faces.find(
+                    (entry) => entry.face_id === faceId,
+                  );
+                  if (face && face.sketchability === "planar") {
+                    await createHoleFeature(faceId);
+                  }
+                  return;
+                }
                 if (shellAction?.phase === "pending") {
                   await createShellFeature(
                     faceId,
@@ -3954,6 +4232,10 @@ function App() {
                 });
               }}
               onSelectEdge={async (edgeId, additive) => {
+                if (constructionAxisAction) {
+                  await createConstructionAxisFeature(edgeId);
+                  return;
+                }
                 // Modal Project tool wins over the normal edge-pick
                 // path. Same shape as the face intercept above.
                 if (activeSketchPlaneId && activeSketchTool === "project") {
@@ -4034,6 +4316,10 @@ function App() {
                 });
               }}
               onSelectVertex={async (vertexId, additive) => {
+                if (constructionPointAction) {
+                  await createConstructionPointFeature(vertexId);
+                  return;
+                }
                 // Modal Project tool: vertex click projects a fixed
                 // standalone sketch point onto the active plane.
                 if (activeSketchPlaneId && activeSketchTool === "project") {
@@ -4290,6 +4576,10 @@ function App() {
                 }
               }}
               onSelectSketchEntity={async (entityId, additive) => {
+                if (constructionAxisAction && sketchLineLabelById.has(entityId)) {
+                  await createConstructionAxisFeature(entityId);
+                  return;
+                }
                 if (revolveAction && sketchLineLabelById.has(entityId)) {
                   setRevolveAction((current) =>
                     current ? {...current, axisEntityId: entityId} : current,
@@ -4323,6 +4613,10 @@ function App() {
                 });
               }}
               onPickSketchPoint={async (pointId, kind, additive) => {
+                if (constructionPointAction) {
+                  await createConstructionPointFeature(pointId);
+                  return;
+                }
                 await runAction(async () => {
                   await handleSketchConstraintPointPick(
                     pointId,
@@ -5308,6 +5602,339 @@ function App() {
                   }}
                 />
               ) : null}
+              {holeAction ? (
+                <section className="pointer-events-auto cad-floating-panel px-5 py-5">
+                  <div className="space-y-4">
+                    <div>
+                      <p className="cad-kicker">{t("panels.hole.title")}</p>
+                      <p className="mt-3 text-sm tracking-[0.18em] text-[color:var(--cad-muted)] uppercase">
+                        {holeAction.phase === "pending"
+                          ? t("panels.hole.pickFace")
+                          : t("panels.hole.faceSelected")}
+                      </p>
+                    </div>
+                    {activeHoleParameters ? (
+                      <>
+                        <Dropdown
+                          value={activeHoleParameters.hole_type}
+                          label={t("panels.hole.type")}
+                          options={[
+                            {
+                              value: "simple",
+                              label: t("panels.hole.simple"),
+                            },
+                            {
+                              value: "counterbore",
+                              label: t("panels.hole.counterbore"),
+                            },
+                            {
+                              value: "countersink",
+                              label: t("panels.hole.countersink"),
+                            },
+                            {
+                              value: "spotface",
+                              label: t("panels.hole.spotface"),
+                            },
+                          ]}
+                          disabled={status !== "connected"}
+                          onChange={(holeType) => {
+                            void runAction(async () => {
+                              await updateHoleParameters(
+                                holeAction.phase === "active"
+                                  ? holeAction.featureId
+                                  : "",
+                                {
+                                  ...activeHoleParameters,
+                                  hole_type: holeType,
+                                },
+                              );
+                            });
+                          }}
+                        />
+                        <Dropdown
+                          value={activeHoleParameters.extent_type}
+                          label={t("panels.hole.extent")}
+                          options={[
+                            {
+                              value: "blind",
+                              label: t("panels.hole.blind"),
+                            },
+                            {
+                              value: "through_all",
+                              label: t("panels.hole.throughAll"),
+                            },
+                          ]}
+                          disabled={status !== "connected"}
+                          onChange={(extentType) => {
+                            void runAction(async () => {
+                              await updateHoleParameters(
+                                holeAction.phase === "active"
+                                  ? holeAction.featureId
+                                  : "",
+                                {
+                                  ...activeHoleParameters,
+                                  extent_type: extentType,
+                                },
+                              );
+                            });
+                          }}
+                        />
+                        <label className="block text-xs uppercase tracking-[0.18em] text-on-surface-muted">
+                          <span>{t("panels.hole.diameter")}</span>
+                          <input
+                            className="cad-input mt-2"
+                            type="number"
+                            min="0.01"
+                            step="any"
+                            value={activeHoleParameters.diameter}
+                            disabled={status !== "connected"}
+                            onChange={(event) => {
+                              const diameter = Number(event.target.value);
+                              if (!Number.isFinite(diameter) || diameter <= 0) {
+                                return;
+                              }
+                              void runAction(async () => {
+                                await updateHoleParameters(
+                                  holeAction.phase === "active"
+                                    ? holeAction.featureId
+                                    : "",
+                                  {
+                                    ...activeHoleParameters,
+                                    diameter,
+                                  },
+                                );
+                              });
+                            }}
+                          />
+                        </label>
+                        {activeHoleParameters.extent_type === "blind" ? (
+                          <label className="block text-xs uppercase tracking-[0.18em] text-on-surface-muted">
+                            <span>{t("panels.hole.depth")}</span>
+                            <input
+                              className="cad-input mt-2"
+                              type="number"
+                              min="0.01"
+                              step="any"
+                              value={activeHoleParameters.depth}
+                              disabled={status !== "connected"}
+                              onChange={(event) => {
+                                const depth = Number(event.target.value);
+                                if (!Number.isFinite(depth) || depth <= 0) {
+                                  return;
+                                }
+                                void runAction(async () => {
+                                  await updateHoleParameters(
+                                    holeAction.phase === "active"
+                                      ? holeAction.featureId
+                                      : "",
+                                    {
+                                      ...activeHoleParameters,
+                                      depth,
+                                      thread_depth:
+                                        activeHoleParameters.thread_enabled
+                                          ? Math.min(
+                                              activeHoleParameters.thread_depth,
+                                              depth,
+                                            )
+                                          : activeHoleParameters.thread_depth,
+                                    },
+                                  );
+                                });
+                              }}
+                            />
+                          </label>
+                        ) : null}
+                        {activeHoleParameters.hole_type === "counterbore" ||
+                        activeHoleParameters.hole_type === "spotface" ? (
+                          <div className="grid grid-cols-2 gap-3">
+                            <label className="block text-xs uppercase tracking-[0.18em] text-on-surface-muted">
+                              <span>{t("panels.hole.counterboreDiameter")}</span>
+                              <input
+                                className="cad-input mt-2"
+                                type="number"
+                                min="0.01"
+                                step="any"
+                                value={activeHoleParameters.counterbore_diameter}
+                                disabled={status !== "connected"}
+                                onChange={(event) => {
+                                  const value = Number(event.target.value);
+                                  if (!Number.isFinite(value) || value <= 0) {
+                                    return;
+                                  }
+                                  void runAction(async () => {
+                                    await updateHoleParameters(
+                                      holeAction.phase === "active"
+                                        ? holeAction.featureId
+                                        : "",
+                                      {
+                                        ...activeHoleParameters,
+                                        counterbore_diameter: value,
+                                      },
+                                    );
+                                  });
+                                }}
+                              />
+                            </label>
+                            <label className="block text-xs uppercase tracking-[0.18em] text-on-surface-muted">
+                              <span>{t("panels.hole.counterboreDepth")}</span>
+                              <input
+                                className="cad-input mt-2"
+                                type="number"
+                                min="0.01"
+                                step="any"
+                                value={activeHoleParameters.counterbore_depth}
+                                disabled={status !== "connected"}
+                                onChange={(event) => {
+                                  const value = Number(event.target.value);
+                                  if (!Number.isFinite(value) || value <= 0) {
+                                    return;
+                                  }
+                                  void runAction(async () => {
+                                    await updateHoleParameters(
+                                      holeAction.phase === "active"
+                                        ? holeAction.featureId
+                                        : "",
+                                      {
+                                        ...activeHoleParameters,
+                                        counterbore_depth: value,
+                                      },
+                                    );
+                                  });
+                                }}
+                              />
+                            </label>
+                          </div>
+                        ) : null}
+                        {activeHoleParameters.hole_type === "countersink" ? (
+                          <div className="grid grid-cols-2 gap-3">
+                            <label className="block text-xs uppercase tracking-[0.18em] text-on-surface-muted">
+                              <span>{t("panels.hole.countersinkDiameter")}</span>
+                              <input
+                                className="cad-input mt-2"
+                                type="number"
+                                min="0.01"
+                                step="any"
+                                value={activeHoleParameters.countersink_diameter}
+                                disabled={status !== "connected"}
+                                onChange={(event) => {
+                                  const value = Number(event.target.value);
+                                  if (!Number.isFinite(value) || value <= 0) {
+                                    return;
+                                  }
+                                  void runAction(async () => {
+                                    await updateHoleParameters(
+                                      holeAction.phase === "active"
+                                        ? holeAction.featureId
+                                        : "",
+                                      {
+                                        ...activeHoleParameters,
+                                        countersink_diameter: value,
+                                      },
+                                    );
+                                  });
+                                }}
+                              />
+                            </label>
+                            <label className="block text-xs uppercase tracking-[0.18em] text-on-surface-muted">
+                              <span>{t("panels.hole.countersinkAngle")}</span>
+                              <input
+                                className="cad-input mt-2"
+                                type="number"
+                                min="1"
+                                max="179"
+                                step="any"
+                                value={
+                                  activeHoleParameters.countersink_angle_degrees
+                                }
+                                disabled={status !== "connected"}
+                                onChange={(event) => {
+                                  const value = Number(event.target.value);
+                                  if (!Number.isFinite(value) || value <= 0) {
+                                    return;
+                                  }
+                                  void runAction(async () => {
+                                    await updateHoleParameters(
+                                      holeAction.phase === "active"
+                                        ? holeAction.featureId
+                                        : "",
+                                      {
+                                        ...activeHoleParameters,
+                                        countersink_angle_degrees: value,
+                                      },
+                                    );
+                                  });
+                                }}
+                              />
+                            </label>
+                          </div>
+                        ) : null}
+                        <label className="flex items-center justify-between gap-3 text-xs uppercase tracking-[0.18em] text-on-surface-muted">
+                          <span>{t("panels.hole.threaded")}</span>
+                          <Checkbox
+                            checked={activeHoleParameters.thread_enabled}
+                            ariaLabel={t("panels.hole.threaded")}
+                            disabled={status !== "connected"}
+                            onCheckedChange={(checked) => {
+                              void runAction(async () => {
+                                await updateHoleParameters(
+                                  holeAction.phase === "active"
+                                    ? holeAction.featureId
+                                    : "",
+                                  {
+                                    ...activeHoleParameters,
+                                    thread_enabled: checked,
+                                    thread_representation: "cosmetic",
+                                  },
+                                );
+                              });
+                            }}
+                          />
+                        </label>
+                        {activeHoleParameters.thread_enabled ? (
+                          <p className="text-xs text-[color:var(--cad-muted)]">
+                            {t("panels.hole.cosmeticThreadOnly")}
+                          </p>
+                        ) : null}
+                      </>
+                    ) : null}
+                    <div className="flex gap-3 pt-1">
+                      <button
+                        type="button"
+                        className="cad-ribbon-action cad-ribbon-action-primary flex-1"
+                        disabled={
+                          status !== "connected" ||
+                          holeAction.phase !== "active"
+                        }
+                        onClick={() => {
+                          void runAction(async () => {
+                            if (holeAction.phase === "active") {
+                              await confirmHole(holeAction.featureId);
+                              await clearSelection();
+                            }
+                            setHoleAction(null);
+                          });
+                        }}
+                      >
+                        {t("common.confirm")}
+                      </button>
+                      <button
+                        type="button"
+                        className="cad-ribbon-action flex-1"
+                        onClick={() => {
+                          void runAction(async () => {
+                            if (holeAction.phase === "active") {
+                              await undo();
+                            }
+                            setHoleAction(null);
+                          });
+                        }}
+                      >
+                        {t("common.cancel")}
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              ) : null}
               {offsetPlaneAction ? (
                 <OffsetPlanePanel
                   isPending={offsetPlaneAction.phase === "pending"}
@@ -5430,6 +6057,38 @@ function App() {
                     className="cad-action-ghost mt-4 w-full"
                     disabled={status !== "connected"}
                     onClick={() => setTangentPlaneAction(null)}
+                  >
+                    {t("common.cancel")}
+                  </button>
+                </section>
+              ) : null}
+              {constructionAxisAction ? (
+                <section className="pointer-events-auto cad-floating-panel px-5 py-5">
+                  <p className="cad-kicker">{t("panels.constructionAxis.title")}</p>
+                  <p className="mt-3 text-xs text-on-surface-muted">
+                    {t("panels.constructionAxis.pickSource")}
+                  </p>
+                  <button
+                    type="button"
+                    className="cad-action-ghost mt-4 w-full"
+                    disabled={status !== "connected"}
+                    onClick={() => setConstructionAxisAction(null)}
+                  >
+                    {t("common.cancel")}
+                  </button>
+                </section>
+              ) : null}
+              {constructionPointAction ? (
+                <section className="pointer-events-auto cad-floating-panel px-5 py-5">
+                  <p className="cad-kicker">{t("panels.constructionPoint.title")}</p>
+                  <p className="mt-3 text-xs text-on-surface-muted">
+                    {t("panels.constructionPoint.pickSource")}
+                  </p>
+                  <button
+                    type="button"
+                    className="cad-action-ghost mt-4 w-full"
+                    disabled={status !== "connected"}
+                    onClick={() => setConstructionPointAction(null)}
                   >
                     {t("common.cancel")}
                   </button>

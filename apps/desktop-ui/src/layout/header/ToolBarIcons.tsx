@@ -410,6 +410,23 @@ export const RevolveIcon = () => (
   </svg>
 );
 
+export const HoleIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-7 w-7"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M5 8.5 12 5l7 3.5v7L12 19l-7-3.5Z" />
+    <ellipse cx="12" cy="12" rx="3.2" ry="1.7" />
+    <path d="M8.8 12v2.2c0 .9 1.4 1.7 3.2 1.7s3.2-.8 3.2-1.7V12" />
+  </svg>
+);
+
 export const PatternIcon = () => (
   <svg
     viewBox="0 0 24 24"
@@ -738,6 +755,8 @@ export function FeatureKindIcon({ kind }: { kind: string }) {
       return <RevolveIcon />;
     case "sweep":
       return <SweepIcon />;
+    case "hole":
+      return <HoleIcon />;
     case "pattern":
       return <PatternIcon />;
     case "sketch":

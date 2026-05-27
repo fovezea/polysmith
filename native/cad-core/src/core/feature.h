@@ -173,6 +173,75 @@ struct SweepFeatureParameters {
   std::vector<PathSegment> path_segments;
 };
 
+struct HoleFeatureParameters {
+  std::string target_body_id;
+  std::string source_face_id;
+  PlaneFrame plane_frame;
+  double center_x = 0.0;
+  double center_y = 0.0;
+  // "simple", "counterbore", "countersink", or "spotface".
+  std::string hole_type = "simple";
+  // "blind" or "through_all".
+  std::string extent_type = "blind";
+  double diameter = 5.0;
+  double depth = 10.0;
+  double counterbore_diameter = 8.0;
+  double counterbore_depth = 2.0;
+  double countersink_diameter = 8.0;
+  double countersink_angle_degrees = 82.0;
+  bool thread_enabled = false;
+  std::string thread_spec;
+  double thread_depth = 10.0;
+  // "cosmetic" or "modeled".
+  std::string thread_representation = "cosmetic";
+  bool is_pending = false;
+};
+
+struct HelixFeatureParameters {
+  std::string axis_source_id;
+  double axis_start_x = 0.0;
+  double axis_start_y = 0.0;
+  double axis_start_z = 0.0;
+  double axis_end_x = 0.0;
+  double axis_end_y = 0.0;
+  double axis_end_z = 1.0;
+  double radius = 2.5;
+  double pitch = 1.0;
+  double height = 10.0;
+  double turns = 10.0;
+  std::string handedness = "right";
+  double start_angle_degrees = 0.0;
+  std::vector<double> points;
+};
+
+struct ThreadFeatureParameters {
+  std::string target_body_id;
+  std::string axis_source_id;
+  std::string mode = "external";
+  std::string standard = "custom";
+  std::string size;
+  double major_diameter = 5.0;
+  double minor_diameter = 4.0;
+  double pitch = 0.8;
+  double length = 10.0;
+  double thread_angle_degrees = 60.0;
+  double start_offset = 0.0;
+  std::string handedness = "right";
+  std::string representation = "cosmetic";
+  bool is_pending = false;
+};
+
+struct FastenerFeatureParameters {
+  std::string standard = "metric";
+  std::string size = "M5";
+  double diameter = 5.0;
+  double length = 20.0;
+  double thread_length = 16.0;
+  std::string head_type = "socket_head";
+  std::string drive_type = "hex_socket";
+  std::string thread_representation = "cosmetic";
+};
+
 // Edge-modifying body operation. `target_body_id` is the body root feature
 // id whose edges are being filleted/chamfered. `edge_ids` mirrors the
 // `<body_id>:edge:<index>` strings emitted by viewport_state.edges so the
@@ -250,6 +319,25 @@ struct ConstructionPlaneFeatureParameters {
   double offset;
   double angle_degrees = 0.0;
   PlaneFrame plane_frame;
+};
+
+struct ConstructionAxisFeatureParameters {
+  std::string source_id;
+  std::string source_kind;
+  double start_x = 0.0;
+  double start_y = 0.0;
+  double start_z = 0.0;
+  double end_x = 0.0;
+  double end_y = 0.0;
+  double end_z = 0.0;
+};
+
+struct ConstructionPointFeatureParameters {
+  std::string source_id;
+  std::string source_kind;
+  double x = 0.0;
+  double y = 0.0;
+  double z = 0.0;
 };
 
 struct SketchLine {
@@ -673,9 +761,15 @@ struct FeatureEntry {
   std::optional<ChamferFeatureParameters> chamfer_parameters;
   std::optional<ShellFeatureParameters> shell_parameters;
   std::optional<ConstructionPlaneFeatureParameters> construction_plane_parameters;
+  std::optional<ConstructionAxisFeatureParameters> construction_axis_parameters;
+  std::optional<ConstructionPointFeatureParameters> construction_point_parameters;
   std::optional<LoftFeatureParameters> loft_parameters;
   std::optional<RevolveFeatureParameters> revolve_parameters;
   std::optional<SweepFeatureParameters> sweep_parameters;
+  std::optional<HoleFeatureParameters> hole_parameters;
+  std::optional<HelixFeatureParameters> helix_parameters;
+  std::optional<ThreadFeatureParameters> thread_parameters;
+  std::optional<FastenerFeatureParameters> fastener_parameters;
 };
 
 }  // namespace polysmith::core

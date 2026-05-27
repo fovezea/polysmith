@@ -267,6 +267,8 @@ interface AppHeaderProps {
   onRevolve: () => Promise<void>;
   canSweep: boolean;
   onSweep: () => Promise<void>;
+  canHole: boolean;
+  onHole: () => Promise<void>;
   // Modify ribbon (Fillet / Chamfer). Enabled state is owned by the
   // parent so it can match the F-hotkey gating exactly.
   canEdgeOp: boolean;
@@ -280,10 +282,14 @@ interface AppHeaderProps {
   canMidplane: boolean;
   canTangentPlane: boolean;
   canAnglePlane: boolean;
+  canConstructionAxis: boolean;
+  canConstructionPoint: boolean;
   onOffsetPlane: () => void;
   onMidplane: () => void;
   onTangentPlane: () => void;
   onAnglePlane: () => void;
+  onConstructionAxis: () => void;
+  onConstructionPoint: () => void;
   onStartSketch: () => Promise<void>;
   onFinishSketch: () => Promise<void>;
   onSetSketchTool: (tool: SketchTool) => Promise<void>;
@@ -365,6 +371,8 @@ export function AppHeader({
   onRevolve,
   canSweep,
   onSweep,
+  canHole,
+  onHole,
   canEdgeOp,
   canShell,
   onFillet,
@@ -374,10 +382,14 @@ export function AppHeader({
   canMidplane,
   canTangentPlane,
   canAnglePlane,
+  canConstructionAxis,
+  canConstructionPoint,
   onOffsetPlane,
   onMidplane,
   onTangentPlane,
   onAnglePlane,
+  onConstructionAxis,
+  onConstructionPoint,
   onStartSketch,
   onFinishSketch,
   onSetSketchTool,
@@ -653,6 +665,8 @@ export function AppHeader({
                 onRevolve={onRevolve}
                 canSweep={canSweep}
                 onSweep={onSweep}
+                canHole={canHole}
+                onHole={onHole}
               />
             ) : null}
 
@@ -674,10 +688,14 @@ export function AppHeader({
                 canMidplane={canMidplane}
                 canTangentPlane={canTangentPlane}
                 canAnglePlane={canAnglePlane}
+                canConstructionAxis={canConstructionAxis}
+                canConstructionPoint={canConstructionPoint}
                 onOffsetPlane={onOffsetPlane}
                 onMidplane={onMidplane}
                 onTangentPlane={onTangentPlane}
                 onAnglePlane={onAnglePlane}
+                onConstructionAxis={onConstructionAxis}
+                onConstructionPoint={onConstructionPoint}
               />
             ) : null}
 

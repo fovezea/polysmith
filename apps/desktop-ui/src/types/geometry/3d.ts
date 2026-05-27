@@ -7,6 +7,7 @@ import type {
   SketchProfilePoint,
   Shape2D,
   PlaneFrame,
+  Vector3,
 } from "@/types";
 
 export interface BoxFeatureParameters {
@@ -114,4 +115,70 @@ export interface SweepFeatureParameters {
   path_end_x: number;
   path_end_y: number;
   path_end_z: number;
+}
+
+export type HoleType = "simple" | "counterbore" | "countersink" | "spotface";
+export type HoleExtentType = "blind" | "through_all";
+export type ThreadRepresentation = "cosmetic" | "modeled";
+
+export interface HoleFeatureParameters {
+  target_body_id: string;
+  source_face_id: string;
+  plane_frame: PlaneFrame;
+  center_x: number;
+  center_y: number;
+  hole_type: HoleType;
+  extent_type: HoleExtentType;
+  diameter: number;
+  depth: number;
+  counterbore_diameter: number;
+  counterbore_depth: number;
+  countersink_diameter: number;
+  countersink_angle_degrees: number;
+  thread_enabled: boolean;
+  thread_spec: string;
+  thread_depth: number;
+  thread_representation: ThreadRepresentation;
+  is_pending: boolean;
+}
+
+export interface HelixFeatureParameters {
+  axis_source_id: string;
+  axis_start: Vector3;
+  axis_end: Vector3;
+  radius: number;
+  pitch: number;
+  height: number;
+  turns: number;
+  handedness: "left" | "right";
+  start_angle_degrees: number;
+  points: number[];
+}
+
+export interface ThreadFeatureParameters {
+  target_body_id: string;
+  axis_source_id: string;
+  mode: "external" | "internal";
+  standard: "custom" | "metric" | "imperial";
+  size: string;
+  major_diameter: number;
+  minor_diameter: number;
+  pitch: number;
+  length: number;
+  thread_angle_degrees: number;
+  start_offset: number;
+  handedness: "left" | "right";
+  representation: ThreadRepresentation;
+  is_pending: boolean;
+}
+
+export interface FastenerFeatureParameters {
+  standard: "metric" | "imperial" | "custom";
+  size: string;
+  diameter: number;
+  length: number;
+  thread_length: number;
+  head_type: "socket_head" | "button_head" | "flat" | "hex_bolt";
+  drive_type: "none" | "hex_socket" | "phillips";
+  thread_representation: ThreadRepresentation;
 }

@@ -106,6 +106,7 @@
     "fillet": "Fillet",
     "finishSketch": "Finish Sketch",
     "horizontal": "Horizontal",
+    "hole": "Hole",
     "line": "Line",
     "loft": "Loft",
     "revolve": "Revolve",
@@ -221,6 +222,27 @@
       "profile": "Profile",
       "title": "Sweep"
     },
+    "hole": {
+      "blind": "Blind",
+      "cosmeticThreadOnly": "Thread is stored as cosmetic metadata.",
+      "counterbore": "Counterbore",
+      "counterboreDepth": "Counterbore depth",
+      "counterboreDiameter": "Counterbore diameter",
+      "countersink": "Countersink",
+      "countersinkAngle": "Countersink angle",
+      "countersinkDiameter": "Countersink diameter",
+      "depth": "Depth (mm)",
+      "diameter": "Diameter (mm)",
+      "extent": "Extent",
+      "faceSelected": "1 face selected",
+      "pickFace": "Click a planar face",
+      "simple": "Simple",
+      "spotface": "Spotface",
+      "threaded": "Threaded",
+      "throughAll": "Through all",
+      "title": "Hole",
+      "type": "Type"
+    },
     "mirror": {
       "axis": "Mirror line",
       "clearAxis": "Clear axis",
@@ -253,6 +275,14 @@
     "tangentPlane": {
       "pickSource": "Click a curved face in the viewport",
       "title": "Tangent Plane"
+    },
+    "constructionAxis": {
+      "pickSource": "Click a sketch line or straight body edge",
+      "title": "Axis"
+    },
+    "constructionPoint": {
+      "pickSource": "Click a sketch point or body vertex",
+      "title": "Point"
     },
     "shell": {
       "adjustThickness": "Adjust thickness",

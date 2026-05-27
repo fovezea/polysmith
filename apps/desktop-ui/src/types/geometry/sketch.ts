@@ -2,9 +2,13 @@ import type {
   BoxFeatureParameters,
   CylinderFeatureParameters,
   ExtrudeFeatureParameters,
+  FastenerFeatureParameters,
+  HelixFeatureParameters,
+  HoleFeatureParameters,
   LoftFeatureParameters,
   RevolveFeatureParameters,
   SweepFeatureParameters,
+  ThreadFeatureParameters,
   Shape2D,
   Vector3,
 } from "@/types";
@@ -315,6 +319,19 @@ export interface ConstructionPlaneFeatureParameters {
   };
 }
 
+export interface ConstructionAxisFeatureParameters {
+  source_id: string;
+  source_kind: "edge" | "sketch_line";
+  start: Vector3;
+  end: Vector3;
+}
+
+export interface ConstructionPointFeatureParameters {
+  source_id: string;
+  source_kind: "vertex" | "sketch_point";
+  position: Vector3;
+}
+
 export interface FeatureEntry {
   feature_id: string;
   kind: string;
@@ -339,6 +356,10 @@ export interface FeatureEntry {
   loft_parameters: LoftFeatureParameters | null;
   revolve_parameters: RevolveFeatureParameters | null;
   sweep_parameters: SweepFeatureParameters | null;
+  hole_parameters: HoleFeatureParameters | null;
+  helix_parameters: HelixFeatureParameters | null;
+  thread_parameters: ThreadFeatureParameters | null;
+  fastener_parameters: FastenerFeatureParameters | null;
   sketch_parameters: SketchFeatureParameters | null;
   fillet_parameters: FilletFeatureParameters | null;
   chamfer_parameters: ChamferFeatureParameters | null;
@@ -346,6 +367,8 @@ export interface FeatureEntry {
   // Optional in serialized form so older `.polysmith` saves load
   // cleanly. Present on `construction_plane` features.
   construction_plane_parameters?: ConstructionPlaneFeatureParameters | null;
+  construction_axis_parameters?: ConstructionAxisFeatureParameters | null;
+  construction_point_parameters?: ConstructionPointFeatureParameters | null;
 }
 
 // `project` is a modal tool, not a shape: while it's active the
