@@ -10,12 +10,25 @@ namespace polysmith::core {
 
 struct DocumentState;
 
+struct BodyLocalFrame {
+  double x_axis_x = 1.0;
+  double x_axis_y = 0.0;
+  double x_axis_z = 0.0;
+  double y_axis_x = 0.0;
+  double y_axis_y = 1.0;
+  double y_axis_z = 0.0;
+  double z_axis_x = 0.0;
+  double z_axis_y = 0.0;
+  double z_axis_z = 1.0;
+};
+
 // One solid body produced by walking the feature history with boolean
 // operators applied. The `id` matches the feature_id of the body's root
 // feature (the most recent `new_body` extrude that started the body).
 struct CompiledBody {
   std::string id;
   TopoDS_Shape shape;
+  BodyLocalFrame local_frame;
   // Stable shape used for edge picking while a fillet/chamfer feature
   // targeting this body is in its pending phase. When non-null the
   // viewport enumerates body edges from this shape (whose topology

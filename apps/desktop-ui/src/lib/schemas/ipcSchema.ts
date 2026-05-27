@@ -392,6 +392,19 @@ const documentStateSchema = z.object({
         })
         .nullable()
         .default(null),
+      move_parameters: z
+        .object({
+          target_body_id: z.string(),
+          translation_x: z.number().default(0),
+          translation_y: z.number().default(0),
+          translation_z: z.number().default(0),
+          rotation_x_degrees: z.number().default(0),
+          rotation_y_degrees: z.number().default(0),
+          rotation_z_degrees: z.number().default(0),
+          is_pending: z.boolean().default(false),
+        })
+        .nullable()
+        .default(null),
       sketch_parameters: z
         .object({
           plane_id: z.string(),
@@ -1106,6 +1119,23 @@ const viewportStateSchema = z.object({
       z.object({
         id: z.string(),
         label: z.string(),
+        center: z
+          .object({ x: z.number(), y: z.number(), z: z.number() })
+          .default({ x: 0, y: 0, z: 0 }),
+        size: z
+          .object({ x: z.number(), y: z.number(), z: z.number() })
+          .default({ x: 0, y: 0, z: 0 }),
+        local_frame: z
+          .object({
+            x_axis: z.object({ x: z.number(), y: z.number(), z: z.number() }),
+            y_axis: z.object({ x: z.number(), y: z.number(), z: z.number() }),
+            z_axis: z.object({ x: z.number(), y: z.number(), z: z.number() }),
+          })
+          .default({
+            x_axis: { x: 1, y: 0, z: 0 },
+            y_axis: { x: 0, y: 1, z: 0 },
+            z_axis: { x: 0, y: 0, z: 1 },
+          }),
       }),
     )
     .default([]),

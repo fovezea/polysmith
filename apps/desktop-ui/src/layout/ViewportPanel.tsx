@@ -37,6 +37,7 @@ import type {
   ViewportContextMenuState,
   SketchPreviewPoint,
   SketchProfileScene,
+  MoveFeatureParameters,
 } from "@/types";
 import {
   applyPrimitiveVisualState,
@@ -110,6 +111,30 @@ type GridPlaneBounds = {
   maxU: number;
   minV: number;
   maxV: number;
+};
+interface MoveGizmoDescriptor {
+  bodyId: string;
+  center: { x: number; y: number; z: number };
+  size: { x: number; y: number; z: number };
+  localFrame: {
+    x_axis: { x: number; y: number; z: number };
+    y_axis: { x: number; y: number; z: number };
+    z_axis: { x: number; y: number; z: number };
+  };
+  parameters: MoveFeatureParameters;
+  disabled: boolean;
+}
+type MoveGizmoAxis = "x" | "y" | "z";
+type MoveGizmoDragState = {
+  kind: "translate" | "rotate" | "free";
+  axis: MoveGizmoAxis | null;
+  startClientX: number;
+  startClientY: number;
+  startAngle: number;
+  center: THREE.Vector3;
+  axes: Record<MoveGizmoAxis, THREE.Vector3>;
+  handleLength: number;
+  parameters: MoveFeatureParameters;
 };
 type ActiveSketchGridPlaneFrame = NonNullable<
   NonNullable<
@@ -423,6 +448,8 @@ interface ViewportPanelProps {
   ) => Promise<void>;
   onSetSketchTool: (tool: SketchTool) => Promise<void>;
   onFinishSketch: () => Promise<void>;
+  moveGizmo?: MoveGizmoDescriptor | null;
+  onMoveGizmoChange?: (parameters: MoveFeatureParameters) => Promise<void> | void;
   hiddenFeatureIds?: ReadonlySet<string>;
   hiddenSketchPlaneIds?: ReadonlySet<string>;
   hideReferences?: boolean;
@@ -522,6 +549,121 @@ function disposeDynamicGrid(grid: DynamicGridRef | null): void {
     return;
   }
   disposeGroup(grid.group);
+}
+
+function moveGizmoAxisVector(
+  axis: { x: number; y: number; z: number },
+): THREE.Vector3 {
+  const vector = new THREE.Vector3(axis.x, axis.y, axis.z);
+  return vector.lengthSq() > 1.0e-12 ? vector.normalize() : new THREE.Vector3(1, 0, 0);
+}
+
+function moveGizmoAxes(
+  gizmo: MoveGizmoDescriptor,
+): Record<MoveGizmoAxis, THREE.Vector3> {
+  return {
+    x: moveGizmoAxisVector(gizmo.localFrame.x_axis),
+    y: moveGizmoAxisVector(gizmo.localFrame.y_axis),
+    z: moveGizmoAxisVector(gizmo.localFrame.z_axis),
+  };
+}
+
+function orientObjectAlongAxis(object: THREE.Object3D, axis: THREE.Vector3) {
+  object.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis);
+}
+
+function orientRingToAxis(object: THREE.Object3D, axis: THREE.Vector3) {
+  object.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), axis);
+}
+
+function buildMoveGizmoObject(gizmo: MoveGizmoDescriptor) {
+  const group = new THREE.Group();
+  const pickables: THREE.Object3D[] = [];
+  const center = new THREE.Vector3(
+    gizmo.center.x,
+    gizmo.center.y,
+    gizmo.center.z,
+  );
+  const axes = moveGizmoAxes(gizmo);
+  const maxSize = Math.max(gizmo.size.x, gizmo.size.y, gizmo.size.z, 12);
+  const handleLength = Math.min(Math.max(maxSize * 0.65, 18), 80);
+  const ringRadius = handleLength * 0.55;
+  const axisColors: Record<MoveGizmoAxis, string> = {
+    x: themeColor("--color-axis-x", "#ff6b7a"),
+    y: themeColor("--color-axis-y", "#2bd978"),
+    z: themeColor("--color-axis-z", "#6db4ff"),
+  };
+  const handleRadius = Math.max(handleLength * 0.018, 0.28);
+
+  const freeMaterial = new THREE.MeshBasicMaterial({
+    color: themeColor("--color-primary-glow", "#00e5ff"),
+    transparent: true,
+    opacity: 0.9,
+    depthTest: false,
+    depthWrite: false,
+  });
+  const centerHandle = new THREE.Mesh(
+    new THREE.SphereGeometry(Math.max(handleRadius * 3.2, 2.2), 20, 12),
+    freeMaterial,
+  );
+  centerHandle.position.copy(center);
+  centerHandle.renderOrder = 50;
+  centerHandle.userData.moveGizmoHandle = { kind: "free" };
+  group.add(centerHandle);
+  pickables.push(centerHandle);
+
+  (["x", "y", "z"] as const).forEach((axisKey) => {
+    const axis = axes[axisKey];
+    const color = axisColors[axisKey];
+    const axisMaterial = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.92,
+      depthTest: false,
+      depthWrite: false,
+    });
+    const shaft = new THREE.Mesh(
+      new THREE.CylinderGeometry(handleRadius, handleRadius, handleLength, 12),
+      axisMaterial,
+    );
+    orientObjectAlongAxis(shaft, axis);
+    shaft.position.copy(center).addScaledVector(axis, handleLength * 0.5);
+    shaft.renderOrder = 50;
+    shaft.userData.moveGizmoHandle = { kind: "translate", axis: axisKey };
+    group.add(shaft);
+    pickables.push(shaft);
+
+    const arrow = new THREE.Mesh(
+      new THREE.ConeGeometry(handleRadius * 3.4, handleRadius * 9, 20),
+      axisMaterial,
+    );
+    orientObjectAlongAxis(arrow, axis);
+    arrow.position.copy(center).addScaledVector(axis, handleLength + handleRadius * 4.5);
+    arrow.renderOrder = 50;
+    arrow.userData.moveGizmoHandle = { kind: "translate", axis: axisKey };
+    group.add(arrow);
+    pickables.push(arrow);
+
+    const ringMaterial = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.72,
+      depthTest: false,
+      depthWrite: false,
+    });
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(ringRadius, Math.max(handleRadius * 0.7, 0.18), 8, 72),
+      ringMaterial,
+    );
+    orientRingToAxis(ring, axis);
+    ring.position.copy(center);
+    ring.renderOrder = 49;
+    ring.userData.moveGizmoHandle = { kind: "rotate", axis: axisKey };
+    group.add(ring);
+    pickables.push(ring);
+  });
+
+  return { group, pickables, handleLength };
 }
 
 function getSketchGridFrame(
@@ -1015,6 +1157,8 @@ export function ViewportPanel({
   onUpdateSketchDimensionDisplay,
   onSetSketchTool,
   onFinishSketch,
+  moveGizmo = null,
+  onMoveGizmoChange,
   hiddenFeatureIds,
   hiddenSketchPlaneIds,
   hideReferences,
@@ -1221,6 +1365,14 @@ const currentGridSpacingRef = useRef(10);
   // Translucent red overlay meshes for in-progress cut extrudes. Built
   // from `cut_previews` and rendered without participating in raycasts.
   const cutPreviewObjectsRef = useRef<THREE.Mesh[]>([]);
+  const moveGizmoObjectsRef = useRef<THREE.Object3D[]>([]);
+  const moveGizmoDragRef = useRef<MoveGizmoDragState | null>(null);
+  const moveGizmoRef = useRef<MoveGizmoDescriptor | null>(moveGizmo);
+  const moveGizmoChangeRef = useRef(onMoveGizmoChange);
+  const pendingMoveGizmoParametersRef = useRef<MoveFeatureParameters | null>(
+    null,
+  );
+  const pendingMoveGizmoFrameRef = useRef<number | null>(null);
   const lastGeometryKeyRef = useRef("");
   const selectPrimitiveRef = useRef(onSelectPrimitive);
   const selectReferenceRef = useRef(onSelectReference);
@@ -4516,6 +4668,8 @@ const currentGridSpacingRef = useRef(10);
     mirrorEntityPickRef.current = onMirrorEntityPick;
     cancelSketchConstraintRef.current = onCancelSketchConstraint;
     clearSketchConstraintRef.current = onClearSketchConstraint;
+    moveGizmoRef.current = moveGizmo;
+    moveGizmoChangeRef.current = onMoveGizmoChange;
   }, [
     onSelectPrimitive,
     onSelectReference,
@@ -4549,7 +4703,110 @@ const currentGridSpacingRef = useRef(10);
     onMirrorEntityPick,
     onCancelSketchConstraint,
     onClearSketchConstraint,
+    moveGizmo,
+    onMoveGizmoChange,
   ]);
+
+  function flushMoveGizmoChange(parameters: MoveFeatureParameters) {
+    pendingMoveGizmoParametersRef.current = parameters;
+    if (pendingMoveGizmoFrameRef.current !== null) {
+      return;
+    }
+    pendingMoveGizmoFrameRef.current = window.requestAnimationFrame(() => {
+      pendingMoveGizmoFrameRef.current = null;
+      const next = pendingMoveGizmoParametersRef.current;
+      pendingMoveGizmoParametersRef.current = null;
+      if (next) {
+        void moveGizmoChangeRef.current?.(next);
+      }
+    });
+  }
+
+  function moveGizmoScreenAngle(
+    event: PointerEvent,
+    center: THREE.Vector3,
+    camera: THREE.Camera,
+    renderer: THREE.WebGLRenderer,
+  ) {
+    const projectedCenter = projectWorldPointToViewport(
+      [center.x, center.y, center.z],
+      camera,
+      renderer,
+    );
+    if (!projectedCenter) {
+      return 0;
+    }
+    const rect = renderer.domElement.getBoundingClientRect();
+    return Math.atan2(
+      event.clientY - rect.top - projectedCenter.y,
+      event.clientX - rect.left - projectedCenter.x,
+    );
+  }
+
+  function moveGizmoTranslationDelta(
+    event: PointerEvent,
+    drag: MoveGizmoDragState,
+    axis: MoveGizmoAxis,
+    camera: THREE.Camera,
+    renderer: THREE.WebGLRenderer,
+  ) {
+    const center = projectWorldPointToViewport(
+      [drag.center.x, drag.center.y, drag.center.z],
+      camera,
+      renderer,
+    );
+    const endpoint = drag.center.clone().addScaledVector(
+      drag.axes[axis],
+      drag.handleLength,
+    );
+    const projectedEndpoint = projectWorldPointToViewport(
+      [endpoint.x, endpoint.y, endpoint.z],
+      camera,
+      renderer,
+    );
+    if (!center || !projectedEndpoint) {
+      return 0;
+    }
+    const axisScreen = {
+      x: projectedEndpoint.x - center.x,
+      y: projectedEndpoint.y - center.y,
+    };
+    const axisScreenLength = Math.hypot(axisScreen.x, axisScreen.y);
+    if (axisScreenLength <= 1.0e-6) {
+      return 0;
+    }
+    const dragScreen = {
+      x: event.clientX - drag.startClientX,
+      y: event.clientY - drag.startClientY,
+    };
+    const projectedPixels =
+      (dragScreen.x * axisScreen.x + dragScreen.y * axisScreen.y) /
+      axisScreenLength;
+    return (projectedPixels / axisScreenLength) * drag.handleLength;
+  }
+
+  function moveGizmoFreeDelta(
+    event: PointerEvent,
+    drag: MoveGizmoDragState,
+    camera: THREE.Camera,
+    renderer: THREE.WebGLRenderer,
+  ) {
+    const dx = event.clientX - drag.startClientX;
+    const dy = event.clientY - drag.startClientY;
+    const cameraDirection = new THREE.Vector3();
+    camera.getWorldDirection(cameraDirection);
+    const cameraRight = new THREE.Vector3()
+      .crossVectors(cameraDirection, camera.up)
+      .normalize();
+    const cameraUp = camera.up.clone().normalize();
+    const worldUnitsPerPixel =
+      camera instanceof THREE.OrthographicCamera
+        ? (camera.top - camera.bottom) / camera.zoom / renderer.domElement.clientHeight
+        : drag.handleLength / Math.max(renderer.domElement.clientHeight, 1);
+    return new THREE.Vector3()
+      .addScaledVector(cameraRight, dx * worldUnitsPerPixel)
+      .addScaledVector(cameraUp, -dy * worldUnitsPerPixel);
+  }
 
   useEffect(() => {
     activeSketchToolRef.current = activeSketchTool;
@@ -6408,6 +6665,64 @@ const currentGridSpacingRef = useRef(10);
         return;
       }
 
+      const activeMoveGizmo = moveGizmoRef.current;
+      if (
+        activeMoveGizmo &&
+        !activeMoveGizmo.disabled &&
+        moveGizmoObjectsRef.current.length > 0
+      ) {
+        const rect = renderer.domElement.getBoundingClientRect();
+        pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        raycaster.setFromCamera(pointer, camera);
+        const [gizmoHit] = raycaster.intersectObjects(
+          moveGizmoObjectsRef.current,
+          false,
+        );
+        const handle = gizmoHit?.object.userData.moveGizmoHandle as
+          | { kind: "translate"; axis: MoveGizmoAxis }
+          | { kind: "rotate"; axis: MoveGizmoAxis }
+          | { kind: "free" }
+          | undefined;
+        if (handle) {
+          const center = new THREE.Vector3(
+            activeMoveGizmo.center.x,
+            activeMoveGizmo.center.y,
+            activeMoveGizmo.center.z,
+          );
+          moveGizmoDragRef.current = {
+            kind: handle.kind,
+            axis: handle.kind === "free" ? null : handle.axis,
+            startClientX: event.clientX,
+            startClientY: event.clientY,
+            startAngle:
+              handle.kind === "rotate"
+                ? moveGizmoScreenAngle(event, center, camera, renderer)
+                : 0,
+            center,
+            axes: moveGizmoAxes(activeMoveGizmo),
+            handleLength: Math.min(
+              Math.max(
+                Math.max(
+                  activeMoveGizmo.size.x,
+                  activeMoveGizmo.size.y,
+                  activeMoveGizmo.size.z,
+                  12,
+                ) * 0.65,
+                18,
+              ),
+              80,
+            ),
+            parameters: activeMoveGizmo.parameters,
+          };
+          controls.enabled = false;
+          renderer.domElement.setPointerCapture(event.pointerId);
+          (renderer.domElement as HTMLCanvasElement).style.cursor = "grabbing";
+          pointerDown = null;
+          return;
+        }
+      }
+
       pointerDown = { x: event.clientX, y: event.clientY };
       // --- Rectangular selection drag start (select tool, empty space) ---
       if (activeSketchToolRef.current === "select") {
@@ -6543,6 +6858,69 @@ const currentGridSpacingRef = useRef(10);
           viewCubeDragStartRef.current = { x: event.clientX, y: event.clientY };
           applyCubeDragOrbit(camera, controls, deltaX, deltaY, 0.005);
         }
+        return;
+      }
+
+      const moveGizmoDrag = moveGizmoDragRef.current;
+      if (moveGizmoDrag) {
+        const next: MoveFeatureParameters = { ...moveGizmoDrag.parameters };
+        if (moveGizmoDrag.kind === "translate" && moveGizmoDrag.axis) {
+          const delta = moveGizmoTranslationDelta(
+            event,
+            moveGizmoDrag,
+            moveGizmoDrag.axis,
+            camera,
+            renderer,
+          );
+          if (moveGizmoDrag.axis === "x") {
+            next.translation_x = moveGizmoDrag.parameters.translation_x + delta;
+          } else if (moveGizmoDrag.axis === "y") {
+            next.translation_y = moveGizmoDrag.parameters.translation_y + delta;
+          } else {
+            next.translation_z = moveGizmoDrag.parameters.translation_z + delta;
+          }
+        } else if (moveGizmoDrag.kind === "free") {
+          const worldDelta = moveGizmoFreeDelta(
+            event,
+            moveGizmoDrag,
+            camera,
+            renderer,
+          );
+          next.translation_x =
+            moveGizmoDrag.parameters.translation_x +
+            worldDelta.dot(moveGizmoDrag.axes.x);
+          next.translation_y =
+            moveGizmoDrag.parameters.translation_y +
+            worldDelta.dot(moveGizmoDrag.axes.y);
+          next.translation_z =
+            moveGizmoDrag.parameters.translation_z +
+            worldDelta.dot(moveGizmoDrag.axes.z);
+        } else if (moveGizmoDrag.axis) {
+          const angle = moveGizmoScreenAngle(
+            event,
+            moveGizmoDrag.center,
+            camera,
+            renderer,
+          );
+          let deltaDegrees =
+            ((angle - moveGizmoDrag.startAngle) * 180) / Math.PI;
+          if (deltaDegrees > 180) {
+            deltaDegrees -= 360;
+          } else if (deltaDegrees < -180) {
+            deltaDegrees += 360;
+          }
+          if (moveGizmoDrag.axis === "x") {
+            next.rotation_x_degrees =
+              moveGizmoDrag.parameters.rotation_x_degrees + deltaDegrees;
+          } else if (moveGizmoDrag.axis === "y") {
+            next.rotation_y_degrees =
+              moveGizmoDrag.parameters.rotation_y_degrees + deltaDegrees;
+          } else {
+            next.rotation_z_degrees =
+              moveGizmoDrag.parameters.rotation_z_degrees + deltaDegrees;
+          }
+        }
+        flushMoveGizmoChange(next);
         return;
       }
 
@@ -7699,10 +8077,15 @@ const currentGridSpacingRef = useRef(10);
 
     function handlePointerLeave() {
       pointerDown = null;
+      if (moveGizmoDragRef.current) {
+        moveGizmoDragRef.current = null;
+        controls.enabled = true;
+      }
       if (!dimensionLabelDragRef.current?.isPlacement) {
         dimensionLabelDragRef.current = null;
         controls.enabled = true;
       }
+      (renderer.domElement as HTMLCanvasElement).style.cursor = "";
       setSketchSnapLabel(null);
       setConstraintPreview(null);
       setCrosshairPointer(null);
@@ -7751,6 +8134,14 @@ const currentGridSpacingRef = useRef(10);
       }
       if (renderer.domElement.hasPointerCapture(event.pointerId)) {
         renderer.domElement.releasePointerCapture(event.pointerId);
+      }
+
+      if (moveGizmoDragRef.current) {
+        moveGizmoDragRef.current = null;
+        controls.enabled = true;
+        (renderer.domElement as HTMLCanvasElement).style.cursor = "";
+        pointerDown = null;
+        return;
       }
 
       const dimensionDrag = dimensionLabelDragRef.current;
@@ -9104,6 +9495,11 @@ const currentGridSpacingRef = useRef(10);
     return () => {
       onSnapshotCaptureReady?.(null);
       window.cancelAnimationFrame(frameId);
+      if (pendingMoveGizmoFrameRef.current !== null) {
+        window.cancelAnimationFrame(pendingMoveGizmoFrameRef.current);
+        pendingMoveGizmoFrameRef.current = null;
+      }
+      pendingMoveGizmoParametersRef.current = null;
       resizeObserver.disconnect();
       renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
       renderer.domElement.removeEventListener("pointermove", handlePointerMove);
@@ -9157,6 +9553,8 @@ const currentGridSpacingRef = useRef(10);
       edgeLineObjectsRef.current = [];
       vertexObjectsRef.current = [];
       cutPreviewObjectsRef.current = [];
+      moveGizmoObjectsRef.current = [];
+      moveGizmoDragRef.current = null;
       worldGridRef.current = null;
       sketchGridRef.current = null;
       previewLineRef.current = null;
@@ -9208,6 +9606,7 @@ const currentGridSpacingRef = useRef(10);
     edgeLineObjectsRef.current = [];
     vertexObjectsRef.current = [];
     cutPreviewObjectsRef.current = [];
+    moveGizmoObjectsRef.current = [];
     // Hovered ids reference disposed THREE objects after a rebuild;
     // null them out so the next pointermove cleanly re-applies hover.
     hoveredEdgeIdRef.current = null;
@@ -9290,6 +9689,12 @@ const currentGridSpacingRef = useRef(10);
       const cutPreviewMesh = buildCutPreviewObject(preview);
       cutPreviewObjectsRef.current.push(cutPreviewMesh);
       contentGroup.add(cutPreviewMesh);
+    }
+
+    if (moveGizmo && !moveGizmo.disabled) {
+      const object = buildMoveGizmoObject(moveGizmo);
+      moveGizmoObjectsRef.current = object.pickables;
+      contentGroup.add(object.group);
     }
 
     for (const sketchLine of sceneData.sketchLines) {
@@ -9441,7 +9846,7 @@ const currentGridSpacingRef = useRef(10);
 
       lastGeometryKeyRef.current = sceneData.geometryKey;
     }
-  }, [activeTheme.id, config.displayUnits, displayedSketchDimensions, sceneData, showReferencePlanes]);
+  }, [activeTheme.id, config.displayUnits, displayedSketchDimensions, moveGizmo, sceneData, showReferencePlanes]);
 
   useEffect(() => {
     lineDraftStartRef.current = null;

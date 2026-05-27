@@ -22,6 +22,7 @@ import {
   FastenerFeatureParameters,
   HelixFeatureParameters,
   HoleFeatureParameters,
+  MoveFeatureParameters,
   ThreadFeatureParameters,
 } from "@/types";
 
@@ -169,6 +170,13 @@ export interface ViewportCutPreview {
 export interface ViewportBodySummary {
   id: string;
   label: string;
+  center: { x: number; y: number; z: number };
+  size: { x: number; y: number; z: number };
+  local_frame: {
+    x_axis: { x: number; y: number; z: number };
+    y_axis: { x: number; y: number; z: number };
+    z_axis: { x: number; y: number; z: number };
+  };
 }
 
 // Selectable edge of a body, expressed as a flat polyline that the
@@ -807,6 +815,31 @@ export interface UpdateFastenerParametersCommand {
   payload: {
     feature_id: string;
     parameters: Partial<FastenerFeatureParameters>;
+  };
+}
+
+export interface CreateMoveCommand {
+  id: string;
+  type: "create_move";
+  payload: Partial<MoveFeatureParameters> & {
+    target_body_id: string;
+  };
+}
+
+export interface UpdateMoveParametersCommand {
+  id: string;
+  type: "update_move_parameters";
+  payload: {
+    feature_id: string;
+    parameters: Partial<MoveFeatureParameters>;
+  };
+}
+
+export interface ConfirmMoveCommand {
+  id: string;
+  type: "confirm_move";
+  payload: {
+    feature_id: string;
   };
 }
 
@@ -1589,6 +1622,9 @@ export type CoreCommand =
   | ConfirmThreadCommand
   | CreateFastenerCommand
   | UpdateFastenerParametersCommand
+  | CreateMoveCommand
+  | UpdateMoveParametersCommand
+  | ConfirmMoveCommand
   | UpdateOffsetPlaneCommand
   | UpdateAnglePlaneCommand
   | StartSketchOnPlaneCommand

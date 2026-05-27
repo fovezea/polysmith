@@ -276,9 +276,11 @@ interface AppHeaderProps {
   // Modify ribbon (Fillet / Chamfer). Enabled state is owned by the
   // parent so it can match the F-hotkey gating exactly.
   canEdgeOp: boolean;
+  canMove: boolean;
   canShell: boolean;
   onFillet: () => Promise<void>;
   onChamfer: () => Promise<void>;
+  onMove: () => Promise<void>;
   onShell: () => Promise<void>;
   // Construct ribbon. The parent gates the buttons on
   // "no other floating action is open" — same shape as canEdgeOp.
@@ -386,9 +388,11 @@ export function AppHeader({
   canFastener,
   onFastener,
   canEdgeOp,
+  canMove,
   canShell,
   onFillet,
   onChamfer,
+  onMove,
   onShell,
   canOffsetPlane,
   canMidplane,
@@ -706,9 +710,11 @@ export function AppHeader({
               <ModifyToolbar
                 disabled={disabled}
                 canEdgeOp={canEdgeOp}
+                canMove={canMove}
                 canShell={canShell}
                 onFillet={() => void onFillet()}
                 onChamfer={() => void onChamfer()}
+                onMove={() => void onMove()}
                 onShell={() => void onShell()}
               />
             ) : null}

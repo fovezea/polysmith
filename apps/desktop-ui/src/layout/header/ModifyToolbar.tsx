@@ -16,9 +16,11 @@ interface ModifyToolbarProps {
   // are clickable. The action handlers themselves are no-ops in
   // every other case, so this prop just controls visual affordance.
   canEdgeOp: boolean;
+  canMove: boolean;
   canShell: boolean;
   onFillet: () => void;
   onChamfer: () => void;
+  onMove: () => void;
   onShell: () => void;
 }
 
@@ -35,15 +37,16 @@ const placeholderTools: Array<{
   Icon: () => ReactElement;
 }> = [
   { labelKey: "toolbar.pressPull", Icon: PressPullIcon },
-  { labelKey: "toolbar.move", Icon: MoveIcon },
 ];
 
 export function ModifyToolbar({
   disabled,
   canEdgeOp,
+  canMove,
   canShell,
   onFillet,
   onChamfer,
+  onMove,
   onShell,
 }: ModifyToolbarProps) {
   const { config } = useAppConfig();
@@ -70,6 +73,16 @@ export function ModifyToolbar({
         onClick={onChamfer}
       >
         <ChamferIcon />
+      </button>
+      <button
+        type="button"
+        className={ICON_BUTTON_BASE}
+        data-tooltip={t("toolbar.move")}
+        aria-label={t("toolbar.move")}
+        disabled={disabled || !canMove}
+        onClick={onMove}
+      >
+        <MoveIcon />
       </button>
       <button
         type="button"

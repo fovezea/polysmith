@@ -26,6 +26,7 @@ using polysmith::core::ExtrudeFeatureParameters;
 using polysmith::core::FastenerFeatureParameters;
 using polysmith::core::HelixFeatureParameters;
 using polysmith::core::HoleFeatureParameters;
+using polysmith::core::MoveFeatureParameters;
 using polysmith::core::ThreadFeatureParameters;
 using polysmith::protocol::CommandMessage;
 
@@ -289,6 +290,33 @@ FastenerFeatureParameters read_fastener_parameters(
   params.thread_representation =
       read_optional_string(source, "thread_representation")
           .value_or(params.thread_representation);
+  return params;
+}
+
+MoveFeatureParameters read_move_parameters(
+    const polysmith::protocol::json& payload) {
+  const auto& source =
+      payload.contains("parameters") && payload.at("parameters").is_object()
+          ? payload.at("parameters")
+          : payload;
+  MoveFeatureParameters params{};
+  params.target_body_id =
+      read_optional_string(source, "target_body_id").value_or(params.target_body_id);
+  params.translation_x =
+      read_optional_dimension(source, "translation_x", params.translation_x);
+  params.translation_y =
+      read_optional_dimension(source, "translation_y", params.translation_y);
+  params.translation_z =
+      read_optional_dimension(source, "translation_z", params.translation_z);
+  params.rotation_x_degrees =
+      read_optional_dimension(source, "rotation_x_degrees", params.rotation_x_degrees);
+  params.rotation_y_degrees =
+      read_optional_dimension(source, "rotation_y_degrees", params.rotation_y_degrees);
+  params.rotation_z_degrees =
+      read_optional_dimension(source, "rotation_z_degrees", params.rotation_z_degrees);
+  if (source.contains("is_pending") && source.at("is_pending").is_boolean()) {
+    params.is_pending = source.at("is_pending").get<bool>();
+  }
   return params;
 }
 
@@ -1030,6 +1058,38 @@ void CadCoreApp::handle_command_line(const std::string& line) {
     const auto document = document_manager().update_fastener_parameters(
         read_string(command.payload, "feature_id"),
         read_fastener_parameters(command.payload));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "create_move") {
+    const auto document = document_manager().create_move(
+        read_string(command.payload, "target_body_id"),
+        read_move_parameters(command.payload));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "update_move_parameters") {
+    const auto document = document_manager().update_move_parameters(
+        read_string(command.payload, "feature_id"),
+        read_move_parameters(command.payload));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "confirm_move") {
+    const auto document = document_manager().confirm_move(
+        read_string(command.payload, "feature_id"));
 
     polysmith::protocol::write_message(
         polysmith::protocol::make_document_state_event(

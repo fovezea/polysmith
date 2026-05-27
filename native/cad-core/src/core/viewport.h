@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "core/dof_counter.h"
+#include "core/body_compiler.h"
 #include "core/document.h"
 #include "core/snap_engine.h"
 
@@ -343,6 +344,13 @@ struct ViewportSketchProfilePrimitive {
 struct ViewportBodySummary {
   std::string id;
   std::string label;
+  double center_x = 0.0;
+  double center_y = 0.0;
+  double center_z = 0.0;
+  double width = 0.0;
+  double height = 0.0;
+  double depth = 0.0;
+  BodyLocalFrame local_frame;
 };
 
 struct ViewportEdgePrimitive {

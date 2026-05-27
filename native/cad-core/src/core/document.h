@@ -213,6 +213,11 @@ class DocumentManager {
   DocumentState update_fastener_parameters(
       const std::string& feature_id,
       const FastenerFeatureParameters& parameters);
+  DocumentState create_move(const std::string& target_body_id,
+                            const MoveFeatureParameters& parameters);
+  DocumentState update_move_parameters(const std::string& feature_id,
+                                       const MoveFeatureParameters& parameters);
+  DocumentState confirm_move(const std::string& feature_id);
   DocumentState set_body_color(const std::string& body_id,
                                const std::string& color);
   DocumentState set_face_color(const std::string& face_id,

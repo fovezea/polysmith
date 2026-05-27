@@ -19,6 +19,18 @@ const planeFrameSchema = z
     normal: vector3Schema,
   })
   .strict();
+const moveParametersSchema = z
+  .object({
+    target_body_id: stringField.optional(),
+    translation_x: numberField.optional(),
+    translation_y: numberField.optional(),
+    translation_z: numberField.optional(),
+    rotation_x_degrees: numberField.optional(),
+    rotation_y_degrees: numberField.optional(),
+    rotation_z_degrees: numberField.optional(),
+    is_pending: booleanField.optional(),
+  })
+  .strict();
 
 const commandPayloadSchemas = {
   ping: emptyPayload,
@@ -175,6 +187,22 @@ const commandPayloadSchemas = {
   update_fastener_parameters: z
     .object({ feature_id: stringField, parameters: z.record(z.string(), z.unknown()) })
     .strict(),
+  create_move: z
+    .object({
+      target_body_id: stringField,
+      parameters: moveParametersSchema.optional(),
+      translation_x: numberField.optional(),
+      translation_y: numberField.optional(),
+      translation_z: numberField.optional(),
+      rotation_x_degrees: numberField.optional(),
+      rotation_y_degrees: numberField.optional(),
+      rotation_z_degrees: numberField.optional(),
+    })
+    .strict(),
+  update_move_parameters: z
+    .object({ feature_id: stringField, parameters: moveParametersSchema })
+    .strict(),
+  confirm_move: z.object({ feature_id: stringField }).strict(),
   update_offset_plane: z
     .object({ feature_id: stringField, offset: numberField })
     .strict(),
@@ -603,6 +631,14 @@ export function validateAiCommandBatchForState(
       ) {
         throw new Error(
           `extrude_profile references unknown target body "${command.payload.target_body_id}". Use a body id from viewport state.`,
+        );
+      }
+    }
+
+    if (command.type === "create_move") {
+      if (!knownBodyIds.has(command.payload.target_body_id)) {
+        throw new Error(
+          `create_move references unknown body "${command.payload.target_body_id}". Use a body id from viewport state.`,
         );
       }
     }

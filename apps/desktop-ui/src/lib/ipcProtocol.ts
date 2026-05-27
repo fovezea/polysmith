@@ -11,6 +11,7 @@ import type {
   FastenerFeatureParameters,
   HelixFeatureParameters,
   HoleFeatureParameters,
+  MoveFeatureParameters,
   ThreadFeatureParameters,
   ViewportState,
 } from "@/types";
@@ -743,6 +744,44 @@ export function makeUpdateFastenerParametersCommand(
     payload: {
       feature_id: featureId,
       parameters,
+    },
+  };
+}
+
+export function makeCreateMoveCommand(
+  targetBodyId: string,
+  parameters: Partial<MoveFeatureParameters> = {},
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "create_move",
+    payload: {
+      ...parameters,
+      target_body_id: targetBodyId,
+    },
+  };
+}
+
+export function makeUpdateMoveParametersCommand(
+  featureId: string,
+  parameters: Partial<MoveFeatureParameters>,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "update_move_parameters",
+    payload: {
+      feature_id: featureId,
+      parameters,
+    },
+  };
+}
+
+export function makeConfirmMoveCommand(featureId: string): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "confirm_move",
+    payload: {
+      feature_id: featureId,
     },
   };
 }

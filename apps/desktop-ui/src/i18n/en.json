@@ -351,6 +351,17 @@
       "selected": "{{count}} selected",
       "title": "Mirror"
     },
+    "move": {
+      "bodySelected": "Body selected",
+      "pickBody": "Click a body to move",
+      "rotation": "Rotation (deg)",
+      "selectedBody": "{{body}} selected",
+      "title": "Move",
+      "translation": "Translation (mm)",
+      "x": "X",
+      "y": "Y",
+      "z": "Z"
+    },
     "offsetPlane": {
       "adjustOffset": "Adjust offset",
       "fromSource": "From {{source}}",

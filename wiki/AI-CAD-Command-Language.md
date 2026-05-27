@@ -211,6 +211,8 @@ kinds currently include:
 - `extrude`
 - `loft`
 - `revolve`
+- `sweep`
+- `move`
 - `fillet`
 - `chamfer`
 - `construction_plane`
@@ -247,7 +249,7 @@ geometry. Important arrays:
 - `sketch_lines[]`, `sketch_circles[]`, `sketch_arcs[]`, `sketch_points[]`
 - `sketch_dimensions[]`, `sketch_constraints[]`
 - `sketch_profiles[]`: selectable closed regions for extrusion
-- `bodies[]`: body IDs for boolean target selection
+- `bodies[]`: body IDs plus `center`, `size`, and `local_frame` for boolean target selection and body-local manipulators
 - `meshes[]`: triangulated body geometry
 - `cut_previews[]`: live cut preview geometry
 
@@ -952,6 +954,32 @@ Payload:
   thread_representation?: "cosmetic" | "modeled";
 }
 ```
+
+#### `create_move`
+
+Creates a semantic 3D Move timeline feature for one body. The target must be a
+body id from `viewport_state.bodies[]`. Translation components are millimeters
+in the body's local frame. Rotation components are degrees around the current
+pre-move body bounding-box center, applied in fixed X -> Y -> Z order.
+
+Payload:
+
+```ts
+{
+  target_body_id: string;
+  translation_x?: number;
+  translation_y?: number;
+  translation_z?: number;
+  rotation_x_degrees?: number;
+  rotation_y_degrees?: number;
+  rotation_z_degrees?: number;
+}
+```
+
+Use `update_move_parameters { feature_id, parameters }` for live preview and
+`confirm_move { feature_id }` after the contextual panel is accepted. If the
+target body disappears during recompute, the Move feature degrades with
+`dependency_broken` instead of trusting stale topology.
 
 #### `update_offset_plane`
 
@@ -2353,6 +2381,7 @@ Parameter fields:
 - `fillet_parameters: { target_body_id, edge_ids, radius, is_pending } | null`
 - `chamfer_parameters: { target_body_id, edge_ids, distance, is_pending } | null`
 - `shell_parameters: { target_body_id, removed_face_ids, thickness, is_pending } | null`
+- `move_parameters: { target_body_id, translation_x, translation_y, translation_z, rotation_x_degrees, rotation_y_degrees, rotation_z_degrees, is_pending } | null`
 - `construction_plane_parameters: { plane_type, source_plane_id, source_plane_ids, source_axis_id, offset, angle_degrees, plane_frame } | null`
 - `sketch_parameters: SketchFeatureParameters | null`
 

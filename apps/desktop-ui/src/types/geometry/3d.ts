@@ -192,3 +192,14 @@ export interface FastenerFeatureParameters {
   drive_type: "none" | "hex_socket" | "phillips";
   thread_representation: ThreadRepresentation;
 }
+
+export interface MoveFeatureParameters {
+  target_body_id: string;
+  translation_x: number;
+  translation_y: number;
+  translation_z: number;
+  rotation_x_degrees: number;
+  rotation_y_degrees: number;
+  rotation_z_degrees: number;
+  is_pending: boolean;
+}

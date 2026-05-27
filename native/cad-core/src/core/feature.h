@@ -252,6 +252,17 @@ struct FastenerFeatureParameters {
   std::string thread_representation = "cosmetic";
 };
 
+struct MoveFeatureParameters {
+  std::string target_body_id;
+  double translation_x = 0.0;
+  double translation_y = 0.0;
+  double translation_z = 0.0;
+  double rotation_x_degrees = 0.0;
+  double rotation_y_degrees = 0.0;
+  double rotation_z_degrees = 0.0;
+  bool is_pending = false;
+};
+
 // Edge-modifying body operation. `target_body_id` is the body root feature
 // id whose edges are being filleted/chamfered. `edge_ids` mirrors the
 // `<body_id>:edge:<index>` strings emitted by viewport_state.edges so the
@@ -780,6 +791,7 @@ struct FeatureEntry {
   std::optional<HelixFeatureParameters> helix_parameters;
   std::optional<ThreadFeatureParameters> thread_parameters;
   std::optional<FastenerFeatureParameters> fastener_parameters;
+  std::optional<MoveFeatureParameters> move_parameters;
 };
 
 }  // namespace polysmith::core

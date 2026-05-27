@@ -11,11 +11,13 @@
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepBndLib.hxx>
 #include <BRepGProp.hxx>
 #include <BRepGProp_Face.hxx>
 #include <GProp_GProps.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRep_Tool.hxx>
+#include <Bnd_Box.hxx>
 #include <GCPnts_QuasiUniformDeflection.hxx>
 #include <GeomAbs_CurveType.hxx>
 #include <GeomAbs_SurfaceType.hxx>
@@ -63,6 +65,45 @@ struct WorldVector {
   double y;
   double z;
 };
+
+struct BodyBounds {
+  double center_x = 0.0;
+  double center_y = 0.0;
+  double center_z = 0.0;
+  double width = 0.0;
+  double height = 0.0;
+  double depth = 0.0;
+};
+
+BodyBounds bounds_for_shape(const TopoDS_Shape& shape) {
+  if (shape.IsNull()) {
+    return BodyBounds{};
+  }
+  try {
+    Bnd_Box bounds;
+    BRepBndLib::Add(shape, bounds);
+    if (bounds.IsVoid()) {
+      return BodyBounds{};
+    }
+    Standard_Real min_x = 0.0;
+    Standard_Real min_y = 0.0;
+    Standard_Real min_z = 0.0;
+    Standard_Real max_x = 0.0;
+    Standard_Real max_y = 0.0;
+    Standard_Real max_z = 0.0;
+    bounds.Get(min_x, min_y, min_z, max_x, max_y, max_z);
+    return BodyBounds{
+        .center_x = (min_x + max_x) * 0.5,
+        .center_y = (min_y + max_y) * 0.5,
+        .center_z = (min_z + max_z) * 0.5,
+        .width = max_x - min_x,
+        .height = max_y - min_y,
+        .depth = max_z - min_z,
+    };
+  } catch (const std::exception&) {
+    return BodyBounds{};
+  }
+}
 
 WorldVector subtract_points(const WorldPoint& left, const WorldPoint& right) {
   return WorldVector{
@@ -2119,6 +2160,17 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
   // produce empty meshes — see body_compiler.cpp — so legacy fallback
   // still renders something.
   CompiledBodies compiled_bodies = compile_bodies(*view);
+  std::optional<std::string> selected_move_target_body_id;
+  if (view->selected_feature_id.has_value()) {
+    for (const auto& feature : view->feature_history) {
+      if (feature.id == view->selected_feature_id.value() &&
+          feature.kind == "move" &&
+          feature.move_parameters.has_value()) {
+        selected_move_target_body_id = feature.move_parameters->target_body_id;
+        break;
+      }
+    }
+  }
   for (const auto& body_mesh : compiled_bodies.meshes) {
     ViewportMeshPrimitive mesh{};
     mesh.id = body_mesh.body_id;
@@ -2127,7 +2179,9 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
     mesh.indices = body_mesh.indices;
     mesh.is_selected =
         view->selected_feature_id.has_value() &&
-        view->selected_feature_id.value() == body_mesh.body_id;
+        (view->selected_feature_id.value() == body_mesh.body_id ||
+         (selected_move_target_body_id.has_value() &&
+          selected_move_target_body_id.value() == body_mesh.body_id));
     mesh.appearance_color = body_appearance_color(*view, body_mesh.body_id);
     meshes.push_back(std::move(mesh));
   }
@@ -2185,7 +2239,18 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
         break;
       }
     }
-    bodies.push_back(ViewportBodySummary{.id = body.id, .label = label});
+    const BodyBounds bounds = bounds_for_shape(body.shape);
+    bodies.push_back(ViewportBodySummary{
+        .id = body.id,
+        .label = label,
+        .center_x = bounds.center_x,
+        .center_y = bounds.center_y,
+        .center_z = bounds.center_z,
+        .width = bounds.width,
+        .height = bounds.height,
+        .depth = bounds.depth,
+        .local_frame = body.local_frame,
+    });
     // Edge picking uses pick_shape when the body has one (set by
     // body_compiler for the duration of a pending fillet/chamfer
     // panel session). This keeps edge ids stable while the user

@@ -1776,6 +1776,22 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                   feature.fastener_parameters->thread_representation},
              }
            : json(nullptr)},
+      {"move_parameters",
+       feature.move_parameters.has_value()
+           ? json{
+                 {"target_body_id", feature.move_parameters->target_body_id},
+                 {"translation_x", feature.move_parameters->translation_x},
+                 {"translation_y", feature.move_parameters->translation_y},
+                 {"translation_z", feature.move_parameters->translation_z},
+                 {"rotation_x_degrees",
+                  feature.move_parameters->rotation_x_degrees},
+                 {"rotation_y_degrees",
+                  feature.move_parameters->rotation_y_degrees},
+                 {"rotation_z_degrees",
+                  feature.move_parameters->rotation_z_degrees},
+                 {"is_pending", feature.move_parameters->is_pending},
+             }
+           : json(nullptr)},
   };
 }
 
@@ -2592,6 +2608,29 @@ json to_payload(const polysmith::core::ViewportState& viewport) {
            bodies_json.push_back({
                {"id", body.id},
                {"label", body.label},
+               {"center",
+                {{"x", body.center_x},
+                 {"y", body.center_y},
+                 {"z", body.center_z}}},
+               {"size",
+                {{"x", body.width},
+                 {"y", body.height},
+                 {"z", body.depth}}},
+               {"local_frame",
+                {
+                    {"x_axis",
+                     {{"x", body.local_frame.x_axis_x},
+                      {"y", body.local_frame.x_axis_y},
+                      {"z", body.local_frame.x_axis_z}}},
+                    {"y_axis",
+                     {{"x", body.local_frame.y_axis_x},
+                      {"y", body.local_frame.y_axis_y},
+                      {"z", body.local_frame.y_axis_z}}},
+                    {"z_axis",
+                     {{"x", body.local_frame.z_axis_x},
+                      {"y", body.local_frame.z_axis_y},
+                      {"z", body.local_frame.z_axis_z}}},
+                }},
            });
          }
          return bodies_json;
@@ -3027,6 +3066,30 @@ polysmith::core::FeatureEntry feature_entry_from_payload(const json& payload) {
     params.thread_representation = read_optional_string_value(
         fp, "thread_representation", params.thread_representation);
     feature.fastener_parameters = params;
+  }
+
+  if (payload.contains("move_parameters") &&
+      !payload.at("move_parameters").is_null()) {
+    const json& mp = payload.at("move_parameters");
+    polysmith::core::MoveFeatureParameters params{};
+    params.target_body_id =
+        read_optional_string_value(mp, "target_body_id", params.target_body_id);
+    params.translation_x =
+        read_optional_number(mp, "translation_x", params.translation_x);
+    params.translation_y =
+        read_optional_number(mp, "translation_y", params.translation_y);
+    params.translation_z =
+        read_optional_number(mp, "translation_z", params.translation_z);
+    params.rotation_x_degrees =
+        read_optional_number(mp, "rotation_x_degrees", params.rotation_x_degrees);
+    params.rotation_y_degrees =
+        read_optional_number(mp, "rotation_y_degrees", params.rotation_y_degrees);
+    params.rotation_z_degrees =
+        read_optional_number(mp, "rotation_z_degrees", params.rotation_z_degrees);
+    if (mp.contains("is_pending") && mp.at("is_pending").is_boolean()) {
+      params.is_pending = mp.at("is_pending").get<bool>();
+    }
+    feature.move_parameters = params;
   }
 
   return feature;

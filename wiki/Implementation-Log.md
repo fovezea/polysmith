@@ -4,6 +4,24 @@ This document tracks concrete implementation milestones as they land in the code
 
 ## 2026-05-27
 
+### 3D Move Timeline Feature
+
+- added a semantic native `move` feature with `target_body_id`, local X/Y/Z
+  translation, local X/Y/Z rotation, and `is_pending` parameters
+- body replay now resolves the target compiled body, computes a pre-move
+  bounding-box-center pivot, applies fixed-order local X/Y/Z rotations plus
+  local translation, preserves the body id, and updates the emitted local frame
+- added `create_move`, `update_move_parameters`, and `confirm_move` IPC commands
+  plus save/load, TypeScript, Zod, and AI command validation/prompt coverage
+- extended `viewport_state.bodies[]` with current body center, bounds size, and
+  local-frame axes so the desktop UI can place a 3D transform manipulator
+- enabled the Modify ribbon Move tool with the standard contextual flow:
+  preselected body or pick-body pending panel, right-side numeric transform
+  panel, live core preview, confirm/cancel, and timeline edit restore
+- added themed viewport move helpers: local-axis translation handles, a free
+  center handle, and local-axis rotation rings; drags are RAF-coalesced and go
+  through `update_move_parameters`
+
 ### Snap Engine Completion & Wiring
 
 **C++ snap engine (`snap_engine.cpp`):**

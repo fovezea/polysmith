@@ -6,6 +6,7 @@ import type {
   HelixFeatureParameters,
   HoleFeatureParameters,
   LoftFeatureParameters,
+  MoveFeatureParameters,
   RevolveFeatureParameters,
   SweepFeatureParameters,
   ThreadFeatureParameters,
@@ -360,6 +361,7 @@ export interface FeatureEntry {
   helix_parameters: HelixFeatureParameters | null;
   thread_parameters: ThreadFeatureParameters | null;
   fastener_parameters: FastenerFeatureParameters | null;
+  move_parameters: MoveFeatureParameters | null;
   sketch_parameters: SketchFeatureParameters | null;
   fillet_parameters: FilletFeatureParameters | null;
   chamfer_parameters: ChamferFeatureParameters | null;

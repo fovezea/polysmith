@@ -88,12 +88,15 @@ import {
   makeCreateFastenerCommand,
   makeCreateHelixCommand,
   makeCreateHoleCommand,
+  makeCreateMoveCommand,
   makeCreateThreadCommand,
   makeConfirmHoleCommand,
+  makeConfirmMoveCommand,
   makeConfirmThreadCommand,
   makeUpdateFastenerParametersCommand,
   makeUpdateHelixParametersCommand,
   makeUpdateHoleParametersCommand,
+  makeUpdateMoveParametersCommand,
   makeUpdateThreadParametersCommand,
   makeUpdateOffsetPlaneCommand,
   makeUpdateAnglePlaneCommand,
@@ -148,6 +151,7 @@ import type {
   FastenerFeatureParameters,
   HelixFeatureParameters,
   HoleFeatureParameters,
+  MoveFeatureParameters,
   ThreadFeatureParameters,
 } from "@/types";
 
@@ -595,6 +599,29 @@ export function useCadCore() {
       await sendCoreCommand(
         makeUpdateFastenerParametersCommand(featureId, parameters),
       );
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    createMove: async (
+      targetBodyId: string,
+      parameters: Partial<MoveFeatureParameters> = {},
+    ) => {
+      await sendCoreCommand(makeCreateMoveCommand(targetBodyId, parameters));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    updateMoveParameters: async (
+      featureId: string,
+      parameters: Partial<MoveFeatureParameters>,
+    ) => {
+      await sendCoreCommand(
+        makeUpdateMoveParametersCommand(featureId, parameters),
+      );
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    confirmMove: async (featureId: string) => {
+      await sendCoreCommand(makeConfirmMoveCommand(featureId));
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());
     },

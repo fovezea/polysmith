@@ -62,6 +62,7 @@ import {
   LogsWindow,
   MaterialsPanel,
   MessageLog,
+  MovePreviewPanel,
   SettingsModal,
   ViewportPanel,
   ProjectsPanel,
@@ -77,6 +78,7 @@ import type {
   HoleFit,
   HoleFeatureParameters,
   HoleStandard,
+  MoveFeatureParameters,
   ThreadFeatureParameters,
 } from "./types";
 import type { DocumentState } from "./types/ipc";
@@ -104,6 +106,19 @@ const DEFAULT_FASTENER_THREAD_LENGTH = 16;
 // 10 mm matches common CAD workflow's "show me something" default.
 const DEFAULT_OFFSET_PLANE_DISTANCE = 10;
 const DEFAULT_ANGLE_PLANE_DEGREES = 45;
+
+function defaultMoveParameters(targetBodyId = ""): MoveFeatureParameters {
+  return {
+    target_body_id: targetBodyId,
+    translation_x: 0,
+    translation_y: 0,
+    translation_z: 0,
+    rotation_x_degrees: 0,
+    rotation_y_degrees: 0,
+    rotation_z_degrees: 0,
+    is_pending: true,
+  };
+}
 
 // The Core Messages debug panel is hidden by default. Set
 // `VITE_SHOW_DEBUG_MESSAGE_LOG=true` in `.env.local` (or your shell when
@@ -232,6 +247,16 @@ interface ActiveSweepAction {
   } | null;
 }
 
+type ActiveMoveAction =
+  | { phase: "pending"; parameters: MoveFeatureParameters }
+  | {
+      phase: "active";
+      featureId: string;
+      targetBodyId: string;
+      parameters: MoveFeatureParameters;
+      originalSnapshot: MoveFeatureParameters | null;
+    };
+
 interface SketchDeleteSelection {
   entityIds: string[];
   pointIds: string[];
@@ -309,6 +334,7 @@ function App() {
   const [sweepAction, setSweepAction] = useState<ActiveSweepAction | null>(null);
   const sweepCreateInFlightRef = useRef(false);
   const lastSweepInputsRef = useRef("");
+  const [moveAction, setMoveAction] = useState<ActiveMoveAction | null>(null);
   // Arc tool creation mode. Defaults to three-point (common CAD workflow's default
   // and the most ergonomic for shaping curves on the fly). The
   // SketchToolbar exposes a segmented control to toggle to
@@ -585,6 +611,21 @@ function App() {
   const activeFastenerStandards = activeFastenerParameters
     ? holeStandardsForMode(activeFastenerParameters.standard)
     : [];
+  const activeMoveFeature =
+    moveAction?.phase === "active"
+      ? (document?.feature_history.find(
+          (feature) => feature.feature_id === moveAction.featureId,
+        ) ?? null)
+      : null;
+  const activeMoveParameters =
+    activeMoveFeature?.move_parameters ??
+    (moveAction?.phase === "active" ? moveAction.parameters : null);
+  const selectedMoveBodyId =
+    selectedMaterialBodyId ??
+    (document?.selected_feature_id &&
+    viewport?.bodies.some((body) => body.id === document.selected_feature_id)
+      ? document.selected_feature_id
+      : null);
   const selectedSketchProfileIdsKey = selectedSketchProfileIds.join("|");
   const sketchProfileLabelById = new Map<string, string>();
   const sketchLineLabelById = new Map<string, string>();
@@ -779,6 +820,9 @@ function App() {
     confirmThread,
     createFastener,
     updateFastenerParameters,
+    createMove,
+    updateMoveParameters,
+    confirmMove,
     updateOffsetPlane,
     updateAnglePlane,
     startSketchOnPlane,
@@ -1137,7 +1181,8 @@ function App() {
       constructionPointAction ||
       helixAction ||
       threadAction ||
-      fastenerAction
+      fastenerAction ||
+      moveAction
     ) {
       return;
     }
@@ -2253,7 +2298,8 @@ function App() {
       constructionPointAction ||
       helixAction ||
       threadAction ||
-      fastenerAction
+      fastenerAction ||
+      moveAction
     ) {
       return;
     }
@@ -2282,7 +2328,8 @@ function App() {
       constructionPointAction ||
       helixAction ||
       threadAction ||
-      fastenerAction
+      fastenerAction ||
+      moveAction
     ) {
       return;
     }
@@ -2352,6 +2399,7 @@ function App() {
       helixAction ||
       threadAction ||
       fastenerAction ||
+      moveAction ||
       activeSketchPlaneId
     ) {
       return;
@@ -2445,6 +2493,7 @@ function App() {
       helixAction ||
       threadAction ||
       fastenerAction ||
+      moveAction ||
       activeSketchPlaneId
     ) {
       return;
@@ -2500,6 +2549,7 @@ function App() {
       helixAction ||
       threadAction ||
       fastenerAction ||
+      moveAction ||
       activeSketchPlaneId
     ) {
       return;
@@ -2534,6 +2584,89 @@ function App() {
       } catch (error) {
         addMessage(`fastener error: ${String(error)}`);
       }
+    });
+  }
+
+  async function createMoveFeature(
+    targetBodyId: string,
+    parameters: MoveFeatureParameters = defaultMoveParameters(targetBodyId),
+  ) {
+    const documentPromise = awaitDocumentChange((next, previous) => {
+      if (!next.selected_feature_id) {
+        return false;
+      }
+      const previousLength = previous?.feature_history.length ?? 0;
+      if (next.feature_history.length <= previousLength) {
+        return false;
+      }
+      const lastFeature = next.feature_history[next.feature_history.length - 1];
+      return (
+        lastFeature.feature_id === next.selected_feature_id &&
+        lastFeature.kind === "move"
+      );
+    });
+
+    await runAction(async () => {
+      try {
+        const seeded = {
+          ...parameters,
+          target_body_id: targetBodyId,
+          is_pending: true,
+        };
+        await createMove(targetBodyId, seeded);
+        const nextDocument = await documentPromise;
+        const newFeatureId = nextDocument.selected_feature_id ?? null;
+        const created = nextDocument.feature_history.find(
+          (feature) => feature.feature_id === newFeatureId,
+        );
+        if (newFeatureId && created?.move_parameters) {
+          setMoveAction({
+            phase: "active",
+            featureId: newFeatureId,
+            targetBodyId,
+            parameters: created.move_parameters,
+            originalSnapshot: null,
+          });
+        }
+      } catch (error) {
+        addMessage(`move error: ${String(error)}`);
+        setMoveAction(null);
+      }
+    });
+  }
+
+  async function triggerMoveAction() {
+    if (
+      activeSketchPlaneId ||
+      extrudeAction ||
+      loftAction ||
+      revolveAction ||
+      sweepAction ||
+      edgeOpAction ||
+      shellAction ||
+      holeAction ||
+      offsetPlaneAction ||
+      midplaneAction ||
+      tangentPlaneAction ||
+      anglePlaneAction ||
+      constructionAxisAction ||
+      constructionPointAction ||
+      helixAction ||
+      threadAction ||
+      fastenerAction ||
+      moveAction
+    ) {
+      return;
+    }
+
+    if (selectedMoveBodyId) {
+      await createMoveFeature(selectedMoveBodyId, defaultMoveParameters(selectedMoveBodyId));
+      return;
+    }
+
+    setMoveAction({
+      phase: "pending",
+      parameters: defaultMoveParameters(),
     });
   }
 
@@ -2597,6 +2730,7 @@ function App() {
       helixAction ||
       threadAction ||
       fastenerAction ||
+      moveAction ||
       activeSketchPlaneId
     ) {
       return;
@@ -2869,6 +3003,7 @@ function App() {
         !shellAction &&
         !threadAction &&
         !fastenerAction &&
+        !moveAction &&
         document &&
         (document.selected_feature_id ||
           document.selected_reference_id ||
@@ -4019,6 +4154,7 @@ function App() {
             !helixAction &&
             !threadAction &&
             !fastenerAction &&
+            !moveAction &&
             (!extrudeAction || extrudeAction.phase === "pending")
           }
           onExtrude={triggerExtrudeAction}
@@ -4039,7 +4175,8 @@ function App() {
             !constructionPointAction &&
             !helixAction &&
             !threadAction &&
-            !fastenerAction
+            !fastenerAction &&
+            !moveAction
           }
           onLoft={triggerLoftAction}
           canRevolve={
@@ -4059,7 +4196,8 @@ function App() {
             !constructionPointAction &&
             !helixAction &&
             !threadAction &&
-            !fastenerAction
+            !fastenerAction &&
+            !moveAction
           }
           onRevolve={triggerRevolveAction}
           canSweep={
@@ -4079,7 +4217,8 @@ function App() {
             !constructionPointAction &&
             !helixAction &&
             !threadAction &&
-            !fastenerAction
+            !fastenerAction &&
+            !moveAction
           }
           onSweep={triggerSweepAction}
           canHole={
@@ -4099,7 +4238,8 @@ function App() {
             !constructionPointAction &&
             !helixAction &&
             !threadAction &&
-            !fastenerAction
+            !fastenerAction &&
+            !moveAction
           }
           onHole={triggerHoleAction}
           canThread={
@@ -4119,7 +4259,8 @@ function App() {
             !constructionPointAction &&
             !helixAction &&
             !threadAction &&
-            !fastenerAction
+            !fastenerAction &&
+            !moveAction
           }
           onThread={triggerThreadAction}
           canFastener={
@@ -4139,7 +4280,8 @@ function App() {
             !constructionPointAction &&
             !helixAction &&
             !threadAction &&
-            !fastenerAction
+            !fastenerAction &&
+            !moveAction
           }
           onFastener={triggerFastenerAction}
           // Modify ribbon: Fillet / Chamfer can be invoked at any
@@ -4164,13 +4306,37 @@ function App() {
             !constructionPointAction &&
             !helixAction &&
             !threadAction &&
-            !fastenerAction
+            !fastenerAction &&
+            !moveAction
           }
           onFillet={async () => {
             await triggerEdgeOpAction("fillet");
           }}
           onChamfer={async () => {
             await triggerEdgeOpAction("chamfer");
+          }}
+          canMove={
+            !activeSketchPlaneId &&
+            !extrudeAction &&
+            !loftAction &&
+            !revolveAction &&
+            !sweepAction &&
+            !edgeOpAction &&
+            !shellAction &&
+            !holeAction &&
+            !offsetPlaneAction &&
+            !midplaneAction &&
+            !tangentPlaneAction &&
+            !anglePlaneAction &&
+            !constructionAxisAction &&
+            !constructionPointAction &&
+            !helixAction &&
+            !threadAction &&
+            !fastenerAction &&
+            !moveAction
+          }
+          onMove={async () => {
+            await triggerMoveAction();
           }}
           canShell={
             !activeSketchPlaneId &&
@@ -4189,7 +4355,8 @@ function App() {
             !constructionPointAction &&
             !helixAction &&
             !threadAction &&
-            !fastenerAction
+            !fastenerAction &&
+            !moveAction
           }
           onShell={async () => {
             await triggerShellAction();
@@ -4210,7 +4377,8 @@ function App() {
             !constructionPointAction &&
             !helixAction &&
             !threadAction &&
-            !fastenerAction
+            !fastenerAction &&
+            !moveAction
           }
           onOffsetPlane={() => {
             void triggerOffsetPlaneAction();
@@ -4231,7 +4399,8 @@ function App() {
             !constructionPointAction &&
             !helixAction &&
             !threadAction &&
-            !fastenerAction
+            !fastenerAction &&
+            !moveAction
           }
           canTangentPlane={
             !activeSketchPlaneId &&
@@ -4249,7 +4418,8 @@ function App() {
             !constructionPointAction &&
             !helixAction &&
             !threadAction &&
-            !fastenerAction
+            !fastenerAction &&
+            !moveAction
           }
           canAnglePlane={
             !activeSketchPlaneId &&
@@ -4267,7 +4437,8 @@ function App() {
             !constructionPointAction &&
             !helixAction &&
             !threadAction &&
-            !fastenerAction
+            !fastenerAction &&
+            !moveAction
           }
           canConstructionAxis={
             !extrudeAction &&
@@ -4284,7 +4455,8 @@ function App() {
             !constructionPointAction &&
             !helixAction &&
             !threadAction &&
-            !fastenerAction
+            !fastenerAction &&
+            !moveAction
           }
           canConstructionPoint={
             !extrudeAction &&
@@ -4301,7 +4473,8 @@ function App() {
             !constructionPointAction &&
             !helixAction &&
             !threadAction &&
-            !fastenerAction
+            !fastenerAction &&
+            !moveAction
           }
           canHelix={
             !activeSketchPlaneId &&
@@ -4633,6 +4806,39 @@ function App() {
               status={status}
               document={document}
               viewport={viewport}
+              moveGizmo={
+                moveAction?.phase === "active" && activeMoveParameters
+                  ? (() => {
+                      const body = viewport?.bodies.find(
+                        (entry) => entry.id === moveAction.targetBodyId,
+                      );
+                      return body
+                        ? {
+                            bodyId: body.id,
+                            center: body.center,
+                            size: body.size,
+                            localFrame: body.local_frame,
+                            parameters: activeMoveParameters,
+                            disabled: status !== "connected",
+                          }
+                        : null;
+                    })()
+                  : null
+              }
+              onMoveGizmoChange={async (parameters) => {
+                if (moveAction?.phase !== "active") {
+                  return;
+                }
+                await runAction(async () => {
+                  await updateMoveParameters(moveAction.featureId, parameters);
+                });
+                setMoveAction((current) =>
+                  current?.phase === "active" &&
+                  current.featureId === moveAction.featureId
+                    ? { ...current, parameters }
+                    : current,
+                );
+              }}
               inactiveSketchEntityPickEnabled={
                 revolveAction !== null ||
                 sweepAction !== null ||
@@ -4673,6 +4879,15 @@ function App() {
                 snapshotCaptureRef.current = capture;
               }}
               onSelectPrimitive={async (primitiveId) => {
+                if (moveAction?.phase === "pending") {
+                  const body = viewport?.bodies.find(
+                    (entry) => entry.id === primitiveId,
+                  );
+                  if (body) {
+                    await createMoveFeature(body.id, moveAction.parameters);
+                  }
+                  return;
+                }
                 if (
                   threadAction?.phase === "pick_target" ||
                   threadAction?.phase === "pick_axis"
@@ -4741,6 +4956,15 @@ function App() {
                 });
               }}
               onSelectFace={async (faceId) => {
+                if (moveAction?.phase === "pending") {
+                  const face = viewport?.solid_faces.find(
+                    (entry) => entry.face_id === faceId,
+                  );
+                  if (face) {
+                    await createMoveFeature(face.owner_id, moveAction.parameters);
+                  }
+                  return;
+                }
                 if (
                   threadAction?.phase === "pick_target" ||
                   threadAction?.phase === "pick_axis"
@@ -6187,6 +6411,71 @@ function App() {
                       await cancelMirrorPreview();
                     });
                     setMirrorFocusedSlot(null);
+                  }}
+                />
+              ) : null}
+              {moveAction ? (
+                <MovePreviewPanel
+                  phase={moveAction.phase}
+                  bodyLabel={
+                    moveAction.phase === "active"
+                      ? (viewport?.bodies.find(
+                          (body) => body.id === moveAction.targetBodyId,
+                        )?.label ?? null)
+                      : null
+                  }
+                  parameters={
+                    moveAction.phase === "active"
+                      ? (activeMoveParameters ?? moveAction.parameters)
+                      : moveAction.parameters
+                  }
+                  disabled={status !== "connected"}
+                  onPreviewParameters={async (parameters) => {
+                    if (moveAction.phase !== "active") {
+                      setMoveAction((current) =>
+                        current?.phase === "pending"
+                          ? { ...current, parameters }
+                          : current,
+                      );
+                      return;
+                    }
+                    await runAction(async () => {
+                      await updateMoveParameters(moveAction.featureId, parameters);
+                    });
+                    setMoveAction((current) =>
+                      current?.phase === "active" &&
+                      current.featureId === moveAction.featureId
+                        ? { ...current, parameters }
+                        : current,
+                    );
+                  }}
+                  onConfirm={async () => {
+                    if (moveAction.phase === "active") {
+                      await runAction(async () => {
+                        await confirmMove(moveAction.featureId);
+                        await clearSelection();
+                      });
+                    }
+                    setMoveAction(null);
+                    await restoreTimelineCursorAfterEdit();
+                  }}
+                  onCancel={async () => {
+                    if (moveAction.phase === "active") {
+                      if (moveAction.originalSnapshot) {
+                        await runAction(async () => {
+                          await updateMoveParameters(
+                            moveAction.featureId,
+                            moveAction.originalSnapshot!,
+                          );
+                        });
+                      } else {
+                        await runAction(async () => {
+                          await undo();
+                        });
+                      }
+                    }
+                    setMoveAction(null);
+                    await restoreTimelineCursorAfterEdit();
                   }}
                 />
               ) : null}
@@ -7937,7 +8226,8 @@ function App() {
                 sweepAction ||
                 edgeOpAction ||
                 threadAction ||
-                fastenerAction
+                fastenerAction ||
+                moveAction
               ) {
                 return;
               }
@@ -7971,7 +8261,8 @@ function App() {
                 sweepAction ||
                 edgeOpAction ||
                 threadAction ||
-                fastenerAction
+                fastenerAction ||
+                moveAction
               ) {
                 return;
               }
@@ -7998,7 +8289,8 @@ function App() {
                 sweepAction ||
                 edgeOpAction ||
                 threadAction ||
-                fastenerAction
+                fastenerAction ||
+                moveAction
               ) {
                 return;
               }
@@ -8026,7 +8318,8 @@ function App() {
                 sweepAction ||
                 edgeOpAction ||
                 threadAction ||
-                fastenerAction
+                fastenerAction ||
+                moveAction
               ) {
                 return;
               }
@@ -8052,7 +8345,8 @@ function App() {
                 sweepAction ||
                 edgeOpAction ||
                 threadAction ||
-                fastenerAction
+                fastenerAction ||
+                moveAction
               ) {
                 return;
               }
@@ -8071,7 +8365,8 @@ function App() {
                 sweepAction ||
                 edgeOpAction ||
                 threadAction ||
-                fastenerAction
+                fastenerAction ||
+                moveAction
               ) {
                 return;
               }
@@ -8079,6 +8374,28 @@ function App() {
               setFastenerAction({
                 featureId,
                 originalParameters: feature.fastener_parameters,
+              });
+            }
+            if (feature.kind === "move" && feature.move_parameters) {
+              if (
+                extrudeAction ||
+                loftAction ||
+                revolveAction ||
+                sweepAction ||
+                edgeOpAction ||
+                threadAction ||
+                fastenerAction ||
+                moveAction
+              ) {
+                return;
+              }
+              beginTimelineEditSession(featureId, feature.kind);
+              setMoveAction({
+                phase: "active",
+                featureId,
+                targetBodyId: feature.move_parameters.target_body_id,
+                parameters: feature.move_parameters,
+                originalSnapshot: feature.move_parameters,
               });
             }
           }}

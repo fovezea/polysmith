@@ -29,9 +29,9 @@ Revolve one profile around a sketch line axis with revolve_profile
 Sweep one closed profile along a sketch line or connected line/arc chain with
 sweep_profile { profile_id, path_entity_id }.
 viewport_state.bodies for boolean targets. Read viewport_state.edges for body
-fillet/chamfer. Read sketch lines, circles, arcs, points, profiles, and dimensions from
+fillet/chamfer and create_move targets. Read sketch lines, circles, arcs, points, profiles, and dimensions from
 feature_history[].sketch_parameters. Use create_fillet/create_chamfer for body
-edges and add_sketch_fillet for sketch corners. Projection commands are
+edges, create_move for whole-body 3D transforms, and add_sketch_fillet for sketch corners. Projection commands are
 project_face_into_sketch, project_profile_into_sketch, project_edge_into_sketch, and
 project_vertex_into_sketch. Never invent IDs.
 `.trim();
@@ -85,6 +85,9 @@ Common command payloads:
 - confirm_thread { feature_id }
 - create_fastener { standard?, size?, diameter?, minor_diameter?, pitch?, length?, thread_length?, head_type?, drive_type?, thread_representation? }
 - update_fastener_parameters { feature_id, parameters }
+- create_move { target_body_id, translation_x?, translation_y?, translation_z?, rotation_x_degrees?, rotation_y_degrees?, rotation_z_degrees? }
+- update_move_parameters { feature_id, parameters }
+- confirm_move { feature_id }
 - update_angle_plane { feature_id, angle_degrees }
 - project_face_into_sketch { face_id }
 - project_profile_into_sketch { profile_id }
