@@ -235,6 +235,7 @@ type DimensionLabelDragState = {
   dragAxis: [number, number, number];
   hasMoved: boolean;
   isPlacement?: boolean;
+  hitPart?: "label" | "geometry";
 };
 
 type DimensionRelationPreview = {
@@ -1511,6 +1512,12 @@ const currentGridSpacingRef = useRef(10);
   const dimensionLabelDragRef = useRef<DimensionLabelDragState | null>(null);
   const dimensionRelationPreviewRef =
     useRef<DimensionRelationPreview | null>(null);
+  const dimensionRelationPreviewLabelRef =
+    useRef<[number, number, number] | null>(null);
+  const pendingRelationPlacementLabelRef =
+    useRef<[number, number, number] | null>(null);
+  const pendingRelationPlacementMatchRef =
+    useRef<DimensionRelationPreview | null>(null);
   const hiddenRelationPreviewDimensionIdsRef = useRef<Set<string>>(new Set());
   const pendingDimensionPlacementRef = useRef(false);
   // The dimension ID that was just created (before the IPC round-trip).
@@ -2233,7 +2240,10 @@ const currentGridSpacingRef = useRef(10);
         return [shifted.x, shifted.y, shifted.z] as [number, number, number];
       };
       const shiftedLabel = shiftPoint(dimension.labelPosition);
-      if (dimension.kind === "line_line_distance") {
+      if (
+        dimension.kind === "line_line_distance" ||
+        dimension.kind === "circle_line_distance"
+      ) {
         return {
           ...dimension,
           dimensionStart: shiftPoint(dimension.dimensionStart),
@@ -2781,6 +2791,7 @@ const currentGridSpacingRef = useRef(10);
     const previewDimension = previewDimensionRef.current;
     const sketchGroup = sketchGroupRef.current;
     dimensionRelationPreviewRef.current = null;
+    dimensionRelationPreviewLabelRef.current = null;
     restoreRelationPreviewHiddenDimensions();
     if (!previewDimension || !sketchGroup) {
       return;
@@ -3101,13 +3112,21 @@ const currentGridSpacingRef = useRef(10);
       pendingDimSourceEntityIdRef.current = null;
       void addSketchAngleDimensionRef
         .current(firstEntityId, secondEntityId)
-        .catch(() => { pendingDimensionPlacementRef.current = false; });
+        .catch(() => {
+          pendingDimensionPlacementRef.current = false;
+          pendingRelationPlacementLabelRef.current = null;
+          pendingRelationPlacementMatchRef.current = null;
+        });
     } else {
       pendingDimensionPlacementRef.current = true;
       pendingDimSourceEntityIdRef.current = null;
       void addSketchDistanceDimensionRef
         .current(firstEntityId, secondEntityId)
-        .catch(() => { pendingDimensionPlacementRef.current = false; });
+        .catch(() => {
+          pendingDimensionPlacementRef.current = false;
+          pendingRelationPlacementLabelRef.current = null;
+          pendingRelationPlacementMatchRef.current = null;
+        });
     }
   }
 
@@ -3446,6 +3465,7 @@ const currentGridSpacingRef = useRef(10);
     hideRelationPreviewDimension(unaryDimensionIdForEntity(relation.firstEntityId));
     previewDimensionRef.current = preview;
     dimensionRelationPreviewRef.current = relation;
+    dimensionRelationPreviewLabelRef.current = dimension.labelPosition;
     sketchGroup.add(preview.line);
     sketchGroup.add(preview.label);
   }
@@ -3576,6 +3596,23 @@ const currentGridSpacingRef = useRef(10);
     if (!relation) {
       return false;
     }
+    const pointerEvent = lastPointerEventRef.current;
+    const renderer = rendererRef.current;
+    const camera = cameraRef.current;
+    const sketchPlaneId = activeSketchPlaneIdRef.current;
+    const clickedSketchPoint =
+      pointerEvent && renderer && camera && sketchPlaneId
+        ? resolveSketchPlanePoint(
+            pointerEvent,
+            renderer,
+            camera,
+            sketchPlaneId,
+            activeSketchPlaneFrameRef.current,
+          )
+        : null;
+    pendingRelationPlacementLabelRef.current =
+      clickedSketchPoint?.world ?? dimensionRelationPreviewLabelRef.current;
+    pendingRelationPlacementMatchRef.current = relation;
     clearPreviewDimension();
     dimensionRelationPreviewRef.current = null;
     const unaryDimensionId = unaryDimensionIdForEntity(relation.firstEntityId);
@@ -3594,6 +3631,34 @@ const currentGridSpacingRef = useRef(10);
     dimensionToolFirstPointRef.current = null;
     dimCreateAngleOrDistance(relation.firstEntityId, relation.targetEntityId);
     return true;
+  }
+
+  function selectedDimensionMatchesPendingRelation(
+    dimension: SketchDimensionScene,
+    relation: DimensionRelationPreview,
+  ) {
+    const params = sketchLinesRef.current;
+    const coreDimension = params?.dimensions.find(
+      (candidate) => candidate.dimension_id === dimension.dimensionId,
+    );
+    if (!coreDimension) {
+      return false;
+    }
+    const isSamePair =
+      (coreDimension.entity_id === relation.firstEntityId &&
+        coreDimension.secondary_entity_id === relation.targetEntityId) ||
+      (coreDimension.entity_id === relation.targetEntityId &&
+        coreDimension.secondary_entity_id === relation.firstEntityId);
+    if (!isSamePair) {
+      return false;
+    }
+    if (relation.kind === "parallel_line_distance") {
+      return coreDimension.kind === "line_line_distance";
+    }
+    if (relation.kind === "line_angle") {
+      return coreDimension.kind === "angle";
+    }
+    return coreDimension.kind === "circle_line_distance";
   }
 
   function dimCreatePointDistance(pointAId: string, pointBId: string) {
@@ -3906,7 +3971,14 @@ const currentGridSpacingRef = useRef(10);
       dimension.kind === "angle" || dimension.kind === "line_angle"
         ? angleDimensionArcControlNearPoint(dimension, sketchPoint.world)
         : null;
+    const relationPosition =
+      dimension.kind === "line_line_distance" ||
+      dimension.kind === "circle_line_distance"
+        ? pendingRelationPlacementLabelRef.current
+        : null;
+    pendingRelationPlacementLabelRef.current = null;
     const nextPosition =
+      relationPosition ??
       circlePosition ??
       anglePosition ??
       (() => {
@@ -5732,6 +5804,18 @@ const currentGridSpacingRef = useRef(10);
     ) {
       return;
     }
+    const pendingRelation = pendingRelationPlacementMatchRef.current;
+    if (pendingRelation) {
+      if (
+        !selectedDimensionMatchesPendingRelation(
+          selectedSketchDimension,
+          pendingRelation,
+        )
+      ) {
+        return;
+      }
+      pendingRelationPlacementMatchRef.current = null;
+    }
     pendingDimensionIdRef.current = null;
     pendingDimensionPlacementRef.current = false;
     pendingDimSourceEntityIdRef.current = null;
@@ -7150,7 +7234,15 @@ const currentGridSpacingRef = useRef(10);
         const sketchDimensionId =
           sketchDimensionHit?.object.userData.sketchDimensionId;
         if (typeof sketchDimensionId === "string") {
-          return { kind: "sketch_dimension" as const, id: sketchDimensionId };
+          const part =
+            sketchDimensionHit?.object.userData.sketchDimensionPart === "label"
+              ? "label"
+              : "geometry";
+          return {
+            kind: "sketch_dimension" as const,
+            id: sketchDimensionId,
+            part,
+          };
         }
 
         const [sketchConstraintHit] = raycaster.intersectObjects(
@@ -7503,13 +7595,9 @@ const currentGridSpacingRef = useRef(10);
       ) {
         const hit = intersectSceneTargets(event);
         if (hit?.kind === "sketch_dimension") {
-          // First click: select (no drag).  Re-click on an already-
-          // selected dimension: start dragging.
-          const isSelected =
-            selectedSketchDimensionRef.current?.dimensionId === hit.id;
-          if (!isSelected) {
-            return;
-          }
+          suppressNextDimensionEditorOpenRef.current = true;
+          setIsDimensionEditorOpen(false);
+          void selectSketchDimensionRef.current(hit.id);
           const dimension = displayedSketchDimensionsRef.current.find(
             (entry) => entry.dimensionId === hit.id,
           );
@@ -7530,6 +7618,7 @@ const currentGridSpacingRef = useRef(10);
             }
             dimensionLabelDragRef.current = {
               dimensionId: hit.id,
+              hitPart: hit.part === "label" ? "label" : "geometry",
               startClientX: event.clientX,
               startClientY: event.clientY,
               startWorld: sketchPoint.world,
@@ -8931,7 +9020,16 @@ const currentGridSpacingRef = useRef(10);
           (renderer.domElement as HTMLCanvasElement).style.cursor = "";
           pointerDown = null;
           if (!dimensionDrag.hasMoved) {
-            handleDimensionClick(dimensionDrag.dimensionId);
+            if (dimensionDrag.hitPart === "label") {
+              suppressNextDimensionEditorOpenRef.current = false;
+              dimensionInputSelectionLockedRef.current = true;
+              void selectSketchDimensionRef.current(dimensionDrag.dimensionId);
+              setIsDimensionEditorOpen(true);
+            } else {
+              suppressNextDimensionEditorOpenRef.current = true;
+              setIsDimensionEditorOpen(false);
+              void selectSketchDimensionRef.current(dimensionDrag.dimensionId);
+            }
           }
           return;
         }

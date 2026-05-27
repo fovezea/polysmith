@@ -1158,20 +1158,30 @@ ViewportSketchDimensionPrimitive make_circle_line_distance_dimension_primitive(
       .label_z = label.z,
   };
   if (dimension.label_x.has_value() && dimension.label_y.has_value()) {
-    const WorldPoint custom_label =
-        to_world_point(parameters, *dimension.label_x, *dimension.label_y);
-    const double offset_x = custom_label.x - label.x;
-    const double offset_y = custom_label.y - label.y;
-    const double offset_z = custom_label.z - label.z;
-    primitive.dimension_start_x += offset_x;
-    primitive.dimension_start_y += offset_y;
-    primitive.dimension_start_z += offset_z;
-    primitive.dimension_end_x += offset_x;
-    primitive.dimension_end_y += offset_y;
-    primitive.dimension_end_z += offset_z;
-    primitive.label_x = custom_label.x;
-    primitive.label_y = custom_label.y;
-    primitive.label_z = custom_label.z;
+    const double label_x = (foot_x + circle.center_x) / 2.0;
+    const double label_y = (foot_y + circle.center_y) / 2.0;
+    const double raw_offset_x = *dimension.label_x - label_x;
+    const double raw_offset_y = *dimension.label_y - label_y;
+    const double along = raw_offset_x * ux + raw_offset_y * uy;
+    const double offset_x = ux * along;
+    const double offset_y = uy * along;
+    const WorldPoint shifted_start =
+        to_world_point(parameters, foot_x + offset_x, foot_y + offset_y);
+    const WorldPoint shifted_end = to_world_point(
+        parameters,
+        circle.center_x + offset_x,
+        circle.center_y + offset_y);
+    const WorldPoint shifted_label =
+        to_world_point(parameters, label_x + offset_x, label_y + offset_y);
+    primitive.dimension_start_x = shifted_start.x;
+    primitive.dimension_start_y = shifted_start.y;
+    primitive.dimension_start_z = shifted_start.z;
+    primitive.dimension_end_x = shifted_end.x;
+    primitive.dimension_end_y = shifted_end.y;
+    primitive.dimension_end_z = shifted_end.z;
+    primitive.label_x = shifted_label.x;
+    primitive.label_y = shifted_label.y;
+    primitive.label_z = shifted_label.z;
   }
   return primitive;
 }
@@ -1227,20 +1237,28 @@ ViewportSketchDimensionPrimitive make_line_line_distance_dimension_primitive(
       .label_z = label.z,
   };
   if (dimension.label_x.has_value() && dimension.label_y.has_value()) {
-    const WorldPoint custom_label =
-        to_world_point(parameters, *dimension.label_x, *dimension.label_y);
-    const double offset_x = custom_label.x - label.x;
-    const double offset_y = custom_label.y - label.y;
-    const double offset_z = custom_label.z - label.z;
-    primitive.dimension_start_x += offset_x;
-    primitive.dimension_start_y += offset_y;
-    primitive.dimension_start_z += offset_z;
-    primitive.dimension_end_x += offset_x;
-    primitive.dimension_end_y += offset_y;
-    primitive.dimension_end_z += offset_z;
-    primitive.label_x = custom_label.x;
-    primitive.label_y = custom_label.y;
-    primitive.label_z = custom_label.z;
+    const double label_x = (foot_x + midpoint_x) / 2.0;
+    const double label_y = (foot_y + midpoint_y) / 2.0;
+    const double raw_offset_x = *dimension.label_x - label_x;
+    const double raw_offset_y = *dimension.label_y - label_y;
+    const double along = raw_offset_x * ux + raw_offset_y * uy;
+    const double offset_x = ux * along;
+    const double offset_y = uy * along;
+    const WorldPoint shifted_start =
+        to_world_point(parameters, foot_x + offset_x, foot_y + offset_y);
+    const WorldPoint shifted_end =
+        to_world_point(parameters, midpoint_x + offset_x, midpoint_y + offset_y);
+    const WorldPoint shifted_label =
+        to_world_point(parameters, label_x + offset_x, label_y + offset_y);
+    primitive.dimension_start_x = shifted_start.x;
+    primitive.dimension_start_y = shifted_start.y;
+    primitive.dimension_start_z = shifted_start.z;
+    primitive.dimension_end_x = shifted_end.x;
+    primitive.dimension_end_y = shifted_end.y;
+    primitive.dimension_end_z = shifted_end.z;
+    primitive.label_x = shifted_label.x;
+    primitive.label_y = shifted_label.y;
+    primitive.label_z = shifted_label.z;
   }
   return primitive;
 }

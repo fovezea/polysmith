@@ -1546,6 +1546,7 @@ export function buildSketchDimensionObject(
   lineSegments.renderOrder = isMutedPreview ? 5 : 6;
   if (isPickable) {
     lineSegments.userData.sketchDimensionId = dimension.dimensionId;
+    lineSegments.userData.sketchDimensionPart = "geometry";
   }
 
   // Build filled arrow mesh
@@ -1553,6 +1554,7 @@ export function buildSketchDimensionObject(
   group.add(lineSegments);
   if (isPickable) {
     group.userData.sketchDimensionId = dimension.dimensionId;
+    group.userData.sketchDimensionPart = "geometry";
   }
 
   if (arrowIndices.length > 0) {
@@ -1577,6 +1579,7 @@ export function buildSketchDimensionObject(
     arrowMesh.renderOrder = isMutedPreview ? 5 : 6;
     if (isPickable) {
       arrowMesh.userData.sketchDimensionId = dimension.dimensionId;
+      arrowMesh.userData.sketchDimensionPart = "geometry";
     }
     group.add(arrowMesh);
   }
@@ -1604,6 +1607,7 @@ export function buildSketchDimensionObject(
     refLine.renderOrder = isMutedPreview ? 5 : 6;
     if (isPickable) {
       refLine.userData.sketchDimensionId = dimension.dimensionId;
+      refLine.userData.sketchDimensionPart = "geometry";
     }
     group.add(refLine);
   }
@@ -1615,6 +1619,7 @@ export function buildSketchDimensionObject(
   label.renderOrder = isMutedPreview ? 6 : 7;
   if (isPickable) {
     label.userData.sketchDimensionId = dimension.dimensionId;
+    label.userData.sketchDimensionPart = "label";
   }
   label.userData.basePosition = dimension.labelPosition;
   label.userData.dimensionStart = dimension.dimensionStart;
