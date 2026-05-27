@@ -1354,13 +1354,18 @@ export function buildSketchDimensionObject(
         const uAxis = startRay.clone().normalize();
         const vAxis = normal.clone().cross(uAxis).normalize();
 
-        // Sweep from core angles
+        // Sweep from core angles.  The (uAxis, vAxis) frame is oriented
+        // so that a positive sweep always goes the short way from
+        // dimensionStart to dimensionEnd (uAxis → vAxis).  Just use the
+        // normalised magnitude — never flip on ccw.
         let sweep = endAngle - startAngle;
-        if (!ccw) sweep = -sweep;
+        while (sweep > Math.PI) sweep -= 2 * Math.PI;
+        while (sweep <= -Math.PI) sweep += 2 * Math.PI;
+        sweep = Math.abs(sweep);
         const arcSegments = 32;
         let previousPoint = dimensionStart.clone();
         for (let index = 1; index <= arcSegments; index++) {
-          const angle = startAngle + sweep * (index / arcSegments);
+          const angle = sweep * (index / arcSegments);
           const point = pivot
             .clone()
             .add(uAxis.clone().multiplyScalar(Math.cos(angle) * radius))
