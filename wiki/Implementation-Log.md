@@ -1301,3 +1301,26 @@ Three bugs fixed after initial implementation:
   cancel with undo
 - staged thread and fastener semantics without claiming modeled thread booleans
   are complete; modeled thread generation will build on the helix + sweep path
+
+### Fastener Standards Pass (2026-05-27)
+
+- added metric and imperial hole standard tables for common workshop sizes,
+  covering metric M2-M12 and UNC/UNF imperial entries from small numbered
+  screws through 1/2 inch
+- extended `hole_parameters` with `standard`, `standard_size`, `hole_fit`,
+  `thread_pitch`, `major_diameter`, and `minor_diameter` so saved files preserve
+  the user’s standard-driven intent instead of only the resulting drill diameter
+- updated the Hole panel with Custom / Metric / Imperial preset controls plus
+  Clearance / Tap drill / Threaded fit selection; choosing a preset updates the
+  drill diameter, counterbore, countersink, and cosmetic thread metadata
+
+### Helix UI Pass (2026-05-27)
+
+- exposed the core-owned Helix feature in the Construct toolbar with the same
+  contextual workflow as the other construction tools: invoke/select or
+  select/invoke an axis source, edit a floating panel, confirm to keep or cancel
+  to undo the created feature
+- allowed helix axis picking from inactive sketch lines and straight body edges;
+  preselected construction-axis features can also seed the helix
+- added live panel controls for radius, pitch, height, handedness, and start
+  angle, all driven through `update_helix_parameters`

@@ -1700,8 +1700,14 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
                   feature.hole_parameters->countersink_diameter},
                  {"countersink_angle_degrees",
                   feature.hole_parameters->countersink_angle_degrees},
+                 {"standard", feature.hole_parameters->standard},
+                 {"standard_size", feature.hole_parameters->standard_size},
+                 {"hole_fit", feature.hole_parameters->hole_fit},
                  {"thread_enabled", feature.hole_parameters->thread_enabled},
                  {"thread_spec", feature.hole_parameters->thread_spec},
+                 {"thread_pitch", feature.hole_parameters->thread_pitch},
+                 {"major_diameter", feature.hole_parameters->major_diameter},
+                 {"minor_diameter", feature.hole_parameters->minor_diameter},
                  {"thread_depth", feature.hole_parameters->thread_depth},
                  {"thread_representation",
                   feature.hole_parameters->thread_representation},
@@ -2866,11 +2872,23 @@ polysmith::core::FeatureEntry feature_entry_from_payload(const json& payload) {
         hp, "countersink_diameter", params.countersink_diameter);
     params.countersink_angle_degrees = read_optional_number(
         hp, "countersink_angle_degrees", params.countersink_angle_degrees);
+    params.standard =
+        read_optional_string_value(hp, "standard", params.standard);
+    params.standard_size =
+        read_optional_string_value(hp, "standard_size", params.standard_size);
+    params.hole_fit =
+        read_optional_string_value(hp, "hole_fit", params.hole_fit);
     if (hp.contains("thread_enabled") && hp.at("thread_enabled").is_boolean()) {
       params.thread_enabled = hp.at("thread_enabled").get<bool>();
     }
     params.thread_spec =
         read_optional_string_value(hp, "thread_spec", params.thread_spec);
+    params.thread_pitch =
+        read_optional_number(hp, "thread_pitch", params.thread_pitch);
+    params.major_diameter =
+        read_optional_number(hp, "major_diameter", params.major_diameter);
+    params.minor_diameter =
+        read_optional_number(hp, "minor_diameter", params.minor_diameter);
     params.thread_depth =
         read_optional_number(hp, "thread_depth", params.thread_depth);
     params.thread_representation = read_optional_string_value(

@@ -2,6 +2,7 @@ import {
   ConstructAxisIcon,
   AnglePlaneIcon,
   ConstructPointIcon,
+  HelixIcon,
   MidplaneIcon,
   OffsetPlaneIcon,
   TangentPlaneIcon,
@@ -21,12 +22,14 @@ interface ConstructToolbarProps {
   canAnglePlane: boolean;
   canConstructionAxis: boolean;
   canConstructionPoint: boolean;
+  canHelix: boolean;
   onOffsetPlane: () => void;
   onMidplane: () => void;
   onTangentPlane: () => void;
   onAnglePlane: () => void;
   onConstructionAxis: () => void;
   onConstructionPoint: () => void;
+  onHelix: () => void;
 }
 
 // See `CreateToolbar.tsx` — same icon-button base so the ribbon
@@ -41,12 +44,14 @@ export function ConstructToolbar({
   canAnglePlane,
   canConstructionAxis,
   canConstructionPoint,
+  canHelix,
   onOffsetPlane,
   onMidplane,
   onTangentPlane,
   onAnglePlane,
   onConstructionAxis,
   onConstructionPoint,
+  onHelix,
 }: ConstructToolbarProps) {
   const { t } = useTranslation();
   return (
@@ -110,6 +115,16 @@ export function ConstructToolbar({
         onClick={onConstructionPoint}
       >
         <ConstructPointIcon />
+      </button>
+      <button
+        type="button"
+        className={ICON_BUTTON_BASE}
+        data-tooltip={t("toolbar.helix")}
+        aria-label={t("toolbar.helix")}
+        disabled={disabled || !canHelix}
+        onClick={onHelix}
+      >
+        <HelixIcon />
       </button>
     </>
   );

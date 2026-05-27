@@ -321,7 +321,7 @@ export interface ConstructionPlaneFeatureParameters {
 
 export interface ConstructionAxisFeatureParameters {
   source_id: string;
-  source_kind: "edge" | "sketch_line";
+  source_kind: "edge" | "sketch_line" | "construction_axis";
   start: Vector3;
   end: Vector3;
 }

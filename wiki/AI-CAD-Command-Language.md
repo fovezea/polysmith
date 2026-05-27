@@ -783,6 +783,9 @@ Payload:
   center_z: number;
   hole_type?: "simple" | "counterbore" | "countersink" | "spotface";
   extent_type?: "blind" | "through_all";
+  standard?: "custom" | "metric" | "imperial";
+  standard_size?: string;
+  hole_fit?: "clearance" | "tap_drill" | "threaded";
   diameter?: number;
   depth?: number;
   counterbore_diameter?: number;
@@ -791,6 +794,9 @@ Payload:
   countersink_angle_degrees?: number;
   thread_enabled?: boolean;
   thread_spec?: string;
+  thread_pitch?: number;
+  major_diameter?: number;
+  minor_diameter?: number;
   thread_depth?: number;
   thread_representation?: "cosmetic" | "modeled";
 }
@@ -817,7 +823,8 @@ Call `confirm_hole { feature_id }` after the contextual panel is accepted.
 
 #### `create_helix`
 
-Creates a construction helix from a linear axis source.
+Creates a construction helix from a linear axis source. The axis source can be a
+sketch line id, a construction-axis feature id, or a straight body edge id.
 
 Payload:
 
@@ -833,7 +840,9 @@ Payload:
 ```
 
 The core samples the helix into `viewport_state.helices[]` and re-resolves the
-axis source on recompute.
+axis source on recompute. If the source disappears or is no longer linear, the
+feature degrades with `dependency_broken` instead of storing a stale topology
+index.
 
 #### `create_thread`
 

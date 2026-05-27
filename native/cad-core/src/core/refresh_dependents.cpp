@@ -438,6 +438,17 @@ std::optional<ConstructionAxisFrame> resolve_angle_plane_axis(
 std::optional<ConstructionAxisFeatureParameters> resolve_construction_axis_source(
     const DocumentState& document,
     const std::string& source_id) {
+  for (const auto& feature : document.feature_history) {
+    if (feature.id == source_id && feature.kind == "construction_axis" &&
+        feature.construction_axis_parameters.has_value()) {
+      ConstructionAxisFeatureParameters params =
+          feature.construction_axis_parameters.value();
+      params.source_id = source_id;
+      params.source_kind = "construction_axis";
+      return params;
+    }
+  }
+
   if (source_id.find(":edge:") != std::string::npos) {
     const auto edge = compute_edge_geometry(document, source_id);
     if (!edge.has_value() || edge->kind != "line") {

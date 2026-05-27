@@ -294,7 +294,7 @@ const documentStateSchema = z.object({
       construction_axis_parameters: z
         .object({
           source_id: z.string(),
-          source_kind: z.enum(["edge", "sketch_line"]),
+          source_kind: z.enum(["edge", "sketch_line", "construction_axis"]),
           start: z.object({ x: z.number(), y: z.number(), z: z.number() }),
           end: z.object({ x: z.number(), y: z.number(), z: z.number() }),
         })
@@ -325,8 +325,16 @@ const documentStateSchema = z.object({
           counterbore_depth: z.number(),
           countersink_diameter: z.number(),
           countersink_angle_degrees: z.number(),
+          standard: z.enum(["custom", "metric", "imperial"]).default("custom"),
+          standard_size: z.string().default(""),
+          hole_fit: z
+            .enum(["clearance", "tap_drill", "threaded"])
+            .default("clearance"),
           thread_enabled: z.boolean().default(false),
           thread_spec: z.string().default(""),
+          thread_pitch: z.number().default(0),
+          major_diameter: z.number().default(0),
+          minor_diameter: z.number().default(0),
           thread_depth: z.number(),
           thread_representation: z.enum(["cosmetic", "modeled"]).default("cosmetic"),
           is_pending: z.boolean().default(false),

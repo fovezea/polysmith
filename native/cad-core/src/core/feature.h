@@ -189,8 +189,16 @@ struct HoleFeatureParameters {
   double counterbore_depth = 2.0;
   double countersink_diameter = 8.0;
   double countersink_angle_degrees = 82.0;
+  // "custom", "metric", or "imperial".
+  std::string standard = "custom";
+  std::string standard_size;
+  // "clearance", "tap_drill", or "threaded".
+  std::string hole_fit = "clearance";
   bool thread_enabled = false;
   std::string thread_spec;
+  double thread_pitch = 0.0;
+  double major_diameter = 0.0;
+  double minor_diameter = 0.0;
   double thread_depth = 10.0;
   // "cosmetic" or "modeled".
   std::string thread_representation = "cosmetic";

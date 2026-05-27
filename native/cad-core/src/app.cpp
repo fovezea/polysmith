@@ -190,11 +190,23 @@ HoleFeatureParameters read_hole_parameters(
       source, "countersink_diameter", params.countersink_diameter);
   params.countersink_angle_degrees = read_optional_dimension(
       source, "countersink_angle_degrees", params.countersink_angle_degrees);
+  params.standard =
+      read_optional_string(source, "standard").value_or(params.standard);
+  params.standard_size =
+      read_optional_string(source, "standard_size").value_or(params.standard_size);
+  params.hole_fit =
+      read_optional_string(source, "hole_fit").value_or(params.hole_fit);
   if (source.contains("thread_enabled") && source.at("thread_enabled").is_boolean()) {
     params.thread_enabled = source.at("thread_enabled").get<bool>();
   }
   params.thread_spec =
       read_optional_string(source, "thread_spec").value_or(params.thread_spec);
+  params.thread_pitch =
+      read_optional_dimension(source, "thread_pitch", params.thread_pitch);
+  params.major_diameter =
+      read_optional_dimension(source, "major_diameter", params.major_diameter);
+  params.minor_diameter =
+      read_optional_dimension(source, "minor_diameter", params.minor_diameter);
   params.thread_depth =
       read_optional_dimension(source, "thread_depth", params.thread_depth);
   params.thread_representation =

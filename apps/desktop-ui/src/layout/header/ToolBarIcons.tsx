@@ -623,6 +623,22 @@ export const ConstructPointIcon = () => (
   </svg>
 );
 
+export const HelixIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-7 w-7"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M12 4v16" />
+    <path d="M7 6c0 1.4 2.2 2.5 5 2.5s5 1.1 5 2.5-2.2 2.5-5 2.5-5 1.1-5 2.5 2.2 2.5 5 2.5" />
+  </svg>
+);
+
 // Face with bidirectional arrows. Reads "push or pull this face".
 export const PressPullIcon = () => (
   <svg
@@ -757,6 +773,8 @@ export function FeatureKindIcon({ kind }: { kind: string }) {
       return <SweepIcon />;
     case "hole":
       return <HoleIcon />;
+    case "helix":
+      return <HelixIcon />;
     case "pattern":
       return <PatternIcon />;
     case "sketch":

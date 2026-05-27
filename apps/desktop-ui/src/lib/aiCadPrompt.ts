@@ -75,7 +75,7 @@ Common command payloads:
 - create_angle_plane { source_plane_id, source_axis_id, angle_degrees }
 - create_construction_axis { source_id }
 - create_construction_point { source_id }
-- create_hole { face_id, center_x, center_y, center_z, hole_type?, extent_type?, diameter?, depth?, thread_enabled? }
+- create_hole { face_id, center_x, center_y, center_z, hole_type?, extent_type?, standard?, standard_size?, hole_fit?, diameter?, depth?, thread_enabled? }
 - update_hole_parameters { feature_id, parameters }
 - confirm_hole { feature_id }
 - create_helix { axis_source_id, radius?, pitch?, height?, handedness?, start_angle_degrees? }

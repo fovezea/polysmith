@@ -30,6 +30,9 @@ import {
   writeProjectThumbnail,
   Checkbox,
   Dropdown,
+  applyHoleStandard,
+  findHoleStandard,
+  holeStandardsForMode,
 } from "./lib";
 import {
   embedOrcaWindow,
@@ -69,7 +72,10 @@ import type {
   ExtrudeAdvancedParameters,
   ExtrudeFeatureParameters,
   ExtrudeMode,
+  HelixFeatureParameters,
+  HoleFit,
   HoleFeatureParameters,
+  HoleStandard,
 } from "./types";
 import type { DocumentState } from "./types/ipc";
 import type { RecentProject, RecentProjectsDocument } from "./lib";
@@ -80,6 +86,9 @@ const DEFAULT_CHAMFER_DISTANCE = 1;
 const DEFAULT_SHELL_THICKNESS = 2;
 const DEFAULT_HOLE_DIAMETER = 5;
 const DEFAULT_HOLE_DEPTH = 10;
+const DEFAULT_HELIX_RADIUS = 2.5;
+const DEFAULT_HELIX_PITCH = 1;
+const DEFAULT_HELIX_HEIGHT = 10;
 // Default seed for the Offset Plane panel. Zero would be a valid
 // frame (sitting on top of the source) but gives no visible preview;
 // 10 mm matches common CAD workflow's "show me something" default.
@@ -406,6 +415,10 @@ function App() {
     useState<{ isPending: true } | null>(null);
   const [constructionPointAction, setConstructionPointAction] =
     useState<{ isPending: true } | null>(null);
+  type HelixAction =
+    | { phase: "pending" }
+    | { phase: "active"; featureId: string };
+  const [helixAction, setHelixAction] = useState<HelixAction | null>(null);
   type HoleAction =
     | { phase: "pending" }
     | { phase: "active"; featureId: string };
@@ -502,6 +515,16 @@ function App() {
         ) ?? null)
       : null;
   const activeHoleParameters = activeHoleFeature?.hole_parameters ?? null;
+  const activeHoleStandards = activeHoleParameters
+    ? holeStandardsForMode(activeHoleParameters.standard)
+    : [];
+  const activeHelixFeature =
+    helixAction?.phase === "active"
+      ? (document?.feature_history.find(
+          (feature) => feature.feature_id === helixAction.featureId,
+        ) ?? null)
+      : null;
+  const activeHelixParameters = activeHelixFeature?.helix_parameters ?? null;
   const selectedSketchProfileIdsKey = selectedSketchProfileIds.join("|");
   const sketchProfileLabelById = new Map<string, string>();
   const sketchLineLabelById = new Map<string, string>();
@@ -684,6 +707,8 @@ function App() {
     createHole,
     updateHoleParameters,
     confirmHole,
+    createHelix,
+    updateHelixParameters,
     updateOffsetPlane,
     updateAnglePlane,
     startSketchOnPlane,
@@ -1025,6 +1050,23 @@ function App() {
 
   async function triggerExtrudeAction() {
     if (extrudeAction?.phase === "active") {
+      return;
+    }
+    if (
+      loftAction ||
+      revolveAction ||
+      sweepAction ||
+      edgeOpAction ||
+      shellAction ||
+      holeAction ||
+      offsetPlaneAction ||
+      midplaneAction ||
+      tangentPlaneAction ||
+      anglePlaneAction ||
+      constructionAxisAction ||
+      constructionPointAction ||
+      helixAction
+    ) {
       return;
     }
 
@@ -1831,11 +1873,27 @@ function App() {
     ) {
       return selectedSketchEntityId;
     }
+    const selectedFeatureId = document?.selected_feature_id ?? null;
+    const selectedFeature = selectedFeatureId
+      ? document?.feature_history.find(
+          (feature) => feature.feature_id === selectedFeatureId,
+        )
+      : null;
+    if (selectedFeature?.kind === "construction_axis") {
+      return selectedFeature.feature_id;
+    }
     return null;
   }
 
   function describeAxisSource(axisId: string): string {
-    return sketchLineLabelById.get(axisId) ?? t("geometry.selectedAxis");
+    const feature = document?.feature_history.find(
+      (entry) => entry.feature_id === axisId,
+    );
+    return (
+      sketchLineLabelById.get(axisId) ??
+      feature?.name ??
+      t("geometry.selectedAxis")
+    );
   }
 
   function currentPointSourceId(): string | null {
@@ -2076,12 +2134,14 @@ function App() {
       sweepAction ||
       edgeOpAction ||
       shellAction ||
+      holeAction ||
       offsetPlaneAction ||
       midplaneAction ||
       tangentPlaneAction ||
       anglePlaneAction ||
       constructionAxisAction ||
-      constructionPointAction
+      constructionPointAction ||
+      helixAction
     ) {
       return;
     }
@@ -2101,12 +2161,14 @@ function App() {
       sweepAction ||
       edgeOpAction ||
       shellAction ||
+      holeAction ||
       offsetPlaneAction ||
       midplaneAction ||
       tangentPlaneAction ||
       anglePlaneAction ||
       constructionAxisAction ||
-      constructionPointAction
+      constructionPointAction ||
+      helixAction
     ) {
       return;
     }
@@ -2118,6 +2180,88 @@ function App() {
     setConstructionPointAction({ isPending: true });
   }
 
+  async function createHelixFeature(
+    axisSourceId: string,
+    parameters: Partial<HelixFeatureParameters> = {},
+  ) {
+    const documentPromise = awaitDocumentChange((next, previous) => {
+      if (!next.selected_feature_id) {
+        return false;
+      }
+      const previousLength = previous?.feature_history.length ?? 0;
+      if (next.feature_history.length <= previousLength) {
+        return false;
+      }
+      const lastFeature = next.feature_history[next.feature_history.length - 1];
+      return (
+        lastFeature.feature_id === next.selected_feature_id &&
+        lastFeature.kind === "helix"
+      );
+    });
+
+    await runAction(async () => {
+      try {
+        await createHelix(axisSourceId, {
+          radius: DEFAULT_HELIX_RADIUS,
+          pitch: DEFAULT_HELIX_PITCH,
+          height: DEFAULT_HELIX_HEIGHT,
+          handedness: "right",
+          start_angle_degrees: 0,
+          ...parameters,
+        });
+        const nextDocument = await documentPromise;
+        const newFeatureId = nextDocument.selected_feature_id ?? null;
+        if (newFeatureId) {
+          setHelixAction({ phase: "active", featureId: newFeatureId });
+        }
+      } catch (error) {
+        addMessage(`helix error: ${String(error)}`);
+      }
+    });
+  }
+
+  async function triggerHelixAction() {
+    if (
+      extrudeAction ||
+      loftAction ||
+      revolveAction ||
+      sweepAction ||
+      edgeOpAction ||
+      shellAction ||
+      holeAction ||
+      offsetPlaneAction ||
+      midplaneAction ||
+      tangentPlaneAction ||
+      anglePlaneAction ||
+      constructionAxisAction ||
+      constructionPointAction ||
+      helixAction ||
+      activeSketchPlaneId
+    ) {
+      return;
+    }
+    const sourceId = currentAxisSourceId();
+    if (sourceId) {
+      await createHelixFeature(sourceId);
+      return;
+    }
+    setHelixAction({ phase: "pending" });
+  }
+
+  async function updateActiveHelixParameters(
+    patch: Partial<HelixFeatureParameters>,
+  ) {
+    if (helixAction?.phase !== "active" || !activeHelixParameters) {
+      return;
+    }
+    await runAction(async () => {
+      await updateHelixParameters(helixAction.featureId, {
+        ...activeHelixParameters,
+        ...patch,
+      });
+    });
+  }
+
   async function triggerEdgeOpAction(kind: "fillet" | "chamfer") {
     if (
       extrudeAction ||
@@ -2126,10 +2270,14 @@ function App() {
       sweepAction ||
       edgeOpAction ||
       shellAction ||
+      holeAction ||
       offsetPlaneAction ||
       midplaneAction ||
       tangentPlaneAction ||
       anglePlaneAction ||
+      constructionAxisAction ||
+      constructionPointAction ||
+      helixAction ||
       activeSketchPlaneId
     ) {
       return;
@@ -2251,10 +2399,14 @@ function App() {
       sweepAction ||
       edgeOpAction ||
       shellAction ||
+      holeAction ||
       offsetPlaneAction ||
       midplaneAction ||
       tangentPlaneAction ||
       anglePlaneAction ||
+      constructionAxisAction ||
+      constructionPointAction ||
+      helixAction ||
       activeSketchPlaneId
     ) {
       return;
@@ -2305,8 +2457,14 @@ function App() {
         counterbore_depth: 2,
         countersink_diameter: DEFAULT_HOLE_DIAMETER * 1.6,
         countersink_angle_degrees: 82,
+        standard: "custom",
+        standard_size: "",
+        hole_fit: "clearance",
         thread_enabled: false,
         thread_spec: "",
+        thread_pitch: 0,
+        major_diameter: 0,
+        minor_diameter: 0,
         thread_depth: DEFAULT_HOLE_DEPTH,
         thread_representation: "cosmetic",
         ...parameters,
@@ -2336,6 +2494,9 @@ function App() {
       midplaneAction ||
       tangentPlaneAction ||
       anglePlaneAction ||
+      constructionAxisAction ||
+      constructionPointAction ||
+      helixAction ||
       activeSketchPlaneId
     ) {
       return;
@@ -3533,6 +3694,7 @@ function App() {
             !holeAction &&
             !constructionAxisAction &&
             !constructionPointAction &&
+            !helixAction &&
             (!extrudeAction || extrudeAction.phase === "pending")
           }
           onExtrude={triggerExtrudeAction}
@@ -3550,7 +3712,8 @@ function App() {
             !tangentPlaneAction &&
             !anglePlaneAction &&
             !constructionAxisAction &&
-            !constructionPointAction
+            !constructionPointAction &&
+            !helixAction
           }
           onLoft={triggerLoftAction}
           canRevolve={
@@ -3567,7 +3730,8 @@ function App() {
             !tangentPlaneAction &&
             !anglePlaneAction &&
             !constructionAxisAction &&
-            !constructionPointAction
+            !constructionPointAction &&
+            !helixAction
           }
           onRevolve={triggerRevolveAction}
           canSweep={
@@ -3584,7 +3748,8 @@ function App() {
             !tangentPlaneAction &&
             !anglePlaneAction &&
             !constructionAxisAction &&
-            !constructionPointAction
+            !constructionPointAction &&
+            !helixAction
           }
           onSweep={triggerSweepAction}
           canHole={
@@ -3601,7 +3766,8 @@ function App() {
             !tangentPlaneAction &&
             !anglePlaneAction &&
             !constructionAxisAction &&
-            !constructionPointAction
+            !constructionPointAction &&
+            !helixAction
           }
           onHole={triggerHoleAction}
           // Modify ribbon: Fillet / Chamfer can be invoked at any
@@ -3623,7 +3789,8 @@ function App() {
             !tangentPlaneAction &&
             !anglePlaneAction &&
             !constructionAxisAction &&
-            !constructionPointAction
+            !constructionPointAction &&
+            !helixAction
           }
           onFillet={async () => {
             await triggerEdgeOpAction("fillet");
@@ -3645,7 +3812,8 @@ function App() {
             !tangentPlaneAction &&
             !anglePlaneAction &&
             !constructionAxisAction &&
-            !constructionPointAction
+            !constructionPointAction &&
+            !helixAction
           }
           onShell={async () => {
             await triggerShellAction();
@@ -3663,7 +3831,8 @@ function App() {
             !tangentPlaneAction &&
             !anglePlaneAction &&
             !constructionAxisAction &&
-            !constructionPointAction
+            !constructionPointAction &&
+            !helixAction
           }
           onOffsetPlane={() => {
             void triggerOffsetPlaneAction();
@@ -3681,7 +3850,8 @@ function App() {
             !tangentPlaneAction &&
             !anglePlaneAction &&
             !constructionAxisAction &&
-            !constructionPointAction
+            !constructionPointAction &&
+            !helixAction
           }
           canTangentPlane={
             !activeSketchPlaneId &&
@@ -3696,7 +3866,8 @@ function App() {
             !tangentPlaneAction &&
             !anglePlaneAction &&
             !constructionAxisAction &&
-            !constructionPointAction
+            !constructionPointAction &&
+            !helixAction
           }
           canAnglePlane={
             !activeSketchPlaneId &&
@@ -3711,7 +3882,8 @@ function App() {
             !tangentPlaneAction &&
             !anglePlaneAction &&
             !constructionAxisAction &&
-            !constructionPointAction
+            !constructionPointAction &&
+            !helixAction
           }
           canConstructionAxis={
             !extrudeAction &&
@@ -3725,7 +3897,8 @@ function App() {
             !tangentPlaneAction &&
             !anglePlaneAction &&
             !constructionAxisAction &&
-            !constructionPointAction
+            !constructionPointAction &&
+            !helixAction
           }
           canConstructionPoint={
             !extrudeAction &&
@@ -3739,7 +3912,25 @@ function App() {
             !tangentPlaneAction &&
             !anglePlaneAction &&
             !constructionAxisAction &&
-            !constructionPointAction
+            !constructionPointAction &&
+            !helixAction
+          }
+          canHelix={
+            !activeSketchPlaneId &&
+            !extrudeAction &&
+            !loftAction &&
+            !revolveAction &&
+            !sweepAction &&
+            !edgeOpAction &&
+            !shellAction &&
+            !holeAction &&
+            !offsetPlaneAction &&
+            !midplaneAction &&
+            !tangentPlaneAction &&
+            !anglePlaneAction &&
+            !constructionAxisAction &&
+            !constructionPointAction &&
+            !helixAction
           }
           onMidplane={() => {
             void triggerMidplaneAction();
@@ -3755,6 +3946,9 @@ function App() {
           }}
           onConstructionPoint={() => {
             void triggerConstructionPointAction();
+          }}
+          onHelix={() => {
+            void triggerHelixAction();
           }}
           onStartSketch={triggerCreateSketchAction}
           onFinishSketch={async () => {
@@ -4048,9 +4242,14 @@ function App() {
               inactiveSketchEntityPickEnabled={
                 revolveAction !== null ||
                 sweepAction !== null ||
-                constructionAxisAction !== null
+                constructionAxisAction !== null ||
+                helixAction !== null
               }
               onPickInactiveSketchLine={async (lineId) => {
+                if (helixAction?.phase === "pending") {
+                  await createHelixFeature(lineId);
+                  return;
+                }
                 if (constructionAxisAction) {
                   await createConstructionAxisFeature(lineId);
                   return;
@@ -4232,6 +4431,10 @@ function App() {
                 });
               }}
               onSelectEdge={async (edgeId, additive) => {
+                if (helixAction?.phase === "pending") {
+                  await createHelixFeature(edgeId);
+                  return;
+                }
                 if (constructionAxisAction) {
                   await createConstructionAxisFeature(edgeId);
                   return;
@@ -5616,6 +5819,137 @@ function App() {
                     {activeHoleParameters ? (
                       <>
                         <Dropdown
+                          value={activeHoleParameters.standard}
+                          label={t("panels.hole.standard")}
+                          options={[
+                            {
+                              value: "custom",
+                              label: t("panels.hole.custom"),
+                            },
+                            {
+                              value: "metric",
+                              label: t("panels.hole.metric"),
+                            },
+                            {
+                              value: "imperial",
+                              label: t("panels.hole.imperial"),
+                            },
+                          ]}
+                          disabled={status !== "connected"}
+                          onChange={(standard: HoleStandard) => {
+                            void runAction(async () => {
+                              if (holeAction.phase !== "active") {
+                                return;
+                              }
+                              const standards = holeStandardsForMode(standard);
+                              if (standard === "custom" || standards.length === 0) {
+                                await updateHoleParameters(holeAction.featureId, {
+                                  ...activeHoleParameters,
+                                  standard: "custom",
+                                  standard_size: "",
+                                  hole_fit: "clearance",
+                                });
+                                return;
+                              }
+                              await updateHoleParameters(
+                                holeAction.featureId,
+                                applyHoleStandard(
+                                  {
+                                    ...activeHoleParameters,
+                                    standard,
+                                    standard_size: standards[0].id,
+                                  },
+                                  standards[0],
+                                  activeHoleParameters.hole_fit,
+                                ),
+                              );
+                            });
+                          }}
+                        />
+                        {activeHoleParameters.standard !== "custom" ? (
+                          <div className="grid grid-cols-2 gap-3">
+                            <Dropdown
+                              value={
+                                activeHoleParameters.standard_size ||
+                                activeHoleStandards[0]?.id ||
+                                ""
+                              }
+                              label={t("panels.hole.size")}
+                              options={activeHoleStandards.map((entry) => ({
+                                value: entry.id,
+                                label: entry.label,
+                              }))}
+                              disabled={
+                                status !== "connected" ||
+                                activeHoleStandards.length === 0
+                              }
+                              onChange={(standardSize) => {
+                                void runAction(async () => {
+                                  if (holeAction.phase !== "active") {
+                                    return;
+                                  }
+                                  const entry = findHoleStandard(
+                                    activeHoleParameters.standard,
+                                    standardSize,
+                                  );
+                                  if (!entry) {
+                                    return;
+                                  }
+                                  await updateHoleParameters(
+                                    holeAction.featureId,
+                                    applyHoleStandard(
+                                      activeHoleParameters,
+                                      entry,
+                                      activeHoleParameters.hole_fit,
+                                    ),
+                                  );
+                                });
+                              }}
+                            />
+                            <Dropdown
+                              value={activeHoleParameters.hole_fit}
+                              label={t("panels.hole.fit")}
+                              options={[
+                                {
+                                  value: "clearance",
+                                  label: t("panels.hole.clearance"),
+                                },
+                                {
+                                  value: "tap_drill",
+                                  label: t("panels.hole.tapDrill"),
+                                },
+                                {
+                                  value: "threaded",
+                                  label: t("panels.hole.threaded"),
+                                },
+                              ]}
+                              disabled={status !== "connected"}
+                              onChange={(fit: HoleFit) => {
+                                void runAction(async () => {
+                                  if (holeAction.phase !== "active") {
+                                    return;
+                                  }
+                                  const entry = findHoleStandard(
+                                    activeHoleParameters.standard,
+                                    activeHoleParameters.standard_size,
+                                  );
+                                  if (!entry) {
+                                    return;
+                                  }
+                                  await updateHoleParameters(
+                                    holeAction.featureId,
+                                    applyHoleStandard(
+                                      activeHoleParameters,
+                                      entry,
+                                      fit,
+                                    ),
+                                  );
+                                });
+                              }}
+                            />
+                          </div>
+                        ) : null}
+                        <Dropdown
                           value={activeHoleParameters.hole_type}
                           label={t("panels.hole.type")}
                           options={[
@@ -6092,6 +6426,166 @@ function App() {
                   >
                     {t("common.cancel")}
                   </button>
+                </section>
+              ) : null}
+              {helixAction ? (
+                <section className="pointer-events-auto cad-floating-panel w-[20rem] px-5 py-5">
+                  <p className="cad-kicker">{t("panels.helix.title")}</p>
+                  {helixAction.phase === "pending" || !activeHelixParameters ? (
+                    <>
+                      <p className="mt-3 text-xs text-on-surface-muted">
+                        {t("panels.helix.pickAxis")}
+                      </p>
+                      <button
+                        type="button"
+                        className="cad-action-ghost mt-4 w-full"
+                        disabled={status !== "connected"}
+                        onClick={() => setHelixAction(null)}
+                      >
+                        {t("common.cancel")}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-xs uppercase tracking-[0.18em] text-on-surface-dim">
+                        <span>{t("panels.helix.axis")}</span>
+                        <span className="truncate text-right text-on-surface">
+                          {describeAxisSource(activeHelixParameters.axis_source_id)}
+                        </span>
+                      </div>
+                      <div className="mt-5 space-y-4">
+                        <label className="block">
+                          <span className="cad-field-label">
+                            {t("panels.helix.radius")}
+                          </span>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.1}
+                            className="cad-input mt-2 w-full"
+                            value={activeHelixParameters.radius}
+                            disabled={status !== "connected"}
+                            onChange={(event) => {
+                              const value = event.currentTarget.valueAsNumber;
+                              if (!Number.isFinite(value)) {
+                                return;
+                              }
+                              void updateActiveHelixParameters({ radius: value });
+                            }}
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="cad-field-label">
+                            {t("panels.helix.pitch")}
+                          </span>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.1}
+                            className="cad-input mt-2 w-full"
+                            value={activeHelixParameters.pitch}
+                            disabled={status !== "connected"}
+                            onChange={(event) => {
+                              const value = event.currentTarget.valueAsNumber;
+                              if (!Number.isFinite(value)) {
+                                return;
+                              }
+                              void updateActiveHelixParameters({ pitch: value });
+                            }}
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="cad-field-label">
+                            {t("panels.helix.height")}
+                          </span>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.1}
+                            className="cad-input mt-2 w-full"
+                            value={activeHelixParameters.height}
+                            disabled={status !== "connected"}
+                            onChange={(event) => {
+                              const value = event.currentTarget.valueAsNumber;
+                              if (!Number.isFinite(value)) {
+                                return;
+                              }
+                              void updateActiveHelixParameters({ height: value });
+                            }}
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="cad-field-label">
+                            {t("panels.helix.startAngle")}
+                          </span>
+                          <input
+                            type="number"
+                            step={1}
+                            className="cad-input mt-2 w-full"
+                            value={activeHelixParameters.start_angle_degrees}
+                            disabled={status !== "connected"}
+                            onChange={(event) => {
+                              const value = event.currentTarget.valueAsNumber;
+                              if (!Number.isFinite(value)) {
+                                return;
+                              }
+                              void updateActiveHelixParameters({
+                                start_angle_degrees: value,
+                              });
+                            }}
+                          />
+                        </label>
+                        <div>
+                          <span className="cad-field-label">
+                            {t("panels.helix.handedness")}
+                          </span>
+                          <Dropdown
+                            label={t("panels.helix.handedness")}
+                            className="mt-2"
+                            value={activeHelixParameters.handedness}
+                            disabled={status !== "connected"}
+                            options={[
+                              {
+                                value: "right",
+                                label: t("panels.helix.rightHand"),
+                              },
+                              {
+                                value: "left",
+                                label: t("panels.helix.leftHand"),
+                              },
+                            ]}
+                            onChange={(value) => {
+                              void updateActiveHelixParameters({
+                                handedness: value,
+                              });
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <div className="mt-5 flex gap-3">
+                        <button
+                          type="button"
+                          className="cad-ribbon-action cad-ribbon-action-primary flex-1"
+                          disabled={status !== "connected"}
+                          onClick={() => setHelixAction(null)}
+                        >
+                          {t("common.confirm")}
+                        </button>
+                        <button
+                          type="button"
+                          className="cad-ribbon-action flex-1"
+                          onClick={() => {
+                            void runAction(async () => {
+                              await undo();
+                              setHelixAction(null);
+                            });
+                          }}
+                        >
+                          {t("common.cancel")}
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </section>
               ) : null}
               {sketchFilletAction ? (

@@ -284,12 +284,14 @@ interface AppHeaderProps {
   canAnglePlane: boolean;
   canConstructionAxis: boolean;
   canConstructionPoint: boolean;
+  canHelix: boolean;
   onOffsetPlane: () => void;
   onMidplane: () => void;
   onTangentPlane: () => void;
   onAnglePlane: () => void;
   onConstructionAxis: () => void;
   onConstructionPoint: () => void;
+  onHelix: () => void;
   onStartSketch: () => Promise<void>;
   onFinishSketch: () => Promise<void>;
   onSetSketchTool: (tool: SketchTool) => Promise<void>;
@@ -384,12 +386,14 @@ export function AppHeader({
   canAnglePlane,
   canConstructionAxis,
   canConstructionPoint,
+  canHelix,
   onOffsetPlane,
   onMidplane,
   onTangentPlane,
   onAnglePlane,
   onConstructionAxis,
   onConstructionPoint,
+  onHelix,
   onStartSketch,
   onFinishSketch,
   onSetSketchTool,
@@ -690,12 +694,14 @@ export function AppHeader({
                 canAnglePlane={canAnglePlane}
                 canConstructionAxis={canConstructionAxis}
                 canConstructionPoint={canConstructionPoint}
+                canHelix={canHelix}
                 onOffsetPlane={onOffsetPlane}
                 onMidplane={onMidplane}
                 onTangentPlane={onTangentPlane}
                 onAnglePlane={onAnglePlane}
                 onConstructionAxis={onConstructionAxis}
                 onConstructionPoint={onConstructionPoint}
+                onHelix={onHelix}
               />
             ) : null}
 

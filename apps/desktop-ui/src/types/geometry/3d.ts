@@ -119,6 +119,8 @@ export interface SweepFeatureParameters {
 
 export type HoleType = "simple" | "counterbore" | "countersink" | "spotface";
 export type HoleExtentType = "blind" | "through_all";
+export type HoleStandard = "custom" | "metric" | "imperial";
+export type HoleFit = "clearance" | "tap_drill" | "threaded";
 export type ThreadRepresentation = "cosmetic" | "modeled";
 
 export interface HoleFeatureParameters {
@@ -135,8 +137,14 @@ export interface HoleFeatureParameters {
   counterbore_depth: number;
   countersink_diameter: number;
   countersink_angle_degrees: number;
+  standard: HoleStandard;
+  standard_size: string;
+  hole_fit: HoleFit;
   thread_enabled: boolean;
   thread_spec: string;
+  thread_pitch: number;
+  major_diameter: number;
+  minor_diameter: number;
   thread_depth: number;
   thread_representation: ThreadRepresentation;
   is_pending: boolean;
