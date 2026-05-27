@@ -19,6 +19,11 @@
 #include <BRepBndLib.hxx>
 #include <BRepAlgoAPI_Common.hxx>
 #include <TopExp_Explorer.hxx>
+#include <TopAbs_ShapeEnum.hxx>
+#include <TopExp.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
+#include <TopoDS.hxx>
+#include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Vec.hxx>
@@ -1132,6 +1137,56 @@ bool projection_generates_entity(const SketchProjection& projection,
                    entity_id) != projection.generated_arc_ids.end();
 }
 
+bool compiled_body_exists(const DocumentState& document,
+                          const std::string& body_id) {
+  const CompiledBodies compiled = compile_bodies(document);
+  return std::any_of(compiled.bodies.begin(),
+                     compiled.bodies.end(),
+                     [&](const CompiledBody& body) {
+                       return body.id == body_id;
+                     });
+}
+
+std::optional<TopoDS_Face> resolve_face_for_appearance(
+    const DocumentState& document,
+    const std::string& face_id) {
+  const auto separator = face_id.find(":face:");
+  if (separator == std::string::npos) {
+    return std::nullopt;
+  }
+  const std::string owner_id = face_id.substr(0, separator);
+  int index = -1;
+  try {
+    index = std::stoi(face_id.substr(separator + 6));
+  } catch (const std::exception&) {
+    return std::nullopt;
+  }
+  if (index < 0) {
+    return std::nullopt;
+  }
+
+  const CompiledBodies compiled = compile_bodies(document);
+  const auto body_it =
+      std::find_if(compiled.bodies.begin(),
+                   compiled.bodies.end(),
+                   [&](const CompiledBody& body) { return body.id == owner_id; });
+  if (body_it == compiled.bodies.end() || body_it->shape.IsNull()) {
+    return std::nullopt;
+  }
+
+  TopTools_IndexedMapOfShape face_map;
+  TopExp::MapShapes(body_it->shape, TopAbs_FACE, face_map);
+  const int one_based = index + 1;
+  if (one_based < 1 || one_based > face_map.Extent()) {
+    return std::nullopt;
+  }
+  const TopoDS_Face face = TopoDS::Face(face_map(one_based));
+  if (face.IsNull()) {
+    return std::nullopt;
+  }
+  return face;
+}
+
 }  // namespace
 
 void DocumentManager::require_document() const {
@@ -1197,6 +1252,8 @@ DocumentState DocumentManager::create_document() {
       .selected_sketch_profile_ids = {},
       .timeline_cursor = std::nullopt,
       .feature_history = {make_root_feature()},
+      .parameters = {},
+      .appearance = {},
       .selection_filter = SelectionFilter{},
   };
 
@@ -6899,6 +6956,140 @@ DocumentState DocumentManager::update_fastener_parameters(
   }
   feature_it->fastener_parameters = parameters;
   feature_it->parameters_summary = parameters.size + " · " + std::to_string(parameters.length) + " mm";
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::set_body_color(const std::string& body_id,
+                                              const std::string& color) {
+  require_document();
+  if (!is_valid_appearance_color(color)) {
+    throw std::runtime_error("Body color must be an opaque #RRGGBB value");
+  }
+  if (!compiled_body_exists(*document_, body_id)) {
+    throw std::runtime_error("Body not found: " + body_id);
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+  auto& overrides = document_->appearance.body_colors;
+  const auto existing = std::find_if(
+      overrides.begin(),
+      overrides.end(),
+      [&](const BodyAppearanceOverride& entry) {
+        return entry.body_id == body_id;
+      });
+  if (existing == overrides.end()) {
+    overrides.push_back(BodyAppearanceOverride{.body_id = body_id,
+                                               .color = color});
+  } else {
+    existing->color = color;
+  }
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::set_face_color(const std::string& face_id,
+                                              const std::string& color) {
+  require_document();
+  if (!is_valid_appearance_color(color)) {
+    throw std::runtime_error("Face color must be an opaque #RRGGBB value");
+  }
+  const auto owner_id = owner_body_id_from_face_id(face_id);
+  const auto face = resolve_face_for_appearance(*document_, face_id);
+  if (!owner_id.has_value() || !compiled_body_exists(*document_, owner_id.value())) {
+    throw std::runtime_error("Face not found: " + face_id);
+  }
+  const std::string signature = face.has_value()
+                                    ? appearance_face_signature(face.value())
+                                    : "semantic:" + face_id;
+  if (signature.empty()) {
+    throw std::runtime_error("Face appearance signature could not be resolved");
+  }
+
+  push_undo_state();
+  clear_redo_stack();
+  auto& overrides = document_->appearance.face_colors;
+  const auto existing = std::find_if(
+      overrides.begin(),
+      overrides.end(),
+      [&](const FaceAppearanceOverride& entry) {
+        return entry.face_id == face_id;
+      });
+  if (existing == overrides.end()) {
+    overrides.push_back(FaceAppearanceOverride{
+        .face_id = face_id,
+        .owner_body_id = owner_id.value(),
+        .signature = signature,
+        .color = color,
+    });
+  } else {
+    existing->owner_body_id = owner_id.value();
+    existing->signature = signature;
+    existing->color = color;
+  }
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::clear_body_color(const std::string& body_id) {
+  require_document();
+  auto& overrides = document_->appearance.body_colors;
+  const auto existing = std::find_if(
+      overrides.begin(),
+      overrides.end(),
+      [&](const BodyAppearanceOverride& entry) {
+        return entry.body_id == body_id;
+      });
+  if (existing == overrides.end()) {
+    return document_.value();
+  }
+  push_undo_state();
+  clear_redo_stack();
+  overrides.erase(std::remove_if(overrides.begin(),
+                                 overrides.end(),
+                                 [&](const BodyAppearanceOverride& entry) {
+                                   return entry.body_id == body_id;
+                                 }),
+                  overrides.end());
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::clear_face_color(const std::string& face_id) {
+  require_document();
+  auto& overrides = document_->appearance.face_colors;
+  const auto existing = std::find_if(
+      overrides.begin(),
+      overrides.end(),
+      [&](const FaceAppearanceOverride& entry) {
+        return entry.face_id == face_id;
+      });
+  if (existing == overrides.end()) {
+    return document_.value();
+  }
+  push_undo_state();
+  clear_redo_stack();
+  overrides.erase(std::remove_if(overrides.begin(),
+                                 overrides.end(),
+                                 [&](const FaceAppearanceOverride& entry) {
+                                   return entry.face_id == face_id;
+                                 }),
+                  overrides.end());
+  bump_geometry_revision();
+  return document_.value();
+}
+
+DocumentState DocumentManager::clear_appearance_overrides() {
+  require_document();
+  if (document_->appearance.body_colors.empty() &&
+      document_->appearance.face_colors.empty()) {
+    return document_.value();
+  }
+  push_undo_state();
+  clear_redo_stack();
+  document_->appearance.body_colors.clear();
+  document_->appearance.face_colors.clear();
   bump_geometry_revision();
   return document_.value();
 }

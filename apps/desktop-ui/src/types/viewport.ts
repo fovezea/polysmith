@@ -39,6 +39,7 @@ export interface ViewportBoxPrimitive {
   x_offset: number;
   center: Vector3;
   is_selected: boolean;
+  appearance_color: string | null;
 }
 
 export interface ViewportCylinderPrimitive {
@@ -49,6 +50,7 @@ export interface ViewportCylinderPrimitive {
   x_offset: number;
   center: Vector3;
   is_selected: boolean;
+  appearance_color: string | null;
 }
 
 export interface ViewportPolygonExtrudePrimitive {
@@ -60,6 +62,7 @@ export interface ViewportPolygonExtrudePrimitive {
   inner_loops: SketchProfilePoint[][];
   depth: number;
   is_selected: boolean;
+  appearance_color: string | null;
 }
 
 export interface ViewportSolidFace {
@@ -82,6 +85,7 @@ export interface ViewportSolidFace {
   triangle_positions: number[];
   triangle_indices: number[];
   is_selected: boolean;
+  appearance_color: string | null;
 }
 
 export interface ViewportReferencePlane {
@@ -284,6 +288,7 @@ export interface ViewportScene {
 export interface PrimitiveVisual {
   baseMaterial: THREE.MeshStandardMaterial;
   edgeMaterial: THREE.LineBasicMaterial;
+  appearanceColor: string | null;
 }
 
 export interface ReferencePlaneVisual {
@@ -304,6 +309,7 @@ export interface ReferencePlaneInteractionState {
 
 export interface SolidFaceVisual {
   fillMaterial: THREE.MeshBasicMaterial;
+  appearanceColor: string | null;
 }
 
 export interface SolidFaceInteractionState {

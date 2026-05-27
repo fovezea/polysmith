@@ -1866,6 +1866,29 @@ json to_payload(const polysmith::core::DocumentState& document) {
          }
         return params;
         }()},
+       {"appearance",
+        [&document]() {
+          json body_colors = json::array();
+          for (const auto& entry : document.appearance.body_colors) {
+            body_colors.push_back({
+                {"body_id", entry.body_id},
+                {"color", entry.color},
+            });
+          }
+          json face_colors = json::array();
+          for (const auto& entry : document.appearance.face_colors) {
+            face_colors.push_back({
+                {"face_id", entry.face_id},
+                {"owner_body_id", entry.owner_body_id},
+                {"signature", entry.signature},
+                {"color", entry.color},
+            });
+          }
+          return json{
+              {"body_colors", body_colors},
+              {"face_colors", face_colors},
+          };
+        }()},
        {"selection_filter",
         [&document]() {
           const auto& sf = document.selection_filter;
@@ -1924,8 +1947,12 @@ json to_payload(const polysmith::core::ViewportBoxPrimitive& primitive) {
            {"x", primitive.center_x},
            {"y", primitive.center_y},
            {"z", primitive.center_z},
-       }},
+      }},
       {"is_selected", primitive.is_selected},
+      {"appearance_color",
+       primitive.appearance_color.has_value()
+           ? json(primitive.appearance_color.value())
+           : json(nullptr)},
   };
 }
 
@@ -1941,8 +1968,12 @@ json to_payload(const polysmith::core::ViewportCylinderPrimitive& primitive) {
            {"x", primitive.center_x},
            {"y", primitive.center_y},
            {"z", primitive.center_z},
-       }},
+      }},
       {"is_selected", primitive.is_selected},
+      {"appearance_color",
+       primitive.appearance_color.has_value()
+           ? json(primitive.appearance_color.value())
+           : json(nullptr)},
   };
 }
 
@@ -2002,6 +2033,10 @@ json to_payload(const polysmith::core::ViewportPolygonExtrudePrimitive& primitiv
       {"profile_points", profile_points},
       {"depth", primitive.depth},
       {"is_selected", primitive.is_selected},
+      {"appearance_color",
+       primitive.appearance_color.has_value()
+           ? json(primitive.appearance_color.value())
+           : json(nullptr)},
   };
 }
 
@@ -2060,6 +2095,10 @@ json to_payload(const polysmith::core::ViewportSolidFace& face) {
       {"triangle_positions", face.triangle_positions},
       {"triangle_indices", face.triangle_indices},
       {"is_selected", face.is_selected},
+      {"appearance_color",
+       face.appearance_color.has_value()
+           ? json(face.appearance_color.value())
+           : json(nullptr)},
   };
 }
 
@@ -2509,6 +2548,10 @@ json to_payload(const polysmith::core::ViewportState& viewport) {
         {"normals", mesh.normals},
         {"indices", mesh.indices},
         {"is_selected", mesh.is_selected},
+        {"appearance_color",
+         mesh.appearance_color.has_value()
+             ? json(mesh.appearance_color.value())
+             : json(nullptr)},
     });
   }
 
@@ -3111,6 +3154,41 @@ polysmith::core::DocumentState document_from_payload(const json& payload) {
             param_payload.at("error_message").get<std::string>();
       }
       document.parameters.push_back(param);
+    }
+  }
+
+  if (payload.contains("appearance") &&
+      payload.at("appearance").is_object()) {
+    const auto& appearance = payload.at("appearance");
+    if (appearance.contains("body_colors") &&
+        appearance.at("body_colors").is_array()) {
+      for (const auto& entry_payload : appearance.at("body_colors")) {
+        if (!entry_payload.is_object()) {
+          continue;
+        }
+        polysmith::core::BodyAppearanceOverride entry;
+        entry.body_id = read_string(entry_payload, "body_id");
+        entry.color = read_string(entry_payload, "color");
+        if (polysmith::core::is_valid_appearance_color(entry.color)) {
+          document.appearance.body_colors.push_back(entry);
+        }
+      }
+    }
+    if (appearance.contains("face_colors") &&
+        appearance.at("face_colors").is_array()) {
+      for (const auto& entry_payload : appearance.at("face_colors")) {
+        if (!entry_payload.is_object()) {
+          continue;
+        }
+        polysmith::core::FaceAppearanceOverride entry;
+        entry.face_id = read_string(entry_payload, "face_id");
+        entry.owner_body_id = read_string(entry_payload, "owner_body_id");
+        entry.signature = read_string(entry_payload, "signature");
+        entry.color = read_string(entry_payload, "color");
+        if (polysmith::core::is_valid_appearance_color(entry.color)) {
+          document.appearance.face_colors.push_back(entry);
+        }
+      }
     }
   }
 

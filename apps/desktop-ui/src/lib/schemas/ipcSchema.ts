@@ -631,6 +631,28 @@ const documentStateSchema = z.object({
         .nullable(),
     }),
   ),
+  appearance: z
+    .object({
+      body_colors: z
+        .array(
+          z.object({
+            body_id: z.string(),
+            color: z.string(),
+          }),
+        )
+        .default([]),
+      face_colors: z
+        .array(
+          z.object({
+            face_id: z.string(),
+            owner_body_id: z.string(),
+            signature: z.string(),
+            color: z.string(),
+          }),
+        )
+        .default([]),
+    })
+    .default({ body_colors: [], face_colors: [] }),
   parameters: z.array(
     z.object({
       name: z.string(),
@@ -667,6 +689,7 @@ const viewportStateSchema = z.object({
         z: z.number(),
       }),
       is_selected: z.boolean(),
+      appearance_color: z.string().nullable().default(null),
     }),
   ),
   cylinders: z.array(
@@ -682,6 +705,7 @@ const viewportStateSchema = z.object({
         z: z.number(),
       }),
       is_selected: z.boolean(),
+      appearance_color: z.string().nullable().default(null),
     }),
   ),
   polygon_extrudes: z.array(
@@ -708,6 +732,7 @@ const viewportStateSchema = z.object({
         .default([]),
       depth: z.number(),
       is_selected: z.boolean(),
+      appearance_color: z.string().nullable().default(null),
     }),
   ),
   solid_faces: z.array(
@@ -744,6 +769,7 @@ const viewportStateSchema = z.object({
       triangle_positions: z.array(z.number()).default([]),
       triangle_indices: z.array(z.number()).default([]),
       is_selected: z.boolean(),
+      appearance_color: z.string().nullable().default(null),
     }),
   ),
   reference_planes: z.array(
@@ -1061,6 +1087,7 @@ const viewportStateSchema = z.object({
         normals: z.array(z.number()),
         indices: z.array(z.number()),
         is_selected: z.boolean(),
+        appearance_color: z.string().nullable().default(null),
       }),
     )
     .default([]),

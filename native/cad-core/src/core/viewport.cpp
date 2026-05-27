@@ -35,6 +35,7 @@
 #include <gp_Vec.hxx>
 
 #include "core/body_compiler.h"
+#include "core/appearance.h"
 #include "core/dof_counter.h"
 #include "core/feature_shape.h"
 #include "core/refresh_dependents.h"
@@ -151,6 +152,38 @@ std::vector<double> make_cosmetic_thread_points(
                      v.z * std::sin(angle) * radius);
   }
   return points;
+}
+
+std::optional<std::string> body_appearance_color(
+    const DocumentState& document,
+    const std::string& body_id) {
+  const auto entry = std::find_if(
+      document.appearance.body_colors.begin(),
+      document.appearance.body_colors.end(),
+      [&](const BodyAppearanceOverride& override_entry) {
+        return override_entry.body_id == body_id;
+      });
+  if (entry == document.appearance.body_colors.end()) {
+    return std::nullopt;
+  }
+  return entry->color;
+}
+
+std::optional<std::string> face_appearance_color(
+    const DocumentState& document,
+    const std::string& face_id,
+    const std::string& signature) {
+  const auto entry = std::find_if(
+      document.appearance.face_colors.begin(),
+      document.appearance.face_colors.end(),
+      [&](const FaceAppearanceOverride& override_entry) {
+        return override_entry.face_id == face_id &&
+               override_entry.signature == signature;
+      });
+  if (entry == document.appearance.face_colors.end()) {
+    return std::nullopt;
+  }
+  return entry->color;
 }
 
 ViewportSolidFace make_solid_face(
@@ -1734,10 +1767,11 @@ FaceFrameInfo derive_face_frame(const TopoDS_Face& face) {
 // ("<owner_id>:face:<index>"), with index coming from
 // TopExp::MapShapes(TopAbs_FACE).
 void enumerate_body_faces(const TopoDS_Shape& body_shape,
-                          const std::string& body_id,
-                          const std::string& body_kind,
-                          const std::optional<std::string>& selected_face_id,
-                          std::vector<ViewportSolidFace>& out) {
+                           const std::string& body_id,
+                           const std::string& body_kind,
+                           const DocumentState& document,
+                           const std::optional<std::string>& selected_face_id,
+                           std::vector<ViewportSolidFace>& out) {
   if (body_shape.IsNull()) {
     return;
   }
@@ -1797,6 +1831,8 @@ void enumerate_body_faces(const TopoDS_Shape& body_shape,
     primitive.plane_frame = frame_info.frame;
     primitive.is_selected = selected_face_id.has_value() &&
                             selected_face_id.value() == face_id;
+    primitive.appearance_color =
+        face_appearance_color(document, face_id, appearance_face_signature(face));
 
     // Append per-face triangulation (positions in world space, indices
     // local to this face's positions array).
@@ -2092,6 +2128,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
     mesh.is_selected =
         view->selected_feature_id.has_value() &&
         view->selected_feature_id.value() == body_mesh.body_id;
+    mesh.appearance_color = body_appearance_color(*view, body_mesh.body_id);
     meshes.push_back(std::move(mesh));
   }
   const std::set<std::string>& consumed = compiled_bodies.consumed_feature_ids;
@@ -2184,6 +2221,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
       enumerate_body_faces(body.shape,
                            body.id,
                            body_kind,
+                           *view,
                            view->selected_face_id,
                            solid_faces);
     }
@@ -2219,6 +2257,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
           .center_y = parameters.height / 2.0,
           .center_z = parameters.depth / 2.0,
           .is_selected = is_selected,
+          .appearance_color = body_appearance_color(*view, feature.id),
       });
       solid_faces.push_back(make_solid_face(
           feature.id,
@@ -2423,6 +2462,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
           .center_y = parameters.height / 2.0,
           .center_z = diameter / 2.0,
           .is_selected = is_selected,
+          .appearance_color = body_appearance_color(*view, feature.id),
       });
       solid_faces.push_back(make_solid_face(
           feature.id,
@@ -2536,6 +2576,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
               .inner_loops = {},
               .depth = parameters.depth,
               .is_selected = is_selected,
+              .appearance_color = body_appearance_color(*view, feature.id),
           });
 
           const auto top_center = to_world_point(
@@ -2600,6 +2641,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
               .center_y = parameters.depth / 2.0,
               .center_z = parameters.start_y + parameters.height / 2.0,
               .is_selected = is_selected,
+              .appearance_color = body_appearance_color(*view, feature.id),
           });
           face_center_x = parameters.start_x + parameters.width / 2.0;
           face_center_y = parameters.depth;
@@ -2623,6 +2665,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
               .center_y = parameters.start_x + parameters.width / 2.0,
               .center_z = parameters.start_y + parameters.height / 2.0,
               .is_selected = is_selected,
+              .appearance_color = body_appearance_color(*view, feature.id),
           });
           face_center_x = parameters.depth;
           face_center_y = parameters.start_x + parameters.width / 2.0;
@@ -2646,6 +2689,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
               .center_y = parameters.start_y + parameters.height / 2.0,
               .center_z = parameters.depth / 2.0,
               .is_selected = is_selected,
+              .appearance_color = body_appearance_color(*view, feature.id),
           });
           face_center_x = parameters.start_x + parameters.width / 2.0;
           face_center_y = parameters.start_y + parameters.height / 2.0;
@@ -2832,6 +2876,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
             .inner_loops = parameters.inner_loops,
             .depth = parameters.depth,
             .is_selected = is_selected,
+            .appearance_color = body_appearance_color(*view, feature.id),
         });
 
         double min_x = std::numeric_limits<double>::max();
@@ -3056,6 +3101,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
               .center_y = parameters.depth / 2.0,
               .center_z = parameters.start_y,
               .is_selected = is_selected,
+              .appearance_color = body_appearance_color(*view, feature.id),
           });
           max_height = std::max(max_height, parameters.depth);
           max_depth = std::max(max_depth, parameters.start_y + parameters.radius);
@@ -3071,6 +3117,7 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
               .center_y = parameters.depth / 2.0,
               .center_z = parameters.start_y,
               .is_selected = is_selected,
+              .appearance_color = body_appearance_color(*view, feature.id),
           });
           max_height = std::max(max_height, parameters.depth);
           max_depth = std::max(max_depth, parameters.start_y + parameters.radius);
@@ -4075,6 +4122,13 @@ ViewportState build_viewport_state(const std::optional<DocumentState>& document)
         dof_statuses = count_sketch_dof(feat.sketch_parameters.value());
         break;
       }
+    }
+  }
+
+  for (auto& face : solid_faces) {
+    if (!face.appearance_color.has_value()) {
+      face.appearance_color =
+          face_appearance_color(*view, face.face_id, "semantic:" + face.face_id);
     }
   }
 

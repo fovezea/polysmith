@@ -347,6 +347,62 @@ export function makeSelectVertexCommand(
   };
 }
 
+export function makeSetBodyColorCommand(
+  bodyId: string,
+  color: string,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "set_body_color",
+    payload: {
+      body_id: bodyId,
+      color,
+    },
+  };
+}
+
+export function makeSetFaceColorCommand(
+  faceId: string,
+  color: string,
+): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "set_face_color",
+    payload: {
+      face_id: faceId,
+      color,
+    },
+  };
+}
+
+export function makeClearBodyColorCommand(bodyId: string): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "clear_body_color",
+    payload: {
+      body_id: bodyId,
+    },
+  };
+}
+
+export function makeClearFaceColorCommand(faceId: string): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "clear_face_color",
+    payload: {
+      face_id: faceId,
+    },
+  };
+}
+
+export function makeClearAppearanceOverridesCommand(): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "clear_appearance_overrides",
+    payload: {},
+  };
+}
+
 export function makeCreateFilletCommand(
   edgeIds: readonly string[],
   radius: number,

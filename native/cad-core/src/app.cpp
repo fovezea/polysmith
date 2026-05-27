@@ -644,6 +644,57 @@ void CadCoreApp::handle_command_line(const std::string& line) {
     return;
   }
 
+  if (command.type == "set_body_color") {
+    const auto document = document_manager().set_body_color(
+        read_string(command.payload, "body_id"),
+        read_string(command.payload, "color"));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "set_face_color") {
+    const auto document = document_manager().set_face_color(
+        read_string(command.payload, "face_id"),
+        read_string(command.payload, "color"));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "clear_body_color") {
+    const auto document = document_manager().clear_body_color(
+        read_string(command.payload, "body_id"));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "clear_face_color") {
+    const auto document = document_manager().clear_face_color(
+        read_string(command.payload, "face_id"));
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
+  if (command.type == "clear_appearance_overrides") {
+    const auto document = document_manager().clear_appearance_overrides();
+
+    polysmith::protocol::write_message(
+        polysmith::protocol::make_document_state_event(
+            command.id, polysmith::protocol::to_payload(document)));
+    return;
+  }
+
   if (command.type == "create_fillet") {
     // Accept either a single `edge_id` (legacy single-edge payload)
     // or an `edge_ids` array (multi-select). Reading both so old

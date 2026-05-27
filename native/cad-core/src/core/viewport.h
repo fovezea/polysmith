@@ -20,6 +20,7 @@ struct ViewportBoxPrimitive {
   double center_y;
   double center_z;
   bool is_selected;
+  std::optional<std::string> appearance_color;
 };
 
 struct ViewportCylinderPrimitive {
@@ -32,6 +33,7 @@ struct ViewportCylinderPrimitive {
   double center_y;
   double center_z;
   bool is_selected;
+  std::optional<std::string> appearance_color;
 };
 
 struct ViewportSketchPlaneFrame {
@@ -58,6 +60,7 @@ struct ViewportPolygonExtrudePrimitive {
   std::vector<std::vector<SketchProfilePoint>> inner_loops;
   double depth;
   bool is_selected;
+  std::optional<std::string> appearance_color;
 };
 
 struct ViewportSolidFace {
@@ -115,6 +118,7 @@ struct ViewportSolidFace {
   std::vector<double> triangle_positions;
   std::vector<int> triangle_indices;
   bool is_selected;
+  std::optional<std::string> appearance_color;
 };
 
 struct ViewportReferencePlane {
@@ -391,6 +395,7 @@ struct ViewportMeshPrimitive {
   std::vector<double> normals;
   std::vector<int> indices;
   bool is_selected;
+  std::optional<std::string> appearance_color;
 };
 
 // Translucent red preview of the cutter volume for an in-progress cut

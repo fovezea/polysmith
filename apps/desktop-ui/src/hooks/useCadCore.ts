@@ -63,6 +63,11 @@ import {
   makeSelectFaceCommand,
   makeSelectEdgeCommand,
   makeSelectVertexCommand,
+  makeSetBodyColorCommand,
+  makeSetFaceColorCommand,
+  makeClearBodyColorCommand,
+  makeClearFaceColorCommand,
+  makeClearAppearanceOverridesCommand,
   makeCreateFilletCommand,
   makeUpdateFilletEdgesCommand,
   makeUpdateFilletRadiusCommand,
@@ -390,6 +395,31 @@ export function useCadCore() {
     },
     selectVertex: async (vertexId: string, additive: boolean = false) => {
       await sendCoreCommand(makeSelectVertexCommand(vertexId, additive));
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    setBodyColor: async (bodyId: string, color: string) => {
+      await sendCoreCommand(makeSetBodyColorCommand(bodyId, color));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    setFaceColor: async (faceId: string, color: string) => {
+      await sendCoreCommand(makeSetFaceColorCommand(faceId, color));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    clearBodyColor: async (bodyId: string) => {
+      await sendCoreCommand(makeClearBodyColorCommand(bodyId));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    clearFaceColor: async (faceId: string) => {
+      await sendCoreCommand(makeClearFaceColorCommand(faceId));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    clearAppearanceOverrides: async () => {
+      await sendCoreCommand(makeClearAppearanceOverridesCommand());
+      await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());
     },
     createFillet: async (edgeIds: readonly string[], radius: number) => {

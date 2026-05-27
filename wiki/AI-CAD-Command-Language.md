@@ -189,6 +189,15 @@ Important fields for an agent:
   selected_sketch_profile_ids: string[];
   timeline_cursor: number | null;
   feature_history: FeatureEntry[];
+  appearance: {
+    body_colors: { body_id: string; color: string }[];
+    face_colors: {
+      face_id: string;
+      owner_body_id: string;
+      signature: string;
+      color: string;
+    }[];
+  };
 }
 ```
 
@@ -241,6 +250,11 @@ geometry. Important arrays:
 - `bodies[]`: body IDs for boolean target selection
 - `meshes[]`: triangulated body geometry
 - `cut_previews[]`: live cut preview geometry
+
+Body primitives, `solid_faces[]`, and `meshes[]` may include
+`appearance_color: "#RRGGBB" | null`. When present, the UI renders that custom
+document color instead of the current theme body color. Face colors take
+precedence over body colors.
 
 Reference plane IDs:
 
@@ -660,6 +674,43 @@ Payload:
   additive: boolean;
 }
 ```
+
+#### `set_body_color`
+
+Applies an opaque document color to a body from `viewport_state.bodies[]`.
+
+Payload:
+
+```ts
+{
+  body_id: string;
+  color: "#RRGGBB";
+}
+```
+
+#### `set_face_color`
+
+Applies an opaque document color to a face from `viewport_state.solid_faces[]`.
+The core stores the face id plus a geometry signature and only reuses the color
+while the face still resolves to the same topology.
+
+Payload:
+
+```ts
+{
+  face_id: string;
+  color: "#RRGGBB";
+}
+```
+
+#### Appearance Clear Commands
+
+- `clear_body_color { body_id }`
+- `clear_face_color { face_id }`
+- `clear_appearance_overrides {}`
+
+All return `document_state`; send `get_viewport_state` afterwards to render the
+updated colors.
 
 ### Construction Planes
 

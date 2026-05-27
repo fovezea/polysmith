@@ -56,6 +56,26 @@
       "sketch": "Sketch"
     }
   },
+  "materials": {
+    "apply": "Apply",
+    "button": "Materials",
+    "clearAll": "Clear all colors",
+    "clearSelected": "Clear selected",
+    "hex": "Hex color",
+    "hue": "Hue",
+    "mode": {
+      "body": "Body",
+      "face": "Face"
+    },
+    "nativePicker": "Color picker",
+    "noSelection": {
+      "body": "Select a body or face",
+      "face": "Select a face"
+    },
+    "quickColor": "Quick color {{color}}",
+    "selectionReady": "Selection ready",
+    "title": "Materials"
+  },
   "workspace": {
     "cad": "CAD",
     "cadView": "CAD View",

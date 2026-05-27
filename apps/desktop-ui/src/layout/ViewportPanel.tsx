@@ -59,7 +59,6 @@ import {
   buildSolidFaceObject,
   buildCutPreviewObject,
   buildSceneEdgeObject,
-  buildSceneVertexObject,
   applyEdgeVisualColor,
   applyVertexVisualColor,
   disposeGroup,
@@ -4970,7 +4969,7 @@ const currentGridSpacingRef = useRef(10);
     }
 
     function updateDynamicGrids() {
-      if (!sceneDataRef.current || !showViewportGridRef.current) {
+      if (!sceneDataRef.current) {
         clearDynamicGrid(worldGridRef);
         clearDynamicGrid(sketchGridRef);
         return;
@@ -4992,6 +4991,12 @@ const currentGridSpacingRef = useRef(10);
 
       const sketchPlaneId = activeSketchPlaneIdRef.current;
       if (!sketchPlaneId) {
+        if (!showViewportGridRef.current) {
+          clearDynamicGrid(worldGridRef);
+          clearDynamicGrid(sketchGridRef);
+          return;
+        }
+
         const worldCenter = projectPointToGridFrame(controls.target, worldFrame);
         const worldBounds = getGridViewBounds(
           camera,
@@ -9281,12 +9286,6 @@ const currentGridSpacingRef = useRef(10);
       contentGroup.add(edgeLine);
     }
 
-    for (const vertex of sceneData.vertices) {
-      const vertexMesh = buildSceneVertexObject(vertex);
-      vertexObjectsRef.current.push(vertexMesh);
-      contentGroup.add(vertexMesh);
-    }
-
     for (const preview of sceneData.cutPreviews) {
       const cutPreviewMesh = buildCutPreviewObject(preview);
       cutPreviewObjectsRef.current.push(cutPreviewMesh);
@@ -10237,7 +10236,7 @@ const currentGridSpacingRef = useRef(10);
 
   return (
     <section className="relative flex h-full min-h-0 flex-col overflow-hidden">
-      {showViewportGrid ? (
+      {showViewportGrid && !activeSketchPlaneId ? (
         <div className="pointer-events-none absolute inset-0 cad-grid-stage opacity-70" />
       ) : null}
       <div

@@ -1406,3 +1406,20 @@ Three bugs fixed after initial implementation:
 - the follow-up should replace the current ad hoc pipe/cutter/faceted attempts
   with one robust core-owned thread construction path, validated against
   viewport display and exported STL/STEP geometry.
+
+### Materials / Color Overrides (2026-05-27)
+
+- added document-scoped appearance overrides for body and face colors. Body
+  colors are keyed by body/root feature id; face colors store the emitted face
+  id plus an appearance signature so the core does not blindly trust only a
+  face index after recompute.
+- added `set_body_color`, `set_face_color`, `clear_body_color`,
+  `clear_face_color`, and `clear_appearance_overrides` IPC commands, with
+  `.polysmith` save/load round-tripping under `document_state.appearance`.
+- extended viewport payloads with optional `appearance_color` on meshes, legacy
+  body primitives, and solid faces. The renderer keeps theme body colors as the
+  default and applies custom colors only when an override resolves; face colors
+  render above body colors.
+- added a top-bar Materials popover with Body / Face paint modes, quick color
+  swatches, HSV-style picker controls, hex input, apply, clear selected, and
+  clear all actions.

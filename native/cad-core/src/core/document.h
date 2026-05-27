@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "core/box_feature.h"
+#include "core/appearance.h"
 #include "core/cylinder_feature.h"
 #include "core/export.h"
 #include "core/extrude_feature.h"
@@ -56,6 +57,7 @@ struct DocumentState {
   std::optional<int> timeline_cursor;
   std::vector<FeatureEntry> feature_history;
   std::vector<ParameterEntry> parameters;
+  DocumentAppearance appearance;
   SelectionFilter selection_filter;
 };
 
@@ -211,6 +213,13 @@ class DocumentManager {
   DocumentState update_fastener_parameters(
       const std::string& feature_id,
       const FastenerFeatureParameters& parameters);
+  DocumentState set_body_color(const std::string& body_id,
+                               const std::string& color);
+  DocumentState set_face_color(const std::string& face_id,
+                               const std::string& color);
+  DocumentState clear_body_color(const std::string& body_id);
+  DocumentState clear_face_color(const std::string& face_id);
+  DocumentState clear_appearance_overrides();
   // Drive an existing construction plane's offset. The frame is
   // re-derived from the source's current frame, so chained planes
   // / face-based sources update correctly.

@@ -122,10 +122,11 @@ export function applyPrimitiveVisualState(
   );
   visual.baseMaterial.emissiveIntensity = 0.05;
 
+  const bodyColor =
+    visual.appearanceColor ?? themeColor("--color-cad-body", "#b8b8b8");
+
   if (state.isSelected) {
-    visual.baseMaterial.color.set(
-      themeColor("--color-cad-body-selected", "#d0d0d4"),
-    );
+    visual.baseMaterial.color.set(bodyColor);
     visual.edgeMaterial.color.set(
       themeColor("--color-cad-edge-selected", "#ff9a3c"),
     );
@@ -133,16 +134,14 @@ export function applyPrimitiveVisualState(
   }
 
   if (state.isHovered) {
-    visual.baseMaterial.color.set(
-      themeColor("--color-cad-body-hover", "#c8c8cc"),
-    );
+    visual.baseMaterial.color.set(bodyColor);
     visual.edgeMaterial.color.set(
       themeColor("--color-cad-edge-hover", "#3da9ff"),
     );
     return;
   }
 
-  visual.baseMaterial.color.set(themeColor("--color-cad-body", "#b8b8b8"));
+  visual.baseMaterial.color.set(bodyColor);
   visual.edgeMaterial.color.set(themeColor("--color-cad-edge", "#2a2a2c"));
 }
 
@@ -260,7 +259,7 @@ export function buildPrimitiveObject(primitive: ScenePrimitive) {
   // hover / selection — which meant freshly-built bodies always
   // looked translucent on first render until the user interacted.
   const baseMaterial = new THREE.MeshStandardMaterial({
-    color: themeColor("--color-cad-body", "#b8b8b8"),
+    color: primitive.appearanceColor ?? themeColor("--color-cad-body", "#b8b8b8"),
     emissive: themeColor("--color-cad-body-emissive", "#1a1a1c"),
     emissiveIntensity: 0.05,
     metalness: 0.1,
@@ -368,6 +367,7 @@ export function buildPrimitiveObject(primitive: ScenePrimitive) {
     visual: {
       baseMaterial,
       edgeMaterial,
+      appearanceColor: primitive.appearanceColor,
     },
   };
 }
@@ -776,9 +776,9 @@ export function orientFaceMesh(mesh: THREE.Object3D, face: SolidFaceScene) {
 
 export function buildSolidFaceObject(face: SolidFaceScene) {
   const fillMaterial = new THREE.MeshBasicMaterial({
-    color: themeColor("--color-primary-fixed-dim", "#00daf3"),
+    color: face.appearanceColor ?? themeColor("--color-primary-fixed-dim", "#00daf3"),
     transparent: true,
-    opacity: 0,
+    opacity: face.appearanceColor ? 1 : 0,
     side: THREE.DoubleSide,
     depthWrite: false,
     polygonOffset: true,
@@ -819,6 +819,7 @@ export function buildSolidFaceObject(face: SolidFaceScene) {
     mesh,
     visual: {
       fillMaterial,
+      appearanceColor: face.appearanceColor,
     } satisfies SolidFaceVisual,
   };
 }
@@ -838,6 +839,12 @@ export function applySolidFaceVisualState(
   visual: SolidFaceVisual,
   state: SolidFaceInteractionState,
 ) {
+  if (visual.appearanceColor) {
+    visual.fillMaterial.color.set(visual.appearanceColor);
+    visual.fillMaterial.opacity = 1;
+    return;
+  }
+
   if (state.isSelected) {
     visual.fillMaterial.color.set(
       themeColor("--color-primary-soft", "#c3f5ff"),

@@ -49,6 +49,20 @@ export interface DocumentState {
   timeline_cursor: number | null;
   feature_history: FeatureEntry[];
   parameters: ParameterEntry[];
+  appearance: DocumentAppearance;
+}
+
+export interface DocumentAppearance {
+  body_colors: Array<{
+    body_id: string;
+    color: string;
+  }>;
+  face_colors: Array<{
+    face_id: string;
+    owner_body_id: string;
+    signature: string;
+    color: string;
+  }>;
 }
 
 export interface SessionState {
@@ -134,6 +148,7 @@ export interface ViewportMeshPrimitive {
   normals: number[];
   indices: number[];
   is_selected: boolean;
+  appearance_color: string | null;
 }
 
 // Translucent red preview of the cutter volume for the currently-edited
@@ -517,6 +532,46 @@ export interface SelectVertexCommand {
     additive: boolean;
     vertex_id: string;
   };
+}
+
+export interface SetBodyColorCommand {
+  id: string;
+  type: "set_body_color";
+  payload: {
+    body_id: string;
+    color: string;
+  };
+}
+
+export interface SetFaceColorCommand {
+  id: string;
+  type: "set_face_color";
+  payload: {
+    face_id: string;
+    color: string;
+  };
+}
+
+export interface ClearBodyColorCommand {
+  id: string;
+  type: "clear_body_color";
+  payload: {
+    body_id: string;
+  };
+}
+
+export interface ClearFaceColorCommand {
+  id: string;
+  type: "clear_face_color";
+  payload: {
+    face_id: string;
+  };
+}
+
+export interface ClearAppearanceOverridesCommand {
+  id: string;
+  type: "clear_appearance_overrides";
+  payload: Record<string, never>;
 }
 
 export interface CreateFilletCommand {
@@ -1502,6 +1557,11 @@ export type CoreCommand =
   | SelectFaceCommand
   | SelectEdgeCommand
   | SelectVertexCommand
+  | SetBodyColorCommand
+  | SetFaceColorCommand
+  | ClearBodyColorCommand
+  | ClearFaceColorCommand
+  | ClearAppearanceOverridesCommand
   | CreateFilletCommand
   | UpdateFilletRadiusCommand
   | UpdateFilletEdgesCommand

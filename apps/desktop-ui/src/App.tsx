@@ -60,9 +60,9 @@ import {
   MirrorToolPanel,
   FeatureTimeline,
   LogsWindow,
+  MaterialsPanel,
   MessageLog,
   SettingsModal,
-  SelectionFilterPanel,
   ViewportPanel,
   ProjectsPanel,
 } from "./layout";
@@ -465,7 +465,7 @@ function App() {
   const [hiddenCategories, setHiddenCategories] = useState<Set<CategoryId>>(
     () => new Set<CategoryId>(),
   );
-  const [sidebarTab, setSidebarTab] = useState<SidebarTab>("hierarchy");
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>("projects");
   const [recentProjectsDocument, setRecentProjectsDocument] =
     useState<RecentProjectsDocument>(EMPTY_RECENT_PROJECTS_DOCUMENT);
   const recentProjectsDocumentRef = useRef<RecentProjectsDocument>(
@@ -503,6 +503,7 @@ function App() {
   const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
   const [parametersPanelOpen, setParametersPanelOpen] = useState(false);
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
+  const [materialsPanelOpen, setMaterialsPanelOpen] = useState(false);
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("cad");
   const [slicerStatus, setSlicerStatus] = useState<string | null>(null);
   const [hasOrcaEmbedSession, setHasOrcaEmbedSession] = useState(false);
@@ -526,6 +527,18 @@ function App() {
             face.sketchability === "planar",
         ) ?? null)
       : null;
+  const selectedMaterialFace =
+    document?.selected_face_id && viewport
+      ? (viewport.solid_faces.find(
+          (face) => face.face_id === document.selected_face_id,
+        ) ?? null)
+      : null;
+  const selectedMaterialBodyId =
+    selectedMaterialFace?.owner_id ??
+    (document?.selected_feature_id &&
+    viewport?.bodies.some((body) => body.id === document.selected_feature_id)
+      ? document.selected_feature_id
+      : null);
   const selectedSketchProfile =
     viewport?.sketch_profiles.find((profile) => profile.is_selected) ?? null;
   const selectedSketchProfiles =
@@ -734,6 +747,11 @@ function App() {
     selectFace,
     selectEdge,
     selectVertex,
+    setBodyColor,
+    setFaceColor,
+    clearBodyColor,
+    clearFaceColor,
+    clearAppearanceOverrides,
     createFillet,
     updateFilletRadius,
     updateFilletEdges,
@@ -4390,6 +4408,10 @@ function App() {
           onToggleFilterPanel={() => {
             setFilterPanelOpen((current) => !current);
           }}
+          materialsPanelOpen={materialsPanelOpen}
+          onToggleMaterialsPanel={() => {
+            setMaterialsPanelOpen((current) => !current);
+          }}
           onUpdateSelectionFilter={updateSelectionFilter}
         />
 
@@ -4437,19 +4459,6 @@ function App() {
                     <button
                       type="button"
                       className={
-                        sidebarTab === "hierarchy"
-                          ? "cad-sidebar-tab cad-sidebar-tab-active"
-                          : "cad-sidebar-tab"
-                      }
-                      onClick={() => setSidebarTab("hierarchy")}
-                      role="tab"
-                      aria-selected={sidebarTab === "hierarchy"}
-                    >
-                      {t("document.hierarchy")}
-                    </button>
-                    <button
-                      type="button"
-                      className={
                         sidebarTab === "projects"
                           ? "cad-sidebar-tab cad-sidebar-tab-active"
                           : "cad-sidebar-tab"
@@ -4459,6 +4468,19 @@ function App() {
                       aria-selected={sidebarTab === "projects"}
                     >
                       {t("projects.title")}
+                    </button>
+                    <button
+                      type="button"
+                      className={
+                        sidebarTab === "hierarchy"
+                          ? "cad-sidebar-tab cad-sidebar-tab-active"
+                          : "cad-sidebar-tab"
+                      }
+                      onClick={() => setSidebarTab("hierarchy")}
+                      role="tab"
+                      aria-selected={sidebarTab === "hierarchy"}
+                    >
+                      {t("document.hierarchy")}
                     </button>
                   </div>
                   <button
@@ -5490,6 +5512,39 @@ function App() {
             />
 
             <div className="pointer-events-none absolute bottom-4 right-4 top-4 z-10 flex min-h-0 w-[340px] flex-col gap-3">
+              {materialsPanelOpen ? (
+                <div className="pointer-events-auto">
+                  <MaterialsPanel
+                    selectedBodyId={selectedMaterialBodyId}
+                    selectedFaceId={selectedMaterialFace?.face_id ?? null}
+                    onApplyBodyColor={async (bodyId, color) => {
+                      await runAction(async () => {
+                        await setBodyColor(bodyId, color);
+                      });
+                    }}
+                    onApplyFaceColor={async (faceId, color) => {
+                      await runAction(async () => {
+                        await setFaceColor(faceId, color);
+                      });
+                    }}
+                    onClearBodyColor={async (bodyId) => {
+                      await runAction(async () => {
+                        await clearBodyColor(bodyId);
+                      });
+                    }}
+                    onClearFaceColor={async (faceId) => {
+                      await runAction(async () => {
+                        await clearFaceColor(faceId);
+                      });
+                    }}
+                    onClearAll={async () => {
+                      await runAction(async () => {
+                        await clearAppearanceOverrides();
+                      });
+                    }}
+                  />
+                </div>
+              ) : null}
               {extrudeAction?.phase === "pending" ? (
                 <ExtrudePreviewPanel
                   phase="pending"

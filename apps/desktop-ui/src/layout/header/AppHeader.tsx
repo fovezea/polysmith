@@ -308,6 +308,8 @@ interface AppHeaderProps {
   onToggleParametersPanel: () => void;
   filterPanelOpen: boolean;
   onToggleFilterPanel: () => void;
+  materialsPanelOpen: boolean;
+  onToggleMaterialsPanel: () => void;
   onUpdateSelectionFilter: (filter: {
     select_curves?: boolean;
     select_points?: boolean;
@@ -413,6 +415,8 @@ export function AppHeader({
   onToggleParametersPanel,
   filterPanelOpen,
   onToggleFilterPanel,
+  materialsPanelOpen,
+  onToggleMaterialsPanel,
   onUpdateSelectionFilter,
 }: AppHeaderProps) {
   const { t: _t } = useTranslation();
@@ -507,6 +511,18 @@ export function AppHeader({
                 title="Selection &amp; Snap Filter"
               >
                 <span style={{ fontFamily: "monospace" }}>&#9881;</span>
+              </button>
+              <button
+                type="button"
+                className={
+                  materialsPanelOpen
+                    ? "cad-ribbon-action cad-ribbon-action-primary"
+                    : "cad-ribbon-action"
+                }
+                onClick={onToggleMaterialsPanel}
+                title={t("materials.title")}
+              >
+                {t("materials.button")}
               </button>
               {filterPanelOpen ? (
                 <div className="absolute left-0 top-[calc(100%+0.75rem)]">

@@ -63,6 +63,7 @@ function makeBoxPrimitive(box: ViewportBoxPrimitive): BoxScenePrimitive {
     size: [box.width, box.height, box.depth],
     position: [box.center.x, box.center.y, box.center.z],
     isSelected: box.is_selected,
+    appearanceColor: box.appearance_color ?? null,
   };
 }
 
@@ -77,6 +78,7 @@ function makeCylinderPrimitive(
     height: cylinder.height,
     position: [cylinder.center.x, cylinder.center.y, cylinder.center.z],
     isSelected: cylinder.is_selected,
+    appearanceColor: cylinder.appearance_color ?? null,
   };
 }
 
@@ -94,6 +96,7 @@ function makeMeshPrimitive(
     normals: Float32Array.from(primitive.normals),
     indices: Uint32Array.from(primitive.indices),
     isSelected: primitive.is_selected,
+    appearanceColor: primitive.appearance_color ?? null,
   };
 }
 
@@ -137,6 +140,7 @@ function makePolygonExtrudePrimitive(
     ),
     depth: primitive.depth,
     isSelected: primitive.is_selected,
+    appearanceColor: primitive.appearance_color ?? null,
   };
 }
 
@@ -726,6 +730,7 @@ function makeSolidFace(face: ViewportSolidFace): SolidFaceScene {
     trianglePositions: Float32Array.from(face.triangle_positions ?? []),
     triangleIndices: Uint32Array.from(face.triangle_indices ?? []),
     isSelected: face.is_selected,
+    appearanceColor: face.appearance_color ?? null,
   };
 }
 
@@ -1014,13 +1019,13 @@ export function createViewportScene(
         // particularly with the recently-added `mesh` variant.
         switch (primitive.kind) {
           case "box":
-            return `box:${primitive.primitiveId}:${primitive.size.join(":")}:${primitive.position.join(":")}`;
+            return `box:${primitive.primitiveId}:${primitive.size.join(":")}:${primitive.position.join(":")}:${primitive.appearanceColor ?? ""}`;
           case "cylinder":
-            return `cyl:${primitive.primitiveId}:${primitive.radius}:${primitive.height}:${primitive.position.join(":")}`;
+            return `cyl:${primitive.primitiveId}:${primitive.radius}:${primitive.height}:${primitive.position.join(":")}:${primitive.appearanceColor ?? ""}`;
           case "polygon_extrude":
-            return `poly-extrude:${primitive.primitiveId}:${primitive.planeId}:${primitive.depth}:${primitive.profilePoints.map((point) => point.join(":")).join("|")}:${primitive.innerLoops.map((loop) => loop.map((point) => point.join(":")).join(",")).join(";")}`;
+            return `poly-extrude:${primitive.primitiveId}:${primitive.planeId}:${primitive.depth}:${primitive.profilePoints.map((point) => point.join(":")).join("|")}:${primitive.innerLoops.map((loop) => loop.map((point) => point.join(":")).join(",")).join(";")}:${primitive.appearanceColor ?? ""}`;
           case "mesh":
-            return `mesh:${primitive.primitiveId}:${numericBufferSignature(primitive.positions)}:${numericBufferSignature(primitive.indices)}`;
+            return `mesh:${primitive.primitiveId}:${numericBufferSignature(primitive.positions)}:${numericBufferSignature(primitive.indices)}:${primitive.appearanceColor ?? ""}`;
         }
       })
       .concat(
@@ -1041,7 +1046,7 @@ export function createViewportScene(
           // changes — e.g. after a fillet/chamfer/cut. Otherwise the
           // pick mesh would stay frozen on the prior topology.
           (face) =>
-            `solid-face:${face.faceId}:${face.ownerId}:${face.sketchability}:${face.center.join(":")}:${face.trianglePositions.length}:${face.triangleIndices.length}:${face.isSelected}`,
+            `solid-face:${face.faceId}:${face.ownerId}:${face.sketchability}:${face.center.join(":")}:${face.trianglePositions.length}:${face.triangleIndices.length}:${face.isSelected}:${face.appearanceColor ?? ""}`,
         ),
       )
       .concat(

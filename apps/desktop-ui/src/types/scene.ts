@@ -13,6 +13,7 @@ export interface BoxScenePrimitive {
   size: [number, number, number];
   position: [number, number, number];
   isSelected: boolean;
+  appearanceColor: string | null;
 }
 
 export interface CylinderScenePrimitive {
@@ -23,6 +24,7 @@ export interface CylinderScenePrimitive {
   height: number;
   position: [number, number, number];
   isSelected: boolean;
+  appearanceColor: string | null;
 }
 
 export interface PolygonExtrudeScenePrimitive {
@@ -40,6 +42,7 @@ export interface PolygonExtrudeScenePrimitive {
   innerLoops: [number, number][][];
   depth: number;
   isSelected: boolean;
+  appearanceColor: string | null;
 }
 
 // World-space polyline for a body edge; the renderer turns this into a
@@ -77,6 +80,7 @@ export interface MeshScenePrimitive {
   normals: Float32Array;
   indices: Uint32Array;
   isSelected: boolean;
+  appearanceColor: string | null;
 }
 
 // Translucent red overlay rendered on top of the booleaned body while
@@ -333,4 +337,5 @@ export interface SolidFaceScene {
   trianglePositions: Float32Array;
   triangleIndices: Uint32Array;
   isSelected: boolean;
+  appearanceColor: string | null;
 }
