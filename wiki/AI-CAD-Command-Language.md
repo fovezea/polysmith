@@ -848,6 +848,8 @@ index.
 
 Creates a semantic thread feature. Cosmetic representation stores thread
 metadata; modeled representation is reserved for the helical sweep/boolean path.
+The target is a body id and the axis source is a sketch line, construction-axis
+feature, or straight body edge.
 
 Payload:
 
@@ -865,7 +867,9 @@ Payload:
 ```
 
 Use `update_thread_parameters { feature_id, parameters }` for live edits and
-`confirm_thread { feature_id }` to finish the pending feature.
+`confirm_thread { feature_id }` to finish the pending feature. If the target
+body or axis source stops resolving during recompute, the feature degrades with
+`dependency_broken` instead of trusting stale topology.
 
 #### `create_fastener`
 

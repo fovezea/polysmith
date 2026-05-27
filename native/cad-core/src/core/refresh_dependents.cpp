@@ -1292,6 +1292,32 @@ void refresh_history_dependencies(DocumentState& document) {
       }
     }
 
+    if (feature.kind == "thread" && feature.thread_parameters.has_value()) {
+      const auto& params = feature.thread_parameters.value();
+      DocumentState prefix = document;
+      prefix.feature_history.resize(i);
+      const CompiledBodies compiled = compile_bodies(prefix);
+      const bool target_body_exists = std::any_of(
+          compiled.bodies.begin(), compiled.bodies.end(),
+          [&](const CompiledBody& body) { return body.id == params.target_body_id; });
+      const auto axis =
+          resolve_construction_axis_source(prefix, params.axis_source_id);
+      if (target_body_exists && axis.has_value()) {
+        feature.dependency_broken = false;
+        feature.dependency_warning.clear();
+      } else if (!target_body_exists) {
+        feature.dependency_broken = true;
+        feature.dependency_warning =
+            "Thread target body '" + params.target_body_id +
+            "' is no longer available.";
+      } else {
+        feature.dependency_broken = true;
+        feature.dependency_warning =
+            "Thread axis source '" + params.axis_source_id +
+            "' is no longer available or is no longer linear.";
+      }
+    }
+
     // Sketch on a body face / construction plane: re-resolve the
     // plane frame against upstream geometry. We compile the prefix
     // [0, i) — every earlier feature has already been refreshed in

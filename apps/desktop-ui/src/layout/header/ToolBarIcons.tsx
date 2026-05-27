@@ -427,6 +427,26 @@ export const HoleIcon = () => (
   </svg>
 );
 
+export const ThreadIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-7 w-7"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M8 5.5c0-1.1 1.8-2 4-2s4 .9 4 2v13c0 1.1-1.8 2-4 2s-4-.9-4-2Z" />
+    <path d="M8 5.5c0 1.1 1.8 2 4 2s4-.9 4-2" />
+    <path d="M8 9c1.4 1 6.6 1 8 0" />
+    <path d="M8 12c1.4 1 6.6 1 8 0" />
+    <path d="M8 15c1.4 1 6.6 1 8 0" />
+    <path d="M8 18c1.4 1 6.6 1 8 0" />
+  </svg>
+);
+
 export const PatternIcon = () => (
   <svg
     viewBox="0 0 24 24"
@@ -773,6 +793,8 @@ export function FeatureKindIcon({ kind }: { kind: string }) {
       return <SweepIcon />;
     case "hole":
       return <HoleIcon />;
+    case "thread":
+      return <ThreadIcon />;
     case "helix":
       return <HelixIcon />;
     case "pattern":

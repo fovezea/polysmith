@@ -269,6 +269,8 @@ interface AppHeaderProps {
   onSweep: () => Promise<void>;
   canHole: boolean;
   onHole: () => Promise<void>;
+  canThread: boolean;
+  onThread: () => Promise<void>;
   // Modify ribbon (Fillet / Chamfer). Enabled state is owned by the
   // parent so it can match the F-hotkey gating exactly.
   canEdgeOp: boolean;
@@ -375,6 +377,8 @@ export function AppHeader({
   onSweep,
   canHole,
   onHole,
+  canThread,
+  onThread,
   canEdgeOp,
   canShell,
   onFillet,
@@ -671,6 +675,8 @@ export function AppHeader({
                 onSweep={onSweep}
                 canHole={canHole}
                 onHole={onHole}
+                canThread={canThread}
+                onThread={onThread}
               />
             ) : null}
 

@@ -8,6 +8,7 @@ import {
   LoftIcon,
   RevolveIcon,
   SweepIcon,
+  ThreadIcon,
 } from "./ToolBarIcons";
 import { formatHotkey, useAppConfig } from "@/config";
 import { useTranslation } from "react-i18next";
@@ -35,6 +36,8 @@ export interface CreateToolbarProps {
   onSweep: () => Promise<void>;
   canHole: boolean;
   onHole: () => Promise<void>;
+  canThread: boolean;
+  onThread: () => Promise<void>;
 }
 
 // Flat icon-only button shared by every action in the Create ribbon.
@@ -62,6 +65,8 @@ export function CreateToolbar({
   onSweep,
   canHole,
   onHole,
+  canThread,
+  onThread,
 }: CreateToolbarProps) {
   const { config } = useAppConfig();
   const { t } = useTranslation();
@@ -148,6 +153,17 @@ export function CreateToolbar({
           disabled={disabled || !canHole}
         >
           <HoleIcon />
+        </button>
+        <button
+          className={ICON_BUTTON_BASE}
+          data-tooltip={t("toolbar.thread")}
+          aria-label={t("toolbar.thread")}
+          onClick={() => {
+            void onThread();
+          }}
+          disabled={disabled || !canThread}
+        >
+          <ThreadIcon />
         </button>
         {openMenu === "box" ? (
           <div className="cad-toolbar-popover absolute left-0 top-[calc(100%+0.75rem)] w-[360px]">

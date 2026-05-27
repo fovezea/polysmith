@@ -54,6 +54,7 @@ const EDITABLE_KINDS = new Set([
   "loft",
   "revolve",
   "sweep",
+  "thread",
   "sketch",
 ]);
 

@@ -1324,3 +1324,15 @@ Three bugs fixed after initial implementation:
   preselected construction-axis features can also seed the helix
 - added live panel controls for radius, pitch, height, handedness, and start
   angle, all driven through `update_helix_parameters`
+
+### Thread UI Pass (2026-05-27)
+
+- exposed the semantic Thread feature in the Create toolbar with contextual
+  body-target and axis-source picking
+- added a floating Thread panel for external/internal mode, metric/imperial
+  standard presets, size, diameter, pitch, length, start offset, handedness, and
+  cosmetic representation
+- kept modeled thread generation disabled in the UI until the helical
+  sweep/boolean path is robust enough to generate real thread geometry
+- added dependency refresh for thread target bodies and axis sources so broken
+  references surface as `dependency_broken` warnings instead of stale metadata

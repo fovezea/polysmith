@@ -76,6 +76,7 @@ import type {
   HoleFit,
   HoleFeatureParameters,
   HoleStandard,
+  ThreadFeatureParameters,
 } from "./types";
 import type { DocumentState } from "./types/ipc";
 import type { RecentProject, RecentProjectsDocument } from "./lib";
@@ -89,6 +90,10 @@ const DEFAULT_HOLE_DEPTH = 10;
 const DEFAULT_HELIX_RADIUS = 2.5;
 const DEFAULT_HELIX_PITCH = 1;
 const DEFAULT_HELIX_HEIGHT = 10;
+const DEFAULT_THREAD_MAJOR_DIAMETER = 5;
+const DEFAULT_THREAD_MINOR_DIAMETER = 4;
+const DEFAULT_THREAD_PITCH = 0.8;
+const DEFAULT_THREAD_LENGTH = 10;
 // Default seed for the Offset Plane panel. Zero would be a valid
 // frame (sitting on top of the source) but gives no visible preview;
 // 10 mm matches common CAD workflow's "show me something" default.
@@ -419,6 +424,15 @@ function App() {
     | { phase: "pending" }
     | { phase: "active"; featureId: string };
   const [helixAction, setHelixAction] = useState<HelixAction | null>(null);
+  type ThreadAction =
+    | { phase: "pick_target"; axisSourceId: string | null }
+    | { phase: "pick_axis"; targetBodyId: string; targetSummary: string }
+    | {
+        phase: "active";
+        featureId: string;
+        originalParameters: ThreadFeatureParameters | null;
+      };
+  const [threadAction, setThreadAction] = useState<ThreadAction | null>(null);
   type HoleAction =
     | { phase: "pending" }
     | { phase: "active"; featureId: string };
@@ -525,6 +539,16 @@ function App() {
         ) ?? null)
       : null;
   const activeHelixParameters = activeHelixFeature?.helix_parameters ?? null;
+  const activeThreadFeature =
+    threadAction?.phase === "active"
+      ? (document?.feature_history.find(
+          (feature) => feature.feature_id === threadAction.featureId,
+        ) ?? null)
+      : null;
+  const activeThreadParameters = activeThreadFeature?.thread_parameters ?? null;
+  const activeThreadStandards = activeThreadParameters
+    ? holeStandardsForMode(activeThreadParameters.standard)
+    : [];
   const selectedSketchProfileIdsKey = selectedSketchProfileIds.join("|");
   const sketchProfileLabelById = new Map<string, string>();
   const sketchLineLabelById = new Map<string, string>();
@@ -709,6 +733,9 @@ function App() {
     confirmHole,
     createHelix,
     updateHelixParameters,
+    createThread,
+    updateThreadParameters,
+    confirmThread,
     updateOffsetPlane,
     updateAnglePlane,
     startSketchOnPlane,
@@ -1065,7 +1092,8 @@ function App() {
       anglePlaneAction ||
       constructionAxisAction ||
       constructionPointAction ||
-      helixAction
+      helixAction ||
+      threadAction
     ) {
       return;
     }
@@ -1896,6 +1924,44 @@ function App() {
     );
   }
 
+  function currentThreadTargetBody(): {
+    bodyId: string;
+    summary: string;
+  } | null {
+    const selectedFaceId = document?.selected_face_id ?? null;
+    if (selectedFaceId) {
+      const face = viewport?.solid_faces.find(
+        (entry) => entry.face_id === selectedFaceId,
+      );
+      if (face) {
+        const bodyLabel =
+          viewport?.bodies.find((body) => body.id === face.owner_id)?.label ??
+          face.owner_id;
+        return {
+          bodyId: face.owner_id,
+          summary: `${bodyLabel} · ${face.label}`,
+        };
+      }
+    }
+    const selectedFeatureId = document?.selected_feature_id ?? null;
+    if (selectedFeatureId) {
+      const body = viewport?.bodies.find((entry) => entry.id === selectedFeatureId);
+      if (body) {
+        return { bodyId: body.id, summary: body.label };
+      }
+    }
+    return null;
+  }
+
+  function describeThreadTarget(bodyId: string): string {
+    return (
+      viewport?.bodies.find((body) => body.id === bodyId)?.label ??
+      document?.feature_history.find((feature) => feature.feature_id === bodyId)
+        ?.name ??
+      t("geometry.selectedBody")
+    );
+  }
+
   function currentPointSourceId(): string | null {
     const selectedVertexId = document?.selected_vertex_ids[0] ?? null;
     if (selectedVertexId) {
@@ -2141,7 +2207,8 @@ function App() {
       anglePlaneAction ||
       constructionAxisAction ||
       constructionPointAction ||
-      helixAction
+      helixAction ||
+      threadAction
     ) {
       return;
     }
@@ -2168,7 +2235,8 @@ function App() {
       anglePlaneAction ||
       constructionAxisAction ||
       constructionPointAction ||
-      helixAction
+      helixAction ||
+      threadAction
     ) {
       return;
     }
@@ -2236,6 +2304,7 @@ function App() {
       constructionAxisAction ||
       constructionPointAction ||
       helixAction ||
+      threadAction ||
       activeSketchPlaneId
     ) {
       return;
@@ -2246,6 +2315,121 @@ function App() {
       return;
     }
     setHelixAction({ phase: "pending" });
+  }
+
+  function defaultThreadParameters(
+    targetBodyId: string,
+    axisSourceId: string,
+  ): ThreadFeatureParameters {
+    return {
+      target_body_id: targetBodyId,
+      axis_source_id: axisSourceId,
+      mode: "external",
+      standard: "custom",
+      size: "",
+      major_diameter: DEFAULT_THREAD_MAJOR_DIAMETER,
+      minor_diameter: DEFAULT_THREAD_MINOR_DIAMETER,
+      pitch: DEFAULT_THREAD_PITCH,
+      length: DEFAULT_THREAD_LENGTH,
+      thread_angle_degrees: 60,
+      start_offset: 0,
+      handedness: "right",
+      representation: "cosmetic",
+      is_pending: true,
+    };
+  }
+
+  async function createThreadFeature(
+    targetBodyId: string,
+    axisSourceId: string,
+    parameters: Partial<ThreadFeatureParameters> = {},
+  ) {
+    const documentPromise = awaitDocumentChange((next, previous) => {
+      if (!next.selected_feature_id) {
+        return false;
+      }
+      const previousLength = previous?.feature_history.length ?? 0;
+      if (next.feature_history.length <= previousLength) {
+        return false;
+      }
+      const lastFeature = next.feature_history[next.feature_history.length - 1];
+      return (
+        lastFeature.feature_id === next.selected_feature_id &&
+        lastFeature.kind === "thread"
+      );
+    });
+
+    await runAction(async () => {
+      try {
+        await createThread({
+          ...defaultThreadParameters(targetBodyId, axisSourceId),
+          ...parameters,
+        });
+        const nextDocument = await documentPromise;
+        const newFeatureId = nextDocument.selected_feature_id ?? null;
+        if (newFeatureId) {
+          setThreadAction({
+            phase: "active",
+            featureId: newFeatureId,
+            originalParameters: null,
+          });
+        }
+      } catch (error) {
+        addMessage(`thread error: ${String(error)}`);
+      }
+    });
+  }
+
+  async function triggerThreadAction() {
+    if (
+      extrudeAction ||
+      loftAction ||
+      revolveAction ||
+      sweepAction ||
+      edgeOpAction ||
+      shellAction ||
+      holeAction ||
+      offsetPlaneAction ||
+      midplaneAction ||
+      tangentPlaneAction ||
+      anglePlaneAction ||
+      constructionAxisAction ||
+      constructionPointAction ||
+      helixAction ||
+      threadAction ||
+      activeSketchPlaneId
+    ) {
+      return;
+    }
+    const target = currentThreadTargetBody();
+    const axisSourceId = currentAxisSourceId();
+    if (target && axisSourceId) {
+      await createThreadFeature(target.bodyId, axisSourceId);
+      return;
+    }
+    if (target) {
+      setThreadAction({
+        phase: "pick_axis",
+        targetBodyId: target.bodyId,
+        targetSummary: target.summary,
+      });
+      return;
+    }
+    setThreadAction({ phase: "pick_target", axisSourceId });
+  }
+
+  async function updateActiveThreadParameters(
+    patch: Partial<ThreadFeatureParameters>,
+  ) {
+    if (threadAction?.phase !== "active" || !activeThreadParameters) {
+      return;
+    }
+    await runAction(async () => {
+      await updateThreadParameters(threadAction.featureId, {
+        ...activeThreadParameters,
+        ...patch,
+      });
+    });
   }
 
   async function updateActiveHelixParameters(
@@ -2278,6 +2462,7 @@ function App() {
       constructionAxisAction ||
       constructionPointAction ||
       helixAction ||
+      threadAction ||
       activeSketchPlaneId
     ) {
       return;
@@ -2407,6 +2592,7 @@ function App() {
       constructionAxisAction ||
       constructionPointAction ||
       helixAction ||
+      threadAction ||
       activeSketchPlaneId
     ) {
       return;
@@ -2547,6 +2733,7 @@ function App() {
         !sweepAction &&
         !edgeOpAction &&
         !shellAction &&
+        !threadAction &&
         document &&
         (document.selected_feature_id ||
           document.selected_reference_id ||
@@ -3695,6 +3882,7 @@ function App() {
             !constructionAxisAction &&
             !constructionPointAction &&
             !helixAction &&
+            !threadAction &&
             (!extrudeAction || extrudeAction.phase === "pending")
           }
           onExtrude={triggerExtrudeAction}
@@ -3713,7 +3901,8 @@ function App() {
             !anglePlaneAction &&
             !constructionAxisAction &&
             !constructionPointAction &&
-            !helixAction
+            !helixAction &&
+            !threadAction
           }
           onLoft={triggerLoftAction}
           canRevolve={
@@ -3731,7 +3920,8 @@ function App() {
             !anglePlaneAction &&
             !constructionAxisAction &&
             !constructionPointAction &&
-            !helixAction
+            !helixAction &&
+            !threadAction
           }
           onRevolve={triggerRevolveAction}
           canSweep={
@@ -3749,7 +3939,8 @@ function App() {
             !anglePlaneAction &&
             !constructionAxisAction &&
             !constructionPointAction &&
-            !helixAction
+            !helixAction &&
+            !threadAction
           }
           onSweep={triggerSweepAction}
           canHole={
@@ -3767,9 +3958,29 @@ function App() {
             !anglePlaneAction &&
             !constructionAxisAction &&
             !constructionPointAction &&
-            !helixAction
+            !helixAction &&
+            !threadAction
           }
           onHole={triggerHoleAction}
+          canThread={
+            !activeSketchPlaneId &&
+            !extrudeAction &&
+            !loftAction &&
+            !revolveAction &&
+            !sweepAction &&
+            !edgeOpAction &&
+            !shellAction &&
+            !holeAction &&
+            !offsetPlaneAction &&
+            !midplaneAction &&
+            !tangentPlaneAction &&
+            !anglePlaneAction &&
+            !constructionAxisAction &&
+            !constructionPointAction &&
+            !helixAction &&
+            !threadAction
+          }
+          onThread={triggerThreadAction}
           // Modify ribbon: Fillet / Chamfer can be invoked at any
           // time outside a sketch / other floating action. Edge
           // selection is *not* required — the panel opens in
@@ -3790,7 +4001,8 @@ function App() {
             !anglePlaneAction &&
             !constructionAxisAction &&
             !constructionPointAction &&
-            !helixAction
+            !helixAction &&
+            !threadAction
           }
           onFillet={async () => {
             await triggerEdgeOpAction("fillet");
@@ -3813,7 +4025,8 @@ function App() {
             !anglePlaneAction &&
             !constructionAxisAction &&
             !constructionPointAction &&
-            !helixAction
+            !helixAction &&
+            !threadAction
           }
           onShell={async () => {
             await triggerShellAction();
@@ -3832,7 +4045,8 @@ function App() {
             !anglePlaneAction &&
             !constructionAxisAction &&
             !constructionPointAction &&
-            !helixAction
+            !helixAction &&
+            !threadAction
           }
           onOffsetPlane={() => {
             void triggerOffsetPlaneAction();
@@ -3851,7 +4065,8 @@ function App() {
             !anglePlaneAction &&
             !constructionAxisAction &&
             !constructionPointAction &&
-            !helixAction
+            !helixAction &&
+            !threadAction
           }
           canTangentPlane={
             !activeSketchPlaneId &&
@@ -3867,7 +4082,8 @@ function App() {
             !anglePlaneAction &&
             !constructionAxisAction &&
             !constructionPointAction &&
-            !helixAction
+            !helixAction &&
+            !threadAction
           }
           canAnglePlane={
             !activeSketchPlaneId &&
@@ -3883,7 +4099,8 @@ function App() {
             !anglePlaneAction &&
             !constructionAxisAction &&
             !constructionPointAction &&
-            !helixAction
+            !helixAction &&
+            !threadAction
           }
           canConstructionAxis={
             !extrudeAction &&
@@ -3898,7 +4115,8 @@ function App() {
             !anglePlaneAction &&
             !constructionAxisAction &&
             !constructionPointAction &&
-            !helixAction
+            !helixAction &&
+            !threadAction
           }
           canConstructionPoint={
             !extrudeAction &&
@@ -3913,7 +4131,8 @@ function App() {
             !anglePlaneAction &&
             !constructionAxisAction &&
             !constructionPointAction &&
-            !helixAction
+            !helixAction &&
+            !threadAction
           }
           canHelix={
             !activeSketchPlaneId &&
@@ -3930,7 +4149,8 @@ function App() {
             !anglePlaneAction &&
             !constructionAxisAction &&
             !constructionPointAction &&
-            !helixAction
+            !helixAction &&
+            !threadAction
           }
           onMidplane={() => {
             void triggerMidplaneAction();
@@ -4243,9 +4463,18 @@ function App() {
                 revolveAction !== null ||
                 sweepAction !== null ||
                 constructionAxisAction !== null ||
-                helixAction !== null
+                helixAction !== null ||
+                threadAction !== null
               }
               onPickInactiveSketchLine={async (lineId) => {
+                if (threadAction?.phase === "pick_axis") {
+                  await createThreadFeature(threadAction.targetBodyId, lineId);
+                  return;
+                }
+                if (threadAction?.phase === "pick_target") {
+                  setThreadAction({ ...threadAction, axisSourceId: lineId });
+                  return;
+                }
                 if (helixAction?.phase === "pending") {
                   await createHelixFeature(lineId);
                   return;
@@ -4270,6 +4499,35 @@ function App() {
                 snapshotCaptureRef.current = capture;
               }}
               onSelectPrimitive={async (primitiveId) => {
+                if (
+                  threadAction?.phase === "pick_target" ||
+                  threadAction?.phase === "pick_axis"
+                ) {
+                  const body = viewport?.bodies.find(
+                    (entry) => entry.id === primitiveId,
+                  );
+                  if (!body) {
+                    return;
+                  }
+                  if (threadAction.phase === "pick_target") {
+                    if (threadAction.axisSourceId) {
+                      await createThreadFeature(body.id, threadAction.axisSourceId);
+                    } else {
+                      setThreadAction({
+                        phase: "pick_axis",
+                        targetBodyId: body.id,
+                        targetSummary: body.label,
+                      });
+                    }
+                    return;
+                  }
+                  setThreadAction({
+                    ...threadAction,
+                    targetBodyId: body.id,
+                    targetSummary: body.label,
+                  });
+                  return;
+                }
                 await runAction(async () => {
                   await selectFeature(primitiveId);
                 });
@@ -4309,6 +4567,42 @@ function App() {
                 });
               }}
               onSelectFace={async (faceId) => {
+                if (
+                  threadAction?.phase === "pick_target" ||
+                  threadAction?.phase === "pick_axis"
+                ) {
+                  const face = viewport?.solid_faces.find(
+                    (entry) => entry.face_id === faceId,
+                  );
+                  if (!face) {
+                    return;
+                  }
+                  const bodyLabel =
+                    viewport?.bodies.find((body) => body.id === face.owner_id)
+                      ?.label ?? face.owner_id;
+                  const summary = `${bodyLabel} · ${face.label}`;
+                  if (threadAction.phase === "pick_target") {
+                    if (threadAction.axisSourceId) {
+                      await createThreadFeature(
+                        face.owner_id,
+                        threadAction.axisSourceId,
+                      );
+                    } else {
+                      setThreadAction({
+                        phase: "pick_axis",
+                        targetBodyId: face.owner_id,
+                        targetSummary: summary,
+                      });
+                    }
+                    return;
+                  }
+                  setThreadAction({
+                    ...threadAction,
+                    targetBodyId: face.owner_id,
+                    targetSummary: summary,
+                  });
+                  return;
+                }
                 if (holeAction?.phase === "pending") {
                   const face = viewport?.solid_faces.find(
                     (entry) => entry.face_id === faceId,
@@ -4431,6 +4725,14 @@ function App() {
                 });
               }}
               onSelectEdge={async (edgeId, additive) => {
+                if (threadAction?.phase === "pick_axis") {
+                  await createThreadFeature(threadAction.targetBodyId, edgeId);
+                  return;
+                }
+                if (threadAction?.phase === "pick_target") {
+                  setThreadAction({ ...threadAction, axisSourceId: edgeId });
+                  return;
+                }
                 if (helixAction?.phase === "pending") {
                   await createHelixFeature(edgeId);
                   return;
@@ -6428,6 +6730,323 @@ function App() {
                   </button>
                 </section>
               ) : null}
+              {threadAction ? (
+                <section className="pointer-events-auto cad-floating-panel cad-scrollbar max-h-[min(42rem,calc(100vh-12rem))] w-[21rem] overflow-y-auto px-5 py-5">
+                  <p className="cad-kicker">{t("panels.thread.title")}</p>
+                  {threadAction.phase !== "active" ? (
+                    <>
+                      {threadAction.phase === "pick_axis" ? (
+                        <div className="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-xs uppercase tracking-[0.18em] text-on-surface-dim">
+                          <span>{t("panels.thread.target")}</span>
+                          <span className="truncate text-right text-on-surface">
+                            {threadAction.targetSummary}
+                          </span>
+                        </div>
+                      ) : threadAction.axisSourceId ? (
+                        <div className="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-xs uppercase tracking-[0.18em] text-on-surface-dim">
+                          <span>{t("panels.thread.axis")}</span>
+                          <span className="truncate text-right text-on-surface">
+                            {describeAxisSource(threadAction.axisSourceId)}
+                          </span>
+                        </div>
+                      ) : null}
+                      <p className="mt-3 text-xs text-on-surface-muted">
+                        {threadAction.phase === "pick_axis"
+                          ? t("panels.thread.pickAxis")
+                          : t("panels.thread.pickTarget")}
+                      </p>
+                      <button
+                        type="button"
+                        className="cad-action-ghost mt-4 w-full"
+                        disabled={status !== "connected"}
+                        onClick={() => setThreadAction(null)}
+                      >
+                        {t("common.cancel")}
+                      </button>
+                    </>
+                  ) : activeThreadParameters ? (
+                    <>
+                      <div className="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-xs uppercase tracking-[0.18em] text-on-surface-dim">
+                        <span>{t("panels.thread.target")}</span>
+                        <span className="truncate text-right text-on-surface">
+                          {describeThreadTarget(activeThreadParameters.target_body_id)}
+                        </span>
+                        <span>{t("panels.thread.axis")}</span>
+                        <span className="truncate text-right text-on-surface">
+                          {describeAxisSource(activeThreadParameters.axis_source_id)}
+                        </span>
+                      </div>
+                      <div className="mt-5 space-y-4">
+                        <div>
+                          <span className="cad-field-label">
+                            {t("panels.thread.mode")}
+                          </span>
+                          <Dropdown
+                            label={t("panels.thread.mode")}
+                            className="mt-2"
+                            value={activeThreadParameters.mode}
+                            disabled={status !== "connected"}
+                            options={[
+                              {
+                                value: "external",
+                                label: t("panels.thread.external"),
+                              },
+                              {
+                                value: "internal",
+                                label: t("panels.thread.internal"),
+                              },
+                            ]}
+                            onChange={(value) => {
+                              void updateActiveThreadParameters({ mode: value });
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <span className="cad-field-label">
+                            {t("panels.thread.standard")}
+                          </span>
+                          <Dropdown
+                            label={t("panels.thread.standard")}
+                            className="mt-2"
+                            value={activeThreadParameters.standard}
+                            disabled={status !== "connected"}
+                            options={[
+                              { value: "custom", label: t("panels.thread.custom") },
+                              { value: "metric", label: t("panels.thread.metric") },
+                              {
+                                value: "imperial",
+                                label: t("panels.thread.imperial"),
+                              },
+                            ]}
+                            onChange={(value) => {
+                              if (value === "custom") {
+                                void updateActiveThreadParameters({
+                                  standard: value,
+                                  size: "",
+                                });
+                                return;
+                              }
+                              const entry = holeStandardsForMode(value)[0];
+                              if (!entry) {
+                                return;
+                              }
+                              void updateActiveThreadParameters({
+                                standard: value,
+                                size: entry.id,
+                                major_diameter: entry.majorDiameter,
+                                minor_diameter: entry.minorDiameter,
+                                pitch: entry.pitch,
+                              });
+                            }}
+                          />
+                        </div>
+                        {activeThreadParameters.standard !== "custom" ? (
+                          <div>
+                            <span className="cad-field-label">
+                              {t("panels.thread.size")}
+                            </span>
+                            <Dropdown
+                              label={t("panels.thread.size")}
+                              className="mt-2"
+                              value={
+                                findHoleStandard(
+                                  activeThreadParameters.standard,
+                                  activeThreadParameters.size,
+                                )?.id ??
+                                activeThreadStandards[0]?.id ??
+                                ""
+                              }
+                              disabled={
+                                status !== "connected" ||
+                                activeThreadStandards.length === 0
+                              }
+                              options={activeThreadStandards.map((entry) => ({
+                                value: entry.id,
+                                label: entry.label,
+                              }))}
+                              onChange={(value) => {
+                                const entry = findHoleStandard(
+                                  activeThreadParameters.standard,
+                                  value,
+                                );
+                                if (!entry) {
+                                  return;
+                                }
+                                void updateActiveThreadParameters({
+                                  size: entry.id,
+                                  major_diameter: entry.majorDiameter,
+                                  minor_diameter: entry.minorDiameter,
+                                  pitch: entry.pitch,
+                                });
+                              }}
+                            />
+                          </div>
+                        ) : null}
+                        <div className="grid grid-cols-2 gap-3">
+                          <label className="block">
+                            <span className="cad-field-label">
+                              {t("panels.thread.majorDiameter")}
+                            </span>
+                            <input
+                              type="number"
+                              min={0}
+                              step={0.1}
+                              className="cad-input mt-2 w-full"
+                              value={activeThreadParameters.major_diameter}
+                              disabled={status !== "connected"}
+                              onChange={(event) => {
+                                const value = event.currentTarget.valueAsNumber;
+                                if (!Number.isFinite(value)) {
+                                  return;
+                                }
+                                void updateActiveThreadParameters({
+                                  major_diameter: value,
+                                });
+                              }}
+                            />
+                          </label>
+                          <label className="block">
+                            <span className="cad-field-label">
+                              {t("panels.thread.pitch")}
+                            </span>
+                            <input
+                              type="number"
+                              min={0}
+                              step={0.1}
+                              className="cad-input mt-2 w-full"
+                              value={activeThreadParameters.pitch}
+                              disabled={status !== "connected"}
+                              onChange={(event) => {
+                                const value = event.currentTarget.valueAsNumber;
+                                if (!Number.isFinite(value)) {
+                                  return;
+                                }
+                                void updateActiveThreadParameters({ pitch: value });
+                              }}
+                            />
+                          </label>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <label className="block">
+                            <span className="cad-field-label">
+                              {t("panels.thread.length")}
+                            </span>
+                            <input
+                              type="number"
+                              min={0}
+                              step={0.1}
+                              className="cad-input mt-2 w-full"
+                              value={activeThreadParameters.length}
+                              disabled={status !== "connected"}
+                              onChange={(event) => {
+                                const value = event.currentTarget.valueAsNumber;
+                                if (!Number.isFinite(value)) {
+                                  return;
+                                }
+                                void updateActiveThreadParameters({ length: value });
+                              }}
+                            />
+                          </label>
+                          <label className="block">
+                            <span className="cad-field-label">
+                              {t("panels.thread.startOffset")}
+                            </span>
+                            <input
+                              type="number"
+                              step={0.1}
+                              className="cad-input mt-2 w-full"
+                              value={activeThreadParameters.start_offset}
+                              disabled={status !== "connected"}
+                              onChange={(event) => {
+                                const value = event.currentTarget.valueAsNumber;
+                                if (!Number.isFinite(value)) {
+                                  return;
+                                }
+                                void updateActiveThreadParameters({
+                                  start_offset: value,
+                                });
+                              }}
+                            />
+                          </label>
+                        </div>
+                        <div>
+                          <span className="cad-field-label">
+                            {t("panels.thread.handedness")}
+                          </span>
+                          <Dropdown
+                            label={t("panels.thread.handedness")}
+                            className="mt-2"
+                            value={activeThreadParameters.handedness}
+                            disabled={status !== "connected"}
+                            options={[
+                              {
+                                value: "right",
+                                label: t("panels.thread.rightHand"),
+                              },
+                              {
+                                value: "left",
+                                label: t("panels.thread.leftHand"),
+                              },
+                            ]}
+                            onChange={(value) => {
+                              void updateActiveThreadParameters({
+                                handedness: value,
+                              });
+                            }}
+                          />
+                        </div>
+                        <div className="rounded-md border border-outline/50 bg-surface-container-low px-3 py-2">
+                          <p className="cad-field-label">
+                            {t("panels.thread.representation")}
+                          </p>
+                          <p className="mt-1 text-sm text-on-surface">
+                            {t("panels.thread.cosmetic")}
+                          </p>
+                          <p className="mt-1 text-[11px] leading-4 text-on-surface-dim">
+                            {t("panels.thread.modeledUnavailable")}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-5 flex gap-3">
+                        <button
+                          type="button"
+                          className="cad-ribbon-action cad-ribbon-action-primary flex-1"
+                          disabled={status !== "connected"}
+                          onClick={() => {
+                            void runAction(async () => {
+                              await confirmThread(threadAction.featureId);
+                              setThreadAction(null);
+                              await restoreTimelineCursorAfterEdit();
+                            });
+                          }}
+                        >
+                          {t("common.confirm")}
+                        </button>
+                        <button
+                          type="button"
+                          className="cad-ribbon-action flex-1"
+                          onClick={() => {
+                            void runAction(async () => {
+                              if (threadAction.originalParameters) {
+                                await updateThreadParameters(
+                                  threadAction.featureId,
+                                  threadAction.originalParameters,
+                                );
+                              } else {
+                                await undo();
+                              }
+                              setThreadAction(null);
+                              await restoreTimelineCursorAfterEdit();
+                            });
+                          }}
+                        >
+                          {t("common.cancel")}
+                        </button>
+                      </div>
+                    </>
+                  ) : null}
+                </section>
+              ) : null}
               {helixAction ? (
                 <section className="pointer-events-auto cad-floating-panel w-[20rem] px-5 py-5">
                   <p className="cad-kicker">{t("panels.helix.title")}</p>
@@ -6783,7 +7402,8 @@ function App() {
                 loftAction ||
                 revolveAction ||
                 sweepAction ||
-                edgeOpAction
+                edgeOpAction ||
+                threadAction
               ) {
                 return;
               }
@@ -6815,7 +7435,8 @@ function App() {
                 loftAction ||
                 revolveAction ||
                 sweepAction ||
-                edgeOpAction
+                edgeOpAction ||
+                threadAction
               ) {
                 return;
               }
@@ -6840,7 +7461,8 @@ function App() {
                 loftAction ||
                 revolveAction ||
                 sweepAction ||
-                edgeOpAction
+                edgeOpAction ||
+                threadAction
               ) {
                 return;
               }
@@ -6866,7 +7488,8 @@ function App() {
                 loftAction ||
                 revolveAction ||
                 sweepAction ||
-                edgeOpAction
+                edgeOpAction ||
+                threadAction
               ) {
                 return;
               }
@@ -6882,6 +7505,24 @@ function App() {
                   profileId: params.profile_id,
                   pathEntityId: params.path_entity_id,
                 },
+              });
+            }
+            if (feature.kind === "thread" && feature.thread_parameters) {
+              if (
+                extrudeAction ||
+                loftAction ||
+                revolveAction ||
+                sweepAction ||
+                edgeOpAction ||
+                threadAction
+              ) {
+                return;
+              }
+              beginTimelineEditSession(featureId, feature.kind);
+              setThreadAction({
+                phase: "active",
+                featureId,
+                originalParameters: feature.thread_parameters,
               });
             }
           }}
