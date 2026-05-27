@@ -564,7 +564,7 @@ const documentStateSchema = z.object({
           points: z.array(
             z.object({
               point_id: z.string(),
-              kind: z.enum(["endpoint", "center", "projected"]),
+              kind: z.enum(["endpoint", "center", "projected", "quadrant"]),
               x: z.number(),
               y: z.number(),
               is_fixed: z.boolean(),
@@ -987,7 +987,7 @@ const viewportStateSchema = z.object({
     z.object({
       point_id: z.string(),
       plane_id: z.string(),
-      kind: z.enum(["endpoint", "center", "projected"]),
+      kind: z.enum(["endpoint", "center", "projected", "quadrant"]),
       position: z.object({
         x: z.number(),
         y: z.number(),

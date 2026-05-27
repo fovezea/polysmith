@@ -224,26 +224,50 @@ const selectEntry: HelpEntry = {
 const dimensionEntry: HelpEntry = {
   title: "Dimension Tool",
   summary:
-    "Applies and edits dimensions on sketch entities — linear, radial, and angular.",
+    "Creates and edits sketch dimensions — linear, radial, angular, and point-to-point distance.",
   activation:
     "Click the **Dimension** button in the sketch toolbar, or press `D`.",
   shortcuts: [
     sc("D", "Select mode", "Activate Dimension tool"),
-    sc("Enter", "Dimension editor", "Confirm, exit to Select"),
-    sc("Escape", "Dimension editor", "Cancel"),
+    sc("Click", "Placement", "Commit (accept auto value)"),
+    sc("Enter", "Dimension editor", "Commit typed value, close editor"),
+    sc("Escape", "Placement", "Delete dimension (cancel creation)"),
+    sc("Escape", "Dimension editor", "Restore previous value, close editor"),
+    sc("Double‑click", "Dimension label", "Re‑open editor for editing"),
   ],
   sections: [
     sec(
-      "Applying Dimensions",
-      "Click a line to edit its length.\n" +
-        "Click two lines that share an endpoint to add or edit an angle dimension.\n" +
-        "Click two parallel lines to add a distance dimension.\n" +
-        "Click a circle or arc to edit its radius.",
+      "Single‑Entity Dimensions",
+      "Click a **line** → length dimension.\n" +
+        "Click a **circle** → radius/diameter dimension.\n" +
+        "Click a **polygon** → radius dimension.",
     ),
     sec(
-      "Expression Input",
+      "Two‑Entity Dimensions",
+      "Click a first entity (line, circle, or polygon) — a single‑entity dimension is created and the entity is staged.\n" +
+        "Click a **second, different entity** to morph into:\n" +
+        "• **Angle** — two lines sharing an endpoint.\n" +
+        "• **Parallel distance** — two parallel lines.\n" +
+        "• **Point‑to‑point** — click two endpoints (line ends, circle centres).",
+    ),
+    sec(
+      "Placement & Commit",
+      "After a dimension is created, drag the label to position it.\n" +
+        "**Click** anywhere on the canvas to commit the automatic value.\n" +
+        "**Escape** during placement deletes the dimension entirely.\n" +
+        "If you type a value, press **Enter** to commit.",
+    ),
+    sec(
+      "Editing",
+      "**Double‑click** a dimension label to re‑open the editor.\n" +
+        "Type a new value or expression, then **Enter** to commit.\n" +
+        "**Escape** restores the previous value and closes the editor.",
+    ),
+    sec(
+      "Expressions",
       "Type a parameter name (e.g. `width`) or formula (`width * 2`) instead of a raw number.\n" +
-        "Expressions are stored on the dimension and re-evaluated when parameters change.",
+        "Use **ArrowUp**/**ArrowDown** and **Enter**/**Tab** to select from parameter suggestions.\n" +
+        "Expressions are stored on the dimension and re‑evaluated when parameters change.",
     ),
   ],
 };

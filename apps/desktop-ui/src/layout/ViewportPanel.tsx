@@ -398,7 +398,7 @@ interface ViewportPanelProps {
   onBatchSelectEntities: (entityIds: string[], additive: boolean) => Promise<void>;
   onPickSketchPoint: (
     pointId: string,
-    kind: "endpoint" | "center",
+    kind: "endpoint" | "center" | "quadrant",
     additive: boolean,
   ) => Promise<void>;
   armedSketchConstraint: ArmedSketchConstraint;
@@ -2021,54 +2021,33 @@ const currentGridSpacingRef = useRef(10);
       }
     }
 
-    const anchorStart = new THREE.Vector3(...dimension.anchorStart);
-    const anchorEnd = new THREE.Vector3(...dimension.anchorEnd);
-    const dimensionStart = new THREE.Vector3(...dimension.dimensionStart);
-    const dimensionEnd = new THREE.Vector3(...dimension.dimensionEnd);
-    const startRay = dimensionStart.clone().sub(anchorStart);
-    const endRay = dimensionEnd.clone().sub(anchorEnd);
-    if (startRay.lengthSq() <= 1e-8 || endRay.lengthSq() <= 1e-8) {
-      return null;
+    // Fallback: use the core-provided arc centre when line data isn't
+    // available.  anchorStart == dimensionStart for angle dims (both
+    // sit at the arc radius), so the anchor-based pivot computation
+    // below would always fail.
+    if (dimension.arcCenter) {
+      const pivot = new THREE.Vector3(...dimension.arcCenter);
+      const startUnit = new THREE.Vector3(...dimension.dimensionStart)
+        .sub(pivot).normalize();
+      const endUnit = new THREE.Vector3(...dimension.dimensionEnd)
+        .sub(pivot).normalize();
+      const bisector = startUnit.clone().add(endUnit);
+      if (bisector.lengthSq() > 1e-8) {
+        const anchorRadius = new THREE.Vector3(...dimension.anchorEnd)
+          .distanceTo(pivot);
+        const dimensionRadius = new THREE.Vector3(...dimension.dimensionStart)
+          .distanceTo(pivot);
+        return {
+          pivot,
+          startUnit,
+          endUnit,
+          bisector: bisector.normalize(),
+          anchorRadius,
+          dimensionRadius,
+        };
+      }
     }
-    const startDirection = startRay.clone().normalize();
-    const endDirection = endRay.clone().normalize();
-    const betweenAnchors = anchorStart.clone().sub(anchorEnd);
-    const directionDot = startDirection.dot(endDirection);
-    const denominator = 1 - directionDot * directionDot;
-    if (Math.abs(denominator) <= 1e-8) {
-      return null;
-    }
-    const startOffset =
-      (directionDot * endDirection.dot(betweenAnchors) -
-        startDirection.dot(betweenAnchors)) /
-      denominator;
-    const endOffset =
-      (endDirection.dot(betweenAnchors) -
-        directionDot * startDirection.dot(betweenAnchors)) /
-      denominator;
-    const pivot = anchorStart
-      .clone()
-      .add(startDirection.clone().multiplyScalar(startOffset))
-      .add(
-        anchorEnd
-          .clone()
-          .add(endDirection.clone().multiplyScalar(endOffset)),
-      )
-      .multiplyScalar(0.5);
-    const startUnit = dimensionStart.clone().sub(pivot).normalize();
-    const endUnit = dimensionEnd.clone().sub(pivot).normalize();
-    const bisector = startUnit.clone().add(endUnit);
-    if (bisector.lengthSq() <= 1e-8) {
-      return null;
-    }
-    return {
-      pivot,
-      startUnit,
-      endUnit,
-      bisector: bisector.normalize(),
-      anchorRadius: anchorStart.distanceTo(pivot),
-      dimensionRadius: dimensionStart.distanceTo(pivot),
-    };
+    return null;
   }
 
   const displayedSketchDimensions = useMemo(() => {
@@ -2086,12 +2065,15 @@ const currentGridSpacingRef = useRef(10);
       if (dimension.kind === "angle" || dimension.kind === "line_angle") {
         const frame = angleDimensionFrame(dimension);
         if (frame) {
-          const dimensionRadius = Math.max(
-            frame.anchorRadius + 1,
-            nextLabel.distanceTo(frame.pivot),
-          );
+          // The stored position is now the label position.  Reverse the
+          // label-radius formula to get the arc (dimension) radius.
+          const labelDist = nextLabel.distanceTo(frame.pivot);
+          const dimensionRadius =
+            labelDist <= 1.086
+              ? labelDist / 0.42
+              : labelDist + 1.5;
           const labelRadius = Math.max(
-            frame.anchorRadius + 1,
+            2.0,
             Math.min(dimensionRadius * 0.42, dimensionRadius - 1.5),
           );
           const toTuple = (point: THREE.Vector3): [number, number, number] => [
@@ -2967,12 +2949,17 @@ const currentGridSpacingRef = useRef(10);
     pendingDimensionIdRef.current = dimensionId;
     pendingDimSourceEntityIdRef.current = entityId;
     pendingDimensionPlacementRef.current = true;
+    // Stage for possible two-entity follow-up pick (angle / distance).
+    dimensionToolFirstLineRef.current = entityId;
+    setDimensionToolFirstLine(entityId);
     void addSketchLineLengthDimensionRef
       .current(entityId)
       .catch(() => {
         pendingDimensionIdRef.current = null;
         pendingDimSourceEntityIdRef.current = null;
         pendingDimensionPlacementRef.current = false;
+        dimensionToolFirstLineRef.current = null;
+        setDimensionToolFirstLine(null);
       });
   }
 
@@ -3210,16 +3197,24 @@ const currentGridSpacingRef = useRef(10);
     const cursorRadius = new THREE.Vector3(...worldPoint).distanceTo(
       frame.pivot,
     );
-    const dimensionRadius = Math.max(frame.anchorRadius + 1, cursorRadius);
+    // The stored position feeds displayedSketchDimensions which treats
+    // it as the *label* position.  Place the label directly at the
+    // cursor distance so it follows the mouse, and let the display
+    // reverse-compute the arc radius.
+    const dimensionRadius = Math.max(2.0, cursorRadius);
+    const labelRadius = Math.max(
+      2.0,
+      Math.min(dimensionRadius * 0.42, dimensionRadius - 1.5),
+    );
     const cursorDirection = new THREE.Vector3(...worldPoint)
       .sub(frame.pivot)
       .normalize();
     const controlDirection =
       cursorDirection.lengthSq() > 1e-8 ? cursorDirection : frame.bisector;
-    const controlPosition = frame.pivot
+    const labelPosition = frame.pivot
       .clone()
-      .add(controlDirection.multiplyScalar(dimensionRadius));
-    return [controlPosition.x, controlPosition.y, controlPosition.z];
+      .add(controlDirection.multiplyScalar(labelRadius));
+    return [labelPosition.x, labelPosition.y, labelPosition.z];
   }
 
   function finishDimensionPlacement() {
@@ -4579,7 +4574,7 @@ const currentGridSpacingRef = useRef(10);
           ? themeColor("--color-primary-edge-active", "#c3f5ff")
           : isHovered
             ? themeColor("--color-tertiary-plane-edge-hover", "#fff2b2")
-            : kind === "center" || kind === "projected"
+            : kind === "center" || kind === "projected" || kind === "quadrant"
               ? themeColor("--color-axis-z", "#6db4ff")
               : themeColor("--color-tertiary-plane-edge", "#ffe784"),
       );
@@ -5110,6 +5105,7 @@ const currentGridSpacingRef = useRef(10);
     ) {
       return;
     }
+    pendingDimensionIdRef.current = null;
     pendingDimensionPlacementRef.current = false;
     pendingDimSourceEntityIdRef.current = null;
     beginDimensionPlacement(selectedSketchDimension);
@@ -6474,6 +6470,52 @@ const currentGridSpacingRef = useRef(10);
       }
 
       if (activeSketchPlaneId) {
+        // Dimension tool: check points and entities before dimension
+        // labels so dimension visuals don't occlude endpoint picks
+        // during point-to-point or two-entity workflows.
+        const checkDimensionsLast =
+          activeSketchToolRef.current === "dimension";
+
+        if (checkDimensionsLast) {
+          const [sketchPointHitPre] = raycaster.intersectObjects(
+            sketchPointObjectsRef.current,
+            false,
+          );
+          const sketchPointIdPre =
+            sketchPointHitPre?.object.userData.sketchPointId;
+          if (typeof sketchPointIdPre === "string") {
+            return {
+              kind: "sketch_point" as const,
+              id: sketchPointIdPre,
+              pointKind: sketchPointHitPre.object.userData.sketchPointKind,
+            };
+          }
+
+          const [sketchEntityHitPre] = raycaster.intersectObjects(
+            sketchEntityObjectsRef.current,
+            false,
+          );
+          const sketchEntityIdPre =
+            sketchEntityHitPre?.object.userData.sketchEntityId;
+          if (typeof sketchEntityIdPre === "string") {
+            const hitPoint = sketchEntityHitPre!.point;
+            return {
+              kind: "sketch_entity" as const,
+              id: sketchEntityIdPre,
+              entityKind:
+                sketchEntityHitPre.object.userData.sketchEntityKind,
+              isProjected:
+                sketchEntityHitPre.object.userData
+                  .sketchEntityIsProjected === true,
+              worldPoint: [hitPoint.x, hitPoint.y, hitPoint.z] as [
+                number,
+                number,
+                number,
+              ],
+            };
+          }
+        }
+
         const [sketchDimensionHit] = raycaster.intersectObjects(
           sketchDimensionObjectsRef.current,
           true,
@@ -6505,38 +6547,40 @@ const currentGridSpacingRef = useRef(10);
           };
         }
 
-        const [sketchPointHit] = raycaster.intersectObjects(
-          sketchPointObjectsRef.current,
-          false,
-        );
-        const sketchPointId = sketchPointHit?.object.userData.sketchPointId;
-        if (typeof sketchPointId === "string") {
-          return {
-            kind: "sketch_point" as const,
-            id: sketchPointId,
-            pointKind: sketchPointHit.object.userData.sketchPointKind,
-          };
-        }
+        if (!checkDimensionsLast) {
+          const [sketchPointHit] = raycaster.intersectObjects(
+            sketchPointObjectsRef.current,
+            false,
+          );
+          const sketchPointId =
+            sketchPointHit?.object.userData.sketchPointId;
+          if (typeof sketchPointId === "string") {
+            return {
+              kind: "sketch_point" as const,
+              id: sketchPointId,
+              pointKind: sketchPointHit.object.userData.sketchPointKind,
+            };
+          }
 
-        const [sketchEntityHit] = raycaster.intersectObjects(
-          sketchEntityObjectsRef.current,
-          false,
-        );
-        const sketchEntityId = sketchEntityHit?.object.userData.sketchEntityId;
-        const sketchEntityKind =
-          sketchEntityHit?.object.userData.sketchEntityKind;
-        const sketchEntityIsProjected =
-          sketchEntityHit?.object.userData.sketchEntityIsProjected === true;
-        if (typeof sketchEntityId === "string") {
-          const hitPoint = sketchEntityHit!.point;
-          return {
-            kind: "sketch_entity" as const,
-            id: sketchEntityId,
-            entityKind:
-              typeof sketchEntityKind === "string" ? sketchEntityKind : null,
-            isProjected: sketchEntityIsProjected,
-            worldPoint: [hitPoint.x, hitPoint.y, hitPoint.z] as const,
-          };
+          const [sketchEntityHit] = raycaster.intersectObjects(
+            sketchEntityObjectsRef.current,
+            false,
+          );
+          const sketchEntityId =
+            sketchEntityHit?.object.userData.sketchEntityId;
+          if (typeof sketchEntityId === "string") {
+            const hitPoint = sketchEntityHit!.point;
+            return {
+              kind: "sketch_entity" as const,
+              id: sketchEntityId,
+              entityKind:
+                sketchEntityHit.object.userData.sketchEntityKind ?? null,
+              isProjected:
+                sketchEntityHit.object.userData
+                  .sketchEntityIsProjected === true,
+              worldPoint: [hitPoint.x, hitPoint.y, hitPoint.z] as const,
+            };
+          }
         }
 
         const profileId = pickSketchProfileId();
@@ -6690,6 +6734,11 @@ const currentGridSpacingRef = useRef(10);
       setContextMenu(null);
 
       if (dimensionLabelDragRef.current?.isPlacement) {
+        // Capture the pointer so the subsequent pointerup reaches the
+        // canvas handler even when the cursor is over the dimension
+        // editor input — the editor must not steal the commit click.
+        renderer.domElement.setPointerCapture(event.pointerId);
+        pointerDown = { x: event.clientX, y: event.clientY };
         return;
       }
 
@@ -6827,6 +6876,13 @@ const currentGridSpacingRef = useRef(10);
       ) {
         const hit = intersectSceneTargets(event);
         if (hit?.kind === "sketch_dimension") {
+          // First click: select (no drag).  Re-click on an already-
+          // selected dimension: start dragging.
+          const isSelected =
+            selectedSketchDimensionRef.current?.dimensionId === hit.id;
+          if (!isSelected) {
+            return;
+          }
           const dimension = displayedSketchDimensionsRef.current.find(
             (entry) => entry.dimensionId === hit.id,
           );
@@ -8224,21 +8280,22 @@ const currentGridSpacingRef = useRef(10);
       if (dimensionDrag) {
         if (dimensionDrag.isPlacement) {
           finishDimensionPlacement();
-          window.requestAnimationFrame(() => {
-            dimensionInputRef.current?.focus();
-            dimensionInputRef.current?.select();
-          });
+          setIsDimensionEditorOpen(false);
+          // Fall through to entity handling so two-pick workflows
+          // (angle, distance) can process the second click.
+        }
+        // finishDimensionPlacement nulls the ref; only clean up if
+        // the drag is still active (non-placement label drag).
+        if (dimensionLabelDragRef.current) {
+          dimensionLabelDragRef.current = null;
+          controls.enabled = true;
+          (renderer.domElement as HTMLCanvasElement).style.cursor = "";
           pointerDown = null;
+          if (!dimensionDrag.hasMoved) {
+            handleDimensionClick(dimensionDrag.dimensionId);
+          }
           return;
         }
-        dimensionLabelDragRef.current = null;
-        controls.enabled = true;
-        (renderer.domElement as HTMLCanvasElement).style.cursor = "";
-        pointerDown = null;
-        if (!dimensionDrag.isPlacement && !dimensionDrag.hasMoved) {
-          handleDimensionClick(dimensionDrag.dimensionId);
-        }
-        return;
       }
 
       // -- cube-area click ---------------------------------------------
@@ -8563,6 +8620,21 @@ const currentGridSpacingRef = useRef(10);
             if (firstEntityId && firstEntityId !== hit.id) {
               dimensionToolFirstLineRef.current = null;
               setDimensionToolFirstLine(null);
+              // Delete the single-entity dimension created for the first
+              // pick so it doesn't persist alongside the two-entity dim.
+              // Dimension IDs carry the entity kind prefix twice
+              // (e.g. dim-line-line-0, dim-circle-circle-1).
+              const firstDimId =
+                firstEntityId.startsWith("line-")
+                  ? `dim-line-${firstEntityId}`
+                  : firstEntityId.startsWith("circle-")
+                    ? `dim-circle-${firstEntityId}`
+                    : firstEntityId.startsWith("polygon-")
+                      ? `dim-polygon-${firstEntityId}`
+                      : null;
+              if (firstDimId) {
+                void deleteSketchDimensionRef.current(firstDimId);
+              }
               // When the first pick was a point (line endpoint, circle
               // center, etc.), create a point-to-point distance to the
               // second entity's reference point instead of an
@@ -11346,7 +11418,7 @@ const currentGridSpacingRef = useRef(10);
         isDimensionEditorOpen ? (
           <form
             ref={dimensionEditorRef}
-            className="pointer-events-auto absolute z-20 flex w-[172px] items-center gap-1 rounded-md border px-2 py-1 backdrop-blur-md"
+            className="pointer-events-none absolute z-20 flex w-[172px] items-center gap-1 rounded-md border px-2 py-1 backdrop-blur-md"
             style={{
               left: 0,
               top: 0,
@@ -11362,7 +11434,7 @@ const currentGridSpacingRef = useRef(10);
           >
             <input
               ref={dimensionInputRef}
-              className="h-6 min-w-0 flex-1 bg-transparent text-center text-sm font-medium text-on-surface tabular-nums outline-none"
+              className="h-6 min-w-0 flex-1 bg-transparent text-center text-sm font-medium text-on-surface tabular-nums outline-none pointer-events-none"
               type="text"
               inputMode="text"
               value={dimensionDraftValue}
@@ -11405,19 +11477,29 @@ const currentGridSpacingRef = useRef(10);
                 }
                 if (event.key === "Escape") {
                   event.preventDefault();
-                  cancelDimensionEdit();
+                  // During placement, the dimension hasn't been committed
+                  // yet — delete it entirely, matching the global Escape
+                  // handler's behaviour when the input isn't focused.
+                  const drag = dimensionLabelDragRef.current;
+                  if (drag?.isPlacement && drag.dimensionId) {
+                    const dimId = drag.dimensionId;
+                    dimensionLabelDragRef.current = null;
+                    dimensionPlacementOriginalPositionRef.current = null;
+                    if (controlsRef.current) controlsRef.current.enabled = true;
+                    setCanvasCursor("");
+                    setIsDimensionEditorOpen(false);
+                    dimensionEditOriginalValueRef.current = null;
+                    void deleteSketchDimensionRef.current(dimId);
+                  } else {
+                    cancelDimensionEdit();
+                  }
                 }
               }}
             />
-            <button
-              type="submit"
-              className="rounded px-2 py-0.5 text-[11px] font-medium text-primary-glow hover:bg-surface-bright"
-            >
-              {translate("parameters.save")}
-            </button>
+
             {dimensionParameterSuggestions.length > 0 ? (
               <div
-                className="absolute left-0 top-[calc(100%+0.35rem)] w-[220px] overflow-hidden rounded-lg border border-surface-high bg-surface-container py-1 text-left shadow-xl"
+                className="pointer-events-auto absolute left-0 top-[calc(100%+0.35rem)] w-[220px] overflow-hidden rounded-lg border border-surface-high bg-surface-container py-1 text-left shadow-xl"
                 onMouseDown={(event) => event.preventDefault()}
               >
                 {dimensionParameterSuggestions.map((suggestion, index) => (

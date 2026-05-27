@@ -2,6 +2,43 @@
 
 This document tracks concrete implementation milestones as they land in the codebase.
 
+## 2026-05-28
+
+### Dimension Tool — Placement, Angle, and Drag Fixes
+
+**Placement commit (click-to-accept):**
+- `handlePointerUp` during placement now closes the editor immediately (`setIsDimensionEditorOpen(false)`) instead of focusing the input. The auto-detected value is accepted; edit later by double-clicking the label.
+- Pointer capture (`setPointerCapture`) is set on the canvas during placement so the `pointerup` event always reaches the canvas handler, even when the cursor is over the editor input.
+- The editor form and input now use `pointer-events-none` so clicks pass through to the canvas. The parameter suggestion dropdown retains `pointer-events-auto`.
+- `handlePointerDown` sets `pointerDown` during placement so the entity click handler can run after placement commit (needed for two-pick angle/distance flows).
+
+**Escape during placement:**
+- The input's `onKeyDown` Escape handler now checks `dimensionLabelDragRef.current?.isPlacement`. During placement, Escape deletes the dimension entirely (matching the global handler). After placement, Escape restores the previous value and closes the editor.
+
+**Point priority in dimension tool:**
+- `intersectSceneTargets` now checks sketch points and entities BEFORE dimension labels when the dimension tool is active. This prevents existing dimension visuals (extension lines, arrows, sprites) from intercepting clicks meant for endpoints during point-to-point or two-entity workflows.
+
+**Angle dimension — two-pick flow:**
+- `dimCreateLine` now stages the entity via `dimensionToolFirstLineRef` so the second click can morph into an angle or distance dimension.
+- The two-entity handler deletes the single-entity dimension (`dim-line-{id}`) before creating the two-entity dimension.
+- After placement commit, `handlePointerUp` now falls through to entity handling instead of returning, so the second click in a two-pick flow is processed.
+
+**Angle dimension — arc rendering (`viewport.utils.ts`):**
+- Arc sweep normalized to (-π, π] and always uses `Math.abs()` — the (uAxis, vAxis) frame is already oriented so positive sweep = short path to endRay. Removed the `ccw` flip that was sending the arc the long way around.
+- Arc always starts at angle 0 (= dimensionStart) instead of using the core's `startAngle` as an absolute offset in the (uAxis, vAxis) frame.
+
+**Angle dimension — label dragging:**
+- `angleDimensionFrame` fallback path now uses `dimension.arcCenter` (core-provided world-space pivot) instead of trying to compute the pivot from anchors — `anchorStart == dimensionStart` for angle dims, so the anchor-based computation always failed.
+- Click-to-select: first click on a dimension label selects it (highlights); re-click on the already-selected dimension starts the drag.
+- Minimum arc/label radius dropped from `anchorRadius + 1` (~5) to `2.0`.
+- The stored drag position now represents the **label** position (not the arc control point). `displayedSketchDimensions` reverse-computes the arc radius from the label distance so the label tracks the cursor directly without cascading shrink.
+
+**Known issue:** Angle dimension label drag doesn't perfectly follow the mouse cursor direction — the label moves in a slightly different direction than expected, reaching a limit and then going backwards. Needs further investigation.
+
+**Help documentation:**
+- Created `polysmith/help/dimension.md` — full reference for the Dimension tool (single-entity, two-entity, placement, editing, expressions).
+- Updated `apps/desktop-ui/src/lib/help-index.ts` dimension entry with correct shortcuts and sections.
+
 ## 2026-05-27
 
 ### 3D Move Timeline Feature
