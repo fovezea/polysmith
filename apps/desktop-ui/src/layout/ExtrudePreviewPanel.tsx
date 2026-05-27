@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { Checkbox, Dropdown } from "@/lib";
+import { Checkbox, Dropdown, ScrollArea } from "@/lib";
 import type {
   ExtrudeAdvancedParameters,
   ExtrudeExtentMode,
@@ -406,7 +406,10 @@ export function ExtrudePreviewPanel({
           }
         }}
       >
-        <div className="cad-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden pr-1">
+        <ScrollArea
+          className="min-h-0 flex-1"
+          viewportClassName="space-y-3 pr-4"
+        >
           <label className="block text-xs uppercase tracking-[0.18em] text-on-surface-muted">
             {t("panels.extrude.operation")}
             <Dropdown
@@ -594,7 +597,7 @@ export function ExtrudePreviewPanel({
             </p>
           ) : null}
 
-        </div>
+        </ScrollArea>
 
         <div className="mt-4 flex shrink-0 gap-3">
           <button
