@@ -408,6 +408,18 @@ const documentStateSchema = z.object({
       body_copy_parameters: z
         .object({
           source_body_id: z.string(),
+          copy_mode: z.enum(["linked", "standalone"]).default("linked"),
+          source_body_name: z.string().default(""),
+          serialized_shape: z.string().default(""),
+          local_x_axis_x: z.number().default(1),
+          local_x_axis_y: z.number().default(0),
+          local_x_axis_z: z.number().default(0),
+          local_y_axis_x: z.number().default(0),
+          local_y_axis_y: z.number().default(1),
+          local_y_axis_z: z.number().default(0),
+          local_z_axis_x: z.number().default(0),
+          local_z_axis_y: z.number().default(0),
+          local_z_axis_z: z.number().default(1),
         })
         .nullable()
         .default(null),

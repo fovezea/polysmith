@@ -824,6 +824,7 @@ function App() {
     updateFastenerParameters,
     createMove,
     createBodyCopy,
+    unlinkBodyCopy,
     updateMoveParameters,
     confirmMove,
     updateOffsetPlane,
@@ -2670,7 +2671,10 @@ function App() {
     await createMoveFeature(bodyId, defaultMoveParameters(bodyId));
   }
 
-  async function copyBodyAndMove(sourceBodyId: string) {
+  async function copyBodyAndMove(
+    sourceBodyId: string,
+    copyMode: "linked" | "standalone",
+  ) {
     if (isBodyPlacementActionBlocked()) {
       return;
     }
@@ -2687,13 +2691,14 @@ function App() {
       return (
         lastFeature.feature_id === next.selected_feature_id &&
         lastFeature.kind === "body_copy" &&
-        lastFeature.body_copy_parameters?.source_body_id === sourceBodyId
+        lastFeature.body_copy_parameters?.source_body_id === sourceBodyId &&
+        lastFeature.body_copy_parameters.copy_mode === copyMode
       );
     });
 
     try {
       await runAction(async () => {
-        await createBodyCopy(sourceBodyId);
+        await createBodyCopy(sourceBodyId, copyMode);
       });
       const nextDocument = await documentPromise;
       const copyBodyId = nextDocument.selected_feature_id ?? null;
@@ -4171,6 +4176,16 @@ function App() {
     });
   }
 
+  function confirmAndUnlinkBodyCopy(featureId: string) {
+    const confirmed = window.confirm(t("dialogs.unlinkLinkedCopyMessage"));
+    if (!confirmed) {
+      return;
+    }
+    void runAction(async () => {
+      await unlinkBodyCopy(featureId);
+    });
+  }
+
   function currentSketchSelection() {
     const entityIds = [
       ...(document?.selected_sketch_entity_ids ?? []),
@@ -5082,8 +5097,11 @@ function App() {
                     onMoveBody={async (bodyId) => {
                       await moveBodyFromContext(bodyId);
                     }}
-                    onCopyBody={async (bodyId) => {
-                      await copyBodyAndMove(bodyId);
+                    onCopyBody={async (bodyId, copyMode) => {
+                      await copyBodyAndMove(bodyId, copyMode);
+                    }}
+                    onUnlinkBodyCopy={(featureId) => {
+                      confirmAndUnlinkBodyCopy(featureId);
                     }}
                     onSetFeatureSuppressed={async (featureId, suppressed) => {
                       await runAction(async () => {
@@ -5208,8 +5226,11 @@ function App() {
               onMoveBody={async (bodyId) => {
                 await moveBodyFromContext(bodyId);
               }}
-              onCopyBody={async (bodyId) => {
-                await copyBodyAndMove(bodyId);
+              onCopyBody={async (bodyId, copyMode) => {
+                await copyBodyAndMove(bodyId, copyMode);
+              }}
+              onUnlinkBodyCopy={(featureId) => {
+                confirmAndUnlinkBodyCopy(featureId);
               }}
               inactiveSketchEntityPickEnabled={
                 revolveAction !== null ||

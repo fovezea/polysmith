@@ -98,6 +98,7 @@ import {
   makeUpdateHelixParametersCommand,
   makeUpdateHoleParametersCommand,
   makeUpdateMoveParametersCommand,
+  makeUnlinkBodyCopyCommand,
   makeUpdateThreadParametersCommand,
   makeUpdateOffsetPlaneCommand,
   makeUpdateAnglePlaneCommand,
@@ -611,8 +612,16 @@ export function useCadCore() {
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());
     },
-    createBodyCopy: async (sourceBodyId: string) => {
-      await sendCoreCommand(makeCreateBodyCopyCommand(sourceBodyId));
+    createBodyCopy: async (
+      sourceBodyId: string,
+      copyMode: "linked" | "standalone" = "linked",
+    ) => {
+      await sendCoreCommand(makeCreateBodyCopyCommand(sourceBodyId, copyMode));
+      await sendCoreCommand(makeGetSessionStateCommand());
+      await sendCoreCommand(makeGetViewportStateCommand());
+    },
+    unlinkBodyCopy: async (featureId: string) => {
+      await sendCoreCommand(makeUnlinkBodyCopyCommand(featureId));
       await sendCoreCommand(makeGetSessionStateCommand());
       await sendCoreCommand(makeGetViewportStateCommand());
     },

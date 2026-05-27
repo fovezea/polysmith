@@ -1797,6 +1797,29 @@ json to_payload(const polysmith::core::FeatureEntry& feature) {
            ? json{
                  {"source_body_id",
                   feature.body_copy_parameters->source_body_id},
+                 {"copy_mode", feature.body_copy_parameters->copy_mode},
+                 {"source_body_name",
+                  feature.body_copy_parameters->source_body_name},
+                 {"serialized_shape",
+                  feature.body_copy_parameters->serialized_shape},
+                 {"local_x_axis_x",
+                  feature.body_copy_parameters->local_x_axis_x},
+                 {"local_x_axis_y",
+                  feature.body_copy_parameters->local_x_axis_y},
+                 {"local_x_axis_z",
+                  feature.body_copy_parameters->local_x_axis_z},
+                 {"local_y_axis_x",
+                  feature.body_copy_parameters->local_y_axis_x},
+                 {"local_y_axis_y",
+                  feature.body_copy_parameters->local_y_axis_y},
+                 {"local_y_axis_z",
+                  feature.body_copy_parameters->local_y_axis_z},
+                 {"local_z_axis_x",
+                  feature.body_copy_parameters->local_z_axis_x},
+                 {"local_z_axis_y",
+                  feature.body_copy_parameters->local_z_axis_y},
+                 {"local_z_axis_z",
+                  feature.body_copy_parameters->local_z_axis_z},
              }
            : json(nullptr)},
   };
@@ -3105,6 +3128,30 @@ polysmith::core::FeatureEntry feature_entry_from_payload(const json& payload) {
     polysmith::core::BodyCopyFeatureParameters params{};
     params.source_body_id =
         read_optional_string_value(bp, "source_body_id", params.source_body_id);
+    params.copy_mode =
+        read_optional_string_value(bp, "copy_mode", params.copy_mode);
+    params.source_body_name =
+        read_optional_string_value(bp, "source_body_name", params.source_body_name);
+    params.serialized_shape =
+        read_optional_string_value(bp, "serialized_shape", params.serialized_shape);
+    params.local_x_axis_x =
+        read_optional_number(bp, "local_x_axis_x", params.local_x_axis_x);
+    params.local_x_axis_y =
+        read_optional_number(bp, "local_x_axis_y", params.local_x_axis_y);
+    params.local_x_axis_z =
+        read_optional_number(bp, "local_x_axis_z", params.local_x_axis_z);
+    params.local_y_axis_x =
+        read_optional_number(bp, "local_y_axis_x", params.local_y_axis_x);
+    params.local_y_axis_y =
+        read_optional_number(bp, "local_y_axis_y", params.local_y_axis_y);
+    params.local_y_axis_z =
+        read_optional_number(bp, "local_y_axis_z", params.local_y_axis_z);
+    params.local_z_axis_x =
+        read_optional_number(bp, "local_z_axis_x", params.local_z_axis_x);
+    params.local_z_axis_y =
+        read_optional_number(bp, "local_z_axis_y", params.local_z_axis_y);
+    params.local_z_axis_z =
+        read_optional_number(bp, "local_z_axis_z", params.local_z_axis_z);
     feature.body_copy_parameters = params;
   }
 

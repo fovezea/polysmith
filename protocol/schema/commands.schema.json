@@ -82,6 +82,7 @@
         "update_move_parameters",
         "confirm_move",
         "create_body_copy",
+        "unlink_body_copy",
         "update_offset_plane",
         "update_angle_plane",
         "start_sketch_on_plane",

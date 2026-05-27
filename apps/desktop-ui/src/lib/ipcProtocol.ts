@@ -786,12 +786,26 @@ export function makeConfirmMoveCommand(featureId: string): CoreCommand {
   };
 }
 
-export function makeCreateBodyCopyCommand(sourceBodyId: string): CoreCommand {
+export function makeCreateBodyCopyCommand(
+  sourceBodyId: string,
+  copyMode: "linked" | "standalone" = "linked",
+): CoreCommand {
   return {
     id: crypto.randomUUID(),
     type: "create_body_copy",
     payload: {
       source_body_id: sourceBodyId,
+      copy_mode: copyMode,
+    },
+  };
+}
+
+export function makeUnlinkBodyCopyCommand(featureId: string): CoreCommand {
+  return {
+    id: crypto.randomUUID(),
+    type: "unlink_body_copy",
+    payload: {
+      feature_id: featureId,
     },
   };
 }

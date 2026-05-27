@@ -218,7 +218,9 @@ class DocumentManager {
   DocumentState update_move_parameters(const std::string& feature_id,
                                        const MoveFeatureParameters& parameters);
   DocumentState confirm_move(const std::string& feature_id);
-  DocumentState create_body_copy(const std::string& source_body_id);
+  DocumentState create_body_copy(const std::string& source_body_id,
+                                 const std::string& copy_mode);
+  DocumentState unlink_body_copy(const std::string& feature_id);
   DocumentState set_body_color(const std::string& body_id,
                                const std::string& color);
   DocumentState set_face_color(const std::string& face_id,

@@ -452,7 +452,11 @@ interface ViewportPanelProps {
   moveGizmo?: MoveGizmoDescriptor | null;
   onMoveGizmoChange?: (parameters: MoveFeatureParameters) => Promise<void> | void;
   onMoveBody?: (bodyId: string) => Promise<void> | void;
-  onCopyBody?: (bodyId: string) => Promise<void> | void;
+  onCopyBody?: (
+    bodyId: string,
+    copyMode: "linked" | "standalone",
+  ) => Promise<void> | void;
+  onUnlinkBodyCopy?: (featureId: string) => Promise<void> | void;
   hiddenFeatureIds?: ReadonlySet<string>;
   hiddenSketchPlaneIds?: ReadonlySet<string>;
   hideReferences?: boolean;
@@ -1164,6 +1168,7 @@ export function ViewportPanel({
   onMoveGizmoChange,
   onMoveBody,
   onCopyBody,
+  onUnlinkBodyCopy,
   hiddenFeatureIds,
   hiddenSketchPlaneIds,
   hideReferences,
@@ -1376,6 +1381,7 @@ const currentGridSpacingRef = useRef(10);
   const moveGizmoChangeRef = useRef(onMoveGizmoChange);
   const moveBodyRef = useRef(onMoveBody);
   const copyBodyRef = useRef(onCopyBody);
+  const unlinkBodyCopyRef = useRef(onUnlinkBodyCopy);
   const pendingMoveGizmoParametersRef = useRef<MoveFeatureParameters | null>(
     null,
   );
@@ -4654,6 +4660,7 @@ const currentGridSpacingRef = useRef(10);
     selectFaceRef.current = onSelectFace;
     moveBodyRef.current = onMoveBody;
     copyBodyRef.current = onCopyBody;
+    unlinkBodyCopyRef.current = onUnlinkBodyCopy;
     selectEdgeRef.current = onSelectEdge;
     selectVertexRef.current = onSelectVertex;
     startSketchRef.current = onStartSketch;
@@ -4693,6 +4700,7 @@ const currentGridSpacingRef = useRef(10);
     moveGizmoChangeRef.current = onMoveGizmoChange;
     moveBodyRef.current = onMoveBody;
     copyBodyRef.current = onCopyBody;
+    unlinkBodyCopyRef.current = onUnlinkBodyCopy;
   }, [
     onSelectPrimitive,
     onSelectReference,
@@ -4730,6 +4738,7 @@ const currentGridSpacingRef = useRef(10);
     onMoveGizmoChange,
     onMoveBody,
     onCopyBody,
+    onUnlinkBodyCopy,
   ]);
 
   function flushMoveGizmoChange(parameters: MoveFeatureParameters) {
@@ -10236,13 +10245,22 @@ const currentGridSpacingRef = useRef(10);
     await moveBodyRef.current?.(bodyId);
   }
 
-  async function handleCopyBodyFromContextMenu() {
+  async function handleCopyBodyFromContextMenu(copyMode: "linked" | "standalone") {
     const bodyId = contextMenu?.bodyId;
     if (!bodyId) {
       return;
     }
     setContextMenu(null);
-    await copyBodyRef.current?.(bodyId);
+    await copyBodyRef.current?.(bodyId, copyMode);
+  }
+
+  async function handleUnlinkBodyCopyFromContextMenu() {
+    const bodyId = contextMenu?.bodyId;
+    if (!bodyId) {
+      return;
+    }
+    setContextMenu(null);
+    await unlinkBodyCopyRef.current?.(bodyId);
   }
 
   async function handleDeleteSketchFromContextMenu() {
@@ -10297,6 +10315,19 @@ const currentGridSpacingRef = useRef(10);
 
   const lineCount = sketchFeature?.sketch_parameters?.lines.length ?? 0;
   const circleCount = sketchFeature?.sketch_parameters?.circles.length ?? 0;
+
+  function isLinkedBodyCopy(bodyId: string | null | undefined) {
+    if (!bodyId) {
+      return false;
+    }
+    const feature = document?.feature_history.find(
+      (entry) => entry.feature_id === bodyId,
+    );
+    return (
+      feature?.kind === "body_copy" &&
+      feature.body_copy_parameters?.copy_mode === "linked"
+    );
+  }
 
   async function handleSubmitDimensionEdit() {
     if (!selectedSketchDimension) {
@@ -10792,13 +10823,44 @@ const currentGridSpacingRef = useRef(10);
                     >
                       {translate("common.move")}
                     </button>
-                    <button
-                      type="button"
-                      className="cad-context-menu-item flex w-full items-center justify-start rounded-xl px-3 py-2 text-sm text-on-surface transition-colors duration-200"
-                      onClick={handleCopyBodyFromContextMenu}
-                    >
-                      {translate("common.copy")}
-                    </button>
+                    <div className="group/copy relative">
+                      <button
+                        type="button"
+                        className="cad-context-menu-item flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-sm text-on-surface transition-colors duration-200"
+                      >
+                        <span>{translate("common.copy")}</span>
+                        <span className="text-on-surface-dim">&gt;</span>
+                      </button>
+                      <div className="cad-context-menu invisible absolute left-full top-0 z-30 ml-1 min-w-[180px] rounded-2xl p-1.5 opacity-0 backdrop-blur-xl transition-opacity group-hover/copy:visible group-hover/copy:opacity-100">
+                        <button
+                          type="button"
+                          className="cad-context-menu-item flex w-full items-center justify-start rounded-xl px-3 py-2 text-sm text-on-surface transition-colors duration-200"
+                          onClick={() => {
+                            void handleCopyBodyFromContextMenu("linked");
+                          }}
+                        >
+                          {translate("common.copyLinked")}
+                        </button>
+                        <button
+                          type="button"
+                          className="cad-context-menu-item flex w-full items-center justify-start rounded-xl px-3 py-2 text-sm text-on-surface transition-colors duration-200"
+                          onClick={() => {
+                            void handleCopyBodyFromContextMenu("standalone");
+                          }}
+                        >
+                          {translate("common.copyIndependent")}
+                        </button>
+                      </div>
+                    </div>
+                    {isLinkedBodyCopy(contextMenu.bodyId) ? (
+                      <button
+                        type="button"
+                        className="cad-context-menu-item flex w-full items-center justify-start rounded-xl px-3 py-2 text-sm text-on-surface transition-colors duration-200"
+                        onClick={handleUnlinkBodyCopyFromContextMenu}
+                      >
+                        {translate("common.unlink")}
+                      </button>
+                    ) : null}
                   </>
                 ) : null}
                 {contextMenu.referenceId || contextMenu.faceId ? (

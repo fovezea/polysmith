@@ -265,6 +265,18 @@ struct MoveFeatureParameters {
 
 struct BodyCopyFeatureParameters {
   std::string source_body_id;
+  std::string copy_mode = "linked";
+  std::string source_body_name;
+  std::string serialized_shape;
+  double local_x_axis_x = 1.0;
+  double local_x_axis_y = 0.0;
+  double local_x_axis_z = 0.0;
+  double local_y_axis_x = 0.0;
+  double local_y_axis_y = 1.0;
+  double local_y_axis_z = 0.0;
+  double local_z_axis_x = 0.0;
+  double local_z_axis_y = 0.0;
+  double local_z_axis_z = 1.0;
 };
 
 // Edge-modifying body operation. `target_body_id` is the body root feature

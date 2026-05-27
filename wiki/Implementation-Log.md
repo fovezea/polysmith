@@ -1451,3 +1451,10 @@ Three bugs fixed after initial implementation:
 - added Move and Copy entries to body context menus in both the viewport and
   hierarchy. Copy creates the duplicate in place and immediately opens the Move
   panel/gizmo for placement.
+- split body copy into linked and independent modes. Linked copies keep
+  re-resolving the source body and show the source name in muted hierarchy text;
+  independent copies store a frozen core shape snapshot and do not update when
+  the source changes.
+- added an irreversible-by-design Unlink action for linked body copies. The UI
+  shows it only for linked copies, asks for confirmation, and the core converts
+  the copy into a standalone snapshot while preserving normal undo support.

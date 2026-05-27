@@ -206,4 +206,7 @@ export interface MoveFeatureParameters {
 
 export interface BodyCopyFeatureParameters {
   source_body_id: string;
+  copy_mode: "linked" | "standalone";
+  source_body_name: string;
+  serialized_shape: string;
 }

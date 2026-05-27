@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <sstream>
 #include <stdexcept>
 #include <unordered_map>
 #include <utility>
@@ -18,6 +19,8 @@
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRep_Builder.hxx>
+#include <BRepTools.hxx>
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepOffsetAPI_MakePipe.hxx>
@@ -72,6 +75,36 @@ struct ThreadAxis {
 
 BodyLocalFrame default_body_local_frame() {
   return BodyLocalFrame{};
+}
+
+BodyLocalFrame frame_from_copy_parameters(
+    const BodyCopyFeatureParameters& params) {
+  BodyLocalFrame frame{};
+  frame.x_axis_x = params.local_x_axis_x;
+  frame.x_axis_y = params.local_x_axis_y;
+  frame.x_axis_z = params.local_x_axis_z;
+  frame.y_axis_x = params.local_y_axis_x;
+  frame.y_axis_y = params.local_y_axis_y;
+  frame.y_axis_z = params.local_y_axis_z;
+  frame.z_axis_x = params.local_z_axis_x;
+  frame.z_axis_y = params.local_z_axis_y;
+  frame.z_axis_z = params.local_z_axis_z;
+  return frame;
+}
+
+TopoDS_Shape deserialize_shape_snapshot(const std::string& serialized_shape) {
+  if (serialized_shape.empty()) {
+    return TopoDS_Shape{};
+  }
+  std::istringstream stream(serialized_shape);
+  BRep_Builder builder;
+  TopoDS_Shape shape;
+  try {
+    BRepTools::Read(shape, stream, builder);
+  } catch (const Standard_Failure&) {
+    return TopoDS_Shape{};
+  }
+  return shape;
 }
 
 BodyLocalFrame frame_from_axes(const gp_Vec& raw_x,
@@ -1172,6 +1205,18 @@ CompiledBodies compile_bodies(const DocumentState& document) {
     }
     if (feature.kind == "body_copy" && feature.body_copy_parameters.has_value()) {
       const auto& params = feature.body_copy_parameters.value();
+      if (params.copy_mode == "standalone") {
+        const TopoDS_Shape shape =
+            deserialize_shape_snapshot(params.serialized_shape);
+        if (shape.IsNull()) {
+          continue;
+        }
+        body_shapes[feature.id] = shape;
+        body_frames[feature.id] = frame_from_copy_parameters(params);
+        body_pick_shapes.erase(feature.id);
+        body_order.push_back(feature.id);
+        continue;
+      }
       if (params.source_body_id.empty() ||
           body_shapes.find(params.source_body_id) == body_shapes.end()) {
         continue;

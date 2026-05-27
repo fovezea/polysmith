@@ -15,6 +15,8 @@
     "confirm": "Confirm",
     "construction": "Construction",
     "copy": "Copy",
+    "copyIndependent": "Independent copy",
+    "copyLinked": "Linked copy",
     "delete": "Delete",
     "edit": "Edit",
     "empty": "Empty",
@@ -32,6 +34,7 @@
     "sketchAction": "Sketch · Action",
     "sketchTool": "Sketch · Tool",
     "suppress": "Suppress",
+    "unlink": "Unlink",
     "unsuppress": "Unsuppress"
   },
   "header": {
@@ -606,7 +609,8 @@
     "polysmithDocumentType": "PolySmith document",
     "saveDocumentTitle": "Save PolySmith document",
     "stepFileType": "STEP",
-    "stlFileType": "STL"
+    "stlFileType": "STL",
+    "unlinkLinkedCopyMessage": "This will make the linked copy independent. Future changes to the original will no longer update this copy, and this cannot be undone except with Undo. Continue?"
   },
   "geometry": {
     "ownerFace": "{{owner}} face",

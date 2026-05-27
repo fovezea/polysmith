@@ -206,8 +206,10 @@ const commandPayloadSchemas = {
   create_body_copy: z
     .object({
       source_body_id: stringField,
+      copy_mode: z.enum(["linked", "standalone"]).optional(),
     })
     .strict(),
+  unlink_body_copy: z.object({ feature_id: stringField }).strict(),
   update_offset_plane: z
     .object({ feature_id: stringField, offset: numberField })
     .strict(),

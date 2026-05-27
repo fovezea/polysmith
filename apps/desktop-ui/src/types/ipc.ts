@@ -848,6 +848,15 @@ export interface CreateBodyCopyCommand {
   type: "create_body_copy";
   payload: {
     source_body_id: string;
+    copy_mode?: "linked" | "standalone";
+  };
+}
+
+export interface UnlinkBodyCopyCommand {
+  id: string;
+  type: "unlink_body_copy";
+  payload: {
+    feature_id: string;
   };
 }
 
@@ -1652,6 +1661,7 @@ export type CoreCommand =
   | UpdateMoveParametersCommand
   | ConfirmMoveCommand
   | CreateBodyCopyCommand
+  | UnlinkBodyCopyCommand
   | UpdateOffsetPlaneCommand
   | UpdateAnglePlaneCommand
   | StartSketchOnPlaneCommand

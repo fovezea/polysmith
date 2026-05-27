@@ -22,7 +22,11 @@ interface DocumentHierarchyPanelProps {
   onRenameFeature: (featureId: string, name: string) => Promise<void>;
   onDeleteFeature: (featureId: string) => Promise<void>;
   onMoveBody?: (bodyId: string) => Promise<void> | void;
-  onCopyBody?: (bodyId: string) => Promise<void> | void;
+  onCopyBody?: (
+    bodyId: string,
+    copyMode: "linked" | "standalone",
+  ) => Promise<void> | void;
+  onUnlinkBodyCopy?: (featureId: string) => Promise<void> | void;
   // Optional toggle for the persisted suppressed flag (Phase B). When
   // omitted (e.g. read-only previews) the menu just hides the entry.
   onSetFeatureSuppressed?: (
@@ -250,6 +254,7 @@ interface RowProps {
   showLabel: string;
   hideLabel: string;
   needsAttentionLabel: string;
+  secondaryLabel?: string | null;
 }
 
 function Row({
@@ -270,6 +275,7 @@ function Row({
   showLabel,
   hideLabel,
   needsAttentionLabel,
+  secondaryLabel,
 }: RowProps) {
   const [draft, setDraft] = useState(label);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -334,7 +340,12 @@ function Row({
           }}
         />
       ) : (
-        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <span className="min-w-0 flex-1 truncate">
+          {label}
+          {secondaryLabel ? (
+            <span className="ml-1 text-on-surface-dim">({secondaryLabel})</span>
+          ) : null}
+        </span>
       )}
       {rightContent}
       {hasWarning ? (
@@ -459,6 +470,7 @@ export function DocumentHierarchyPanel({
   onDeleteFeature,
   onMoveBody,
   onCopyBody,
+  onUnlinkBodyCopy,
   onSetFeatureSuppressed,
 }: DocumentHierarchyPanelProps) {
   const { t } = useTranslation();
@@ -490,6 +502,16 @@ export function DocumentHierarchyPanel({
   }, [contextMenu]);
 
   const features = document?.feature_history ?? [];
+  const featureNameById = useMemo(
+    () =>
+      new Map(
+        features.map((feature) => [
+          feature.feature_id,
+          feature.name || feature.kind,
+        ]),
+      ),
+    [features],
+  );
   const contextFeature = contextMenu
     ? features.find((feature) => feature.feature_id === contextMenu.featureId)
     : null;
@@ -498,6 +520,9 @@ export function DocumentHierarchyPanel({
     contextMenu?.featureId === document?.active_sketch_feature_id;
   const contextCanDelete =
     contextFeature?.kind !== "root_part" && !contextIsActiveSketch;
+  const contextIsLinkedCopy =
+    contextFeature?.kind === "body_copy" &&
+    contextFeature.body_copy_parameters?.copy_mode === "linked";
   const sketches = useMemo(
     () => features.filter((feature) => feature.kind === "sketch"),
     [features],
@@ -762,11 +787,18 @@ export function DocumentHierarchyPanel({
       >
         {bodies.map((body) => {
           const isHidden = hiddenFeatureIds.has(body.feature_id);
+          const linkedCopySource =
+            body.kind === "body_copy" &&
+            body.body_copy_parameters?.copy_mode === "linked"
+              ? (featureNameById.get(body.body_copy_parameters.source_body_id) ??
+                body.body_copy_parameters.source_body_name)
+              : null;
           return (
             <Row
               key={body.feature_id}
               icon={<BodyIcon />}
               label={body.name}
+              secondaryLabel={linkedCopySource}
               isSelected={document.selected_feature_id === body.feature_id}
               isHidden={isHidden}
               hasWarning={body.dependency_broken === true}
@@ -833,17 +865,52 @@ export function DocumentHierarchyPanel({
                   >
                     {t("common.move")}
                   </button>
-                  <button
-                    type="button"
-                    className="flex w-full items-center rounded-lg px-3 py-1.5 text-left text-sm text-on-surface transition-colors hover:bg-white/10"
-                    onClick={() => {
-                      const id = contextMenu.featureId;
-                      setContextMenu(null);
-                      void onCopyBody?.(id);
-                    }}
-                  >
-                    {t("common.copy")}
-                  </button>
+                  <div className="group/copy relative">
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-1.5 text-left text-sm text-on-surface transition-colors hover:bg-white/10"
+                    >
+                      <span>{t("common.copy")}</span>
+                      <span className="text-on-surface-dim">&gt;</span>
+                    </button>
+                    <div className="cad-context-menu invisible absolute left-full top-0 z-40 ml-1 min-w-[170px] rounded-xl p-1 opacity-0 shadow-[0_8px_24px_rgba(0,0,0,0.5)] backdrop-blur-xl transition-opacity group-hover/copy:visible group-hover/copy:opacity-100">
+                      <button
+                        type="button"
+                        className="flex w-full items-center rounded-lg px-3 py-1.5 text-left text-sm text-on-surface transition-colors hover:bg-white/10"
+                        onClick={() => {
+                          const id = contextMenu.featureId;
+                          setContextMenu(null);
+                          void onCopyBody?.(id, "linked");
+                        }}
+                      >
+                        {t("common.copyLinked")}
+                      </button>
+                      <button
+                        type="button"
+                        className="flex w-full items-center rounded-lg px-3 py-1.5 text-left text-sm text-on-surface transition-colors hover:bg-white/10"
+                        onClick={() => {
+                          const id = contextMenu.featureId;
+                          setContextMenu(null);
+                          void onCopyBody?.(id, "standalone");
+                        }}
+                      >
+                        {t("common.copyIndependent")}
+                      </button>
+                    </div>
+                  </div>
+                  {contextIsLinkedCopy ? (
+                    <button
+                      type="button"
+                      className="flex w-full items-center rounded-lg px-3 py-1.5 text-left text-sm text-on-surface transition-colors hover:bg-white/10"
+                      onClick={() => {
+                        const id = contextMenu.featureId;
+                        setContextMenu(null);
+                        void onUnlinkBodyCopy?.(id);
+                      }}
+                    >
+                      {t("common.unlink")}
+                    </button>
+                  ) : null}
                 </>
               ) : null}
               <button

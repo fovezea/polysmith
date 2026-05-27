@@ -1341,6 +1341,16 @@ void refresh_history_dependencies(DocumentState& document) {
 
     if (feature.kind == "body_copy" && feature.body_copy_parameters.has_value()) {
       const auto& params = feature.body_copy_parameters.value();
+      if (params.copy_mode == "standalone") {
+        if (!params.serialized_shape.empty()) {
+          feature.dependency_broken = false;
+          feature.dependency_warning.clear();
+        } else {
+          feature.dependency_broken = true;
+          feature.dependency_warning = "Independent copy shape is unavailable.";
+        }
+        continue;
+      }
       DocumentState prefix = document;
       prefix.feature_history.resize(i);
       const CompiledBodies compiled = compile_bodies(prefix);

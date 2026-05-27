@@ -88,7 +88,8 @@ Common command payloads:
 - create_move { target_body_id, translation_x?, translation_y?, translation_z?, rotation_x_degrees?, rotation_y_degrees?, rotation_z_degrees? }
 - update_move_parameters { feature_id, parameters }
 - confirm_move { feature_id }
-- create_body_copy { source_body_id }
+- create_body_copy { source_body_id, copy_mode?: "linked" | "standalone" }
+- unlink_body_copy { feature_id }
 - update_angle_plane { feature_id, angle_degrees }
 - project_face_into_sketch { face_id }
 - project_profile_into_sketch { profile_id }

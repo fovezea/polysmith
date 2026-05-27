@@ -983,20 +983,40 @@ target body disappears during recompute, the Move feature degrades with
 
 #### `create_body_copy`
 
-Creates a core-owned `body_copy` timeline feature from an existing body id. The
-new body is emitted under the copy feature id, starts in the same position and
-local frame as the source, and can be followed by `create_move` to place it.
+Creates a core-owned `body_copy` timeline feature from an existing body id. In
+`linked` mode the copy replays from the source body on recompute. In
+`standalone` mode the core stores a frozen shape snapshot so later source edits
+do not change the copy. The new body is emitted under the copy feature id,
+starts in the same position and local frame as the source, and can be followed
+by `create_move` to place it.
 
 Payload:
 
 ```ts
 {
   source_body_id: string;
+  copy_mode?: "linked" | "standalone";
 }
 ```
 
-If the source body disappears during recompute, the copy feature degrades with
-`dependency_broken` instead of keeping a stale shape reference.
+If the source body disappears during recompute, linked copies degrade with
+`dependency_broken` instead of keeping a stale shape reference. Standalone
+copies remain valid from their stored snapshot.
+
+#### `unlink_body_copy`
+
+Converts a linked body copy into an independent copy by storing a frozen core
+shape snapshot and changing the copy feature's `copy_mode` to `"standalone"`.
+Use only on `body_copy` features whose `body_copy_parameters.copy_mode` is
+`"linked"`.
+
+Payload:
+
+```ts
+{
+  feature_id: string;
+}
+```
 
 #### `update_offset_plane`
 
