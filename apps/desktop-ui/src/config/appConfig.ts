@@ -181,6 +181,14 @@ function mergeAppConfig(input: Partial<AppConfig>): AppConfig {
       crosshair: isCrosshairMode(config.viewport.crosshair)
         ? config.viewport.crosshair
         : defaultAppConfig.viewport.crosshair,
+      showGrid:
+        typeof config.viewport.showGrid === "boolean"
+          ? config.viewport.showGrid
+          : defaultAppConfig.viewport.showGrid,
+      showSketchGrid:
+        typeof config.viewport.showSketchGrid === "boolean"
+          ? config.viewport.showSketchGrid
+          : defaultAppConfig.viewport.showSketchGrid,
     },
   };
 }

@@ -1173,10 +1173,11 @@ export function ViewportPanel({
   hiddenSketchPlaneIds,
   hideReferences,
 }: ViewportPanelProps) {
-  const { config, activeTheme } = useAppConfig();
+  const { config, activeTheme, updateConfig } = useAppConfig();
   const { t: translate } = useTranslation();
   const [showReferencePlanes, setShowReferencePlanes] = useState(true);
-  const [showViewportGrid, setShowViewportGrid] = useState(true);
+  const showViewportGrid = config.viewport.showGrid;
+  const showSketchGrid = config.viewport.showSketchGrid;
   const [trimDebugInfo, setTrimDebugInfo] = useState<string | null>(null);
   const [contextMenu, setContextMenu] =
     useState<ViewportContextMenuState | null>(null);
@@ -2463,6 +2464,7 @@ const currentGridSpacingRef = useRef(10);
   const activeSketchPlaneIdRef = useRef(activeSketchPlaneId);
   const activeSketchPlaneFrameRef = useRef(activeSketchPlaneFrame);
   const showViewportGridRef = useRef(showViewportGrid);
+  const showSketchGridRef = useRef(showSketchGrid);
   const documentRef = useRef(document);
   useEffect(() => {
     activeSketchPlaneIdRef.current = activeSketchPlaneId;
@@ -2471,6 +2473,9 @@ const currentGridSpacingRef = useRef(10);
   useEffect(() => {
     showViewportGridRef.current = showViewportGrid;
   }, [showViewportGrid]);
+  useEffect(() => {
+    showSketchGridRef.current = showSketchGrid;
+  }, [showSketchGrid]);
   useEffect(() => {
     documentRef.current = document;
   }, [document]);
@@ -2483,6 +2488,23 @@ const currentGridSpacingRef = useRef(10);
     }
     renderDraftPreview(draftDimensionSession);
   }, [draftDimensionSession, sketchToolConstruction]);
+
+  function toggleGridVisibility(kind: "viewport" | "sketch") {
+    updateConfig((current) => ({
+      ...current,
+      viewport: {
+        ...current.viewport,
+        showGrid:
+          kind === "viewport"
+            ? !current.viewport.showGrid
+            : current.viewport.showGrid,
+        showSketchGrid:
+          kind === "sketch"
+            ? !current.viewport.showSketchGrid
+            : current.viewport.showSketchGrid,
+      },
+    }));
+  }
 
   useEffect(() => {
     function isTypingTarget(target: EventTarget | null) {
@@ -2502,14 +2524,28 @@ const currentGridSpacingRef = useRef(10);
         return;
       }
       event.preventDefault();
-      setShowViewportGrid((current) => !current);
+      updateConfig((current) => {
+        const isSketchMode = Boolean(activeSketchPlaneIdRef.current);
+        return {
+          ...current,
+          viewport: {
+            ...current.viewport,
+            showGrid: isSketchMode
+              ? current.viewport.showGrid
+              : !current.viewport.showGrid,
+            showSketchGrid: isSketchMode
+              ? !current.viewport.showSketchGrid
+              : current.viewport.showSketchGrid,
+          },
+        };
+      });
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [config.hotkeys.viewport.toggleGrid]);
+  }, [config.hotkeys.viewport.toggleGrid, updateConfig]);
 
   // Track Alt key for object snap override.
   useEffect(() => {
@@ -5320,6 +5356,11 @@ const currentGridSpacingRef = useRef(10);
       }
 
       clearDynamicGrid(worldGridRef);
+      if (!showSketchGridRef.current) {
+        clearDynamicGrid(sketchGridRef);
+        return;
+      }
+
       const sketchFrame = getSketchGridFrame(
         sketchPlaneId,
         activeSketchPlaneFrameRef.current,
@@ -10745,6 +10786,7 @@ const currentGridSpacingRef = useRef(10);
         .filter(Boolean)
         .join(" ")
     : "";
+  const isSketchMode = Boolean(activeSketchPlaneId);
 
   return (
     <section className="relative flex h-full min-h-0 flex-col overflow-hidden">
@@ -10880,33 +10922,71 @@ const currentGridSpacingRef = useRef(10);
           ref={canvasRef}
           className={`cad-viewport-canvas absolute inset-0 h-full w-full ${crosshairCanvasClass}`}
         />
-        <div className="pointer-events-auto absolute bottom-4 left-1/2 z-20 -translate-x-1/2">
-          <div className="cad-view-mini-toolbar flex items-center gap-1 px-1.5 py-1.5 backdrop-blur-xl">
-            <ToolbarTooltip
-              label={`${showViewportGrid ? translate("viewport.hideGrid") : translate("viewport.showGrid")} (${formatHotkey(config.hotkeys.viewport.toggleGrid)})`}
-            >
-              <button
-                type="button"
-                className={
-                  showViewportGrid
-                    ? "cad-view-mini-button cad-view-mini-button-active"
-                    : "cad-view-mini-button"
-                }
-                aria-label={
+        {!isSketchMode ? (
+          <div className="pointer-events-auto absolute bottom-4 left-1/2 z-20 -translate-x-1/2">
+            <div className="cad-view-mini-toolbar flex items-center gap-1 px-1.5 py-1.5 backdrop-blur-xl">
+              <ToolbarTooltip
+                label={`${
                   showViewportGrid
                     ? translate("viewport.hideViewportGrid")
                     : translate("viewport.showViewportGrid")
-                }
-                aria-pressed={showViewportGrid}
-                onClick={() => {
-                  setShowViewportGrid((current) => !current);
-                }}
+                } (${formatHotkey(config.hotkeys.viewport.toggleGrid)})`}
               >
-                <GridMiniIcon />
-              </button>
-            </ToolbarTooltip>
+                <button
+                  type="button"
+                  className={
+                    showViewportGrid
+                      ? "cad-view-mini-button cad-view-mini-button-active"
+                      : "cad-view-mini-button"
+                  }
+                  aria-label={
+                    showViewportGrid
+                      ? translate("viewport.hideViewportGrid")
+                      : translate("viewport.showViewportGrid")
+                  }
+                  aria-pressed={showViewportGrid}
+                  onClick={() => {
+                    toggleGridVisibility("viewport");
+                  }}
+                >
+                  <GridMiniIcon />
+                </button>
+              </ToolbarTooltip>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="pointer-events-auto absolute bottom-4 left-1/2 z-20 -translate-x-1/2">
+            <div className="cad-view-mini-toolbar flex items-center gap-1 px-1.5 py-1.5 backdrop-blur-xl">
+              <ToolbarTooltip
+                label={`${
+                  showSketchGrid
+                    ? translate("viewport.hideSketchGrid")
+                    : translate("viewport.showSketchGrid")
+                } (${formatHotkey(config.hotkeys.viewport.toggleGrid)})`}
+              >
+                <button
+                  type="button"
+                  className={
+                    showSketchGrid
+                      ? "cad-view-mini-button cad-view-mini-button-active"
+                      : "cad-view-mini-button"
+                  }
+                  aria-label={
+                    showSketchGrid
+                      ? translate("viewport.hideSketchGrid")
+                      : translate("viewport.showSketchGrid")
+                  }
+                  aria-pressed={showSketchGrid}
+                  onClick={() => {
+                    toggleGridVisibility("sketch");
+                  }}
+                >
+                  <GridMiniIcon />
+                </button>
+              </ToolbarTooltip>
+            </div>
+          </div>
+        )}
         {isSketchDrawingCursor &&
         usesCrosshairGuide &&
         crosshairPointer &&

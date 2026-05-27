@@ -39,6 +39,8 @@ export type CrosshairMode =
 
 export interface ViewportConfig {
   crosshair: CrosshairMode;
+  showGrid: boolean;
+  showSketchGrid: boolean;
 }
 
 export interface AiConfig {

@@ -2,7 +2,9 @@
   "theme": "system",
   "displayUnits": "mm",
   "viewport": {
-    "crosshair": "default"
+    "crosshair": "default",
+    "showGrid": true,
+    "showSketchGrid": true
   },
   "ai": {
     "enabled": false,
