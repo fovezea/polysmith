@@ -122,6 +122,9 @@ fn position_startup_splash(app: &tauri::AppHandle) {
         if let Err(error) = splash_window.show() {
             eprintln!("failed to show splash window: {error}");
         }
+        if let Err(error) = splash_window.set_focus() {
+            eprintln!("failed to focus splash window: {error}");
+        }
     }
 }
 
