@@ -58,6 +58,23 @@ When implementing a task:
 4. Avoid unrelated refactors
 5. Add comments where intent is not obvious
 
+## Branch Workflow
+
+PolySmith uses a feature-branch workflow:
+
+- `dev` is the default development branch and the base for everyday work.
+- `main` is the production/stable release branch. Do not use it for feature
+  work unless explicitly asked to prepare a release or hotfix.
+- At the start of every prompt that may change files, check the current branch
+  and working tree state before editing.
+- Start each implementation from the latest `dev`: fetch/sync `dev`, then
+  create a new feature branch from it.
+- Keep feature branches scoped to one implementation or fix.
+- Merge feature branches back into `dev` through a pull request.
+- Use squash-merge for feature PRs so `dev` keeps a readable history.
+- After a PR is approved and merged, delete the merged feature branch locally
+  and on the remote.
+
 ## Topological Naming Problem (TNP)
 
 **This is the project's mantra.** Never introduce a feature that stores a
