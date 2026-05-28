@@ -248,6 +248,9 @@ type DimensionRelationPreview = {
   targetEntityId: string;
 };
 
+const ANGLE_DIMENSION_MIN_RADIUS = 6;
+const ANGLE_DIMENSION_MAX_RADIUS = 80;
+
 const GRID_STEPS_MM = [
   0.1, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000,
 ];
@@ -1522,6 +1525,7 @@ const currentGridSpacingRef = useRef(10);
     useRef<[number, number, number] | null>(null);
   const pendingRelationPlacementMatchRef =
     useRef<DimensionRelationPreview | null>(null);
+  const pendingRelationPlacementRetryRef = useRef<number | null>(null);
   const hiddenRelationPreviewDimensionIdsRef = useRef<Set<string>>(new Set());
   const pendingDimensionPlacementRef = useRef(false);
   // The dimension ID that was just created (before the IPC round-trip).
@@ -2136,17 +2140,17 @@ const currentGridSpacingRef = useRef(10);
       if (dimension.kind === "angle" || dimension.kind === "line_angle") {
         const frame = angleDimensionFrame(dimension);
         if (frame) {
-          // The stored position is now the label position.  Reverse the
-          // label-radius formula to get the arc (dimension) radius.
-          const labelDist = nextLabel.distanceTo(frame.pivot);
-          const dimensionRadius =
-            labelDist <= 1.086
-              ? labelDist / 0.42
-              : labelDist + 1.5;
-          const labelRadius = Math.max(
-            2.0,
-            Math.min(dimensionRadius * 0.42, dimensionRadius - 1.5),
+          // Angle dimensions store a control point for the arc radius;
+          // the actual text label is derived on the angle bisector, same
+          // as the relation ghost preview.
+          const dimensionRadius = Math.max(
+            ANGLE_DIMENSION_MIN_RADIUS,
+            Math.min(
+              nextLabel.distanceTo(frame.pivot),
+              ANGLE_DIMENSION_MAX_RADIUS,
+            ),
           );
+          const labelRadius = Math.max(3.0, dimensionRadius * 0.42);
           const toTuple = (point: THREE.Vector3): [number, number, number] => [
             point.x,
             point.y,
@@ -3363,7 +3367,10 @@ const currentGridSpacingRef = useRef(10);
     );
     const angle = Math.acos(dot);
     const cursorRadius = Math.hypot(cursor[0] - pivot[0], cursor[1] - pivot[1]);
-    const radius = Math.max(6, Math.min(cursorRadius, 80));
+    const radius = Math.max(
+      ANGLE_DIMENSION_MIN_RADIUS,
+      Math.min(cursorRadius, ANGLE_DIMENSION_MAX_RADIUS),
+    );
     const dimensionStart: [number, number] = [
       pivot[0] + firstDir[0] * radius,
       pivot[1] + firstDir[1] * radius,
@@ -3679,7 +3686,9 @@ const currentGridSpacingRef = useRef(10);
           )
         : null;
     pendingRelationPlacementLabelRef.current =
-      clickedSketchPoint?.world ?? dimensionRelationPreviewLabelRef.current;
+      relation.kind === "line_angle"
+        ? clickedSketchPoint?.world ?? dimensionRelationPreviewLabelRef.current
+        : clickedSketchPoint?.world ?? dimensionRelationPreviewLabelRef.current;
     pendingRelationPlacementMatchRef.current = relation;
     clearPreviewDimension();
     dimensionRelationPreviewRef.current = null;
@@ -3698,6 +3707,7 @@ const currentGridSpacingRef = useRef(10);
     setDimensionToolFirstLine(null);
     dimensionToolFirstPointRef.current = null;
     dimCreateAngleOrDistance(relation.firstEntityId, relation.targetEntityId);
+    schedulePendingRelationPlacementRetry();
     return true;
   }
 
@@ -3730,6 +3740,95 @@ const currentGridSpacingRef = useRef(10);
       return coreDimension.kind === "circle_center_distance";
     }
     return coreDimension.kind === "circle_line_distance";
+  }
+
+  function pendingRelationDimension(
+    relation: DimensionRelationPreview,
+    dimensions: SketchDimensionScene[],
+  ) {
+    const params = sketchLinesRef.current;
+    if (!params) {
+      return null;
+    }
+    const coreDimension = params.dimensions.find((candidate) => {
+      const isSamePair =
+        (candidate.entity_id === relation.firstEntityId &&
+          candidate.secondary_entity_id === relation.targetEntityId) ||
+        (candidate.entity_id === relation.targetEntityId &&
+          candidate.secondary_entity_id === relation.firstEntityId);
+      if (!isSamePair) {
+        return false;
+      }
+      if (relation.kind === "parallel_line_distance") {
+        return candidate.kind === "line_line_distance";
+      }
+      if (relation.kind === "line_angle") {
+        return candidate.kind === "angle";
+      }
+      if (relation.kind === "circle_center_distance") {
+        return candidate.kind === "circle_center_distance";
+      }
+      return candidate.kind === "circle_line_distance";
+    });
+    if (!coreDimension) {
+      return null;
+    }
+    return (
+      dimensions.find(
+        (dimension) => dimension.dimensionId === coreDimension.dimension_id,
+      ) ?? null
+    );
+  }
+
+  function stopPendingRelationPlacementRetry() {
+    if (pendingRelationPlacementRetryRef.current !== null) {
+      window.cancelAnimationFrame(pendingRelationPlacementRetryRef.current);
+      pendingRelationPlacementRetryRef.current = null;
+    }
+  }
+
+  function startPendingRelationPlacementIfReady() {
+    if (
+      !pendingDimensionPlacementRef.current ||
+      activeSketchToolRef.current !== "dimension"
+    ) {
+      return true;
+    }
+    const relation = pendingRelationPlacementMatchRef.current;
+    if (!relation) {
+      return true;
+    }
+    const placementDimension = pendingRelationDimension(
+      relation,
+      displayedSketchDimensionsRef.current,
+    );
+    if (!placementDimension) {
+      return false;
+    }
+    pendingRelationPlacementMatchRef.current = null;
+    pendingDimensionIdRef.current = null;
+    pendingDimensionPlacementRef.current = false;
+    pendingDimSourceEntityIdRef.current = null;
+    beginDimensionPlacement(placementDimension);
+    return true;
+  }
+
+  function schedulePendingRelationPlacementRetry() {
+    stopPendingRelationPlacementRetry();
+    let attempts = 0;
+    const tick = () => {
+      if (startPendingRelationPlacementIfReady()) {
+        pendingRelationPlacementRetryRef.current = null;
+        return;
+      }
+      attempts += 1;
+      if (attempts >= 90) {
+        pendingRelationPlacementRetryRef.current = null;
+        return;
+      }
+      pendingRelationPlacementRetryRef.current = window.requestAnimationFrame(tick);
+    };
+    pendingRelationPlacementRetryRef.current = window.requestAnimationFrame(tick);
   }
 
   function dimCreatePointDistance(pointAId: string, pointBId: string) {
@@ -3911,27 +4010,19 @@ const currentGridSpacingRef = useRef(10);
     if (!frame) {
       return null;
     }
-    const cursorRadius = new THREE.Vector3(...worldPoint).distanceTo(
-      frame.pivot,
+    const cursor = new THREE.Vector3(...worldPoint);
+    const radius = Math.max(
+      ANGLE_DIMENSION_MIN_RADIUS,
+      Math.min(cursor.distanceTo(frame.pivot), ANGLE_DIMENSION_MAX_RADIUS),
     );
-    // The stored position feeds displayedSketchDimensions which treats
-    // it as the *label* position.  Place the label directly at the
-    // cursor distance so it follows the mouse, and let the display
-    // reverse-compute the arc radius.
-    const dimensionRadius = Math.max(2.0, cursorRadius);
-    const labelRadius = Math.max(
-      2.0,
-      Math.min(dimensionRadius * 0.42, dimensionRadius - 1.5),
-    );
-    const cursorDirection = new THREE.Vector3(...worldPoint)
-      .sub(frame.pivot)
-      .normalize();
-    const controlDirection =
-      cursorDirection.lengthSq() > 1e-8 ? cursorDirection : frame.bisector;
-    const labelPosition = frame.pivot
-      .clone()
-      .add(controlDirection.multiplyScalar(labelRadius));
-    return [labelPosition.x, labelPosition.y, labelPosition.z];
+    const direction = cursor.sub(frame.pivot);
+    if (direction.lengthSq() <= 1e-8) {
+      direction.copy(frame.bisector);
+    } else {
+      direction.normalize();
+    }
+    const control = frame.pivot.clone().add(direction.multiplyScalar(radius));
+    return [control.x, control.y, control.z];
   }
 
   function setDimensionLabelPosition(
@@ -4045,7 +4136,9 @@ const currentGridSpacingRef = useRef(10);
     const relationPosition =
       dimension.kind === "line_line_distance" ||
       dimension.kind === "circle_line_distance" ||
-      dimension.kind === "circle_center_distance"
+      dimension.kind === "circle_center_distance" ||
+      dimension.kind === "angle" ||
+      dimension.kind === "line_angle"
         ? pendingRelationPlacementLabelRef.current
         : null;
     pendingRelationPlacementLabelRef.current = null;
@@ -5871,28 +5964,27 @@ const currentGridSpacingRef = useRef(10);
   useEffect(() => {
     if (
       !pendingDimensionPlacementRef.current ||
-      !selectedSketchDimension ||
       activeSketchTool !== "dimension"
     ) {
       return;
     }
     const pendingRelation = pendingRelationPlacementMatchRef.current;
+    let placementDimension = selectedSketchDimension;
     if (pendingRelation) {
-      if (
-        !selectedDimensionMatchesPendingRelation(
-          selectedSketchDimension,
-          pendingRelation,
-        )
-      ) {
+      if (!startPendingRelationPlacementIfReady()) {
         return;
       }
-      pendingRelationPlacementMatchRef.current = null;
+      stopPendingRelationPlacementRetry();
+      return;
+    }
+    if (!placementDimension) {
+      return;
     }
     pendingDimensionIdRef.current = null;
     pendingDimensionPlacementRef.current = false;
     pendingDimSourceEntityIdRef.current = null;
-    beginDimensionPlacement(selectedSketchDimension);
-  }, [activeSketchTool, selectedSketchDimension]);
+    beginDimensionPlacement(placementDimension);
+  }, [activeSketchTool, displayedSketchDimensions, selectedSketchDimension]);
 
   useEffect(() => {
     if (!selectedSketchDimension) {

@@ -1031,7 +1031,7 @@ ViewportSketchDimensionPrimitive make_angle_dimension_primitive(
   // formatter as length / radius so trailing-zero handling stays
   // consistent.
   const double degrees = dimension.value * 180.0 / 3.14159265358979323846;
-  return ViewportSketchDimensionPrimitive{
+  auto primitive = ViewportSketchDimensionPrimitive{
       .dimension_id = dimension.id,
       .plane_id = parameters.plane_id,
       .kind = "angle",
@@ -1071,6 +1071,53 @@ ViewportSketchDimensionPrimitive make_angle_dimension_primitive(
       .ref_line_end_y = ref_line_end.y,
       .ref_line_end_z = ref_line_end.z,
   };
+  if (dimension.label_x.has_value() && dimension.label_y.has_value()) {
+    const double raw_dx = *dimension.label_x - pivot_x;
+    const double raw_dy = *dimension.label_y - pivot_y;
+    const double dimension_radius =
+        std::max(6.0, std::min(std::sqrt(raw_dx * raw_dx + raw_dy * raw_dy), 80.0));
+    const double label_radius = std::max(3.0, dimension_radius * 0.42);
+    const WorldPoint saved_anchor_start = to_world_point(
+        parameters,
+        pivot_x + a_ux * kAnchorRadius,
+        pivot_y + a_uy * kAnchorRadius);
+    const WorldPoint saved_anchor_end = to_world_point(
+        parameters,
+        pivot_x + b_ux * kAnchorRadius,
+        pivot_y + b_uy * kAnchorRadius);
+    const WorldPoint saved_dimension_start = to_world_point(
+        parameters,
+        pivot_x + a_ux * dimension_radius,
+        pivot_y + a_uy * dimension_radius);
+    const WorldPoint saved_dimension_end = to_world_point(
+        parameters,
+        pivot_x + b_ux * dimension_radius,
+        pivot_y + b_uy * dimension_radius);
+    const WorldPoint saved_label = to_world_point(
+        parameters,
+        pivot_x + bisector_ux * label_radius,
+        pivot_y + bisector_uy * label_radius);
+    primitive.anchor_start_x = saved_anchor_start.x;
+    primitive.anchor_start_y = saved_anchor_start.y;
+    primitive.anchor_start_z = saved_anchor_start.z;
+    primitive.anchor_end_x = saved_anchor_end.x;
+    primitive.anchor_end_y = saved_anchor_end.y;
+    primitive.anchor_end_z = saved_anchor_end.z;
+    primitive.dimension_start_x = saved_dimension_start.x;
+    primitive.dimension_start_y = saved_dimension_start.y;
+    primitive.dimension_start_z = saved_dimension_start.z;
+    primitive.dimension_end_x = saved_dimension_end.x;
+    primitive.dimension_end_y = saved_dimension_end.y;
+    primitive.dimension_end_z = saved_dimension_end.z;
+    primitive.label_x = saved_label.x;
+    primitive.label_y = saved_label.y;
+    primitive.label_z = saved_label.z;
+    primitive.arc_radius = dimension_radius;
+    primitive.ref_line_end_x = saved_dimension_start.x;
+    primitive.ref_line_end_y = saved_dimension_start.y;
+    primitive.ref_line_end_z = saved_dimension_start.z;
+  }
+  return primitive;
 }
 
 ViewportSketchDimensionPrimitive make_circle_center_distance_dimension_primitive(
