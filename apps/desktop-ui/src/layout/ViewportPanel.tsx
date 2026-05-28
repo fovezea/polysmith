@@ -10800,6 +10800,9 @@ const currentGridSpacingRef = useRef(10);
     }
 
     for (const sketchPoint of sceneData.sketchPoints) {
+      if (sketchPoint.kind === "quadrant") {
+        continue;
+      }
       const sketchPointObject = buildSketchPointObject(sketchPoint);
       sketchPointObject.userData.isSelected = sketchPoint.isSelected;
       sketchPointObjectsRef.current.push(sketchPointObject);
